@@ -1,0 +1,116 @@
+---
+title: 就是要你懂DNS--一文搞懂域名解析相关问题
+date: 2019-06-09 10:30:03
+categories: dns
+tags:
+    - ping
+    - nslookup
+    - dns
+    - glibc
+    - /etc/nsswitch
+    - /etc/hosts
+---
+
+
+
+# 一文搞懂域名解析相关问题
+
+> 本文希望通过一篇文章解决所有域名解析中相关的问题
+
+## Linux下域名解析流程
+
+- DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(**ping是这个流程，但是nslookup和dig不是**)
+- 如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns 
+- 如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】
+
+
+## Linux下域名解析流程需要注意的地方
+
+- 如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. [但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位](https://access.redhat.com/solutions/1426263)
+- 如果被解析的域名不是以 "." 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，[resolv.conf最多支持6个search域](https://access.redhat.com/solutions/58028)
+- ping调用的是glibc的 gethostbyname() 函数流程--背后是NameServiceSwitch，nslookup不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。
+
+## Linux下域名解析诊断工具
+
+- ping
+- nslookup (nslookup domain @dns-server-ip)
+- dig (dig +trace domain)
+- tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)
+- strace
+
+### 案例
+
+	[ren@vb 08:50 /home/ren]
+	$head -2 /etc/hosts
+	127.0.0.1　 test.unknow.host
+	127.0.0.1   test.localhost
+	
+	[ren@vb 08:50 /home/ren]
+	$ping test.unknow.host
+	ping: unknown host test.unknow.host
+	
+	[ren@vb 08:50 /home/ren]
+	$ping -c 1 test.localhost
+	PING test.localhost (127.0.0.1) 56(84) bytes of data.
+	64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
+	
+	--- test.localhost ping statistics ---
+	1 packets transmitted, 1 received, 0% packet loss, time 0ms
+	rtt min/avg/max/mdev = 0.016/0.016/0.016/0.000 ms
+	
+	[ren@vb 08:50 /home/ren]
+	$
+
+向 /etc/hosts 中添加了一条test.unknow.host, 然后无法解析到。
+
+为什么 test.unknow.host 没法解析到？ 
+可能有哪些因素导致这种现象？
+
+尝试 ping -c 1 test.localhost 的目的是做什么？
+
+
+看完前面的理论我的猜测是两种可能导致这种情况：
+
+- /etc/hosts 没有启用
+- 有本地缓存记录了一个unknow host记录
+
+#### 验证
+
+	ping -c 1 test.localhost
+
+可以通，说明 /etc/hosts 是在起作用的，毕竟如果别人求助你，你不能给他讲一堆理论，让他挨个去检查，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下
+
+那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了
+	
+![undefined](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png) 
+
+从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。
+
+到这里可能的情况要追加第三种了：
+
+- /etc/hosts 中添加的记录没生效(比如中文符号）
+
+ 
+## 微服务下的域名解析、负载均衡
+
+微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）
+
+### 域名解析通过jar、lib包
+
+基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等
+
+### 域名解析通过dns server
+
+跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了
+
+如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口
+
+验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址
+
+## kubernetes 和 docker中的域名解析
+
+一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用
+
+### 参考文章：
+
+[GO DNS 原理解析](http://blog.bruceding.com/516.html)

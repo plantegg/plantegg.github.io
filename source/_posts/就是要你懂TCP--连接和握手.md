@@ -1,0 +1,193 @@
+---
+title: 就是要你懂TCP--握手和挥手
+date: 2017-06-02 17:30:03
+categories: TCP
+tags:
+    - TCP
+    - TCP connection
+---
+
+
+# 就是要你懂TCP--握手和挥手
+
+    看过太多tcp相关文章，但是看完总是不过瘾，似懂非懂，反复考虑过后，我觉得是那些文章太过理论，看起来没有体感，所以吸收不了。
+    
+    希望这篇文章能做到言简意赅，帮助大家透过案例来理解原理
+
+## tcp的特点
+
+这个大家基本都能说几句，面试的时候候选人也肯定会告诉你这些：
+
+- 三次握手
+- 四次挥手
+- 可靠连接
+- 丢包重传
+- 速度自我调整
+
+
+但是我只希望大家记住一个核心的：**tcp是可以可靠传输协议，它的所有特点都为这个可靠传输服务**。
+
+### 那么tcp是怎么样来保障可靠传输呢？
+
+tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到那些包了。这样发送方能知道有没有丢包，进而确定重传
+
+### tcp建连接的三次握手
+
+来看一个java代码连接数据库的三次握手过程
+
+![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/6d66dadecb72e11e3e5ab765c6c3ea2e.png)
+
+三个红框表示建立连接的三次握手：
+
+- 第一步：client 发送 syn 到server 发起握手；
+- 第二步：server 收到 syn后回复syn+ack给client；
+- 第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的48287端口的连接已经是established）
+
+握手的核心目的是告知对方seq（绿框是client的初始seq，蓝色框是server 的初始seq），对方回复ack（收到的seq+包的大小），这样发送端就知道有没有丢包了
+
+握手的次要目的是告知和协商一些信息，图中黄框。
+
+- MSS--最大传输包
+- SACK_PERM--是否支持Selective ack(用户优化重传效率）
+- WS--窗口计算指数（有点复杂的话先不用管）
+
+**这就是tcp为什么要握手建立连接，就是为了解决tcp的可靠传输**
+
+物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的连接是指tcp是拥有和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。
+
+### 建连接失败经常碰到的问题
+
+内核扔掉syn的情况（握手失败，建不上连接）：
+
+- rp_filter 命中(rp_filter=1, 多网卡环境）， troubleshooting:  netstat -s | grep -i filter ;
+- snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的
+- 全连接队列满的情况
+- syn flood攻击
+- 若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增）
+- NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full
+
+### tcp断开连接的四次挥手
+
+再来看java连上mysql后，执行了一个SQL： select sleep(2); 然后就断开了连接
+
+![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/b6f4a952cdf8ffbb8f6e9434d1432e05.png)
+
+四个红框表示断开连接的四次挥手：
+
+- 第一步： client主动发送fin包给server
+- 第二步： server回复ack（对应第一步fin包的ack）给client，表示server知道client要断开了
+- 第三步： server发送fin包给client，表示server也可以断开了
+- 第四部： client回复ack给server，表示既然双发都发送fin包表示断开，那么就真的断开吧
+
+### 为什么握手三次、挥手四次
+
+这个问题太恶心，面试官太喜欢问，其实大部分面试官只会背诵：因为TCP是双向的，所以关闭需要四次挥手……。
+
+你要是想怼面试官的话可以问他握手也是双向的但是只需要三次呢？
+
+我也不知道怎么回答。网上都说tcp是双向的，所以断开要四次。但是我认为建连接也是双向的（双向都协调告知对方自己的seq号），为什么不需要四次握手呢，所以网上说的不一定精准。
+
+你再看三次握手的第二步发 syn+ack，如果拆分成两步先发ack再发syn完全也是可以的（效率略低），这样三次握手也变成四次握手了。
+
+看起来挥手的时候多一次，主要是收到第一个fin包后单独回复了一个ack包，如果能回复fin+ack那么四次挥手也就变成三次了。 来看一个案例：
+
+![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/9db33f9304f8236b1ebcb215064bb2af.png)
+
+图中第二个红框就是回复的fin+ack，这样四次挥手变成三次了（如果一个包就是一次的话）。
+
+我的理解：之所以绝大数时候我们看到的都是四次挥手，是因为收到fin后，知道对方要关闭了，然后OS通知应用层要关闭，这里应用层可能需要做些准备工作，可能还有数据没发送完，所以内核先回ack，等应用准备好了主动调close时再发fin 。 握手过程没有这个准备过程所以可以立即发送syn+ack（把这里的两步合成一步了）。 内核收到对方的fin后，只能ack，不能主动替应用来fin，因为他不清楚应用能不能关闭。
+
+### ack=seq+len
+
+ack总是seq+len（包的大小），这样发送方明确知道server收到那些东西了
+
+但是特例是三次握手和四次挥手，虽然len都是0，但是syn和fin都要占用一个seq号，所以这里的ack都是seq+1
+
+![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/45c6d36ce8b17a5c0442e66fce002ab4.png)
+
+看图中左边红框里的len+seq就是接收方回复的ack的数字，表示这个包接收方收到了。然后下一个包的seq就是前一个包的len+seq，依次增加，一旦中间发出去的东西没有收到ack就是丢包了，过一段时间（或者其他方式）触发重传，保障了tcp传输的可靠性。
+
+### 三次握手中协商的其它信息
+
+MSS 最大一个包中能传输的信息（不含tcp、ip包头），MSS+包头就是MTU（最大传输单元），如果MTU过大可能在传输的过程中被卡住过不去造成卡死（这个大小的包一直传输不过去），跟丢包还不一样
+
+MSS的问题具体可以看我这篇文章： [scp某个文件的时候卡死问题的解决过程]( https://www.atatech.org/articles/60633)
+
+SACK_PERM 用于丢包的话提升重传效率，比如client一次发了1、2、3、4、5 这5个包给server，实际server收到了 1、3、4、5这四个包，中间2丢掉了。这个时候server回复ack的时候，都只能回复2，表示2前面所有的包都收到了，给我发第二个包吧，如果server 收到3、4、5还是没有收到2的话，也是回复ack 2而不是回复ack 3、4、5、6的，表示快点发2过来。
+
+但是这个时候client虽然知道2丢了，然后会重发2，但是不知道3、4、5有没有丢啊，实际3、4、5 server都收到了，如果支持sack，那么可以ack 2的时候同时告诉client 3、4、5都收到了，这样client重传的时候只重传2就可以，如果没有sack的话那么可能会重传2、3、4、5，这样效率就低了。
+
+来看一个例子：
+
+![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/5322d0cf77a3a1ae6c87a972cc5843d0.png)
+
+图中的红框就是SACK。
+
+知识点：ack数字表示这个数字前面的数据**都**收到了
+
+## TIME_WAIT 和 CLOSE_WAIT
+
+假设服务器监听在 18080端口上，client使用18089端口建立连接。
+
+如果client主动断开连接那么就会看到client端的连接在 TIME_WAIT：
+
+```
+# netstat -ant |grep 1808
+tcp        0      0 0.0.0.0:18080           0.0.0.0:*               LISTEN      
+tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      TIME_WAIT 
+```
+
+如果Server断开连接(也就是18080）那么就会看到client端的连接在CLOSE_WAIT 而Server在FIN_WAIT2：
+
+```
+# netstat -ant |grep 1808
+tcp    0      0 192.168.1.79:18080      192.168.1.79:18089      FIN_WAIT2  --<< server
+tcp    0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT --<< client
+```
+
+CLOSE_WAIT是被动关闭端在等待应用进程的关闭
+
+### 此时client有两种选择
+
+1 如果client也立即断开，那么Server的这个连接会进入 TIME_WAIT状态
+
+```
+# netstat -ant |grep 1808
+tcp    0      0 0.0.0.0:18080           0.0.0.0:*               LISTEN  --<< server还在  
+tcp    0      0 192.168.1.79:18080      192.168.1.79:18089      TIME_WAIT --<< server
+```
+
+2 client 坚持不断开过 Server 一段时间后（3.10：net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 120， 4.19：net.ipv4.tcp_fin_timeout = 15）会结束这个连接但是client还是会 在CLOSE_WAIT 直到client进程退出
+
+```
+# netstat -ant |grep 1808
+tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT 
+```
+
+## 状态图
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b3d075782450b0c8d2615c5d2b75d923.png)
+
+## 总结下
+
+tcp所有特性基本上核心都是为了**可靠传输**这个目标来服务的，然后有一些是出于优化性能的目的
+
+三次握手建连接的详细过程可以参考我这篇： [关于TCP 半连接队列和全连接队列](https://www.atatech.org/articles/78858)
+
+后续希望再通过几个案例来深化一下上面的知识。
+
+----------
+
+说点关于学习的题外话
+
+## 什么是工程效率，什么是知识效率
+
+有些人纯看理论就能掌握好一门技能，还能举一反三，这是知识效率，这种人非常少；
+
+大多数普通人都是看点知识然后结合实践来强化理论，要经过反反复复才能比较好地掌握一个知识，这就是工程效率，讲究技巧、工具来达到目的。
+
+肯定知识效率最牛逼，但是拥有这种技能的人毕竟非常少。从小我们周边那种不怎么学的学霸型基本都是这类，这种学霸都还能触类旁通非常快的掌握一个新知识，非常气人。剩下的绝大部分只能拼时间+方法+总结等也能掌握一些知识
+
+非常遗憾我就是工程效率型，只能羡慕那些知识效率型的学霸。但是这事又不能独立看待有些人在某些方向上是工程效率型，有些方向就又是知识效率型（有一种知识效率型是你掌握的实在太多也就比较容易触类旁通了，这算灰色知识效率型）
+
+使劲挖掘自己在知识效率型方面的能力吧，即使灰色地带也行啊
