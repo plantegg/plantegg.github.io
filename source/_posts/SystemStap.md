@@ -12,6 +12,14 @@ tags:
 
 # SystemStap、BCC、bpftrace
 
+Linux `4.4+` 支持 `eBPF`。基于 `eBPF` 可以将任何**内核函数调用**转换成**可带任何 数据**的**用户空间事件**。`bcc` 作为一个更上层的工具使这个过程更加方便。内核探测 代码用 C 写，数据处理代码用 Python。
+
+从 Linux 3.15 开始，BPF 被扩展成了 eBPF，extended BPF 的缩写。它**从 2 个 32bit 寄存器扩展到了 10 个 64bit 寄存器，并增加了后向跳转**。Linux 3.18 中又进行了进一 步扩展，将它从网络子系统中移出来，并添加了 maps 等工具。为了保证安全性又引入了一 个检测器，用于验证内存访问的合法性和可能的代码路径。如果检测器不能推断出程序会在 有限的步骤内结束，就会拒绝程序的注入（内核）。
+
+SystemTap 是一个 tracing 系统，**简单来说，它提供了一种领域特定语言（DSL），代码编译成内核模块，然后热加 载到运行中的内核**。但**出于安全考虑，一些生产系统禁止动态模块加载**，例如我研究 eBPF 时所用的系统就不允许。
+
+`perf` 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。`perf` 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。**可以把它想象成开销更低，但功能更强大的 `strace`**。 本文只会使用非常简单的 `perf` 命令。想了解更多，强烈建议访问 [Brendan Gregg](http://www.brendangregg.com/perf.html)的博客。
+
 ## 安装
 
 sudo stap-prep //安装好systemtap所有依赖的（debugfs等等）
@@ -162,8 +170,8 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 ​    	    printf("fsync delay detail: tid: %d func:%s  sleep: %d \n",tid(),probefunc(),DELAY);
 ​        }
 ​     
-    }
-     
+​    }
+​     
     # 任务持续时间
     probe timer.s(20) {
         if (!found) {
@@ -271,11 +279,11 @@ bpftrace工具包
 ​	and dropping SYNs (causing performance issues with SYN retransmits). For
 ​	example:
 ​	
-	# ./tcpsynbl.bt 
-	Attaching 4 probes...
-	Tracing SYN backlog size. Ctrl-C to end.
-	^C
-	@backlog[backlog limit]: histogram of backlog size
+​	# ./tcpsynbl.bt 
+​	Attaching 4 probes...
+​	Tracing SYN backlog size. Ctrl-C to end.
+​	^C
+​	@backlog[backlog limit]: histogram of backlog size
 
 
 ​	
@@ -297,8 +305,8 @@ bpftrace工具包
 ​	@backlog[10]:
 ​	[0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
 ​	
-	@backlog[256]:
-	[0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+​	@backlog[256]:
+​	[0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
 
 
 或者 bpftrace tcpaccept.bt
@@ -312,12 +320,12 @@ bpftrace工具包
 ​	passive connection via accept(); not connect()). Some example output (IP
 ​	addresses changed to protect the innocent):
 ​	
-	# ./tcpaccept
-	Tracing tcp accepts. Hit Ctrl-C to end.
-	TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL
-	00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128
-	00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128
-	00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128
+​	# ./tcpaccept
+​	Tracing tcp accepts. Hit Ctrl-C to end.
+​	TIME     PID     COMM           RADDR          RPORT LADDR          LPORT BL
+​	00:34:19 3949061 nginx          10.228.22.228  44226 10.229.20.169  8080  0/128
+​	00:34:19 3951399 ruby           127.0.0.1      52422 127.0.0.1      8000  0/128
+​	00:34:19 3949062 nginx          10.228.23.128  35408 10.229.20.169  8080  0/128
 
 
 ​	
@@ -326,10 +334,10 @@ bpftrace工具包
 ​	listening on port 8000. The remote address and port are also printed, and the accept queue
 ​	current size as well as maximum size are shown.
 ​	
-	The overhead of this tool should be negligible, since it is only tracing the
-	kernel function performing accept. It is not tracing every packet and then
-	filtering.
-	
+​	The overhead of this tool should be negligible, since it is only tracing the
+​	kernel function performing accept. It is not tracing every packet and then
+​	filtering.
+​	
 	This tool only traces successful TCP accept()s. Connection attempts to closed
 	ports will not be shown (those can be traced via other functions).
 	
@@ -591,11 +599,16 @@ SLOW FS READ AND WRITE
 	java[4457] lock 0x7f5da2b897b4 contended 1 times, 70190 avg us
 	java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
 
-参考：[https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect)
+## 参考资料
 
-Demo集锦：
-[openresty systemtap demo](https://github.com/openresty/openresty-systemtap-toolkit/blob/master/README-CN.markdown)
+[https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/systemtap_beginners_guide/futexcontentionsect)
+
+Demo集锦：[openresty systemtap demo](https://github.com/openresty/openresty-systemtap-toolkit/blob/master/README-CN.markdown)
 
 [SystemTap原理、安装、入门、脚本语言及技巧](https://yq.aliyun.com/articles/174916)
 
 [eBCC性能分析最佳实践--开启性能分析新篇章](https://yq.aliyun.com/articles/697679)
+
+[eBPF 内核探测：如何将任意系统调用转换成事件（2016）](http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/)
+
+[使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)](http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/)

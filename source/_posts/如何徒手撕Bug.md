@@ -13,9 +13,10 @@ tags:
 
 经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。
 
-所以不到万不得已不要碰积极复杂的源代码
+所以不到万不得已不要碰复杂的源代码
 
 ## 问题
+
 docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：
 
 ![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/ed7f275935b32c7fd5fef3e0caf2eb0c.png)
@@ -58,6 +59,35 @@ docker daemon重启，上面有几十个容器，重启后daemon基本上卡死�
 
 拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住
 
+## strace工作原理
+
+> strace -T -tt -ff -p pid -o strace.out
+
+
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/19c681e7393bda67ab0a4d8f62f1a853.png)
+
+我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。
+
+你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。
+
+假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。
+
+两个术语：
+
+1. tracer：跟踪（其他程序的）程序
+2. tracee：被跟踪程序
+
+tracer 跟踪 tracee 的过程：
+
+首先，**attach 到 tracee 进程**：调用 `ptrace`，带 `PTRACE_ATTACH` 及 tracee 进程 ID 作为参数。
+
+之后当 **tracee 运行到系统调用函数时就会被内核暂停**；对 tracer 来说，就像 tracee 收到了 `SIGTRAP` 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。
+
+然后，**恢复 tracee 执行**：再次调用 `ptrace`，带 `PTRACE_SYSCALL` 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。
+
+以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。
+
 ## 我的分析
 
 docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。
@@ -73,3 +103,9 @@ docker启动的时候要修改每个容器的dns（iptables规则），如果这
 暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。
 
 解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事
+
+
+
+## 参考资料
+
+[strace 是如何工作的（2016）](http://arthurchiao.art/blog/how-does-strace-work-zh/)

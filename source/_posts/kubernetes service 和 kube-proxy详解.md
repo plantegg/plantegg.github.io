@@ -544,9 +544,11 @@ spec:
 
 ## eBPF（extended Berkeley Packet Filter）和网络
 
+eBPF允许程序**对内核本身进行编程**（即 通过程序动态修改内核的行为。传统方式要么是**给内核打补丁**，要么是**修改内核源码 重新编译**）。一句话来概括：**编写代码监听内核事件，当事件发生时，BPF 代码就会在内核执行**。
+
 eBPF 最早出现在 3.18 内核中，此后原来的 BPF 就被称为 **“经典” BPF**（classic BPF, cBPF），cBPF 现在基本已经废弃了。很多人知道 cBPF 是因为它是 `tcpdump` 的包过滤语言。**现在，Linux 内核只运行 eBPF，内核会将加载的 cBPF 字节码 透明地转换成 eBPF 再执行**。如无特殊说明，本文中所说的 BPF 都是泛指 BPF 技术。
 
-2015年**eBPF 添加了一个新 fast path：XDP**，XDP 是 eXpress DataPath 的缩写，支持在网卡驱动中运行 eBPF 代码，而无需将包送 到复杂的协议栈进行处理，因此处理代价很小，速度极快。
+2015年**eBPF 添加了一个新 fast path：XDP**，XDP 是 eXpress DataPath 的缩写，支持在网卡驱动中运行 eBPF 代码（在软件中最早可以处理包的位置），而无需将包送 到复杂的协议栈进行处理，因此处理代价很小，速度极快。
 
 BPF 当时用于 tcpdump，在内核中尽量前面的位置抓包，它不会 crash 内核；
 
@@ -567,8 +569,8 @@ AF_XDP 提供的能力与 DPDK 有点类似，不过：
 
 Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
-- - 用 XDP/eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。
-  - eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP & eBPF 处理的。
+- 用 XDP/eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。
+- eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP & eBPF 处理的。
 
 
 

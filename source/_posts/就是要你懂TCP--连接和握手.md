@@ -51,6 +51,16 @@ tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到�
 - SACK_PERM--是否支持Selective ack(用户优化重传效率）
 - WS--窗口计算指数（有点复杂的话先不用管）
 
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1423013fe76719cfa3088ebc4704c023.png)
+
+全连接队列（accept queue）的长度是由 listen(sockfd, backlog) 这个函数里的 backlog 控制的，而该 backlog 的最大值则是 somaxconn。somaxconn 在 5.4 之前的内核中，默认都是 128（5.4 开始调整为了默认 4096）
+
+当服务器中积压的全连接个数超过该值后，新的全连接就会被丢弃掉。Server 在将新连接丢弃时，有的时候需要发送 reset 来通知 Client，这样 Client 就不会再次重试了。不过，默认行为是直接丢弃不去通知 Client。至于是否需要给 Client 发送 reset，是由 tcp_abort_on_overflow 这个配置项来控制的，该值默认为 0，即不发送 reset 给 Client。推荐也是将该值配置为 0
+
+> net.ipv4.tcp_abort_on_overflow = 0
+
+
+
 **这就是tcp为什么要握手建立连接，就是为了解决tcp的可靠传输**
 
 物理上没有一个连接的东西在这里，udp也类似会占用端口、ip，但是大家都没说过udp的连接。而本质上我们说tcp的连接是指tcp是拥有和维护一些状态信息的，这个状态信息就包含seq、ack、窗口/buffer，tcp握手就是协商出来这些初始值。这些状态才是我们平时所说的tcp连接的本质。
@@ -78,6 +88,18 @@ tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到�
 - 第二步： server回复ack（对应第一步fin包的ack）给client，表示server知道client要断开了
 - 第三步： server发送fin包给client，表示server也可以断开了
 - 第四部： client回复ack给server，表示既然双发都发送fin包表示断开，那么就真的断开吧
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/321f96243eef2f6437fe4e1559c15efe.png)
+
+除了 CLOSE_WAIT 状态外，其余两个状态都有对应的系统配置项来控制。
+
+我们首先来看 FIN_WAIT_2 状态，TCP 进入到这个状态后，如果本端迟迟收不到对端的 FIN 包，那就会一直处于这个状态，于是就会一直消耗系统资源。Linux 为了防止这种资源的开销，设置了这个状态的超时时间 tcp_fin_timeout，默认为 60s，超过这个时间后就会自动销毁该连接。
+
+至于本端为何迟迟收不到对端的 FIN 包，通常情况下都是因为对端机器出了问题，或者是因为太繁忙而不能及时 close()。所以，通常我们都建议将 tcp_fin_timeout 调小一些，以尽量避免这种状态下的资源开销。对于数据中心内部的机器而言，将它调整为 2s 足以：
+
+> net.ipv4.tcp_fin_timeout = 2
+
+TIME_WAIT 状态存在的意义是：最后发送的这个 ACK 包可能会被丢弃掉或者有延迟，这样对端就会再次发送 FIN 包。如果不维持 TIME_WAIT 这个状态，那么再次收到对端的 FIN 包后，本端就会回一个 Reset 包，这可能会产生一些异常。
 
 ### 为什么握手三次、挥手四次
 
@@ -146,6 +168,8 @@ tcp    0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT --<< 
 ```
 
 CLOSE_WAIT是被动关闭端在等待应用进程的关闭
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9fbe15fa8b913ba76048f3b2ad2b923a.png)
 
 ### 此时client有两种选择
 

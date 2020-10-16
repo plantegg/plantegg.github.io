@@ -137,7 +137,21 @@ tags:
 	
 	sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/events
 
+## tcpdump原理
 
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0923eefc85c1bf87f47591222532f1f2.png)
+
+tcpdump 抓包使用的是 libpcap 这种机制。它的大致原理是：在收发包时，如果该包符合 tcpdump 设置的规则（BPF filter），那么该网络包就会被拷贝一份到 tcpdump 的内核缓冲区，然后以 PACKET_MMAP 的方式将这部分内存映射到 tcpdump 用户空间，解析后就会把这些内容给输出了。
+
+通过上图你也可以看到，在收包的时候，如果网络包已经被网卡丢弃了，那么 tcpdump 是抓不到它的；在发包的时候，如果网络包在协议栈里被丢弃了，比如因为发送缓冲区满而被丢弃，tcpdump 同样抓不到它。我们可以将 tcpdump 的能力范围简单地总结为：网卡以内的问题可以交给 tcpdump 来处理；对于网卡以外（包括网卡上）的问题，tcpdump 可能就捉襟见肘了。这个时候，你需要在对端也使用 tcpdump 来抓包。
+
+## TCP 疑难问题的轻量级分析手段：TCP Tracepoints
+
+Tracepoint 是我分析问题常用的手段之一，在遇到一些疑难问题时，我通常都会把一些相关的 Tracepoint 打开，把 Tracepoint 输出的内容保存起来，然后再在线下环境中分析。通常，我会写一些 Python 脚本来分析这些内容，毕竟 Python 在数据分析上还是很方便的。
+
+对于 TCP 的相关问题，我也习惯使用这些 TCP Tracepoints 来分析问题。要想使用这些 Tracepoints，你的内核版本需要为 **4.16** 及以上。这些常用的 TCP Tracepoints 路径位于 /sys/kernel/debug/tracing/events/tcp/ 和 /sys/kernel/debug/tracing/events/sock/，它们的作用如下表所示：
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/32f29686127beb5a3279e630259903ae.png)
 
 ## 参考资料：
 

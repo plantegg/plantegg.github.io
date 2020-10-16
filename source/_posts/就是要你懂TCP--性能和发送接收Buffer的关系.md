@@ -64,8 +64,8 @@ tags:
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ff025f076a4a2bc2b1b13d11f32a97d3.png)
 
 如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：
-   
-    
+
+
      #!/usr/bin/stap
         # Simple probe to detect when a process is waiting for more socket send
         # buffer memory. Usually means the process is doing writes larger than the
@@ -353,13 +353,13 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 
 通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）
 
-## Nginx上抓包
+### Nginx上抓包
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/259767fb17f7dbffe7f77ab059c47dbd.png)
 
 从这里可以看到Nginx大概在60ms内就将4M的数据都发完了
 
-## client上抓包
+### client上抓包
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/466fba92829f6a922ccd2d57a7e3fdac.png)
 
@@ -369,7 +369,7 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 
 检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置
 
-## 将buffer改大
+### 将buffer改大
 
 速度可以到420K，但是还没有跑满带宽：
 
@@ -445,6 +445,20 @@ client ------150ms----->>>nginx
 发送buffer系统比较好自动调节，依靠发送数据大小和rt延时大小，可以相应地进行调整；但是接受buffer就不一定了，接受buffer的使用取决于收到的数据快慢和应用读走数据的速度，只能是OS根据系统内存的压力来调整接受buffer。系统内存的压力取决于 net.ipv4.tcp_mem.
 
 需要特别注意：**tcp_wmem 和 tcp_rmem 的单位是字节，而 tcp_mem 的单位的页面**
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ea04e40acda986675bf0ad0ea7b9b8ff.png)
+
+## 内核观测tcp_mem是否不足
+
+因 tcp_mem 达到限制而无法发包或者产生抖动的问题，我们也是可以观测到的。为了方便地观测这类问题，Linux 内核里面预置了静态观测点：sock_exceed_buf_limit（需要 4.16+ 的内核版本）。
+
+> $ echo 1 > /sys/kernel/debug/tracing/events/sock/sock_exceed_buf_limit/enable
+
+然后去看是否有该事件发生：
+
+>  $ cat /sys/kernel/debug/tracing/trace_pipe
+
+如果有日志输出（即发生了该事件），就意味着你需要调大 tcp_mem 了，或者是需要断开一些 TCP 连接了。
 
 ## 总结
 

@@ -573,8 +573,8 @@ AF_XDP 提供的能力与 DPDK 有点类似，不过：
 
 Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
-- - 用 XDP/eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。
-  - eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP & eBPF 处理的。
+- 用 XDP/eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。
+- eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP & eBPF 处理的。
 
 
 

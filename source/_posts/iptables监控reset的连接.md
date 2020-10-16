@@ -14,8 +14,6 @@ tags:
 
 如果连接被reset需要记录下reset包是哪边放出来的，并记录reset连接的四元组信息
 
-
-
 ## iptables规则
 
 ```
@@ -43,19 +41,29 @@ echo "sudo iptables-restore < drds_filter.conf" | sudo tee -a /etc/rc.d/rc.local
 
 ## 单独记录到日志文件中
 
-默认情况下 iptables 日志记录在 dmesg中不方便查询，可以定义规则将日志存到单独的文件中：
+默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：
 
 ```
+# cat /etc/rsyslog.d/drds_filter_log.conf
 :msg, startswith, "[drds]" -/home/admin/logs/drds-tcp.log
 ```
 
 将 [drds] 开头的日志存到对应的文件
+
+将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了
+
+```
+sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf
+sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf
+sudo systemctl restart rsyslog
+```
 
 ## 防止日志打满磁盘
 
 配置 logrotate, 保留最近30天的
 
 ```
+#cat /etc/logrotate.d/drds
 /home/admin/logs/drds-tcp.log
 {
 daily
@@ -73,13 +81,7 @@ endscript
 }
 ```
 
-将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了
 
-```
-sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf
-sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf
-sudo systemctl restart rsyslog
-```
 
 ## 最终效果
 
@@ -91,3 +93,28 @@ Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 
 Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0
 ```
 
+## NetFilter Hooks
+
+下面几个 hook 是内核协议栈中已经定义好的：
+
+- `NF_IP_PRE_ROUTING`: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前
+- `NF_IP_LOCAL_IN`: 接收到的包经过路由判断，如果目的是本机，将触发此 hook
+- `NF_IP_FORWARD`: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook
+- `NF_IP_LOCAL_OUT`: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook
+- `NF_IP_POST_ROUTING`: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook
+
+## IPTables 表和链（Tables and Chains）
+
+下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：
+
+- `PREROUTING`: 由 `NF_IP_PRE_ROUTING` hook 触发
+- `INPUT`: 由 `NF_IP_LOCAL_IN` hook 触发
+- `FORWARD`: 由 `NF_IP_FORWARD` hook 触发
+- `OUTPUT`: 由 `NF_IP_LOCAL_OUT` hook 触发
+- `POSTROUTING`: 由 `NF_IP_POST_ROUTING` hook 触发
+
+## 参考资料
+
+[深入理解 iptables 和 netfilter 架构](http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/)
+
+[NAT - 网络地址转换（2016）](http://arthurchiao.art/blog/nat-zh/)

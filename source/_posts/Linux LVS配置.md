@@ -6,6 +6,7 @@ categories:
 tags:
     - Linux
     - LVS
+    - keepalived
 ---
 
 # Linux LVS 配置
@@ -23,11 +24,11 @@ tags:
 then
 
 ```
-ipvsadm -A -t 11.197.140.20:18089 -s rr //创建了一个rr lvs
+ipvsadm -A -t 172.26.137.117:9376 -s rr //创建了一个rr lvs
 // -m 表示nat模式，不加的话默认是route模式
-ipvsadm -a -t 11.197.140.20:18089 -r 11.197.141.110:18089 -m //往lvs中添加一个RS
+ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加一个RS
 ipvsadm -ln
-ipvsadm -a -t 11.197.140.20:18089 -r 11.197.140.20:28089  -m //往lvs中添加另外一个RS
+ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加另外一个RS
 ipvsadm -ln
 
 //服务状态查看
@@ -47,6 +48,101 @@ Prot LocalAddress:Port Scheduler Flags
 TCP  11.197.140.20:18089 wlc
   -> 11.197.140.20:28089          Masq    1      0          0
   -> 11.197.141.110:28089         Masq    1      0          0
+```
+
+## ipvsadm常用参数
+
+```
+添加虚拟服务器
+    语法:ipvsadm -A [-t|u|f]  [vip_addr:port]  [-s:指定算法]
+    -A:添加
+    -t:TCP协议
+    -u:UDP协议
+    -f:防火墙标记
+    -D:删除虚拟服务器记录
+    -E:修改虚拟服务器记录
+    -C:清空所有记录
+    -L:查看
+添加后端RealServer
+    语法:ipvsadm -a [-t|u|f] [vip_addr:port] [-r ip_addr] [-g|i|m] [-w 指定权重]
+    -a:添加
+    -t:TCP协议
+    -u:UDP协议
+    -f:防火墙标记
+    -r:指定后端realserver的IP
+    -g:DR模式
+    -i:TUN模式
+    -m:NAT模式
+    -w:指定权重
+    -d:删除realserver记录
+    -e:修改realserver记录
+    -l:查看
+通用:
+    ipvsadm -ln:查看规则
+    service ipvsadm save:保存规则
+```
+
+## 通过keepalived来检测RealServer的状态
+
+```
+# cat /etc/keepalived/keepalived.conf
+global_defs {
+   notification_email {
+   }
+   router_id LVS_DEVEL
+   vrrp_skip_check_adv_addr
+   vrrp_strict
+   vrrp_garp_interval 0
+   vrrp_gna_interval 0
+}
+#添加虚拟服务器
+#相当于 ipvsadm -A -t 172.26.137.117:9376 -s wrr 
+virtual_server 172.26.137.117 9376 {
+    delay_loop 3             #服务健康检查周期,单位是秒
+    lb_algo wrr                 #调度算法
+    lb_kind NAT                 #模式 
+#   persistence_timeout 50   #会话保持时间,单位是秒
+    protocol TCP             #TCP协议转发
+
+#添加后端realserver
+#相当于 ipvsadm -a -t 172.26.137.117:9376 -r 172.20.56.148:9376 -w 1
+    real_server 172.20.56.148 9376 {
+        weight 1
+        TCP_CHECK {               # 通过TcpCheck判断RealServer的健康状态
+            connect_timeout 2     # 连接超时时间
+            nb_get_retry 3        # 重连次数
+            delay_before_retry 1  # 重连时间间隔
+            connect_port 9376     # 检测端口
+        }
+    }
+    
+    real_server 172.20.248.147 9376 {
+        weight 1
+        HTTP_GET {
+            url { 
+              path /
+	          status_code 200
+            }
+            connect_timeout 3
+            nb_get_retry 3
+            delay_before_retry 3
+        }
+    }
+}
+```
+
+修改keepalived配置后只需要执行reload即可生效
+
+> systemctl reload keepalived
+
+## timeout
+
+```
+[root@poc117 ~]# ipvsadm -L --timeout
+Timeout (tcp tcpfin udp): 900 120 300
+[root@poc117 ~]# ipvsadm --set 1 2 1
+[root@poc117 ~]# ipvsadm -L --timeout
+Timeout (tcp tcpfin udp): 1 2 1
 ```
 
 ## LVS 工作原理
@@ -72,3 +168,7 @@ Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此�
 ## 参考资料
 
 http://www.ultramonkey.org/papers/lvs_tutorial/html/
+
+https://www.jianshu.com/p/d4222ce9b032
+
+https://www.cnblogs.com/zhangxingeng/p/10595058.html

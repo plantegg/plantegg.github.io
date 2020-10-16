@@ -12,7 +12,7 @@ tags:
 
 # 文章索引
 
-## 重点文章推荐
+## 精华文章推荐
 
 #### [《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大](https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/)
 
