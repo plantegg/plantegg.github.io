@@ -48,7 +48,10 @@ keepalive 状态下的连接：
 The 2nd field has THREE subfields:
 
 (6176.47/0/0) -> (a/b/c)  
-a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)  b=number of retransmissions that have occurred  
+a=timer value (a=keepalive timer, when 1st field=“keepalive”; a=retransmission timer, when 1st field=“on”)  
+
+b=number of retransmissions that have occurred  
+
 c=number of keepalive probes that have been sent
 
 
@@ -91,7 +94,7 @@ Hope this explains the netstat --timer option well.
 
 最后 established 状态的连接, 是22端口给53795发了136字节的数据但是没有收到ack，所以在倒计时准备重传中。
 
-**net.ipv4.tcp_retries1 = 3**
+> **net.ipv4.tcp_retries1 = 3**
 
 放弃回应一个TCP **连接请求前**﹐需要进行多少次重试。RFC 规定最低的数值是3﹐这也是默认值﹐根据RTO的值大约在3秒 - 8分钟之间。(注意:这个值同时还决定进入的syn连接)
 
@@ -100,9 +103,7 @@ Hope this explains the netstat --timer option well.
 从kernel代码可以看到，一旦重传超过阈值tcp_retries1，主要的动作就是更新路由缓存。
 用以避免由于路由选路变化带来的问题。**这个时候tcp连接没有关闭**
 
- 
-
-**net.ipv4.tcp_retries2 = 15**
+>  **net.ipv4.tcp_retries2 = 15**
 
 **在丢弃激活(已建立通讯状况)**的TCP连接之前﹐需要进行多少次重试。默认值为15，根据RTO的值来决定，相当于13-30分钟(RFC1122规定，必须大于100秒).(这个值根据目前的网络设置,可以适当地改小,我的网络内修改为了5)
 
@@ -135,6 +136,8 @@ tcp_retries2 - INTEGER
     RFC 1122 recommends at least 100 seconds for the timeout,
     which corresponds to a value of at least 8.
 ```
+
+![img](https://cdn.nlark.com/yuque/0/2019/png/162611/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png)
 
 ### retries限制的重传次数吗
 

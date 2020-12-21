@@ -1,14 +1,15 @@
 ---
 title: MySQL线程池导致的延时卡顿排查
-date: 2020-06-05 17:30:03
+date: 2020-11-17 07:30:03
 categories:
     - MySQL
 tags:
     - Linux
     - MySQL
     - network
-    - Performance
+    - nginx
     - ThreadPool
+    - 卡顿
 ---
 
 # MySQL 线程池导致的延时卡顿排查
@@ -169,11 +170,60 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 ### thread_pool_size过小的案例
 
-之前thread_pool_size是1，调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。
+应用出现大量1秒超时报错：
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52dbeb1c1058e6dbff0a790b4b4ba477.png)
+
+进分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。
+
+继续分析MySQL的参数：
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8987545cc311fdd3ae232aee8c3f855a.png)
+
+可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/114b5b71468b33128e76129bbc7fb8f4.png)
 
-这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是给MySQL发一个ping指令，一般都很快，所以这个验证过程设置的是1秒超时，但是实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。
+这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是给MySQL发一个ping指令，一般都很快，这个ping验证过程设置的是1秒超时，但是实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。
+
+### MySQL ping和MySQL协议相关知识
+
+> [Ping](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368) use the JDBC method [Connection.isValid(int timeoutInSecs)](http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int)). Digging into the MySQL Connector/J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.
+
+MySQL ping protocol是发送了一个 `0e` 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte
+
+```
+public class MySQLPingPacket implements CommandPacket {
+    private final WriteBuffer buffer = new WriteBuffer();
+    public MySQLPingPacket() {
+        buffer.writeByte((byte) 0x0e);
+    }
+    public int send(final OutputStream os) throws IOException {
+        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number
+        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1
+        os.flush();
+        return 0;
+    }
+}
+```
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/7cf291546a167b0ca6a017e98db5a821.png)
+
+也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）
+
+
+
+## 总结
+
+这个问题的本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。
+
+MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，当然这个设计带来的问题就是多个池子中的任务不能均衡了。
+
+同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。
+
+类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，一旦这个worker上有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。
+
+Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。
 
 
 

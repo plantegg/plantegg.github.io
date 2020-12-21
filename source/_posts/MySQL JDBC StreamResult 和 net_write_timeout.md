@@ -92,8 +92,6 @@ Caused by: java.io.EOFException: Can not read response from server. Expected to 
 	... 11 more
 ```
 
-
-
 ## 一些其他的 Timeout
 
 connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间，默认值0，表示不设置超时，单位毫秒，建议30000。 JDBC驱动连接属性

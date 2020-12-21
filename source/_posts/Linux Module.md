@@ -68,6 +68,16 @@ $(pwd) 需要修改成：$(shell pwd)
 
 很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。
 
+## make 时ld报找不到lib
+
+make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息看又能够正确找到libc，[debug方法](https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary)
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f76b841375bb5ed5c5a946614fe494e1.png)
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/19e493900f7d1ae1937d27366129e8aa.png)
+
+实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static
+
 ## 依赖错误
 
 编译报错缺少的组件需要yum install一下(bison/flex)
@@ -78,7 +88,6 @@ $(pwd) 需要修改成：$(shell pwd)
 构造半连接：
 
 	sudo hping3 -i u100 -S -p 3306 10.0.186.79
-
 
 ## tcp sk_state
 
@@ -183,3 +192,5 @@ $(pwd) 需要修改成：$(shell pwd)
 ## 参考文档
 
 https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234
+
+https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary

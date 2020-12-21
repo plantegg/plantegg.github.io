@@ -51,7 +51,7 @@ yumdownloader --destdir=/tmp/ansible --resolve ansible
 
 ## 创建仓库索引
 
-需要安装工具 createrepo：
+需要安装工具 yum install createrepo -y：
 
 ```
 # createrepo ./yum/
@@ -141,4 +141,8 @@ yum clean all
 yum list
 yum deplist ansible
 ```
+
+## yum 源问题处理
+
+[Yum commands error "pycurl.so: undefined symbol”](https://access.redhat.com/solutions/641093)
 

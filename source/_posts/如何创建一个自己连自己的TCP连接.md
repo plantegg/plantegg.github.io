@@ -13,8 +13,6 @@ tags:
 
 # 如何创建一个自己连自己的TCP连接
 
-
-
 > 能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？
 
 执行
@@ -41,7 +39,7 @@ tcp        0      0 192.168.0.79:18082      192.168.0.79:18082      ESTABLISHED
 10000	65535
 ```
 
-所以也经常看到一个误解：一台机器上最多能创建65535个TCP连接
+所以也经常看到一个**误解**：一台机器上最多能创建65535个TCP连接
 
 ## 到底一台机器上最多能创建多少个TCP连接
 
@@ -61,6 +59,44 @@ tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED
 从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。
 
 所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。
+
+但是如果程序调用的是bind函数(bind(ip,port=0))这个时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候4元组是唯一的。
+
+bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。
+
+### TCP SO_REUSEADDR
+
+SO_REUSEADDR 主要解决的是重用TIME_WAIT状态的port, 程序崩溃后立即重启失败（Address Already in use），可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
+
+> What exactly does SO_REUSEADDR do?
+>
+> This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.
+>
+> It has been pointed out that "A socket is a 5 tuple (proto, local addr, local port, remote addr, remote port). SO_REUSEADDR just says that you can reuse local addresses. The 5 tuple still must be unique!" This is true, and this is why it is very unlikely that unexpected data will ever be seen by your server. The danger is that such a 5 tuple is still floating around on the net, and while it is bouncing around, a new connection from the same client, on the same system, happens to get the same remote port. 
+
+By setting `SO_REUSEADDR` user informs the kernel of an intention to share the bound port with anyone else, but only if it doesn't cause a conflict on the protocol layer. There are at least three situations when this flag is useful:
+
+1. Normally after binding to a port and stopping a server it's neccesary to wait for a socket to time out before another server can bind to the same port. With `SO_REUSEADDR` set it's possible to rebind immediately, even if the socket is in a `TIME_WAIT` state.
+2. When one server binds to `INADDR_ANY`, say `0.0.0.0:1234`, it's impossible to have another server binding to a specific address like `192.168.1.21:1234`. With `SO_REUSEADDR` flag this behaviour is allowed.
+3. When using the bind before connect trick only a single connection can use a single outgoing source port. With this flag, it's possible for many connections to reuse the same source port, given that they connect to different destination addresses.
+
+### TCP SO_REUSEPORT
+
+SO_REUSEPORT主要用来解决惊群、性能等问题。
+
+> SO_REUSEPORT is also useful for eliminating the try-10-times-to-bind hack in ftpd's data connection setup routine.  Without SO_REUSEPORT, only one ftpd thread can bind to TCP (lhost, lport, INADDR_ANY, 0) in preparation for connecting back to the client.  Under conditions of heavy load, there are more threads colliding here than the try-10-times hack can accomodate.  With SO_REUSEPORT, things  work nicely and the hack becomes unnecessary.
+
+SO_REUSEPORT使用场景：linux kernel 3.9 引入了最新的SO_REUSEPORT选项，使得多进程或者多线程创建多个绑定同一个ip:port的监听socket，提高服务器的接收链接的并发能力,程序的扩展性更好；此时需要设置SO_REUSEPORT（**注意所有进程都要设置才生效**）。
+
+setsockopt(listenfd, SOL_SOCKET, SO_REUSEPORT,(const void *)&reuse , sizeof(int));
+
+目的：每一个进程有一个独立的监听socket，并且bind相同的ip:port，独立的listen()和accept()；提高接收连接的能力。（例如nginx多进程同时监听同一个ip:port）
+
+> (a) on Linux SO_REUSEPORT is meant to be used *purely* for load balancing multiple incoming UDP packets or incoming TCP connection requests across multiple sockets belonging to the same app.  ie. it's a work around for machines with a lot of cpus, handling heavy load, where a single listening socket becomes a bottleneck because of cross-thread contention on the in-kernel socket lock (and state).
+>
+> (b) set IP_BIND_ADDRESS_NO_PORT socket option for tcp sockets before binding to a specific source ip
+> with port 0 if you're going to use the socket for connect() rather then listen() this allows the kernel
+> to delay allocating the source port until connect() time at which point it is much cheaper
 
 ## 自己连自己的连接
 
@@ -96,7 +132,7 @@ select(4, [0 3], [], [], NULL
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/341f2891253baa4eebdaeaf34aa60c4b.png)
 
-这里算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），这里发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。
+这里算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。
 
 正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。
 
@@ -110,7 +146,7 @@ select(4, [0 3], [], [], NULL
 
 ​							                                           摘自《tcp/ip卷1》
 
-可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下 net/ipv4/tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack,结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。
+可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下内核代码 net/ipv4/tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack(发出syn后), 结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。
 
 ```
 	static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
@@ -152,31 +188,11 @@ select(4, [0 3], [], [], NULL
 
 ## 自己连自己的原理解释
 
-第一我们要理解Kernel是支持simultaneous open的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。
+第一我们要理解Kernel是支持simultaneous open（同时打开）的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。
 
 自己连自己又是simultaneous open的一个特例，特别在这个连接只有一个socket参与，发送、接收都是同一个socket，自然也会是发syn后收到了自己的syn（自己发给自己），然后依照simultaneous open连接也能创建成功。
 
-
-
-## bind 和 connect、listen
-
-当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。
-
-如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：
-
-```
-socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3
-fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)
-fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0
-setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
-bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
-```
-
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5373ecfe0d4496d106c64d3f370c893c.png)
-
-
-
-然后这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。
+这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084 socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。
 
 可以用python来重现这个连接连自己的过程：
 
@@ -216,6 +232,26 @@ Ncat: Cannot assign requested address.
 
 
 
+## bind 和 connect、listen
+
+当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。
+
+如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：
+
+```
+socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3
+fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)
+fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0
+setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
+```
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5373ecfe0d4496d106c64d3f370c893c.png)
+
+
+
+
+
 ### listen
 
 
@@ -232,3 +268,4 @@ https://segmentfault.com/a/1190000002396411
 
 [How Linux allows TCP introspection The inner workings of bind and listen on Linux.](https://ops.tips/blog/how-linux-tcp-introspection/)
 
+https://idea.popcount.org/2014-04-03-bind-before-connect/

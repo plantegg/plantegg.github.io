@@ -19,13 +19,13 @@ tags:
 
 docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/ed7f275935b32c7fd5fef3e0caf2eb0c.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ed7f275935b32c7fd5fef3e0caf2eb0c.png)
 
 
 这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。
 
 这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/901fd2057fb3b32ff79dc5a29c9cdd67.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/901fd2057fb3b32ff79dc5a29c9cdd67.png)
 
     $sudo fuser /run/xtables.lock 
     /run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
@@ -39,7 +39,7 @@ docker daemon重启，上面有几十个容器，重启后daemon基本上卡死�
 
 通过strace这个拿到锁的进程可以看到：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/27d266ab8fd492f009fb7047d9337518.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/27d266ab8fd492f009fb7047d9337518.png)
 
 发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时
 
@@ -55,13 +55,15 @@ docker daemon重启，上面有几十个容器，重启后daemon基本上卡死�
 
 ## strace某个等锁的进程，拿到锁后非常快
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/25ab3e2385e08e8e23eeb1309d949839.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/25ab3e2385e08e8e23eeb1309d949839.png)
 
 拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住
 
 ## strace工作原理
 
 > strace -T -tt -ff -p pid -o strace.out
+>
+> 注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。
 
 
 
@@ -87,6 +89,30 @@ tracer 跟踪 tracee 的过程：
 然后，**恢复 tracee 执行**：再次调用 `ptrace`，带 `PTRACE_SYSCALL` 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。
 
 以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。
+
+### strace 常用用法
+
+1) sudo strace -tt -e poll,select,connect,recvfrom,sendto nc www.baidu.com 80 //网络连接不上，卡在哪里
+
+2) 如何确认一个程序为什么卡住和停止在什么地方?
+
+有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。
+
+$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX
+
+这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?
+
+$ readlink /proc/22067/fd/3 /tmp/foobar.lock
+
+aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?
+
+$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock
+
+原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。
+
+ strace -cp  // strace  可以按操作汇总时间
+
+
 
 ## 我的分析
 

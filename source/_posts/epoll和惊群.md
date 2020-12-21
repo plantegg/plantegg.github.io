@@ -14,6 +14,8 @@ tags:
 
 本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。
 
+
+
 ## 先上总结
 
 非IO复用的惊群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但同时带来了不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好滴解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。
@@ -21,6 +23,8 @@ tags:
 ## 什么是惊群
 
 惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。
+
+惊群的本质在于多个线程处理同一个事件。
 
 为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。
 
@@ -98,7 +102,7 @@ epoll监听句柄，后续可能是accept，也有可能是其它网络IO事件�
 	        !--nr_exclusive)
 	        break;
 
-那么这种情况下内核如何来解决惊群呢？
+那么这种情况下内核如何来解决惊群呢？ 
 
 ### SO_REUSEPORT
 
@@ -123,7 +127,7 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 - 修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口
 - 修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/64ae30f3d1937d913f2a440d5ae3c920.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/64ae30f3d1937d913f2a440d5ae3c920.png)
 
 - Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差
 - Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。
@@ -136,6 +140,10 @@ SO_REUSEPORT打开后，再有请求进来不再是各个进程一起去抢，�
 [因为Nginx是ET模式，epoll要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。](https://www.atatech.org/articles/89653)
 
 如果不开启SO_REUSEPORT模式，那么即使有一个进程在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。
+
+**单worker同时是会处理多个连接上的所有请求**，accept_mutex 只是控制连接创建的时候哪个worker来accept，避免建连接惊群。连接建立好后这个连接的所有请求就一直会在这个worker上（当然还有其它连接的请求也在这个worker上）。SO_REUSEPORT只是不让worker去抢accept了，改成内核无差别轮询派发。如果这个时候某个连接一直是很耗CPU的请求（比如gzip），会导致这个worker比价卡顿，如果这个gzip能切走也还是可以照顾到别的连接的请求的。
+
+开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。
 
 但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。[这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。](https://plantegg.github.io/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/)
 
@@ -225,6 +233,8 @@ EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker
 [Why does one NGINX worker take all the load?](https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/)
 
 [一次Nginx Gzip 导致的诡异健康检查失败问题调查](https://www.atatech.org/articles/89653) 
+
+[Gzip 导致 Nginx worker Hang 问题解法](https://www.atatech.org/articles/174248)
 
 [Socket多进程分发原理](https://www.atatech.org/articles/112471)
 

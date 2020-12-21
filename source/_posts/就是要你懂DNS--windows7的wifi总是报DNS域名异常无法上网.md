@@ -29,17 +29,17 @@ Windows7笔记本+公司wifi（dhcp）环境下，用着用着dns服务不可用
 
 ## 重现的时候抓包看看
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/c110f232829cbea9d5503166531d7f1d.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c110f232829cbea9d5503166531d7f1d.png)
 
 这肯定不对了，254上根本就没有跑DNS服务，可是当时没有检查 ipconfig，看看是否将网关IP动态配置到dns server里面去了，等下次重现后再确认吧。
 
 第二次重现后抓包，发现不一样了：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/295797df3c311d6902d68fb16f6212d8.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/295797df3c311d6902d68fb16f6212d8.png)
 
 出来一个 NBNS 的鬼东西，赶紧查了一下，把它禁掉，如下图所示：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/9f06b680ae1f8b4cb781360f7c0ac2eb.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9f06b680ae1f8b4cb781360f7c0ac2eb.png)
 
 把NBNS服务关了就能上网了，同时也能抓到各种DNS Query包
 
@@ -51,7 +51,7 @@ Windows7笔记本+公司wifi（dhcp）环境下，用着用着dns服务不可用
 
 继续在网络不通的时候尝试直接ping dns server ip，发现一个奇怪的现象，丢包很多，丢包的时候还总是从 192.168.0.11返回来的，这就奇怪了，我的笔记本基本IP是30开头的，dns server ip也是30开头的，route 路由表也是对的，怎么就走到 192.168.0.11 上了啊（[参考我的另外一篇文章，网络到底通不通](https://www.atatech.org/articles/80573)），赶紧 ipconfig /all | grep 192 
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/5212ee5e7496dafb122ce144293184e1.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5212ee5e7496dafb122ce144293184e1.png)
 
 发现这个IP是VirtualBox虚拟机在笔记本上虚拟出来的网卡IP，这下我倒是能理解为啥总是我碰到这个问题了，因为我的工作笔记本一拿到后第一件事情就是装VirtualBox 跑虚拟机。
 

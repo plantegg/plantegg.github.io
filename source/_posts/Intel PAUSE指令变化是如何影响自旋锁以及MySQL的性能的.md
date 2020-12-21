@@ -157,6 +157,8 @@ innodb通过大量的自旋锁来用高CPU消耗避免CS，这是自旋锁的正
 
 多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，生产级的自旋锁在“忙等待”时，会与 CPU 紧密配合 ，它通过 CPU 提供的 PAUSE 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。
 
+> 比如：Java中的Random.getInt() 随机数生成的时候如果多线程共用一个Random，会造成CAS总是失败，导致CPU很高，效率很低
+
 CPU专为自旋锁设计了pause指令，一旦自旋抢锁失败先pause一下，只是这个pause对于innodb来说pause的还不够久，所以需要 innodb_spin_wait_delay 来将pause放大一些。
 
 在我们的这个场景下对每个SQL的rt抖动非常敏感（放大256倍），所以过高的delay会导致部分SQL rt变高。
@@ -274,6 +276,27 @@ MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/2a5245c81a37d166c7e0b2ace45b9e4b.png)
 
+我们举个具体的例子来看看这四个状态的转换：
+
+1. 当 A 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 A 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；
+2. 然后 B 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 A 号 CPU 核心已经缓存了该数据，所以会把数据返回给 B 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；
+3. 当 A 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，**然后 A 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了**。
+4. 如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。
+5. 如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。
+
+可以发现当 Cache Line 状态是「已修改」或者「独占」状态时，修改更新其数据不需要发送广播给其他 CPU 核心，这在一定程度上减少了总线带宽压力。 
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/29c4ae48501984787dfc232e4673b86d.png)
+
+如果内存中的数据已经在 CPU Cache 中了，那 CPU 访问一个内存地址的时候，会经历这 4 个步骤：
+
+1. 根据内存地址中索引信息，计算在 CPU Cache 中的索引，也就是找出对应的 CPU Line 的地址；
+2. 找到对应 CPU Line 后，判断 CPU Line 中的有效位，确认 CPU Line 中数据是否是有效的，如果是无效的，CPU 就会直接访问内存，并重新加载数据，如果数据有效，则往下执行；
+3. 对比内存地址中组标记和 CPU Line 中的组标记，确认 CPU Line 中的数据是我们要访问的内存数据，如果不是的话，CPU 就会直接访问内存，并重新加载数据，如果是的话，则往下执行；
+4. 根据内存地址中偏移量信息，从 CPU Line 的数据块中，读取对应的字。
+
+（题外话：**除了提高cache line命中率外还得考虑分支预测准确性，这两对提升cpu运算性能有非常大的帮助**）
+
 在NUMA架构中，多个处理器中的同一个缓存页面必定在其中一个处理器中属于 F 状态(可以修改的状态)，这个页面在这个处理器中没有理由不可以多核心共享(可以多核心共享就意味着这个能进入修改状态的页面的多个有效位被设置为一)。MESIF协议应该是工作在核心(L1+L2)层面而不是处理器(L3)层面，这样同一处理器里多个核心共享的页面，只有其中一个是出于 F 状态(可以修改的状态)。见后面对 NUMA 和 MESIF 的解析。(L1/L2/L3 的同步应该是不需要 MESIF 的同步机制)
 
 ## 分析源代码
@@ -365,7 +388,7 @@ JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得�
 
 顺便说一下， RDS MySQL 8.0 Outline 功能可以在 server 端 force index ，避免对应用代码的侵入。此外 PolarDB MySQL 里新增加了根据直方图来估计行数的功能，并且增强了直方图，可以有效应对这种场景。我们也在开发执行计划的锁定和演进功能，相信这类场景后面都可以系统化地解决掉。
 
-## perf top 和 pause
+## perf top 和 pause 的案例
 
 案例：
 
@@ -384,10 +407,9 @@ JOIN::estimate_row_count 是优化器估计行数的调用。 CBO 需要获得�
 
 ​    **经过测试，非skylake CPU也同样存在perf top会把pause(执行数cycles是10)的执行cycles数统计到下一条指令的问题，看来这是X86架构都存在的问题。**
 
-
 ## 总结分析
 
-CPU 架构不同Pause 指令的不同导致了 MySQL innodb_spin_wait_delay 在spin lock失败的时候delay更久，导致调用方看到了MySQL更大的rt，导致Tomcat Server上并发跑不起来，所以最终压力上不去。
+CPU 架构不同Pause 指令的需要的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在spin lock失败的时候（此时需要 pause* innodb_spin_wait_delay*N）delay更久，使得调用方看到了MySQL更大的rt，进而Tomcat Server上并发跑不起来，所以最终压力上不去。
 
 在长链路的排查中，细化定位是哪个节点出了问题是最难的，这里大量的时间都花在了client、slb、Tomcat节点等等有没有问题，就是因为MySQL有32个节点，他们的CPU都不高，让大家很快排除了他的嫌疑。
 

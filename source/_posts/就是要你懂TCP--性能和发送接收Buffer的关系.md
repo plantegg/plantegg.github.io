@@ -107,11 +107,20 @@ tags:
 ## 几个发送buffer相关的内核参数
 
 
-    vm.lowmem_reserve_ratio = 256   256     32
-    net.core.wmem_max = 1048576
-    net.core.wmem_default = 124928
-    net.ipv4.tcp_wmem = 4096        16384   4194304【最小值  默认值  最大值】
+    $sudo sysctl -a | egrep "rmem|wmem|tcp_mem|adv_win|moderate"
+    net.core.rmem_default = 212992
+    net.core.rmem_max = 212992
+    net.core.wmem_default = 212992 //core是给所有的协议使用的,
+    net.core.wmem_max = 212992
+    net.ipv4.tcp_adv_win_scale = 1
+    net.ipv4.tcp_moderate_rcvbuf = 1
+    net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值】
+    net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
+    net.ipv4.udp_rmem_min = 4096
     net.ipv4.udp_wmem_min = 4096
+    vm.lowmem_reserve_ratio = 256	256	32
+    net.ipv4.tcp_mem = 88560        118080  177120
+    vm.lowmem_reserve_ratio = 256   256     32
 
 net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从Cobra中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。
 
@@ -127,7 +136,9 @@ net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只�
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/3dcfd469fe1e2f7e1d938a5289b83826.png)
 
-如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调整。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。
+如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。
+
+
 
 ## BDP 带宽时延积
 
@@ -244,6 +255,8 @@ BDP=rtt*(带宽/8)
 
 ## 接收窗口和SO_RCVBUF的关系
 
+### ss 查看socket buffer大小
+
 初始接收窗口一般是 **mss乘以初始cwnd（为了和慢启动逻辑兼容，不想一下子冲击到网络）**，如果没有设置SO_RCVBUF，那么会根据 net.ipv4.tcp_rmem 动态变化，如果设置了SO_RCVBUF，那么接收窗口要向下面描述的值靠拢。
 
 [初始cwnd可以大致通过查看到](https://access.redhat.com/discussions/3624151)： 
@@ -255,8 +268,7 @@ BDP=rtt*(带宽/8)
     
     Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.
     Keep in mind the kernel will double any socket buffer allocation for overhead. 
-    So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer
-    space. This is described on man 7 tcp. 
+    So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
 
 初始窗口计算的代码逻辑，重点在18行： 
 
@@ -311,6 +323,7 @@ BDP=rtt*(带宽/8)
     {//space 传入的时候就已经是 2*SO_RCVBUF了
             int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;
     
+
             return tcp_adv_win_scale <= 0 ?
                     (space>>(-tcp_adv_win_scale)) :
                     space - (space>>tcp_adv_win_scale); //sysctl参数tcp_adv_win_scale 
@@ -431,12 +444,12 @@ client ------150ms----->>>nginx
     $sudo sysctl -a | egrep "rmem|wmem|tcp_mem|adv_win|moderate"
     net.core.rmem_default = 212992
     net.core.rmem_max = 212992
-    net.core.wmem_default = 212992
+    net.core.wmem_default = 212992 //core是给所有的协议使用的,
     net.core.wmem_max = 212992
     net.ipv4.tcp_adv_win_scale = 1
     net.ipv4.tcp_moderate_rcvbuf = 1
     net.ipv4.tcp_rmem = 4096	87380	6291456
-    net.ipv4.tcp_wmem = 4096	16384	4194304
+    net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
     net.ipv4.udp_rmem_min = 4096
     net.ipv4.udp_wmem_min = 4096
     vm.lowmem_reserve_ratio = 256	256	32

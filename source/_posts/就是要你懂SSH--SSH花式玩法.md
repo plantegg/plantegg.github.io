@@ -109,7 +109,7 @@ nohup ssh -qTfnN -D 127.0.0.1:18080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
  /home/ren/tmp/ssh_mux_10.16.*.*_22_alibaba 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时
 
 看动画过程，注意过程中都是通过 -vvv 来看到ssh的具体行为
-![ssh-demo.gif](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
+![ssh-demo.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
 
 ### 我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？
 
@@ -163,7 +163,7 @@ nohup ssh -qTfnN -D 127.0.0.1:18080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ### ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器
 
 先来看效果图：
-![ssh_docker.gif](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
+![ssh_docker.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
 
 #### 实现过程：
 
@@ -182,7 +182,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.tbsite.net exec /usr/bin/nc %h %p
 **第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号**
 这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/b4e460a501c21eac1e4104b9324910d3.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b4e460a501c21eac1e4104b9324910d3.png)
 
 
 ### 为什么有时候ssh 比较慢，比如总是需要30秒钟后才能正常登录

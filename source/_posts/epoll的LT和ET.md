@@ -108,6 +108,7 @@ epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而
 这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。
 
 
+
 ## 参考资料
 
 [Epoll is fundamentally broken](https://www.atatech.org/articles/157349) 

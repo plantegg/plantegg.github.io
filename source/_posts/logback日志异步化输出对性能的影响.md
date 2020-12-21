@@ -43,8 +43,6 @@ Java在每次请求结束后都会输出日志记录每次请求的相关信息�
 
 ## 测试数据
 
-
-
 ### 4核的机器下性能提升没这么明显，因为锁争抢没这么激烈
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d38fecd4932266209c6a1ca0265f98aa.png)
@@ -63,8 +61,6 @@ Java在每次请求结束后都会输出日志记录每次请求的相关信息�
 
 ![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566292019098-60f15294-a001-452e-8ecb-626aada11837.png)
 
-
-
 如果将 sql.log 改为error级别，tps上升到30000，rt比info也有将近10%的提升，这个rt的提升是因为tps提升导致的。（都是异步输出的场景下）
 
 ![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566294041222-153fbe62-e503-4d35-b99a-bd2517332592.png)
@@ -75,7 +71,6 @@ recordSQL: 12.9%
 logback.doAppend: 10%
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/4e0595c173522e37edf87b568eab6e7f.png)
-
 
 ### 异步情况下的profiler:
 
@@ -137,8 +132,7 @@ logback.doAppend: 2.63%
  [17] java.util.concurrent.ThreadPoolExecutor.runWorker
  [18] java.util.concurrent.ThreadPoolExecutor$Worker.run
  [19] java.lang.Thread.run
- 
- 
+  
 "ServerExecutor-3-thread-480" #753 daemon prio=5 os_prio=0 tid=0x00007f8265842000 nid=0x26f1 waiting for monitor entry [0x00007f82270bf000]
   java.lang.Thread.State: BLOCKED (on object monitor)
 	at ch.qos.logback.core.AppenderBase.doAppend(AppenderBase.java:64)
@@ -163,7 +157,6 @@ logback.doAppend: 2.63%
 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1152)
 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:627)
 	at java.lang.Thread.run(Thread.java:861)
-
 
   - waiting to lock <0x00007f866dcec208> (a ch.qos.logback.classic.sift.SiftingAppender)
 	- waiting to lock <0x00007f866dcec208> (a ch.qos.logback.classic.sift.SiftingAppender)

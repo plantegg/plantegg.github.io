@@ -95,7 +95,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 

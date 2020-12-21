@@ -42,7 +42,7 @@ Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn 
 
 #### 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png)
 
 
 

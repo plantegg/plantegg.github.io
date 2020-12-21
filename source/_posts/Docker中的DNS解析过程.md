@@ -18,7 +18,7 @@ tags:
 
 如图所示：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/892a98b53c7f9e65da79d1d6d890c3b0.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/892a98b53c7f9e65da79d1d6d890c3b0.png)
 
 图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。
 

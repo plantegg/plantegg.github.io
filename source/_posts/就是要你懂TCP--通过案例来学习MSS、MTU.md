@@ -83,7 +83,7 @@ centos或者ubuntu下：
 
 [TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。](https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04)
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/23df36d95295c839722627b5d63bac48.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/23df36d95295c839722627b5d63bac48.png)
 
 
 ## 总结

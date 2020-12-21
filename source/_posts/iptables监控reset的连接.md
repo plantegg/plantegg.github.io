@@ -34,6 +34,8 @@ COMMIT
 将如上配置保存在 drds_filter.conf中，设置开机启动:
 
 ```
+//注意，tee 命令的 "-a" 选项的作用等同于 ">>" 命令，如果去除该选项，那么 tee 命令的作用就等同于 ">" 命令。
+//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入
 echo "sudo iptables-restore < drds_filter.conf" | sudo tee -a /etc/rc.d/rc.local
 ```
 
@@ -79,6 +81,25 @@ postrotate
 /usr/bin/chattr +a /home/admin/logs/drds-tcp.log
 endscript
 }
+
+执行：
+sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds
+debug：
+sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds
+查看日志：
+cat /var/lib/logrotate/logrotate.status
+```
+
+logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：https://chasemp.github.io/2013/07/24/su-directive-logrotate/ 报错信息：
+
+```
+rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)
+empty log files are rotated, old logs are removed
+considering log /var/log/myapp/default.log
+
+error: skipping "/var/log/myapp/default.log" because parent directory has insecure permissions
+(It's world writable or writable by group which is not "root") Set "su" directive in 
+config file to tell logrotate which user/group should be used for rotation
 ```
 
 

@@ -1409,7 +1409,15 @@ PLAY RECAP *********************************************************************
 }
 ```
 
+## 指定ip执行playbook
 
+> ansible-playbook  -i "10.168.101.179," all test.yml
+
+或者：
+
+> ansible -i phy.ini 11.167.60.150 -m shell -a 'docker run -it -d --net=host -e diamond_server_list="{{ diamond_server_list }}" -e diamond_db0="{{ diamond_db0 }}" -e diamond_db1="{{ diamond_db1 }}" -e diamond_db2="{{ diamond_db2 }}" -e HOST_IP="{{ inventory_hostname }}" -p 8080:8080 -p 9090:9090 --name diamond {{ images }} ' -vvv
+
+上面这种还能重用phy.ini中所有的变量配置
 
 
 ## 创建用户并打通账号

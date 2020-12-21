@@ -28,11 +28,14 @@ ipvsadm -A -t 172.26.137.117:9376 -s rr //创建了一个rr lvs
 // -m 表示nat模式，不加的话默认是route模式
 ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加一个RS
 ipvsadm -ln
-ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加另外一个RS
+ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.196:9376 -m //往lvs中添加另外一个RS
 ipvsadm -ln
 
+//删除realserver
+ipvsadm -a -t 100.81.131.221:18507 -r 100.81.131.237:8507 -m
+
 //服务状态查看
-#ipvsadm -L -n --stats --rate
+#ipvsadm -L -n --stats|--rate
 IP Virtual Server version 1.2.1 (size=4096)
 Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes
   -> RemoteAddress:Port
@@ -40,7 +43,11 @@ TCP  11.197.140.20:18089                 5       48       48     2951     6938
   -> 11.197.140.20:28089                 3       33       33     1989     4938
   -> 11.197.141.110:28089                2       15       15      962     2000
 
-[root@g71k07160.cloud.sg52 /root]
+#清空统计数据
+#ipvsadm --zero
+#列出所有连接信息
+#/sbin/ipvsadm -L -n --connection
+
 #ipvsadm -L -n
 IP Virtual Server version 1.2.1 (size=4096)
 Prot LocalAddress:Port Scheduler Flags
@@ -143,6 +150,20 @@ Timeout (tcp tcpfin udp): 900 120 300
 [root@poc117 ~]# ipvsadm --set 1 2 1
 [root@poc117 ~]# ipvsadm -L --timeout
 Timeout (tcp tcpfin udp): 1 2 1
+```
+
+## 创建虚拟网卡
+
+```
+To make this interface you'd first need to make sure that you have the dummy kernel module loaded. You can do this like so:
+
+$ sudo lsmod | grep dummy
+$ sudo modprobe dummy
+$ sudo lsmod | grep dummy
+dummy                  12960  0 
+With the driver now loaded you can create what ever dummy network interfaces you like:
+
+$ sudo ip link add eth10 type dummy
 ```
 
 ## LVS 工作原理

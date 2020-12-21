@@ -27,15 +27,55 @@ ss可以显示跟netstat类似的信息，但是速度却比netstat快很多，n
 
 ## [ss 查看Buffer窗口](https://access.redhat.com/discussions/3624151)
 
+ss参数说明[权威参考](https://man7.org/linux/man-pages/man8/ss.8.html)
+
 --memory/-m ： 展示buffer窗口的大小
 
-	ss -itmpn dst "10.81.212.8"
-	State      Recv-Q Send-Q Local Address:Port  Peer Address:Port
-	ESTAB      0      0      10.xx.xx.xxx:22     10.yy.yy.yyy:12345  users:(("sshd",pid=1442,fd=3))
-	         skmem:(r0,rb369280,t0,tb87040,f4096,w0,o0,bl0,d92)
-	
-	Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.Keep in mind the kernel will double any socket buffer allocation for overhead. 
-	So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
+```
+#ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
+tcp ESTAB 0 31 10.97.137.1:7764 10.97.137.2:41019 skmem:(r0,rb7160692,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 193 ::ffff:10.97.137.1:sdo-tls ::ffff:10.97.137.2:55545 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 65 ::ffff:10.97.137.1:splitlock ::ffff:10.97.137.2:47796 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 80 ::ffff:10.97.137.1:informer ::ffff:10.97.137.3:49279 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+
+#ss -m -n | xargs -L 1 | grep "tcp EST" | grep "t[1-9]"
+tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
+```
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4a09503e6c6e84c25e026248a1b3ebb6.png)
+
+如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w已经预分配好了的size，t[the memory used for sending packet (which has been sent
+                     to layer 3)] , 似乎 w总是等于大于t？
+
+The entire print format of `ss -m` is given in the source:
+
+```
+      printf(" skmem:(r%u,rb%u,t%u,tb%u,f%u,w%u,o%u",
+               skmeminfo[SK_MEMINFO_RMEM_ALLOC],
+               skmeminfo[SK_MEMINFO_RCVBUF],
+               skmeminfo[SK_MEMINFO_WMEM_ALLOC],
+               skmeminfo[SK_MEMINFO_SNDBUF],
+               skmeminfo[SK_MEMINFO_FWD_ALLOC],
+               skmeminfo[SK_MEMINFO_WMEM_QUEUED],
+               skmeminfo[SK_MEMINFO_OPTMEM]);
+
+        if (RTA_PAYLOAD(tb[attrtype]) >=
+                (SK_MEMINFO_BACKLOG + 1) * sizeof(__u32))
+                printf(",bl%u", skmeminfo[SK_MEMINFO_BACKLOG]);
+
+        if (RTA_PAYLOAD(tb[attrtype]) >=
+                (SK_MEMINFO_DROPS + 1) * sizeof(__u32))
+                printf(",d%u", skmeminfo[SK_MEMINFO_DROPS]);
+
+        printf(")");
+```
+
+I expect that the `ALLOC` values are only used when there is outstanding data - either data in a receive buffer waiting for an application to `recv()`, or un-ACKed sent data. You could test these with Ctrl+z to put a receiver to sleep, and firewalls to block ACKs. It's easier to use `nc` than `iperf` for that sort of testing. Socket option memory is rarely used.
+
+example:
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4ed3d8aab6ef3ee45decda75e534baab.png)
 
 最后给出的一个工具，knetstat（需要单独安装），也可以查看tcp的状态下的各种参数
 
@@ -223,11 +263,11 @@ example(3306是本地server，4192是后端MySQL）：
 	 0     44 10.0.186.70:42296       10.0.186.73:3306        ESTB >#   SO_REUSEADDR=0,SO_REUSEPORT=0,SO_KEEPALIVE=1,SO_RCVTIMEO=31536000000ms,SO_SNDTIMEO=31536000000ms,TCP_NODELAY=1,TCP_DEFER_ACCEPT=0
 	 0     44 10.0.186.70:42322       10.0.186.73:3306        ESTB >#   SO_REUSEADDR=0,SO_REUSEPORT=0,SO_KEEPALIVE=1,SO_RCVTIMEO=31536000000ms,SO_SNDTIMEO=31536000000ms,TCP_NODELAY=1,TCP_DEFER_ACCEPT=0
 
-Diag列的说明
-	
+Diag列的说明	
 	Indicator		Meaning
 	  >|	         The sender window (i.e. the window advertised by the remote endpoint) is 0. No data can be sent to the peer.
-	  |<	         The receiver window (i.e. the window advertised by the local endpoint) is 0. No data can be received from the peer.
+	    >|<	         The receiver window (i.e. the window advertised by the local endpoint) is 0. No data can be received from the peer.
+	  >
 	  >#	         There are unacknowledged packets and the last ACK was received more than one second ago. This may be an indication that there are network problems or that the peer crashed.
 
 

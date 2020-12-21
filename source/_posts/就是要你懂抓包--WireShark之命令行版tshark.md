@@ -17,11 +17,61 @@ tags:
 
 下面让我们通过一些例子来学习TShark的常用功能，所有用到的*.cap/*.pcap等都是通过tcpdump抓到的包。请收藏好，下次碰到类似问题直接用文章中的命令跑一下。
 
-### wireshark不再展示协议内容
+## wireshark不再展示协议内容
 
 比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 
 
 配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos
+
+如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。
+
+### tcp segment of a reassembled pdu
+
+这个提示是指，wireshark需要将多个tcp协议包重新组合成特定协议内容（比如MySQL，HTTP），但是因为包缺失（或者每个包大小截断了）导致reassembled失败。实际上wireshark已经成功检测到该协议，只是在解析这个协议的时候缺失包导致解析不好。
+
+这个时候可以试试将指定协议的reassembled属性关掉
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1fc544dcd6e064f967481472f6688be9.png)
+
+[PDU：Protocol Data Unit](https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html)
+
+> If the reassembly is successful, the TCP segment containing the last part of the packet will show the packet.
+> The reassembly might fail if some TCP segments are missing.
+
+[TCP segment of a reassembled PDU ](https://osqa-ask.wireshark.org/questions/58186/tcp-segment-of-a-reassembled-pdu) means that:
+
+1. Wireshark/TShark thinks it knows what protocol is running atop TCP in that TCP segment;
+2. that TCP segment doesn't contain all of a "protocol data unit" (PDU) for that higher-level protocol, i.e. a packet or protocol message for that higher-level protocol, and doesn't contain the last part of that PDU, so it's trying to reassemble the multiple TCP segments containing that higher-level PDU.
+
+## 常用命令
+
+```
+#parse 8507/4444 as mysql protocol, default only parse 3306 as mysql.
+sudo tshark -i eth0 -d tcp.port==8507,mysql -T fields -e mysql.query 'port 8507'
+
+sudo tshark -i any -c 50 -d tcp.port==4444,mysql -Y " ((tcp.port eq 4444 )  )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query
+
+#query time
+sudo tshark -i eth0 -Y " ((tcp.port eq 3306 ) and tcp.len>0 )" -o tcp.calculate_timestamps:true -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e tcp.srcport -e tcp.dstport -e ip.dst -e tcp.time_delta -e tcp.stream -e tcp.len -e mysql.query
+
+#每隔3秒钟生成一个新文件，总共生成5个文件后（15秒后）终止抓包，然后包名也按时间规范好了
+sudo  tcpdump -t -s 0 tcp port 3306  -w 'dump_%Y-%m-%d_%H:%M:%S.pcap'   -G 3 -W 5 -Z root
+
+#每隔30分钟生成一个包并压缩
+nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_%Y-%m-%d_%H:%M:%S.pcap' -G 1800 -W 48 -Z root -z gzip &
+
+#file size 1000M 
+nohup sudo tcpdump -i eth0 -t -s 0 tcp and port 3306 -w 'dump_' -C 1000 -W 300 -Z root -z gzip &
+
+#抓取详细SQL语句, 快速确认client发过来的具体SQL内容：
+sudo tshark -i any -f 'port 8527' -s 0 -l -w - |strings
+sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'
+sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'
+sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'
+
+```
+
+
 
 ## 分析mysql的每个SQL响应时间
 
@@ -121,7 +171,6 @@ tags:
     >1s:	0
     -------------
     avg: 0.005937 
-
 
 **对于rt分析，要注意一个query多个response情况（response结果多，分包了），分析这种rt的时候只看query之后的第一个response，其它连续response需要忽略掉。**
 
@@ -537,16 +586,27 @@ tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高�
 
 下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/d99665729dbc0ccbcbebd5176900ce6c.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d99665729dbc0ccbcbebd5176900ce6c.png)
 
 ** 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 **
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/3a80fa647b634e1671a0ebfd40a468bd.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3a80fa647b634e1671a0ebfd40a468bd.png)
 
 #### 从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/52cb9d61ce948f9b64737b7be88ac84e.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52cb9d61ce948f9b64737b7be88ac84e.png)
 
 #### 从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/196033f267c33c08a4ca6b6fdb957cf3.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/196033f267c33c08a4ca6b6fdb957cf3.png)
 
+
+
+## 其它工具 packetdrill
+
+https://github.com/google/packetdrill
+
+https://mp.weixin.qq.com/s/CcM3rINPn54Oean144kvMw
+
+http://beta.computer-networking.info/syllabus/default/exercises/tcp-2.html
+
+https://segmentfault.com/a/1190000019193928

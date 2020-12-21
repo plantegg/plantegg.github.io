@@ -25,7 +25,7 @@ tags:
 
 零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝
 
-![](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/83e2dfbd25d703c58877b2faf71c4944.jpg)
+![](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/83e2dfbd25d703c58877b2faf71c4944.jpg)
 
 
 
@@ -37,7 +37,7 @@ tags:
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ccdc10037d35349293cba8a63ad72af5.png)
 
-零拷贝就是操作系统提供的新函数，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。
+零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。
 
 而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！
 
@@ -281,7 +281,7 @@ Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(�
 - Executor是线程池，主要处理具体业务逻辑，Poller主要处理读取Socket数据逻辑。Executor主要负责执行 SocketProcessor对象中的run方法，SocketProcessor对象的run方法用 Http11Processor来读取和解析请求数据。
 - Http11Processor是应用层协议的封装，他会调用容器获得请求（ServletRequest），再将响应通过Channel写出给请求
 
-**因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在JavaAPI中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法。**
+**因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在JavaAPI中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法**
 
 #### Acceptor
 
@@ -318,13 +318,13 @@ epoll 异步非阻塞多路复用
 
 闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/0c09f7457cd7914fc26573d9a4625de4.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0c09f7457cd7914fc26573d9a4625de4.png)
 
 ### MySQL Thread Pool 带来的问题
 
 MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲--类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/80c19a50442290e7f79e97d94a585cc3.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/80c19a50442290e7f79e97d94a585cc3.png)
 
 连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。
 
@@ -332,9 +332,11 @@ MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group
 
 group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。
 
-比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题
+比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 单个Worker上有慢请求）；或者某个group满后导致慢查询和拨测失败之类的问题
 
-## 协程
+## [协程](https://blog.youxu.info/2014/12/04/coroutine/)
+
+协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。
 
 ### 多进程和多线程优劣的比较
 
@@ -382,17 +384,15 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 协程就是用户态的线程。然而，为了保证所有切换都在用户态进行，协程必须重新封装所有的阻塞系统调用，否则，一旦协程触发了线程切换，会导致这个线程进入休眠状态，进而其上的所有协程都得不到执行。比如，普通的 sleep 函数会让当前线程休眠，由内核来唤醒线程，而协程化改造后，sleep 只会让当前协程休眠，由协程框架在指定时间后唤醒协程。再比如，线程间的互斥锁是使用信号量实现的，而信号量也会导致线程休眠，协程化改造互斥锁后，同样由框架来协调、同步各协程的执行。
 
-
-
 非阻塞+epoll+同步编程 = 协程
 
 协程主要是将IO Wait等场景自动识别然后以非常小的代价切换到其它任务处理，一旦Wait完毕再切换回来。
 
-协程在实现上都是试图用一组少量的线程来实现多个任务，一旦某个任务阻塞，则可能用同一线程继续运行其他任务，避免大量上下文的切换。每个协程所独占的系统资源往往只有栈部分。而且，各个协程之间的切换，往往是用户通过代码来显式指定的（跟各种 callback 类似），不需要内核参与，可以很方便的实现异步。
+协程在实现上都是试图用一组少量的线程来实现多个任务，一旦某个任务阻塞，则可能用同一线程继续运行其他任务，避免大量上下文的切换。**每个协程所独占的系统资源往往只有栈部分**。而且，**各个协程之间的切换，往往是用户通过代码来显式指定的（跟各种 callback 类似），不需要内核参与，可以很方便的实现异步**。
 
 这个技术本质上也是异步非阻塞技术，它是将事件回调进行了包装，让程序员看不到里面的事件循环。程序员就像写阻塞代码一样简单。比如调用 client->recv() 等待接收数据时，就像阻塞代码一样写。实际上是底层库在执行recv时悄悄保存了一个状态，比如代码行数，局部变量的值。然后就跳回到EventLoop中了。什么时候真的数据到来时，它再把刚才保存的代码行数，局部变量值取出来，又开始继续执行。
 
-协程是异步非阻塞的另外一种展现形式。Golang，Erlang，Lua协程都是这个模型。
+**协程是异步非阻塞的另外一种展现形式。Golang，Erlang，Lua协程都是这个模型。**
 
 **协程的优点是它比系统线程开销小，缺点是如果其中一个协程中有密集计算，其他的协程就不运行了**。操作系统进程、线程切换的缺点是开销大，优点是无论代码怎么写，所有进程都可以并发运行。
 协程也叫做用户态进程/用户态线程。区别就在于进程/线程是操作系统充当了EventLoop调度，而协程是自己用Epoll进行调度。
@@ -418,7 +418,7 @@ Erlang解决了协程密集计算的问题，它基于自行开发VM，并不执
 
 但是对于像logback日志同步输出doAppend()的锁（比较慢，并发度高）Wisp2就基本无能为力了。
 
-Wisp2的主线程跟CPU数量一致，Wisp1的时候碰到CPU执行很长的任务就容易卡主，Wisp2解决了这个问题，超过一定时间会让出这个协程。如果主线程比较闲的时候会尝试从其它主线程 steal 协程（任务）过来， steal的时候需要加锁（自旋锁）来尝试steal成功。如果碰到其他主线程也在steal就可能会失败，steal尝试几次加锁不成功（A线程尝试steal B线程的协程-任务，会尝试锁住A和B，但是比如C线程也在偷的话可能会导致A偷取失败）就是放弃。
+Wisp2的主线程跟CPU数量一致，Wisp1的时候碰到CPU执行很长的任务就容易卡主，Wisp2解决了这个问题，超过一定时间会让出这个协程。如果主线程比较闲的时候会尝试从其它主线程 steal 协程（任务）过来， steal的时候需要加锁（自旋锁）来尝试steal成功。如果碰到其他主线程也在steal就可能会失败，steal尝试几次加锁不成功（A线程尝试steal B线程的协程-任务，会尝试锁住A和B，但是比如C线程也在偷的话可能会导致A偷取失败）就放弃。
 
 Wisp2碰到执行时间比较长的任务的话，有个线程会过一段时间去监控，如果超过100ms，就触发一个safepoint，触发抢占。
 

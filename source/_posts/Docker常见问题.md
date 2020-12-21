@@ -23,6 +23,20 @@ Failed to restart docker.socket: Unit docker.socket is masked.
 
 另外 docker.socket 启动依赖环境的要有 docker group这个组，可以添加： groupadd docker
 
+## failed to start docker.service unit not found. rhel 7.7
+
+systemctl list-unit-files |grep docker.service 可以看到docker.service 是存在并enable了
+
+实际是redhat 7.7的yum仓库所带的docker启动参数变了， 如果手工启动的话也会报找不到docker-runc 手工:
+
+> ```
+> ln -s /usr/libexec/docker/docker-runc-current /usr/bin/docker-runc
+> ```
+
+https://access.redhat.com/solutions/2876431  https://stackoverflow.com/questions/42754779/docker-runc-not-installed-on-system
+
+yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环境变量)
+
 ### [Docker 启动报错： Error starting daemon： Error initializing network controller： list bridge addresses failed： no available network](http://blog.joylau.cn/2019/04/08/Docker-Start-Error/)
 
 这是因为daemon启动的时候缺少docker0网桥，导致启动失败，手工添加：  
@@ -46,9 +60,21 @@ To me, the solution was to start manually docker like this:
 /usr/bin/docker daemon --debug --bip=192.168.y.x/24
 ```
 
-where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The --debug is not really needed, but might help if something else fails
+where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The --debug is not really needed, but might help if something else fails.
 
 After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that --bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. 
+
+### alios下容器里面ping不通docker0
+
+alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. 
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2ba8bc014d93ad4b6e77c889a024772f.png)
+
+非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通
+
+![docker0-tcpdump.gif](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dbc4dac5a9a0289b58952375c5759b15.gif)
+
+猜测是 alios 的bug
 
 ## systemctl start docker
 

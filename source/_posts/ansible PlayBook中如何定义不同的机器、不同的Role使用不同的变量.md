@@ -56,17 +56,13 @@ tags:
 	[hz_normal:vars]
 	script_url="hz_normal"
 
-
-
 ### 执行代码
-	```
+
 	- name: test variables
 	  debug: msg={{ script_url }}  #对所有机器输出他们的url来验证一下我们的定义生效没有
 	  tags: test
-	```
 
 ### 执行结果
-	```
 	$udp-playbook -i udp-hosts.ini site.yml -b -u admin -t test    
 	
 	UDP-PLAY-START: [apply common configuration to all nodes] ********************* 
@@ -88,11 +84,8 @@ tags:
 	    "msg": "sz_normal"
 	}
 
-
-​	
-​	```
-
 ## 问题场景2的解决
+
 > 在这里变量不要放在hosts.ini中，到MySQL、Diamond的roles中新建两个yml文件,在 里面分别写上 MySQL和Diamond的 Project_Name 这样就不会覆盖了
 
 ### 目录结构

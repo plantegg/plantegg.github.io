@@ -46,7 +46,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/e4a2fdad5b04542dc657b96e195a2b45.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e4a2fdad5b04542dc657b96e195a2b45.png)
 
 
 
@@ -120,7 +120,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
  /home/ren/tmp/ssh_mux_10.16.*.*_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时
 
 看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息
-![ssh-demo.gif](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
+![ssh-demo.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
 
 ## 我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？
 
@@ -174,7 +174,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ## ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器
 
 先来看效果图：
-![ssh_docker.gif](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
+![ssh_docker.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
 
 ### 实现过程：
 
@@ -193,7 +193,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 **第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号**
 这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/b4e460a501c21eac1e4104b9324910d3.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b4e460a501c21eac1e4104b9324910d3.png)
 
 ## 将隔离环境中的web端口映射到本地
 
@@ -357,10 +357,196 @@ ForwardX11Trusted yes
 
 SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password**，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。
 
+### ssh-agent
+
+私钥设置了密码以后，每次使用都必须输入密码，有时让人感觉非常麻烦。比如，连续使用`scp`命令远程拷贝文件时，每次都要求输入密码。
+
+`ssh-agent`命令就是为了解决这个问题而设计的，它让用户在整个 Bash 对话（session）之中，只在第一次使用 SSH 命令时输入密码，然后将私钥保存在内存中，后面都不需要再输入私钥的密码了。
+
+
+
+第一步，使用下面的命令新建一次命令行对话。
+
+```
+$ eval `ssh-agent`
+```
+
+上面命令中，`ssh-agent`会先自动在后台运行，并将需要设置的环境变量输出在屏幕上，类似下面这样。
+
+```
+$ ssh-agent
+SSH_AUTH_SOCK=/tmp/ssh-barrett/ssh-22841-agent; export SSH_AUTH_SOCK;
+SSH_AGENT_PID=22842; export SSH_AGENT_PID;
+echo Agent pid 22842;
+```
+
+`eval`命令的作用，就是运行上面的`ssh-agent`命令的输出，设置环境变量。
+
+第二步，在新建的 Shell 对话里面，使用`ssh-add`命令添加默认的私钥（比如`~/.ssh/id_rsa`，或`~/.ssh/id_dsa`，或`~/.ssh/id_ecdsa`，或`~/.ssh/id_ed25519`）。
+
+```
+$ ssh-add
+Enter passphrase for /home/you/.ssh/id_dsa: ********
+Identity added: /home/you/.ssh/id_dsa (/home/you/.ssh/id_dsa)
+```
+
+上面例子中，添加私钥时，会要求输入密码。以后，在这个对话里面再使用密钥时，就不需要输入私钥的密码了，因为私钥已经加载到内存里面了。
+
+如果添加的不是默认私钥，`ssh-add`命令需要显式指定私钥文件。
+
+```
+$ ssh-add my-other-key-file
+```
+
+上面的命令中，`my-other-key-file`就是用户指定的私钥文件。
+
+
+
+### 安装sshd
+
+sshd 有自己的一对或多对密钥。它使用密钥向客户端证明自己的身份。所有密钥都是公钥和私钥成对出现，公钥的文件名一般是私钥文件名加上后缀`.pub`。
+
+DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_host_dsa_key.pub`），RSA 格式的密钥为`/etc/ssh/ssh_host_rsa_key`（公钥为`ssh_host_rsa_key.pub`）。如果需要支持 SSH 1 协议，则必须有密钥`/etc/ssh/ssh_host_key`。
+
+如果密钥不是默认文件，那么可以通过配置文件`sshd_config`的`HostKey`配置项指定。默认密钥的`HostKey`设置如下。
+
+```
+# HostKey for protocol version 1
+# HostKey /etc/ssh/ssh_host_key
+
+# HostKeys for protocol version 2
+# HostKey /etc/ssh/ssh_host_rsa_key
+# HostKey /etc/ssh/ssh_host_dsa_ke
+```
+
+注意，如果重装 sshd，`/etc/ssh`下的密钥都会重新生成（这些密钥对用于验证Server的身份），导致客户端重新 ssh 连接服务器时，会跳出警告，拒绝连接。为了避免这种情况，可以在重装 sshd 时，先备份`/etc/ssh`目录，重装后再恢复这个目录。
+
+> 调试：非后台(-D)和debug(-d)模式启动sshd，同时监听2222和3333端口
+>
+> sshd -D -d -p 2222 -p 3333
+
+
+
+### sshd Banner
+
+`Banner`指定用户登录后，sshd 向其展示的信息文件（`Banner /usr/local/etc/warning.txt`），默认不展示任何内容。
+
+### 动态转发 (-D) 
+
+动态转发指的是，本机与 SSH 服务器之间创建了一个加密连接，然后本机内部针对某个端口的通信，都通过这个加密连接转发。它的一个使用场景就是，访问所有外部网站，都通过 SSH 转发。
+
+动态转发需要把本地端口绑定到 SSH 服务器。**至于 SSH 服务器要去访问哪一个网站，完全是动态的，取决于原始通信，所以叫做动态转发**。
+
+目标还不确定，所以叫动态转发
+
+```
+$ ssh -D 2121 tunnel-host -N
+```
+
+注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
+
+下面是 ssh 隧道建立后的一个使用实例。
+
+```
+$ curl -x socks5://localhost:2121 http://www.example.com
+```
+
+上面命令中，curl 的`-x`参数指定代理服务器，即通过 SOCKS5 协议的本地`2121`端口，访问`http://www.example.com`。
+
+### 本地转发 (-L)
+
+本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定目标网站之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。
+
+它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（tunnel-host），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。
+
+```
+$ ssh -L local-port:target-host:target-port tunnel-host
+```
+
+上面命令中，`-L`参数表示本地转发，`local-port`是本地端口，`target-host`是你想要访问的目标服务器，`target-port`是目标服务器的端口，`tunnel-host`是 SSH 跳板机。
+
+举例来说，现在有一台 SSH 跳板机`tunnel-host`，我们想要通过这台机器，在本地`2121`端口与目标网站`www.example.com`的80端口之间建立 SSH 隧道，就可以写成下面这样。
+
+```
+$ ssh -L 2121:www.example.com:80 tunnel-host -N
+```
+
+然后，访问本机的`2121`端口，就是访问`www.example.com`的80端口。
+
+```
+$ curl http://localhost:2121
+```
+
+注意，**本地端口转发采用 HTTP 协议，不用转成 SOCKS5 协议**。
+
+另一个例子是加密访问邮件获取协议 POP3。
+
+```
+$ ssh -L 1100:mail.example.com:110 mail.example.com
+```
+
+上面命令将本机的1100端口，绑定邮件服务器`mail.example.com`的110端口（POP3 协议的默认端口）。端口转发建立以后，POP3 邮件客户端只需要访问本机的1100端口，请求就会通过 SSH 跳板机（这里是`mail.example.com`），自动转发到`mail.example.com`的110端口。
+
+上面这种情况有一个前提条件，就是`mail.example.com`必须运行 SSH 服务器。否则，就必须通过另一台 SSH 服务器中介，执行的命令要改成下面这样。
+
+```
+$ ssh -L 1100:mail.example.com:110 other.example.com
+```
+
+上面命令中，本机的1100端口还是绑定`mail.example.com`的110端口，但是由于`mail.example.com`没有运行 SSH 服务器，所以必须通过`other.example.com`中介。本机的 POP3 请求通过1100端口，先发给`other.example.com`的22端口（sshd 默认端口），再由后者转给`mail.example.com`，得到数据以后再原路返回。
+
+注意，采用上面的中介方式，只有本机到`other.example.com`的这一段是加密的，`other.example.com`到`mail.example.com`的这一段并不加密。
+
+这个命令最好加上`-N`参数，表示不在 SSH 跳板机执行远程命令，让 SSH 只充当隧道。另外还有一个`-f`参数表示 SSH 连接在后台运行。
+
+如果经常使用本地转发，可以将设置写入 SSH 客户端的用户个人配置文件。
+
+```
+Host test.example.com
+LocalForward client-IP:client-port server-IP:server-port
+```
+
+### 远程转发(-R)
+
+远程端口指的是在远程 SSH 服务器建立的转发规则。
+
+这种场景比较特殊，主要针对内网的情况。本地计算机在外网，SSH 跳板机和目标服务器都在内网，而且本地计算机无法访问内网之中的 SSH 跳板机，但是 SSH 跳板机可以访问本机计算机。
+
+由于本机无法访问内网 SSH 跳板机，就无法从外网发起 SSH 隧道，建立端口转发。必须反过来，从 SSH 跳板机发起隧道，建立端口转发，这时就形成了远程端口转发。
+
+```
+$ ssh -R local-port:target-host:target-port -N local
+```
+
+上面的命令，首先需要注意，**不是在本机执行的，而是在 SSH 跳板机执行的**，从跳板机去连接本地计算机。`-R`参数表示远程端口转发，`local-port`是本地计算机的端口，`target-host`和`target-port`是目标服务器及其端口，`local`是本地计算机。
+
+显然，远程端口转发要求本地计算机也安装了 SSH 服务器，这样才能接受 SSH 跳板机的远程登录。
+
+比如，跳板机执行下面的命令，绑定本地计算机的`2121`端口，去访问`www.example.com:80`。
+
+```
+$ ssh -R 2121:www.example.com:80 local -N
+```
+
+执行上面的命令以后，跳板机到本地计算机的隧道已经建立了。然后，就可以从本机访问目标服务器了，即在本机执行下面的命令。
+
+```
+$ curl http://localhost:2121
+```
+
+执行上面的命令以后，命令就会输出服务器`www.example.com`的80端口返回的内容。
+
+如果经常执行远程端口转发，可以将设置写入 SSH 客户端的用户个人配置文件。
+
+```
+Host test.example.com
+RemoteForward local-IP:local-port target-ip:target-port
+```
+
 ## 参考资料：
 
 http://docs.corp-inc.com/pages/editpage.action?pageId=203555361
 https://wiki.archlinux.org/index.php/SSH_keys_(%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87)
 
-
+https://wangdoc.com/ssh/key.html
 

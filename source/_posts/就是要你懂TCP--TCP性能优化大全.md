@@ -135,13 +135,13 @@ net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过�
 - ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh <= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。
 - SO_SNDBUF、SO_RCVBUF 发送、接收buffer
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/1a468a5a3060792647713d3cf307c986.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1a468a5a3060792647713d3cf307c986.png)
 
 上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。
 
 所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/e24ad7655c10a82f35879503ecabc98f.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e24ad7655c10a82f35879503ecabc98f.png)
 
 
 ## TCP性能优化点
@@ -149,7 +149,7 @@ net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过�
 - 建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。
 - 首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 "HTTP/" 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 "HTTP/" 的，其实是一种作弊行为。
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/28532cb2bc6aa674be3d7693595f6f2b.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/28532cb2bc6aa674be3d7693595f6f2b.png)
 
 
 - 平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。
@@ -159,7 +159,7 @@ net.ipv4.tcp_wmem 默认就是16K，而且是能够动态调整的，只不过�
 - 带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）
 - **链路质量记忆**(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/68314efb651bcb3144d4243bf0c15820.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/68314efb651bcb3144d4243bf0c15820.png)
 
 这些经验都来自CDN @辟拾 的 [网络优化 - TCP 是如何做到提速 20 倍的](https://www.atatech.org/articles/109721)
 

@@ -57,7 +57,7 @@ Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来纪录
 #define TCP_MAX_QUICKACKS       16U //默认前16个ack必须quick ack来加速慢启动
 
 //默认delay ack不能超过200ms
-#define TCP_DELACK_MAX  ((unsigned)(HZ/5))      /* maximal time to delay before sending an ACK */
+#define TCP_DELACK_MAX  ((unsigned)(HZ/5))  /* maximal time to delay before sending an ACK */
 #if HZ >= 100
 //默认 delay ack 40ms，不能修改和关闭
 #define TCP_DELACK_MIN  ((unsigned)(HZ/25))     /* minimal time to delay before sending an ACK */

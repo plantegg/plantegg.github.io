@@ -279,5 +279,7 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 
 [章文嵩（正明）博士和他背后的负载均衡(LOAD BANLANCER)帝国](https://yq.aliyun.com/articles/52752)
 
+https://yizhi.ren/2019/05/03/lvs/
+
 
 

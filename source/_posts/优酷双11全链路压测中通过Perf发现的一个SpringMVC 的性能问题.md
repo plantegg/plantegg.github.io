@@ -14,12 +14,12 @@ tags:
 > 在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：
 
 
-![screenshot](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/b5610fa7e994b1e4578d38347a1478a7)
+![screenshot](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b5610fa7e994b1e4578d38347a1478a7)
 
 
 ## 再来看CPU消耗的火焰图：
 
-![screenshot](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/d228b47200f56fbbf5aadf0da56cbf15)
+![screenshot](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d228b47200f56fbbf5aadf0da56cbf15)
 
 图中CPU的消耗占21%，不太正常。
 
@@ -29,7 +29,7 @@ tags:
 带来使用上的便利
 
 ## 业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：
-![screenshot.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/a97e6f1da93173055b1385eebba8e327.png)
+![screenshot.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a97e6f1da93173055b1385eebba8e327.png)
 
 图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了
 
@@ -197,4 +197,4 @@ tags:
 最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：[http://www.cnblogs.com/ucos/articles/5542012.html](http://www.cnblogs.com/ucos/articles/5542012.html)
 
 以及这篇文章中给出的优化前后对比图：
-![screenshot](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/3c61ad759ae5f44bbb2a24e4714c2ee8)
+![screenshot](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3c61ad759ae5f44bbb2a24e4714c2ee8)

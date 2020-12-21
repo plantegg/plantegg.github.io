@@ -41,7 +41,7 @@ tags:
 
 #### 正常TCP建连接三次握手过程：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -74,7 +74,7 @@ tags:
 ### 深入理解TCP握手过程中建连接的流程和队列
 
 [^_^]:
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
 <!--（图片来源：http://www.cnxct.com/something-about-phpfpm-s-backlog/）-->
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d5947bd339c58c631217100f80ee7078.png)
@@ -156,8 +156,6 @@ netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过�
     tcp    0 28 server:22    client-1:51708  ESTABLISHED
     tcp    0  0 server:2376  client-1:60269 ESTABLISHED
 
- 
-
 
 
 **netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆**  
@@ -187,7 +185,7 @@ netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话�
 比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png)
 
 ##### netstat看到的listen状态的Recv-Q/Send-Q
 
@@ -209,15 +207,15 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 
 ### 案列：如果TCP连接队列溢出，抓包是什么现象呢？
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/c0849615ae52531887ce6b0313d7d2d1.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c0849615ae52531887ce6b0313d7d2d1.png)
 
 如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传
     
 #### 通过ss和netstat所观察到的状态
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/ec25ccb6cce8f554b7ef6927f05bd530.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec25ccb6cce8f554b7ef6927f05bd530.png)
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/2fbdd05162e9fd51e803682b8a18cc51.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2fbdd05162e9fd51e803682b8a18cc51.png)
 
 [另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因](https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/)
 
@@ -259,7 +257,7 @@ Nginx默认是511
 
 先来看一个例子：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
 （图片来自：http://blog.chinaunix.net/uid-20662820-id-4154399.html）
 
 如上图，150166号包是三次握手中的第三步client发送ack给server，然后150167号包中client发送了一个长度为816的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这816个字节的包，一直到超时，client主动发fin包断开该连接。
@@ -287,7 +285,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/a5616904df3a505572d99d557b534db2.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a5616904df3a505572d99d557b534db2.png)
 
 可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。
 
@@ -316,7 +314,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
 
 TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
 
@@ -363,3 +361,4 @@ https://blog.cloudflare.com/syn-packet-handling-in-the-wild/
 
 [How Linux allows TCP introspection The inner workings of bind and listen on Linux.](https://ops.tips/blog/how-linux-tcp-introspection/)
 
+https://www.cnblogs.com/xiaolincoding/p/12995358.html

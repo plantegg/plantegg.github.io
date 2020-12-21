@@ -14,13 +14,13 @@ tags:
 
 应用连接数据库一段时间后，执行SQL的时候总是抛出异常，通过抓包分析发现每次发送SQL给数据的时候，数据库总是Reset这个连接
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/3ea1a415f772af24d8f619a38542eb7e.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3ea1a415f772af24d8f619a38542eb7e.png)
 
 注意图中34号包，server（5029）发了一个fin包给client ，想要断开连接。client没断开，接着发了一个查询SQL给server。
 
 进一步分析所有断开连接（发送第一个fin包）的时间点，得到如图：
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/0ac00bfe8dcf87fa5c4997c89a16eb59.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0ac00bfe8dcf87fa5c4997c89a16eb59.png)
 
 基本上可以猜测，server（5029端口）在建立连接100秒终止后如果没有任何请求过来就主动发送fin包给client，要断开连接，但是这个时候client比较无耻，收到端口请求后没搭理（除非是故意的），这个时候意味着server准备好关闭了，也不会再给client发送数据了（ack除外）。
 
@@ -31,6 +31,6 @@ client的应用代码层肯定会抛出异常。
 
 ### server强行断开连接
 
-![image.png](http://ata2-img.cn-hangzhou.img-pub.aliyun-inc.com/eca804fbb71e9cdfb033a9c072d8b72d.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/eca804fbb71e9cdfb033a9c072d8b72d.png)
 
 18745号包，client发了一个查询SQL给server，server先是回复ack 18941号包，然后回复fin 19604号包，强行断开连接，client端只能抛异常了
