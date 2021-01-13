@@ -14,7 +14,6 @@ tags:
 ss是Socket Statistics的缩写。
 
 netstat命令大家肯定已经很熟悉了，但是在2001年的时候netstat 1.42版本之后就没更新了，之后取代的工具是ss命令，是iproute2 package的一员。
-	
 	# rpm -ql iproute | grep ss
 	/usr/sbin/ss
 
@@ -43,7 +42,7 @@ tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,
 tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
 ```
 
-![image.png](/images/4a09503e6c6e84c25e026248a1b3ebb6.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4a09503e6c6e84c25e026248a1b3ebb6.png)
 
 如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w已经预分配好了的size，t[the memory used for sending packet (which has been sent
                      to layer 3)] , 似乎 w总是等于大于t？
@@ -70,8 +69,6 @@ The entire print format of `ss -m` is given in the source:
 
         printf(")");
 ```
-
-I expect that the `ALLOC` values are only used when there is outstanding data - either data in a receive buffer waiting for an application to `recv()`, or un-ACKed sent data. You could test these with Ctrl+z to put a receiver to sleep, and firewalls to block ACKs. It's easier to use `nc` than `iperf` for that sort of testing. Socket option memory is rarely used.
 
 example:
 
@@ -160,7 +157,6 @@ Where OP can be one of the following:
 	ss \( sport = :http or sport = :https \)
 	ss -o state fin-wait-1 \( sport = :http or sport = :https \) dst 192.168.1/24
 
-
 ## 按连接状态过滤
 
 Display All Established HTTP Connections
@@ -168,7 +164,6 @@ Display All Established HTTP Connections
 	ss -o state established '( dport = :http or sport = :http )'
 
 List all the TCP sockets in state -FIN-WAIT-1 for our httpd to network 202.54.1/24 and look at their timers:
-	
 	ss -o state fin-wait-1 '( sport = :http or sport = :https )' dst 202.54.1/24
 
 Filter Sockets Using TCP States
@@ -194,7 +189,9 @@ Where FILTER-NAME-HERE can be any one of the following,
 	bucket : Show states, which are maintained as minisockets, i.e. time-wait and syn-recv.
 	big : Opposite to bucket state.
 
-## 通过抓取ss命令，可以分析出来重传的包数量，然后将重传的流的数量和重传的包的数量按照对端IP:port的维度分段聚合，参考命令：
+## ss分析重传的包数量
+
+通过抓取ss命令，可以分析出来重传的包数量，然后将重传的流的数量和重传的包的数量按照对端IP:port的维度分段聚合，参考命令：
 
 	ss -itn |grep -v "Address:Port" | xargs -L 1  | grep retrans | awk '{gsub("retrans:.*/", "",$21); print $5, $21}' | awk '{arr[$1]+=$2} END {for (i in arr) {print i,arr[i]}}' | sort -rnk 2 
 
@@ -203,23 +200,23 @@ Where FILTER-NAME-HERE can be any one of the following,
 ## 当前和最大全连接队列确认
 
 	$ss -lt
-	State      Recv-Q Send-Q Local Address:Port                 Peer Address:Port                
-	LISTEN     0      128    127.0.0.1:10248                       *:*                    
+	State      Recv-Q Send-Q Local Address:Port                 Peer Address:Port         
+	LISTEN     0      128    127.0.0.1:10248                       *:*                   
 	LISTEN     0      128           *:2376                        *:*                    
-	LISTEN     0      128    127.0.0.1:10249                       *:*                    
+	LISTEN     0      128    127.0.0.1:10249                       *:*                   
 	LISTEN     0      128           *:7337                        *:*                    
 	LISTEN     0      128           *:10250                       *:*                    
-	LISTEN     0      128    11.163.187.44:7946                        *:*                    
-	LISTEN     0      128    127.0.0.1:55631                       *:*                    
+	LISTEN     0      128    11.163.187.44:7946                        *:*               
+	LISTEN     0      128    127.0.0.1:55631                       *:*                   
 	LISTEN     0      128           *:10256                       *:*                    
 	LISTEN     0      10            *:6640                        *:*                    
-	LISTEN     0      128    127.0.0.1:vmware-fdm                  *:*                    
-	LISTEN     0      128    11.163.187.44:vmware-fdm                  *:*                    
+	LISTEN     0      128    127.0.0.1:vmware-fdm                  *:*                   
+	LISTEN     0      128    11.163.187.44:vmware-fdm                  *:*               
 	LISTEN     0      128           *:ssh                         *:*                    
-	LISTEN     0      10     127.0.0.1:15772                       *:*                    
-	LISTEN     0      10     127.0.0.1:15776                       *:*                    
-	LISTEN     0      10     127.0.0.1:19777                       *:*                    
-	LISTEN     0      10     11.163.187.44:15778                       *:*                    
+	LISTEN     0      10     127.0.0.1:15772                       *:*                   
+	LISTEN     0      10     127.0.0.1:15776                       *:*                   
+	LISTEN     0      10     127.0.0.1:19777                       *:*                   
+	LISTEN     0      10     11.163.187.44:15778                       *:*               
 	LISTEN     0      128           *:tr-rsrb-p2                  *:*
 
 ## ss -s

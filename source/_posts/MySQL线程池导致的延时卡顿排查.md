@@ -18,7 +18,7 @@ tags:
 
 简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。
 
-通过监控有显示逻辑慢SQL和物理SQL ，取一slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。
+通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。
 
 所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，Tomcat实例规格 16C32g*8, MySQL  32c128g  *32 。
 
@@ -43,8 +43,6 @@ tags:
 或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询
 
 !<img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
-
-
 
 ### 快的连接
 
@@ -98,34 +96,6 @@ mysql> show variables like '%thread%';
 | tokudb_client_pool_threads                 | 0               |
 +--------------------------------------------+-----------------+
 33 rows in set (0.00 sec)
-
-mysql> 
-
-22 rows in set (0.00 sec)
-
-mysql> show create table XT_SCENES_PARAM \G
-*************************** 1. row ***************************
-       Table: XT_SCENES_PARAM
-Create Table: CREATE TABLE `xt_scenes_param` (
-  `SCENES` varchar(150) COLLATE utf8mb4_bin NOT NULL COMMENT '????',
-  `CURRENT_USABLE_FLAG` varchar(150) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '????????',
-  `NEXT_USABLE_FLAG` varchar(150) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '????????????',
-  `PREVIOUS_USABLE_FLAG` varchar(150) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '????????',
-  `LAST_UPDATE_TIME` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '???????',
-  `CHANGE_FLAG` char(1) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '?????1???? 2?????',
-  `SCENES_DESC` varchar(150) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '????',
-  PRIMARY KEY (`SCENES`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT='????????'
-1 row in set (0.00 sec)
-
-mysql> explain SELECT `XT_SCENES_PARAM`.`SCENES` AS `SCENES`, `XT_SCENES_PARAM`.`CURRENT_USABLE_FLAG` AS `currentUseFlag`, `XT_SCENES_PARAM`.`PREVIOUS_USABLE_FLAG` AS `previousUseFlag`, `XT_SCENES_PARAM`.`LAST_UPDATE_TIME` AS `lastUpdateTime`, `XT_SCENES_PARAM`.`SCENES_DESC` AS `scenesDesc` FROM `XT_SCENES_PARAM` AS `XT_SCENES_PARAM` WHERE (`XT_SCENES_PARAM`.`SCENES` = 'QYXXCX');
-
-+----+-------------+-----------------+-------+---------------+---------+---------+-------+------+-------+
-| id | select_type | table           | type  | possible_keys | key     | key_len | ref   | rows | Extra |
-+----+-------------+-----------------+-------+---------------+---------+---------+-------+------+-------+
-|  1 | SIMPLE      | XT_SCENES_PARAM | const | PRIMARY       | PRIMARY | 602     | const |    1 | NULL  |
-+----+-------------+-----------------+-------+---------------+---------+---------+-------+------+-------+
-1 row in set (0.00 sec)
 ```
 
 ## 综上结论
@@ -136,11 +106,11 @@ mysql> explain SELECT `XT_SCENES_PARAM`.`SCENES` AS `SCENES`, `XT_SCENES_PARAM`.
 
 ## 问题解决
 
-18点的时候将4637端口对应的MySQL的 thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：
+18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：
 
 <img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
 
-但是不太能理解的是从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况。
+当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）
 
 MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。
 
@@ -158,11 +128,11 @@ no-threads一般用于调试，生产环境一般用one-thread-per-connection方
 
 线程池由一系列 worker 线程组成，这些worker线程被分为`thread_pool_size`个group。用户的连接按 round-robin 的方式映射到相应的group 中，一个连接可以由一个group中的一个或多个worker线程来处理。
 
-`thread_pool_stall_limit` timer线程检测间隔。此参数设置过小，会导致创建过多的线程，从而产生较多的线程上下文切换，但可以及时处理锁等待的场景，避免死锁。参数设置过大，对长语句有益，但会阻塞短语句的执行。参数设置需视具体情况而定，例如99%的语句10ms内可以完成，那么我们可以将就`thread_pool_stall_limit`设置为10ms。
-
 thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过`thread_pool_oversubscribe`时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了`thread_pool_max_threads`上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。`thread_pool_oversubscribe`控制group中活跃线程和等待中的线程总数，从而防止了上述情况。
 
-**MySQL Thread Pool之所有分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。**
+`thread_pool_stall_limit` timer线程检测间隔。此参数设置过小，会导致创建过多的线程，从而产生较多的线程上下文切换，但可以及时处理锁等待的场景，避免死锁。参数设置过大，对长语句有益，但会阻塞短语句的执行。参数设置需视具体情况而定，例如99%的语句10ms内可以完成，那么我们可以将就`thread_pool_stall_limit`设置为10ms。
+
+**MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。**
 
 group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。
 
@@ -174,7 +144,7 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52dbeb1c1058e6dbff0a790b4b4ba477.png)
 
-进分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。
+分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。
 
 继续分析MySQL的参数：
 
@@ -221,7 +191,7 @@ MySQL线程池设计成多个池子（Group）的原因是为了将任务队列�
 
 同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。
 
-类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，一旦这个worker上有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。
+**类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，如果这个worker上的某个连接有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。**
 
 Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。
 

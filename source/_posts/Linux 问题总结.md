@@ -38,6 +38,32 @@ sudo: policy plugin failed session initialization
 grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景
 ```
 
+## debug crond
+
+先停掉 crond service，然后开启debug参数
+
+```
+ systemctl stop crond
+ crond -x proc //不想真正执行的话：test
+```
+
+或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：
+
+```
+Debug sudo /var/log/sudo_debug all@warn
+Debug sudoers.so /var/log/sudoers_debug all@debug
+```
+
+## systemd limits
+
+
+/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。
+
+因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。
+
+对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf
+和/etc/systemd/user.conf.d/.conf。
+
 ### 关于ulimit的一些知识点
 
 参考 [Ulimit](https://feichashao.com/ulimit_demo/) http://blog.yufeng.info/archives/2568
@@ -48,8 +74,6 @@ grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景
 - 进程 fork() 出来的子进程，会继承父进程的 limits 设定
 - `ulimit` 是 shell 的内置命令。在执行`ulimit`命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定
 - shell 的初始 limits 是谁设定的: 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值
-
-
 
 ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：
 
@@ -98,8 +122,6 @@ PAM 提供四个安全领域的特性，但是应用程序不太可能同时需�
 - `required` 模块必须成功。如果失败，PAM 返回 `failure`，但是会在运行堆中的其他模块之后返回。
 - `requisite` 模块也必须成功。但是，如果失败，PAM 立即返回 `failure`，不再运行其他模块。
 - `sufficient` 模块在成功时导致 PAM 立即返回 `success`，不再运行其他模块。
-
-
 
 当pam安装之后有两大部分：在/lib64/security目录下的各种pam模块以及/etc/pam.d和/etc/pam.d目录下的针对各种服务和应用已经定义好的pam配置文件。当某一个有认证需求的应用程序需要验证的时候，一般在应用程序中就会定义负责对其认证的PAM配置文件。以vsftpd为例，在它的配置文件/etc/vsftpd/vsftpd.conf中就有这样一行定义：
 
@@ -183,31 +205,7 @@ session     required      pam_unix.so
 | pam_cracklib.so  | password                         | 这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.     |
 | pam_limits.so    | session                          | 定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定 |
 
-## debug crond
 
-先停掉 crond service，然后开启debug参数
-
-```
- systemctl stop crond
- crond -x proc //不想真正执行的话：test
-```
-
-或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：
-
-```
-Debug sudo /var/log/sudo_debug all@warn
-Debug sudoers.so /var/log/sudoers_debug all@debug
-```
-
-## systemd limits
-
-
-/etc/security/limits.conf 的配置，只适用于通过PAM 认证登录用户的资源限制，它对systemd 的service 的资源限制不生效。
-
-因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。
-
-对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf
-和/etc/systemd/user.conf.d/.conf。
 
 ## 强制重启系统
 
@@ -216,6 +214,12 @@ Debug sudoers.so /var/log/sudoers_debug all@debug
 ## hostname
 
 hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程libnss_myhostname 返回所有ip
+
+## tsar Floating point execption
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/72197d600425656ec9a8ed18bcc5853b.png)
+
+因为 /etc/localtime 是deleted状态
 
 ## yum 源问题处理
 
@@ -261,7 +265,7 @@ http://yum.baseurl.org/wiki/Faq
 
 ### [软中断开销计算](https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247483827&idx=3&sn=8b897c8d6d3038ea79bd156a0e88db10&scene=21#wechat_redirect)
 
-- **查看软中断总耗时**， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%）
+- **查看软中断总耗时**， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%--1秒[1000ms]中的1.2%）
 - **查看软中断次数**，再用vmstat命令可以看到软中断的次数（in列 56000）
 - **计算每次软中断的耗时**，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右
 

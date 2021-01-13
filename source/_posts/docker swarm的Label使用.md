@@ -11,17 +11,11 @@ tags:
 
 ## 需求背景
 
-
-
 广发银行需要把方舟集群部署在多个机房（多个机房组成一个大集群），这样物理机和容器vlan没法互相完全覆盖，
 
 也就是可能会出现A机房的网络subnet:192.168.1.0/24, B 机房的网络subnet：192.168.100.0/24 但是他们属于同一个vlan，要求如果容器在A机房的物理机拉起，分到的是192.168.1.0/24中的IP，B机房的容器分到的IP是：192.168.100.0/24
 
-
-
 **功能实现：**
-
-
 
 - **本质就是对所有物理机打标签，同一个asw下的物理机用同样的标签，不同asw下的物理机标签不同；**
 - **创建容器网络的时候也加标签，不同asw下的网络标签不一样，同时跟这个asw下的物理机标签匹配；**
@@ -37,23 +31,16 @@ daemon启动的时候增加标签（其中一个就行）：
 | -------------------------------- | ---------------------------------- |
 |                                  |                                    |
 
-
 **2：**
 创建网络的时候使用对应的标签：
-
-
 
 | 网络域交换机组asw列表的名称，多个逗号隔开                    | com.alipay.acs.network.asw.hostname |
 | ------------------------------------------------------------ | ----------------------------------- |
 | 该VLAN网络是否必须显式指定，默认为0即不必须，此时当传入--net driver:vlan时ACS会根据调度结果自行选择一个可用的VLAN网络并拼装到参数中 | com.alipay.acs.network.explicit     |
 
-
-
 **3：**
 
 Swarm manager增加可选启动选项netarch.multiscope，值为true
-
-
 
 ### 功能实现逻辑
 
@@ -85,8 +72,6 @@ numChildren = 0
 [zk: localhost:2181(CONNECTED) 28] set /Cluster/docker/network/v1.0/network/c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc {"addrSpace":"GlobalDefault","enableIPv6":false,"generic":{"com.docker.network.enable_ipv6":false,"com.docker.network.generic":{"VlanId":"192"}},"id":"c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc","inDelete":false,"internal":false,"ipamOptions":{"VlanId":"192"},"ipamType":"default","ipamV4Config":"[{\"PreferredPool\":\"192.168.8.0/24\",\"SubPool\":\"\",\"Gateway\":\"192.168.8.1\",\"AuxAddresses\":null}]","ipamV4Info":"[{\"IPAMData\":\"{\\\"AddressSpace\\\":\\\"\\\",\\\"Gateway\\\":\\\"192.168.8.1/24\\\",\\\"Pool\\\":\\\"192.168.8.0/24\\\"}\",\"PoolID\":\"GlobalDefault/192.168.8.0/24\"}]",**"labels":{"com.alipay.acs.network.asw.hostname":"238"},**"name":"vlan192-8","networkType":"vlan","persist":true,"postIPv6":false,"scope":"global"}
 
 ```
-
-
 
 example：
 

@@ -14,8 +14,6 @@ tags:
 
 本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。
 
-
-
 ## 先上总结
 
 非IO复用的惊群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但同时带来了不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好滴解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。
@@ -133,6 +131,10 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 - Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。
 - 内核的reuseport中相当于所有listen同一个端口的进程是一个组合，内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。
 
+当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，根据**SO_REUSEPORT**匹配到对应的监听port的多个线程中的一个
+
+![](https://mmbiz.qpic.cn/mmbiz_png/yiaiaFLiaflYRTRy6F9YcnuFfYn7ESbWldtibYIVFRL84nRwtZuOgWYdOTI4BuRodRdR7LvWLlDXZl5cZ23l3AUgOQ/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
+
 #### SO_REUSEPORT 带来的小问题
 
 SO_REUSEPORT打开后，再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个cpu一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例
@@ -240,3 +242,4 @@ EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker
 
 [从SO_REUSEPORT服务器的一个弊端看多队列服务模型](https://blog.csdn.net/dog250/article/details/107227145)
 
+https://my.oschina.net/alchemystar/blog/3008840

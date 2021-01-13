@@ -81,7 +81,7 @@ ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 
 ### 零拷贝应用
 
-kafaka这个开源项目，就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一。
+kafaka就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一。
 
 如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 `transferTo` 方法：
 

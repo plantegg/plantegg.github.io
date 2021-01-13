@@ -11,7 +11,7 @@ tags:
 
 # Linux内存--PageCache
 
-Page Cache 是在应用程序读写文件的过程中产生的
+Page Cache 是在应用程序读写文件的过程中产生的， 
 
 手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：
 

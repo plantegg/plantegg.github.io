@@ -69,8 +69,6 @@ drop_slab 0
 
 内存不够、脏页太多、碎片太多，都会导致分配失败，从而触发回收，导致卡顿。
 
-
-
 ### 系统中脏页过多引起 load 飙高
 
 直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。
@@ -201,13 +199,13 @@ sum=802 MB
 4. 对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 [drsnoop](https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt)，[compactsnoop](https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt) 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；
 5. (Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。
 
-## 一个阿里云ECS 性能衰退的案例
+## 一个阿里云ECS 因为宿主机碎片导致性能衰退的案例
 
-同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题
+LVS后面三个RS在同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8bbb5c886dc06196546daec46712ff71.png)
 
-原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在大页场景下会慢很多
+原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在ECS中大页场景下会慢很多
 
 通过 **openssl speed aes-256-ige 能稳定重现** 在大块的加密上慢很多
 

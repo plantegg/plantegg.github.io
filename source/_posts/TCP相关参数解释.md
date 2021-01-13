@@ -36,7 +36,7 @@ HZ的不同值会影响timer （节拍）中断的频率
 
 ## Tick
 
-Tick是HZ的倒数，意即timer interrupt每发生一次中断的时间。如HZ为250时，tick为4毫秒(millisecond)。
+Tick是HZ的倒数，意即timer interrupt每发生一次中断的间隔时间。如HZ为250时，tick为4毫秒(millisecond)。
 
 ## Jiffies
 
@@ -86,7 +86,6 @@ extern u32 sysctl_tcp_init_cwnd;
 #define TCP_NAGLE_OFF           1       /* Nagle's algo is disabled */
 #define TCP_NAGLE_CORK          2       /* Socket is corked         */
 #define TCP_NAGLE_PUSH          4       /* Cork is overridden for already queued data */
-
 
 #define TCP_TIMEWAIT_LEN (60*HZ) /* how long to wait to destroy TIME-WAIT
                                   * state, about 60 seconds     */

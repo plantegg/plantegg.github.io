@@ -53,42 +53,13 @@ tags:
 
 我们的应用代码中会默认设置 socketSendBuffer 为16K:
 
-> socket.setSendBufferSize(16*1024) //16K send buffer
+> socket.setSendBufferSize(16*1024) //16K send buffer 
 
 来看一下tcp包发送流程：
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d385a7dad76ec4031dfb6c096bca434b.png)
 
 （图片[来自][5]）
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ff025f076a4a2bc2b1b13d11f32a97d3.png)
-
-如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：
-
-
-     #!/usr/bin/stap
-        # Simple probe to detect when a process is waiting for more socket send
-        # buffer memory. Usually means the process is doing writes larger than the
-        # socket send buffer size or there is a slow receiver at the other side.
-        # Increasing the socket's send buffer size might help decrease application
-        # latencies, but it might also make it worse, so buyer beware.
-    # Typical output: timestamp in microseconds: procname(pid) event
-    #
-    # 1218230114875167: python(17631) blocked on full send buffer
-    # 1218230114876196: python(17631) recovered from full send buffer
-    # 1218230114876271: python(17631) blocked on full send buffer
-    # 1218230114876479: python(17631) recovered from full send buffer
-    probe kernel.function("sk_stream_wait_memory")
-    {
-        printf("%u: %s(%d) blocked on full send buffern",
-            gettimeofday_us(), execname(), pid())
-    }
-    
-    probe kernel.function("sk_stream_wait_memory").return
-    {
-        printf("%u: %s(%d) recovered from full send buffern",
-            gettimeofday_us(), execname(), pid())
-    }
 
 ## 原理解析
 
@@ -187,7 +158,7 @@ BDP=rtt*(带宽/8)
 
 窗口由最开始28K(20个1448）很快降到了不到4K的样子，然后基本游走在即将满的边缘，虽然读取慢，幸好rtt也大，导致最终也没有满。（这个是3.1的Linux，应用SO_RCVBUF设置的是8K，用一半来做接收窗口）
 
-## SO_RCVBUF很小的时候并且rtt很小时对性能的影响
+## SO_RCVBUF很小的时候并且rtt很小对性能的影响
 
 如果同样的语句在 rtt 是0.1ms的话
 
@@ -270,7 +241,7 @@ BDP=rtt*(带宽/8)
     Keep in mind the kernel will double any socket buffer allocation for overhead. 
     So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
 
-初始窗口计算的代码逻辑，重点在18行： 
+初始窗口计算的代码逻辑，重点在17行： 
 
         /* TCP initial congestion window as per rfc6928 */
         #define TCP_INIT_CWND           10
@@ -415,7 +386,7 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 长肥网络就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。
 在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。
 
-整个这个问题，我最初拿到的问题描述结构是这样的：
+整个这个问题，我最初拿到的问题描述结构是这样的（不要笑用户连自己的业务结构都描述不清）：
 
 client ------150ms----->>>nginx
 
@@ -472,6 +443,43 @@ client ------150ms----->>>nginx
 >  $ cat /sys/kernel/debug/tracing/trace_pipe
 
 如果有日志输出（即发生了该事件），就意味着你需要调大 tcp_mem 了，或者是需要断开一些 TCP 连接了。
+
+### 或者通过systemtap来观察
+
+如下是tcp_sendmsg流程，sk_stream_wait_memory就是tcp_wmem不够的时候触发等待：
+
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ff025f076a4a2bc2b1b13d11f32a97d3.png)
+
+如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：
+
+
+     #!/usr/bin/stap
+        # Simple probe to detect when a process is waiting for more socket send
+        # buffer memory. Usually means the process is doing writes larger than the
+        # socket send buffer size or there is a slow receiver at the other side.
+        # Increasing the socket's send buffer size might help decrease application
+        # latencies, but it might also make it worse, so buyer beware.
+    
+    probe kernel.function("sk_stream_wait_memory")
+    {
+        printf("%u: %s(%d) blocked on full send buffern",
+            gettimeofday_us(), execname(), pid())
+    }
+    
+    probe kernel.function("sk_stream_wait_memory").return
+    {
+        printf("%u: %s(%d) recovered from full send buffern",
+            gettimeofday_us(), execname(), pid())
+    }
+    
+    # Typical output: timestamp in microseconds: procname(pid) event
+    #
+    # 1218230114875167: python(17631) blocked on full send buffer
+    # 1218230114876196: python(17631) recovered from full send buffer
+    # 1218230114876271: python(17631) blocked on full send buffer
+    # 1218230114876479: python(17631) recovered from full send buffer
+
+
 
 ## 总结
 

@@ -40,7 +40,7 @@ tags:
 //先安装yum工具
 yum install yum-utils -y
 //将 ansible 依赖包都下载下来
-repoquery -R --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible
+repoquery --requires --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible
 //将ansible rpm自己下载回来
 yumdownloader --destdir=/tmp/ansible --resolve ansible
 //验证一下依赖关系是完整的
@@ -64,7 +64,6 @@ Saving file lists metadata
 Saving other metadata
 Generating sqlite DBs
 Sqlite DBs complete
-
 ```
 
 会在yum文件夹下生成一个索引文件夹 repodata
@@ -145,4 +144,12 @@ yum deplist ansible
 ## yum 源问题处理
 
 [Yum commands error "pycurl.so: undefined symbol”](https://access.redhat.com/solutions/641093)
+
+## 安装yum源
+
+安装7.70版本curl yum源
+
+```
+rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm
+```
 

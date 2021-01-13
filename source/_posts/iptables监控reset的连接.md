@@ -102,8 +102,6 @@ error: skipping "/var/log/myapp/default.log" because parent directory has insecu
 config file to tell logrotate which user/group should be used for rotation
 ```
 
-
-
 ## 最终效果
 
 ```
@@ -133,6 +131,55 @@ Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 
 - `FORWARD`: 由 `NF_IP_FORWARD` hook 触发
 - `OUTPUT`: 由 `NF_IP_LOCAL_OUT` hook 触发
 - `POSTROUTING`: 由 `NF_IP_POST_ROUTING` hook 触发
+
+## tracing_point 监控
+
+对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包
+
+```
+# grep tcp:tcp /sys/kernel/debug/tracing/available_events
+tcp:tcp_probe
+tcp:tcp_retransmit_synack
+tcp:tcp_rcv_space_adjust
+tcp:tcp_destroy_sock
+tcp:tcp_receive_reset
+tcp:tcp_send_reset
+tcp:tcp_retransmit_skb
+
+#开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe
+# echo 1 > /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/enable
+
+#如下是开启重传以及reset的记录，本机ip 10.0.186.140
+# cat trace_pipe
+//重传
+          <idle>-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          
+ Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a
+ C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574
+ 
+// 被reset
+  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd
+// 主动reset  
+     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174
+  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193
+  
+ // 3306对端中断 
+              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED
+          <idle>-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE
+         
+//8182 主动关闭         
+          <idle>-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED
+    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1
+          <idle>-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2
+          <idle>-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE
+
+//3306 被动关闭
+          <idle>-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED
+             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT
+ Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK
+ Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE
+```
+
+
 
 ## 参考资料
 

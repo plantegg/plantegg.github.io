@@ -53,7 +53,7 @@ virtualbox的启动参数里明确能看到这快盘，和挂载配置
 启动后通过fdisk可以看见这块大硬盘
 
 	$sudo fdisk -l
-
+	
 	Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
 	Units: sectors of 1 * 512 = 512 bytes
 	Sector size (logical/physical): 512 bytes / 512 bytes
@@ -129,7 +129,7 @@ lsblk(修复后）
 其中sda是系统盘，sdb是修复后的大磁盘， sdc 是修复前的大磁盘（备份过的）
 
 	$sudo fdisk -l
-
+	
 	Disk /dev/sda: 20 GiB, 21474836480 bytes, 41943040 sectors
 	Units: sectors of 1 * 512 = 512 bytes
 	Sector size (logical/physical): 512 bytes / 512 bytes
@@ -233,6 +233,41 @@ dmesg中比较正常和不正常的磁盘日志，是看不出来差别的（还
 	Nov  4 18:06:57 vb kernel: [    6.754757] sd 4:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
 	Nov  4 18:06:57 vb kernel: [    6.767797]  sdc: sdc1 sdc2 < sdc5 >
 	Nov  4 18:06:57 vb kernel: [    6.768061] sd 4:0:0:0: [sdc] Attached SCSI disk
+
+## 磁盘自检失败，进入emergency mode
+
+修复参考方案：https://www.jianshu.com/p/7433e0bb38e9
+
+```
+welcome to emergency mode. ......  journalctl -xb...
+Press enter for maintenance
+(or type Control-D to continue): 
+```
+
+解决方法有两个：
+
+**第一种：跳过检测受损分区**
+
+１、按照提示　执行　journalctl -xb
+
+　　在日志记录中向下翻页找到损坏的分区是哪个，一般是红色的字体，也可以输入/ fsck fail，按N/n来快速查找（我的是/dev/sda11，这个分区我挂载的是/home）
+
+２、vi /etc/fstab 
+
+编辑fstab这个文件，注释掉对应的mount行。或将损坏的分区后面的数字从２改为０（０代表启动时不检查该分区）
+
+３、执行reboot 　重启
+
+**第二种方法：修复受损的分区**
+
+１、执行命令 umount /dev/sdb1 （对应自己出错的设备）卸载设备;
+
+２、执行命令 fsck -y /dev/sdb1 执行fsck校验并修复文件;
+
+3、重新mount就可以使用了
+
+两种方法我都解决了我的问题，不过我还是使用了第二种，第一种总感觉治标不治本！
+
 
 
 ## 奇葩问题

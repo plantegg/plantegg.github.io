@@ -288,8 +288,6 @@ for循环部分一次把生成的密钥对和authorized_keys复制到所有机�
 - 客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道
 - server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等
 
-
-
 ## ~/.ssh/config 参考配置
 
 ```
@@ -311,8 +309,6 @@ ControlPath ~/tmp/ssh_mux_%h_%p_%r
 #keep one connection in 72hour
 ControlPersist 72h
 ```
-
-
 
 ## /etc/ssh/ssh_config 参考配置
 
@@ -362,8 +358,6 @@ SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-
 私钥设置了密码以后，每次使用都必须输入密码，有时让人感觉非常麻烦。比如，连续使用`scp`命令远程拷贝文件时，每次都要求输入密码。
 
 `ssh-agent`命令就是为了解决这个问题而设计的，它让用户在整个 Bash 对话（session）之中，只在第一次使用 SSH 命令时输入密码，然后将私钥保存在内存中，后面都不需要再输入私钥的密码了。
-
-
 
 第一步，使用下面的命令新建一次命令行对话。
 
