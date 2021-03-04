@@ -248,7 +248,38 @@ $sudo cat /proc/44073/smaps |grep AnonHuge |awk '{sum+=$2}END{print sum}'
 10240
 ```
 
+## 内存使用分析
 
+### pmap
+
+```
+pmap -x 24282 | less
+24282:   /usr/sbin/rsyslogd -n
+Address           Kbytes     RSS   Dirty Mode  Mapping
+000055ce1a99f000     596     580       0 r-x-- rsyslogd
+000055ce1ac34000      12      12      12 r---- rsyslogd
+000055ce1ac37000      28      28      28 rw--- rsyslogd
+000055ce1ac3e000       4       4       4 rw---   [ anon ]
+000055ce1c1f1000     364     204     204 rw---   [ anon ]
+00007fff8b5a4000     132      20      20 rw---   [ stack ]
+00007fff8b5e6000      12       0       0 r----   [ anon ]
+00007fff8b5e9000       8       4       0 r-x--   [ anon ]
+---------------- ------- ------- -------
+total kB          620060   17252    3304
+```
+
+- Address：占用内存的文件的内存起始地址。
+- Kbytes：占用内存的字节数。
+- RSS：实际占用内存大小。
+- Dirty：脏页大小。
+- Mapping：占用内存的文件，[anon] 为已分配的内存，[stack] 为程序堆栈
+
+### /proc/pid/
+
+`/proc/[pid]/` 下面与进程内存相关的文件主要有`maps , smaps, status`。
+maps： 文件可以查看某个进程的代码段、栈区、堆区、动态库、内核区对应的虚拟地址
+smaps: 显示每个分区更详细的内存占用数据
+status: 包含了所有CPU活跃的信息，该文件中的所有值都是从系统启动开始累计到当前时刻
 
 ## 参考资料
 
@@ -257,3 +288,10 @@ https://www.atatech.org/articles/66885
 https://cloud.tencent.com/developer/article/1087455
 
 https://www.cnblogs.com/xiaolincoding/p/13719610.html
+
+[rsyslog占用内存高](https://blog.csdn.net/fanren224/article/details/103991748)
+
+https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html
+
+[鸟哥 journald 介绍](https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html)
+

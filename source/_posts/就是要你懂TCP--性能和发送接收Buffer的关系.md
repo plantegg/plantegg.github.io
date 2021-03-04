@@ -23,6 +23,10 @@ tags:
 
 先明确一下：**文章标题中所说的Buffer指的是sysctl中的 rmem或者wmem，如果是代码中指定的话对应着SO_SNDBUF或者SO_RCVBUF，从TCP的概念来看对应着发送窗口或者接收窗口**
 
+最后补充各种场景下的传输案例，一站式将影响传输速度的各种原因都拿下，值得收藏。
+
+更多其他因素影响TCP性能的案例见：[TCP传输速度案例分析](https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/)
+
 # TCP性能和发送接收Buffer的关系
 
 先从碰到的一个实际问题看起：
@@ -45,7 +49,7 @@ tags:
 
 <img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png" style="zoom: 80%;" />
 
-换个角度，看看窗口尺寸图形：
+可以看到传输过程总有一个20ms的等待平台，这20ms没有发送任何包，换个角度，看看窗口尺寸图形：
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/7ae26e844629258de173a05d5ad595f9.png)
 
@@ -237,8 +241,7 @@ BDP=rtt*(带宽/8)
     ESTAB      0      0      10.xx.xx.xxx:22     10.yy.yy.yyy:12345  users:(("sshd",pid=1442,fd=3))
              skmem:(r0,rb369280,t0,tb87040,f4096,w0,o0,bl0,d92)
     
-    Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.
-    Keep in mind the kernel will double any socket buffer allocation for overhead. 
+    Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.Keep in mind the kernel will double any socket buffer allocation for overhead. 
     So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
 
 初始窗口计算的代码逻辑，重点在17行： 
@@ -292,8 +295,7 @@ BDP=rtt*(带宽/8)
 如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K     
     static inline int tcp_win_from_space(const struct sock *sk, int space)
     {//space 传入的时候就已经是 2*SO_RCVBUF了
-            int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;
-    
+            int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;    
 
             return tcp_adv_win_scale <= 0 ?
                     (space>>(-tcp_adv_win_scale)) :
@@ -327,88 +329,7 @@ BDP=rtt*(带宽/8)
 
 Note that if the buffer size is set with `setsockopt()`, the value returned with `getsockopt()` is always _double_ the size requested to allow for overhead. This is described in `man 7 socket`.
 
-## 长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响
 
-最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题
-
-案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：
-
-client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms----->>>nginx
-
-通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）
-
-### Nginx上抓包
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/259767fb17f7dbffe7f77ab059c47dbd.png)
-
-从这里可以看到Nginx大概在60ms内就将4M的数据都发完了
-
-### client上抓包
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/466fba92829f6a922ccd2d57a7e3fdac.png)
-
-从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。
-
-从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。
-
-检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置
-
-### 将buffer改大
-
-速度可以到420K，但是还没有跑满带宽：
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/93e254c5154ce2e065bec9fb34f3db2b.png)
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/0a8c68a58da6f169573b57cde0ffba93.png)
-
-接着看一下client上的抓包
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/822737a4ed6ffe6b920d4b225a1be5bf.png)
-
-可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor
-
-那么继续分析一下握手包，syn：
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/004886698ddbaa1cbc8342a9cd667c76.png)
-
-说明client是支持的，再看 syn+ack：
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/70155e021390cb1ee07091c306c375f4.png)
-
-可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。
-
-如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了
-
-比如这是这个应用的开发人员的反馈：
-
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a08a204ec7ad4bba7867dacea1668322.png)
-
-长肥网络就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。
-在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。
-
-整个这个问题，我最初拿到的问题描述结构是这样的（不要笑用户连自己的业务结构都描述不清）：
-
-client ------150ms----->>>nginx
-
-实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。
-
-这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。
-
-## delay ack拉高实际rt的case
-
-如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。
-
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d56f87a19a10b0ac9a3b7009641247a0.png)
-
-抓包来分析原因：
-
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d5e2e358dd1a24e104f54815c84875c9.png)
-
-实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了
-
-从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt
-
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/48eae3dcd7c78a68b0afd5c66f783f23.png)
 
 ## OS层面相关参数：
 
@@ -479,8 +400,6 @@ client ------150ms----->>>nginx
     # 1218230114876271: python(17631) blocked on full send buffer
     # 1218230114876479: python(17631) recovered from full send buffer
 
-
-
 ## 总结
 
 * 一般来说绝对不要在程序中手工设置SO_SNDBUF和SO_RCVBUF，内核自动调整比你做的要好；
@@ -493,7 +412,11 @@ client ------150ms----->>>nginx
 
 **总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF**
 
+关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满
+
 # 相关和参考文章
+
+[用stap从内核角度来分析buffer、rt和速度](https://blog.csdn.net/dog250/article/details/113020804)
 
 [经典的 nagle 和 dalay ack对性能的影响 就是要你懂 TCP-- 最经典的TCP性能问题][23]
 

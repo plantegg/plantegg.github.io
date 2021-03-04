@@ -261,6 +261,8 @@ spec:
         --enable-skip-login            //增加这行表示不需要token 就能login，不推荐
 ```
 
+kubectl proxy --address 0.0.0.0 --accept-hosts '.*'
+
 ## node管理
 
 ```shell
@@ -671,7 +673,7 @@ quote是一个模板方法，可以将输入的参数添加双引号
 kubernetes自动补全：
 
 ```
-source <(kubectl completion bash)
+source <(kubectl completion bash) 
 ```
 
 helm自动补全：

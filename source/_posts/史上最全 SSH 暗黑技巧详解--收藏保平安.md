@@ -462,8 +462,10 @@ $ ssh -L local-port:target-host:target-port tunnel-host
 举例来说，现在有一台 SSH 跳板机`tunnel-host`，我们想要通过这台机器，在本地`2121`端口与目标网站`www.example.com`的80端口之间建立 SSH 隧道，就可以写成下面这样。
 
 ```
-$ ssh -L 2121:www.example.com:80 tunnel-host -N
+$ ssh -L 7001:www.example.com:389 tunnel-host -N
 ```
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec20b280dd381b777eb1bfa9f3291e3f.png)
 
 然后，访问本机的`2121`端口，就是访问`www.example.com`的80端口。
 

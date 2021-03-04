@@ -10,7 +10,7 @@ tags:
 
 # Linux 问题总结
 
-## 文件权限的坑
+## crond文件权限的坑
 
 crond第一次加载的时候（刚启动）会去检查文件属性，不是644的话以后都不会执行了，即使后面chmod改成了644. 
 
@@ -20,7 +20,25 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
  crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个**修改不包含权限的修改**。可以简单地理解这个修改是指文件的change time。
 
-## 容器中ulimit限制了crond的执行
+## 容器中root用户执行 su - admin 切换失败
+
+问题原因：https://access.redhat.com/solutions/30316
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/63a4ac6669f820156bff035e7dc49ac2.png)
+
+如上图去掉 admin nproc限制就可以了
+
+这是因为root用户的nproc是unlimited，但是admin的是65535，所以切不过去
+
+```
+[root@i22h08323 /home/admin]
+#ulimit -u
+unlimited
+```
+
+
+
+## 容器中ulimit限制了sudo的执行
 
 容器启动的时候默认nofile为65535（可以通过 docker run --ulimit nofile=655360 来设置），如果容器中的 /etc/security/limits.conf 中设置的nofile大于 65535就会报错，因为容器的1号进程就是65535了，比如在容器中用root用户执行sudo ls报错：
 
@@ -213,7 +231,7 @@ session     required      pam_unix.so
 
 ## hostname
 
-hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程libnss_myhostname 返回所有ip
+hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip
 
 ## tsar Floating point execption
 
@@ -244,6 +262,8 @@ If you cannot solve this problem yourself, please go to
 the yum faq at:
 http://yum.baseurl.org/wiki/Faq
 ```
+
+- Check and fix the related library paths or remove 3rd party libraries, usually `libcurl` or `libssh2`. On a x86_64 system, the standard paths for those libraries are `/usr/lib64/libcurl.so.4` and `/usr/lib64/libssh2.so.1`
 
 ## 软中断、系统调用和上下文切换
 

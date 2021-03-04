@@ -80,12 +80,51 @@ IPVS 是专门为LB设计的。它用hash table管理service，对service的增�
 
 iptables+clusterIP工作流程：
 
-1. 集群内访问svc 10.10.35.224:3306 命中 kube-services iptables
+1. 集群内访问svc 10.10.35.224:3306 命中 kube-services iptables（两条规则，宿主机、以及pod内）
 2. iptables 规则：KUBE-SEP-F4QDAAVSZYZMFXZQ 对应到  KUBE-SEP-F4QDAAVSZYZMFXZQ
 3. KUBE-SEP-F4QDAAVSZYZMFXZQ 指示 DNAT到 宿主机：192.168.0.83:10379（在内核中将包改写了ip port）
 4. 从svc description中可以看到这个endpoint的地址 192.168.0.83:10379（pod使用Host network）
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52e050ebb7841d70b7e3ea62e18d5b30.png)
+
+iptables规则解析如下（case不一样，所以看到的端口、ip都不一样）：
+
+```
+-t nat -A {PREROUTING, OUTPUT} -m conntrack --ctstate NEW -j KUBE-SERVICES
+
+# 宿主机访问 nginx Service 的流量，同时满足 4 个条件：
+# 1. src_ip 不是 Pod 网段
+# 2. dst_ip=3.3.3.3/32 (ClusterIP)
+# 3. proto=TCP
+# 4. dport=80
+# 如果匹配成功，直接跳转到 KUBE-MARK-MASQ；否则，继续匹配下面一条（iptables 是链式规则，高优先级在前）
+# 跳转到 KUBE-MARK-MASQ 是为了保证这些包出宿主机时，src_ip 用的是宿主机 IP。
+-A KUBE-SERVICES ! -s 1.1.0.0/16 -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-MARK-MASQ
+# Pod 访问 nginx Service 的流量：同时满足 4 个条件：
+# 1. 没有匹配到前一条的，（说明 src_ip 是 Pod 网段）
+# 2. dst_ip=3.3.3.3/32 (ClusterIP)
+# 3. proto=TCP
+# 4. dport=80
+-A KUBE-SERVICES -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-SVC-NGINX
+
+# 以 50% 的概率跳转到 KUBE-SEP-NGINX1
+-A KUBE-SVC-NGINX -m statistic --mode random --probability 0.50 -j KUBE-SEP-NGINX1
+# 如果没有命中上面一条，则以 100% 的概率跳转到 KUBE-SEP-NGINX2
+-A KUBE-SVC-NGINX -j KUBE-SEP-NGINX2
+
+# 如果 src_ip=1.1.1.1/32，说明是 Service->client 流量，则
+# 需要做 SNAT（MASQ 是动态版的 SNAT），替换 src_ip -> svc_ip，这样客户端收到包时，
+# 看到就是从 svc_ip 回的包，跟它期望的是一致的。
+-A KUBE-SEP-NGINX1 -s 1.1.1.1/32 -j KUBE-MARK-MASQ
+# 如果没有命令上面一条，说明 src_ip != 1.1.1.1/32，则说明是 client-> Service 流量，
+# 需要做 DNAT，将 svc_ip -> pod1_ip，
+-A KUBE-SEP-NGINX1 -p tcp -m tcp -j DNAT --to-destination 1.1.1.1:80
+# 同理，见上面两条的注释
+-A KUBE-SEP-NGINX2 -s 1.1.1.2/32 -j KUBE-MARK-MASQ
+-A KUBE-SEP-NGINX2 -p tcp -m tcp -j DNAT --to-destination 1.1.1.2:80
+```
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dc0aa14d0eedf9f8f6f8bca1eee34cf8.png)
 
 在对应的宿主机上可以清楚地看到容器中的mysqld进程正好监听着 10379端口
 
@@ -295,8 +334,6 @@ TCP  10.68.70.130:12380 rr
   -> 172.20.185.217:9376          Masq    1      0          0
 ```
 
-
-
 ## 为什么clusterIP不能ping通
 
 [集群内访问cluster ip（不能ping，只能cluster ip+port）就是在到达网卡之前被内核iptalbes做了dnat/snat](https://cizixs.com/2017/03/30/kubernetes-introduction-service-and-kube-proxy/), cluster IP是一个虚拟ip，可以针对具体的服务固定下来，这样服务后面的pod可以随便变化。
@@ -309,7 +346,6 @@ PING 10.96.229.40 (10.96.229.40) 56(84) bytes of data.
 ^C
 --- 10.96.229.40 ping statistics ---
 2 packets transmitted, 0 received, 100% packet loss, time 999ms
-
 
 #iptables-save |grep 10.96.229.40
 -A KUBE-SERVICES -d 10.96.229.40/32 -p tcp -m comment --comment "***-service:https has no endpoints" -m tcp --dport 8443 -j REJECT --reject-with icmp-port-unreachable
@@ -336,9 +372,35 @@ ipvs实现的clusterIP，在本地有添加路由到lo网卡
 
 从上面可以看出显然ipvs只会转发tcp包到后端pod，所以icmp包不会通过ipvs转发到pod上，同时在本地回环网卡lo上抓到了进去的icmp包。因为本地添加了一条路由规则，目标clusterIP被指示发到lo网卡上，lo网卡回复了这个ping包，所以通了。
 
+## NodePort Service
 
+这种类型的 Service 也能被宿主机和 pod 访问，但与 ClusterIP 不同的是，**它还能被 集群外的服务访问**。
 
-## NodePort 的一些问题
+- External node IP + port in NodePort range to any endpoint (pod), e.g. 10.0.0.1:31000
+- Enables access from outside
+
+实现上，kube-apiserver 会**从预留的端口范围内分配一个端口给 Service**，然后 **每个宿主机上的 kube-proxy 都会创建以下规则**：
+
+```
+-t nat -A {PREROUTING, OUTPUT} -m conntrack --ctstate NEW -j KUBE-SERVICES
+
+-A KUBE-SERVICES ! -s 1.1.0.0/16 -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-MARK-MASQ
+-A KUBE-SERVICES -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-SVC-NGINX
+# 如果前面两条都没匹配到（说明不是 ClusterIP service 流量），并且 dst 是 LOCAL，跳转到 KUBE-NODEPORTS
+-A KUBE-SERVICES -m addrtype --dst-type LOCAL -j KUBE-NODEPORTS
+
+-A KUBE-NODEPORTS -p tcp -m tcp --dport 31000 -j KUBE-MARK-MASQ
+-A KUBE-NODEPORTS -p tcp -m tcp --dport 31000 -j KUBE-SVC-NGINX
+
+-A KUBE-SVC-NGINX -m statistic --mode random --probability 0.50 -j KUBE-SEP-NGINX1
+-A KUBE-SVC-NGINX -j KUBE-SEP-NGINX2
+```
+
+1. 前面几步和 ClusterIP Service 一样；如果没匹配到 ClusterIP 规则，则跳转到 `KUBE-NODEPORTS` chain。
+2. `KUBE-NODEPORTS` chain 里做 Service 匹配，但**这次只匹配协议类型和目的端口号**。
+3. 匹配成功后，转到对应的 `KUBE-SVC-` chain，后面的过程跟 ClusterIP 是一样的。
+
+### NodePort 的一些问题
 
 - 首先endpoint回复不能走node 1给client，因为会被client reset（如果在node1上将src ip替换成node2的ip可能会路由不通）。回复包在 node1上要snat给node2
 - 经过snat后endpoint没法拿到client ip（slb之类是通过option带过来）
@@ -663,6 +725,10 @@ http://arthurchiao.art/blog/ebpf-and-k8s-zh/  大规模微服务利器：eBPF �
 http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service-zh/  Life of a Packet in Cilium：实地探索 Pod-to-Service 转发路径及 BPF 处理逻辑
 
 http://arthurchiao.art/blog/understanding-ebpf-datapath-in-cilium-zh/  深入理解 Cilium 的 eBPF 收发包路径（datapath）（KubeCon, 2019）
+
+[利用 ebpf sockmap/redirection 提升 socket 性能](http://arthurchiao.art/blog/socket-acceleration-with-ebpf-zh/?hmsr=toutiao.io&utm_medium=toutiao.io&utm_source=toutiao.io#11-bpf-%E5%9F%BA%E7%A1%80)
+
+[利用 eBPF 支撑大规模 K8s Service (LPC, 2019)](http://arthurchiao.art/blog/cilium-scale-k8s-service-with-bpf-zh/)
 
 https://jiayu0x.com/2014/12/02/iptables-essential-summary/
 

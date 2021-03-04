@@ -43,10 +43,32 @@ yum安装docker会在 /etc/sysconfig 下放一些配置参数(docker.service 环
 
 ```
 ip link add docker0 type bridge
-ip addr add dev docker0 172.30.0.0/16
+ip addr add dev docker0 172.30.0.0/24
 ```
 
 启动成功后即使手工删除docker0，然后再次启动也会成功，这次会自动创建docker0 172.30.0.0/16 。
+
+```
+#systemctl status docker -l
+● docker.service - Docker Application Container Engine
+   Loaded: loaded (/etc/systemd/system/docker.service; enabled; vendor preset: disabled)
+   Active: failed (Result: exit-code) since Fri 2021-01-22 17:21:45 CST; 2min 12s ago
+     Docs: http://docs.docker.io
+  Process: 68318 ExecStartPost=/sbin/iptables -I FORWARD -s 0.0.0.0/0 -j ACCEPT (code=exited, status=0/SUCCESS)
+  Process: 68317 ExecStart=/opt/kube/bin/dockerd (code=exited, status=1/FAILURE)
+ Main PID: 68317 (code=exited, status=1/FAILURE)
+
+Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time="2021-01-22T17:21:43.991179104+08:00" level=warning msg="failed to load plugin io.containerd.snapshotter.v1.aufs" error="modprobe aufs failed: "modprobe: FATAL: Module aufs not found.\n": exit status 1"
+Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time="2021-01-22T17:21:43.991371956+08:00" level=warning msg="could not use snapshotter btrfs in metadata plugin" error="path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.btrfs must be a btrfs filesystem to be used with the btrfs snapshotter"
+Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time="2021-01-22T17:21:43.991381620+08:00" level=warning msg="could not use snapshotter aufs in metadata plugin" error="modprobe aufs failed: "modprobe: FATAL: Module aufs not found.\n": exit status 1"
+Jan 22 17:21:43 l57f12112.sqa.nu8 dockerd[68317]: time="2021-01-22T17:21:43.991388991+08:00" level=warning msg="could not use snapshotter zfs in metadata plugin" error="path /var/lib/docker/containerd/daemon/io.containerd.snapshotter.v1.zfs must be a zfs filesystem to be used with the zfs snapshotter: skip plugin"
+Jan 22 17:21:44 l57f12112.sqa.nu8 systemd[1]: Stopping Docker Application Container Engine...
+Jan 22 17:21:45 l57f12112.sqa.nu8 dockerd[68317]: failed to start daemon: Error initializing network controller: list bridge addresses failed: PredefinedLocalScopeDefaultNetworks List: [172.17.0.0/16 172.18.0.0/16 172.19.0.0/16 172.20.0.0/16 172.21.0.0/16 172.22.0.0/16 172.23.0.0/16 172.24.0.0/16 172.25.0.0/16 172.26.0.0/16 172.27.0.0/16 172.28.0.0/16 172.29.0.0/16 172.30.0.0/16 172.31.0.0/16 192.168.0.0/20 192.168.16.0/20 192.168.32.0/20 192.168.48.0/20 192.168.64.0/20 192.168.80.0/20 192.168.96.0/20 192.168.112.0/20 192.168.128.0/20 192.168.144.0/20 192.168.160.0/20 192.168.176.0/20 192.168.192.0/20 192.168.208.0/20 192.168.224.0/20 192.168.240.0/20]: no available network
+Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service: main process exited, code=exited, status=1/FAILURE
+Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Stopped Docker Application Container Engine.
+Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: Unit docker.service entered failed state.
+Jan 22 17:21:45 l57f12112.sqa.nu8 systemd[1]: docker.service failed.
+```
 
 参考：https://github.com/docker/for-linux/issues/123  
 
@@ -63,6 +85,8 @@ The solution was to start manually docker like this:
 where the 192.168.y.x is the MAIN machine IP and /24 that ip netmask. Docker will use this network range for building the bridge and firewall riles. The --debug is not really needed, but might help if something else fails.
 
 After starting once, you can kill the docker and start as usual. AFAIK, docker have created a cache config for that --bip and should work now without it. Of course, if you clean the docker cache, you may need to do this again. 
+
+本机网络信息默认保存在：/var/lib/docker/network/files/local-kv.db  想要清理bridge网络的话，不能直接 docker network rm bridge 因为bridge是预创建的受保护不能直接删除，可以删掉：/var/lib/docker/network/files/local-kv.db 并且同时删掉 docker0 然后重启dockerd就可以了
 
 ### alios下容器里面ping不通docker0
 
@@ -110,10 +134,14 @@ UNIT LOAD PATH
 **Failed to get D-Bus connection: Operation not permitted: systemd容器中默认无法启动，需要启动容器的时候** 
 
 ```
-docker run -itd --privileged --name=ren drds_base:centos init //init 必须要
+docker run -itd --privileged --name=ren drds_base:centos init //init 必须要或者systemd
 ```
 
 1号进程需要是systemd(init 是systemd的link)，才可以使用systemctl，推荐用这个来解决：https://github.com/gdraheim/docker-systemctl-replacement
+
+systemd是用来取代init的，之前init管理所有进程启动，是串行的，耗时久，也不管最终状态，systemd主要是串行并监控进程状态能反复重启。
+
+**新版本init link向了systemd**
 
 ## busybox/Alpine/Scratch
 

@@ -1,7 +1,7 @@
 ---
 title: 就是要你懂网络监控--ss用法大全
 date: 2016-10-12 15:30:03
-categories: Network
+categories: network
 tags:
     - Linux
     - ss

@@ -84,6 +84,24 @@ identification基本撇清了DRDS的嫌疑，还得进一步找到是哪个机�
 
 从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。
 
+## 常亮ISV vpn环境reset
+
+client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select * from table1 ; 就一定reset，但是select * from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询这个表的大小比较相关。
+
+于是在server和client上同时抓到了一次完整的reset
+
+如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）
+
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/89f584899a5e5e00ba5c2b16707ed24a.png)
+
+下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset
+
+![](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec1f04befe56823668b4d1f831bd3ea4.png)
+
+最终排查后client端
+
+> 公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在是可以正常测试了
+
 ## slb主动reset的话
 
 ttl是102, identification是31415。

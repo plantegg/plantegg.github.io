@@ -7,8 +7,6 @@ tags:
     - Linux
 ---
 
-
-
 # ansible 命令通道使用手册
 
 ## 什么是命令通道？
@@ -479,6 +477,7 @@ tmpfs                 249M     0  249M   0% /dev/shm
 ```
 
 ### copy个人笔记本的公钥到服务器上，以后从笔记本登录服务器不再需要输入密码
+
 ```
 $ ansible -i ansible-hosts.ini all -m authorized_key -a " user=xijun.rxj key=\"{{ lookup('file', '/tmp/id_rsa.pub') }} \"  " -u xijun.rxj -k
 

@@ -39,8 +39,6 @@ COMMIT
 echo "sudo iptables-restore < drds_filter.conf" | sudo tee -a /etc/rc.d/rc.local
 ```
 
-
-
 ## 单独记录到日志文件中
 
 默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：

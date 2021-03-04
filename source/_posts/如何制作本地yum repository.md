@@ -47,8 +47,6 @@ yumdownloader --destdir=/tmp/ansible --resolve ansible
 //repotrack ansible
 ```
 
-
-
 ## 创建仓库索引
 
 需要安装工具 yum install createrepo -y：

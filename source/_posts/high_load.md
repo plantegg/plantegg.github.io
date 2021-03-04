@@ -1,13 +1,14 @@
 ---
-title: High Load and Low CPU usage
-date: 2017-06-14 10:30:03
-categories: performance
+title: Load很高，CPU使用率很低
+date: 2018-09-26 16:30:03
+categories: troubleshooting
 tags:
-    - Load
+    - load
     - CPU
     - Linux
+    - performance
+    - troubleshooting
 ---
-
 # Load很高，CPU使用率很低
 
 > 第一次碰到这种Case：物理机的Load很高，CPU使用率很低
@@ -41,7 +42,7 @@ vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，
 
 ![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e7996a82da2c140594835e3264c6ef4b.png)
 
-**发现基本上所有容器都绑定在CPU1上**
+**发现基本上所有容器都绑定在CPU1上（感谢 @辺客 发现这个问题）**
 
 ### 进而检查top每个核的状态，果然CPU1 的idle一直为0
 ![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2b32adb2071b3fdb334e0735db899a2e.png)
@@ -75,9 +76,12 @@ vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，
 
 - Load高一般对应着CPU高，就是CPU负载过大，检查CPU具体执行任务是否合理
 - 如果Load高，CPU使用率不高的检查一下IO、网络等是否比较慢
-- 如果是虚拟机，检查是否物理机超卖或者物理机其它ECS抢占CPU、IO导致的（https://www.atatech.org/articles/77929 ）
-- 如果两台一样的机器一样的流量，Load有一台偏高的话检查硬件信息，比如CPU被降频了，QPI，内存效率等等（https://www.atatech.org/articles/12201 ），这个时候可能需要硬件相关同学加入一起排查了，当然牛逼的工程师能把这块也Cover了排查效率自然更高
+- 如果是虚拟机，检查是否物理机超卖或者物理机其它ECS抢占CPU、IO导致的（https://www.atatech.org/articles/77929）
+- 如果两台一样的机器一样的流量，Load有一台偏高的话检查硬件信息，比如CPU被降频了，QPI，内存效率等等（https://www.atatech.org/articles/12201），这个时候可能需要硬件相关同学加入一起排查了，当然牛逼的工程师能把这块也Cover了排查效率自然更高
 
+## 参考文章
+
+[浅谈 Linux 高负载的系统化分析](http://oliveryang.net/2017/12/linux-high-loadavg-analysis-1) 
 
 
 

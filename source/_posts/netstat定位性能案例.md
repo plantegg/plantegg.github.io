@@ -11,6 +11,8 @@ tags:
 
 # netstat定位性能案例
 
+netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。[ss用法见这里](https://plantegg.github.io/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/)
+
 ## netstat 命令
 
 netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是**Listen状态**的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数
@@ -36,8 +38,6 @@ Established: The count of bytes not acknowledged by the remote host.
 Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. 
 ```
 
-
-
 ## 通过 netstat 发现问题的案例
 
 #### 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
@@ -53,6 +53,10 @@ Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn 
 send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断前端到9108之间有瓶颈**
 
 实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决
+
+## netstat -s
+
+所有统计信息基本都有
 
 ## netstat timer
 

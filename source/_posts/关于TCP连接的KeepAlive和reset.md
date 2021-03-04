@@ -13,7 +13,7 @@ tags:
 
 # 关于TCP连接的Keepalive和reset
 
-先来看一个现象
+先来看一个现象，下面是测试代码：
 
     Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
     Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
