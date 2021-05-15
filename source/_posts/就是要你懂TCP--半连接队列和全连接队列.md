@@ -41,7 +41,7 @@ tags:
 
 ### 正常TCP建连接三次握手过程：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -73,10 +73,10 @@ tags:
 
 ## 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
+![image.png](/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
 <!--（图片来源：http://www.cnxct.com/something-about-phpfpm-s-backlog/）-->
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/bcf463efeb677d5749d8d7571274ee79.png)
+![image.png](/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
 
@@ -182,7 +182,7 @@ netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话�
 比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 #### netstat看到的listen状态的Recv-Q/Send-Q
 
@@ -204,16 +204,16 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 
 ## 案列：如果TCP连接队列溢出，抓包是什么现象呢？
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c0849615ae52531887ce6b0313d7d2d1.png)
+![image.png](/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
 
 如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传
     
 
 ### 通过ss和netstat所观察到的状态
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec25ccb6cce8f554b7ef6927f05bd530.png)
+![image.png](/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2fbdd05162e9fd51e803682b8a18cc51.png)
+![image.png](/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
 
 [另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因](https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/)
 
@@ -246,24 +246,25 @@ Nginx默认是511
 
 因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/01dc036aca4b445ed86e3e295bf245b8.png)
+![image.png](/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
 
-## 进一步思考
+## 进一步思考 client fooling 问题
 
 如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）
 
 先来看一个例子：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9179e08ac24ce3d53e74b92dbd044906.png)
+![image.png](/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
 
 如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
+![image.png](/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
 
-这个问题也叫client fooling，可以看这里：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 
+这个问题也叫client fooling，可以看这个patch在4.10后修复了：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。
 
-**从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。
-**
+**从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。**
+
+如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。
 
 ## 过程中发现的一个奇怪问题
 
@@ -283,7 +284,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a5616904df3a505572d99d557b534db2.png)
+![image.png](/images/oss/a5616904df3a505572d99d557b534db2.png)
 
 可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。
 
@@ -311,7 +312,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
+![image.png](/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
 
 TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
 
@@ -355,3 +356,33 @@ https://blog.cloudflare.com/syn-packet-handling-in-the-wild/
 [How Linux allows TCP introspection The inner workings of bind and listen on Linux.](https://ops.tips/blog/how-linux-tcp-introspection/)
 
 https://www.cnblogs.com/xiaolincoding/p/12995358.html
+
+[案例三：诡异的幽灵连接，全连接队列满后4.9内核不再回复syn+ack, 但是3.10会回syn+ack](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ)
+
+> commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071
+> Author: Eric Dumazet <edumazet@google.com>
+> Date:   Thu Oct 27 00:27:57 2016
+>
+>     tcp/dccp: drop SYN packets if accept queue is full
+>     
+>     Per listen(fd, backlog) rules, there is really no point accepting a SYN,
+>     sending a SYNACK, and dropping the following ACK packet if accept queue
+>     is full, because application is not draining accept queue fast enough.
+>     
+>     This behavior is fooling TCP clients that believe they established a
+>     flow, while there is nothing at server side. They might then send about
+>     10 MSS (if using IW10) that will be dropped anyway while server is under
+>     stress.
+>     
+>     -
+>     -       /* Accept backlog is full. If we have already queued enough
+>     -        * of warm entries in syn queue, drop request. It is better than
+>     -        * clogging syn queue with openreqs with exponentially increasing
+>     -        * timeout.
+>     -        */
+>     -       if (sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_young(sk) > 1) {
+>     +       if (sk_acceptq_is_full(sk)) {
+>                     NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
+>                     goto drop;
+>             }
+> 

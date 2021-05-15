@@ -60,3 +60,6 @@ tags:
       file: path={{ remote_home }} owner={{ remote_user }} group={{ remote_user }} state=directory recurse=yes mode=0755
       tags: tb
 
+## 常见错误
+
+ansible 中 scp scp: ambiguous target 错误还是因为ssh 增加了 -t 参数, scp不支持 -t 参数

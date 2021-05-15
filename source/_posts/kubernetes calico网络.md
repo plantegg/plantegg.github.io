@@ -12,7 +12,7 @@ tags:
 
 # kubernetes calico 网络
 
-## kubernetes 集群下安装 calico 网络
+## kubernetes 集群下安装 calico 网络 
 
 ```
 kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
@@ -27,7 +27,7 @@ curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml
 
 > cali-容器eth0->宿主机cali27dce37c0e8->tunl0->内核ipip模块封包->物理网卡（ipip封包后）---远程--> 物理网卡->内核ipip模块解包->tunl0->cali-容器
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a1767a5f2cbc2c48c1a35da9f3232a2c.png)
+![image.png](/images/oss/a1767a5f2cbc2c48c1a35da9f3232a2c.png)
 
 Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。
 
@@ -50,11 +50,11 @@ RTNETLINK answers: File exists
 
 在10.122.127.128抓包如下，明显可以看到icmp request到了 tunl0网卡，tunl0网卡也回复了，但是回复包没有经过kernel ipip模块封装后发到eth1上：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d3111417ce646ca1475def5bea01e6b9.png)
+![image.png](/images/oss/d3111417ce646ca1475def5bea01e6b9.png)
 
 正常机器应该是这样，上图不正常的时候缺少红框中的reply：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9ea9041af1211b2a5b8de4e216044465.png)
+![image.png](/images/oss/9ea9041af1211b2a5b8de4e216044465.png)
 
 解决：
 
@@ -93,19 +93,19 @@ IPv4 BGP status
 
 从node4 ping node2，然后在node2上抓包，可以看到 icmp request都发到了node2上，但是node2收到后没有发给tunl0：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/16fda9322e9a59c37c11629acc611bf3.png)
+![image.png](/images/oss/16fda9322e9a59c37c11629acc611bf3.png)
 
 所以icmp没有回复，这里的问题在于**kernel收到包后为什么不给tunl0**
 
 同样，在node2上ping node4，同时在node2上抓包，可以看到发给node4的request包和reply包：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c6d1706b6f8162cfac528ddf5319c8e2.png)
+![image.png](/images/oss/c6d1706b6f8162cfac528ddf5319c8e2.png)
 
 从request包可以看到src ip 是0.111， dest ip是 3.113，**因为 node2 没有192.168.3.111这个ip**
 
 非常关键的我们看到node4的回复包 src ip 不是3.113，而是0.113（根据node4的路由就应该是0.113）
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5c7172e2422579eb99c66e881d47bf99.png)
+![image.png](/images/oss/5c7172e2422579eb99c66e881d47bf99.png)
 
 这就是问题所在，从node4过来的ipip包src ip都是0.113，实际这里ipip能认识的只是3.113. 
 

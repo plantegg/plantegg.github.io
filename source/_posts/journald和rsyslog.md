@@ -20,7 +20,7 @@ rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-
 
 现象：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/12d137f9416d7935dbe6540c626ca8b4.png)
+![image.png](/images/oss/12d137f9416d7935dbe6540c626ca8b4.png)
 
 ```
 KiB Mem :  7971268 total,   131436 free,  7712020 used,   127812 buff/cache
@@ -69,11 +69,11 @@ FAIL: /var/log/journal/20190829214900434421844640356160/system.journal (Bad mess
 
 [来自redhat官网的描述](https://access.redhat.com/solutions/3705051)
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e1a1cd75553b5cbe2a64e835ba9f99a7.png)
+![image.png](/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png)
 
 以下是现场收集到的日志：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cdfe3fb8d50ee148b816a82a432f1b88.png)
+![image.png](/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png)
 
 主要是rsyslogd的sd_journal_get_cursor报错，然后导致内存泄露。
 
@@ -126,7 +126,7 @@ MemoryHigh=8M
 
 rsyslogd内存消耗过高后导致了OOM Kill
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c7332f5b48506ea1faa015cfc6ae1709.png)
+![image.png](/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png)
 
 **RSS对应物理内存，单位是4K（page大小）**，红框两个进程用了5G+2G，总内存是8G，所以触发OOM killer了
 
@@ -153,7 +153,7 @@ Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded...
 Jan 28 20:14:38 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-57.1.al7 try http://www.rsyslog.com/e/0 ]
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/45008a8323742fb7f145211a6281afbc.png)
+![image.png](/images/oss/45008a8323742fb7f145211a6281afbc.png)
 
 OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(limit 3min)，造成timeout的原因是journald定期要把日志刷到磁盘上，然后要么是内存不够，要么是io负载太重，导致刷磁盘这个过程非常慢，于是就timeout了。
 
@@ -286,13 +286,13 @@ mail.info            /var/log/maillog_info
 # /var/log/maillog_info 文件中的意思。
 ```
 
-![syslog 所制订的服务名称与软件调用的方式](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1cce7612a84cf1a1addceeff6032cb5c.png)
+![syslog 所制订的服务名称与软件调用的方式](/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png)
 
 
 
  CentOS 7.x 默认的 rsyslogd 本身就已经具有远程日志服务器的功能了， 只是默认并没有启动该功能而已。你可以通过 man rsyslogd 去查询一下相关的选项就能够知道啦！ 既然是远程日志服务器，那么我们的 Linux 主机当然会启动一个端口来监听了，那个默认的端口就是 UDP 或 TCP 的 port 514 
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/40740cd5cfc8896c07c15b959420646f.png)
+![image.png](/images/oss/40740cd5cfc8896c07c15b959420646f.png)
 
 Server配置如下：
 
@@ -340,6 +340,65 @@ $ cat /etc/rsyslog.conf
 - /var/log/wtmp, /var/log/faillog： 这两个文件可以记录正确登陆系统者的帐号信息 （wtmp） 与错误登陆时所使用的帐号信息 （faillog） ！ 我们在[第十章谈到的 last](https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#last) 就是读取 wtmp 来显示的， 这对于追踪一般帐号者的使用行为很有帮助！
 - /var/log/httpd/*, /var/log/samba/*： 不同的网络服务会使用它们自己的登录文件来记载它们自己产生的各项讯息！上述的目录内则是个别服务所制订的登录文件。
 
+## [journalctl 常用参数](https://linuxhint.com/journalctl-tail-and-cheatsheet/)
+
+```
+-n or –lines= Show the most recent **n** number of log lines
+
+-f or –follow Like a tail operation for viewing live updates
+
+-S, –since=, -U, –until= Search based on a date. “2019-07-04 13:19:17”, “00:00:00”, “yesterday”, “today”, “tomorrow”, “now” are valid formats. For complete time and date specification, see systemd.time(7)
+
+-u service unit
+```
+
+清理journald日志
+
+>  journalctl --vacuum-size=1M && journalctl --vacuum-size=500
+
+## logrotate
+
+```
+/var/log/cron
+{
+    sharedscripts
+    postrotate
+        /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
+    endscript
+}
+
+```
+
+### [kill -HUP](https://unix.stackexchange.com/questions/440004/why-is-kill-hup-used-in-logrotate-in-rhel-is-it-necessary-in-all-cases)
+
+Generally services keep the log files opened while they are running. This mean that they do not care if the log files are renamed/moved or deleted they will continue to write to the open file handled.
+
+When logrotate move the files, the services keep writing to the same file.
+
+Example: syslogd will write to /var/log/cron.log. Then logrotate will rename the file to /var/log/cron.log.1, so syslogd will keep writing to the open file /var/log/cron.log.1.
+
+Sending the HUP signal to syslogd will force him to close existing file handle and open new file handle to the original path /var/log/cron.log which will create a new file.
+
+The use of the HUP signal instead of another one is at the discretion of the program. Some services like php-fpm will listen to the USR1 signal to reopen it's file handle without terminating itself.
+
+不过还得看应用是否屏蔽了 HUP 信号
+
+## systemd
+
+sudo systemctl list-unit-files --type=service | grep enabled //列出启动项
+
+ journalctl -b -1 //复审前一次启动， -2 复审倒数第 2 次启动. 重演你的系统启动的所有消息
+
+sudo systemd-analyze blame   **sudo systemd-analyze critical-chain**
+
+systemd-analyze critical-chain --fuzz 1h
+
+sudo systemd-analyze blame networkd
+
+systemd-analyze critical-chain network.target local-fs.target
+
+![img](/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png)
+
 ## 参考资料
 
 一模一样的症状，但是根因找错了：[rsyslog占用内存高](https://blog.csdn.net/fanren224/article/details/103991748) 
@@ -349,4 +408,8 @@ https://access.redhat.com/solutions/3705051
 https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html
 
 [鸟哥 journald 介绍](https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html)
+
+[journalctl tail and cheatsheet](https://linuxhint.com/journalctl-tail-and-cheatsheet/)
+
+[Journal的由来](https://lp007819.wordpress.com/2015/01/17/systemd-journal-介绍/)
 

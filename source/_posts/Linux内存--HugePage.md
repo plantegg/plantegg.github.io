@@ -11,6 +11,8 @@ tags:
 
 # Linux内存--HugePage
 
+
+
 ## /proc/buddyinfo
 
 /proc/buddyinfo记录了内存的详细碎片情况。
@@ -127,15 +129,78 @@ Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存
 - 更大的内存页意味着更高的缓存命中率，CPU 有更高的几率可以直接在 TLB（Translation lookaside buffer）中获取对应的物理地址；
 - 更大的内存页可以减少获取大内存的次数，使用 HugePages 每次可以获取 2MB 的内存，是 4KB 的默认页效率的 512 倍；
 
+## HugePage
+
+**为什么需要Huge Page** 了解CPU Cache大致架构的话，一定听过TLB Cache。`Linux`系统中，对程序可见的，可使用的内存地址是`Virtual Address`。每个程序的内存地址都是从0开始的。而实际的数据访问是要通过`Physical Address`进行的。因此，每次内存操作，CPU都需要从`page table`中把`Virtual Address`翻译成对应的`Physical Address`，那么对于大量内存密集型程序来说`page table`的查找就会成为程序的瓶颈。
+
+所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
+
+
+
+### [HugePage 带来的问题](http://cenalulu.github.io/linux/huge-page-on-numa/)
+
+#### CPU对同一个Page抢占增多
+
+对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是`MESI协议`，写冲突就意味：
+
+- 通过CPU间的总线进行通讯，造成总线繁忙
+- 同时也降低了CPU执行效率。
+- CPU本地Cache频繁失效
+
+类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。
+
+#### 连续数据需要跨CPU读取
+
+Page太大，更容易造成Page跨Numa/CPU 分布。
+
+从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，`Array A`和`Array B`大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此`Array B`就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。
+
+![img](/Users/ren/src/blog/951413iMgBlog/false_sharing.png)
+
+### Java进程开启HugePage
+
+从perf数据来看压满后tlab miss比较高，得想办法降低这个值
+
+#### 修改JVM启动参数
+
+JVM启动参数增加如下三个(-XX:LargePageSizeInBytes=2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：
+
+> -XX:+UseLargePages -XX:LargePageSizeInBytes=2m -XX:+UseHugeTLBFS
+
+#### 修改机器系统配置
+
+设置HugePage的大小
+
+> cat /proc/sys/vm/nr_hugepages
+
+nr_hugepages设置多大参考如下计算方法：
+
+> If you are using the option `-XX:+UseSHM` or `-XX:+UseHugeTLBFS`, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB = 3 * 1024 MB = 3072 MB = 3072 * 1024 kB = 3145728 kB and 3145728 kB / 2048 kB = 1536):
+>
+> echo 1536 > /proc/sys/vm/nr_hugepages 
+
+透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。
+
+
+
+对于c++来说，他malloc经常会散落得全地址都是，因为会触发各种mmap，冷热区域。所以THP和hugepage都可能导致大量内存被浪费了，进而导致内存紧张，性能下滑。jvm的连续内存布局，加上gc会使得内存密度很紧凑。THP的问题是，他是逻辑页，不是物理页，tlb依旧要N份，所以他的收益来自page fault减少，是一次性的收益。
+
+hugepage的在减少page_fault上和thp效果一样第二个作用是，他只需要一份TLB了，hugepage是真正的大页内存，thp是逻辑上的，物理上还是需要很多小的page。
+
+**如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。**
+
 ## THP
 
 Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时每次写命令引起的复制内存页单位放大了512倍，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  
 
 THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。
 
-THP 对redis、monglodb 这种cache类推荐关闭，对drds这种java应用最好打开
+THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开
 
 ```
+#cat /sys/kernel/mm/transparent_hugepage/enabled
+[always] madvise never
+
 grep "Huge" /proc/meminfo
 AnonHugePages:   1286144 kB
 ShmemHugePages:        0 kB
@@ -145,6 +210,8 @@ HugePages_Rsvd:        0
 HugePages_Surp:        0
 Hugepagesize:       2048 kB
 Hugetlb:               0 kB
+
+$grep -e AnonHugePages  /proc/*/smaps | awk  '{ if($2>4) print $0} ' |  awk -F "/"  '{print $0; system("ps -fp " $3)} '
 
 $grep -e AnonHugePages  /proc/*/smaps | awk  '{ if($2>4) print $0} ' |  awk -F "/"  '{print $0; system("ps -fp " $3)} '
 
@@ -173,7 +240,6 @@ $ echo 1 > /proc/sys/vm/nr_hugepages
 $ cat /proc/meminfo | grep HugePages_
 HugePages_Total:       1
 HugePages_Free:        1
-...
 ```
 
 ## 碎片化

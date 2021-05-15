@@ -45,53 +45,53 @@ Java在每次请求结束后都会输出日志记录每次请求的相关信息�
 
 ### 4核的机器下性能提升没这么明显，因为锁争抢没这么激烈
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d38fecd4932266209c6a1ca0265f98aa.png)
+![image.png](/images/oss/d38fecd4932266209c6a1ca0265f98aa.png)
 
 4.9内核下, 异步对rt影响明显, 似乎是4.9对锁的处理更好：
 
-![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566290324749-86d349a5-b647-439c-ac19-f7b772f9e575.png)
+![image.png](/images/oss/1566290324749-86d349a5-b647-439c-ac19-f7b772f9e575.png)
 
 2.6.32下异步对rt影响不是很大
 
-![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566291069825-24063e55-20e8-4689-a0af-b8a7083ca806.png)
+![image.png](/images/oss/1566291069825-24063e55-20e8-4689-a0af-b8a7083ca806.png)
 
-![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566291122368-e60ca95a-ae36-47f8-957c-747f35834233.png)
+![image.png](/images/oss/1566291122368-e60ca95a-ae36-47f8-957c-747f35834233.png)
 
 加大120线程并发，可以看到tps提升明显但是rt仍然不明显
 
-![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566292019098-60f15294-a001-452e-8ecb-626aada11837.png)
+![image.png](/images/oss/1566292019098-60f15294-a001-452e-8ecb-626aada11837.png)
 
 如果将 sql.log 改为error级别，tps上升到30000，rt比info也有将近10%的提升，这个rt的提升是因为tps提升导致的。（都是异步输出的场景下）
 
-![image.png](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1566294041222-153fbe62-e503-4d35-b99a-bd2517332592.png)
+![image.png](/images/oss/1566294041222-153fbe62-e503-4d35-b99a-bd2517332592.png)
 
 ### 同步情况下的profiler
 
 recordSQL: 12.9%
 logback.doAppend: 10%
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/4e0595c173522e37edf87b568eab6e7f.png)
+![image.png](/images/oss/4e0595c173522e37edf87b568eab6e7f.png)
 
 ### 异步情况下的profiler:
 
 recordSQL:  3.7%
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a88a3595d386be2ffeb0652ba2fdeea1.png)
+![image.png](/images/oss/a88a3595d386be2ffeb0652ba2fdeea1.png)
 
 logback.doAppend: 2.63%
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e3d0200c0edf97540d422252fb23a4c2.png)
+![image.png](/images/oss/e3d0200c0edf97540d422252fb23a4c2.png)
 
 ### 在16个core的机器上锁争抢更明显
 
 [99.8%的锁都是doApend](https://yuque.antfin-inc.com/preview/lark/0/2019/svg/33359/1568184395734-ff64a8ee-8b24-45ec-8fc3-024e14b8e7f0.svg) 
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/15879d15dbe876b5ee3bed02dfa18894.png)
+![image.png](/images/oss/15879d15dbe876b5ee3bed02dfa18894.png)
 
 ### 同步和异步以及immediateFlush的影响
 
 16core的机器
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f0e39a66b63fe00877b6663f8857a739.png)
+![image.png](/images/oss/f0e39a66b63fe00877b6663f8857a739.png)
 
 结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）
 异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显
@@ -180,7 +180,7 @@ logback.doAppend: 2.63%
 
 ## immediateFlush true/false 以及同步异步对tps的影响
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a4753f40c89640c4d86a54902b9ed691.png)
+![image.png](/images/oss/a4753f40c89640c4d86a54902b9ed691.png)
 
 结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显
 
@@ -247,11 +247,11 @@ logback、log4j2等横向关系和性能比较分析
 ### 日志框架
 
 紫色为接口类，蓝色为实现，白色为转换
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f8f589fd11e4d480162e24b02d95e511.png)
+![image.png](/images/oss/f8f589fd11e4d480162e24b02d95e511.png)
 
 ### 性能比较
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/260fd07e702c1a0636d277bbf73607cb.png)
+![image.png](/images/oss/260fd07e702c1a0636d277bbf73607cb.png)
 
 - 可见在同步日志模式下, Logback的性能是最糟糕的.
 - 而log4j2的性能无论在同步日志模式还是异步日志模式下都是最佳的.
@@ -262,14 +262,14 @@ logback、log4j2等横向关系和性能比较分析
 
 [https://logging.apache.org/log4j/2.x/performance.html](https://logging.apache.org/log4j/2.x/performance.html)：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/46214ad5378ef5790ad167037a41149d.png)
+![image.png](/images/oss/46214ad5378ef5790ad167037a41149d.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ef794e63ba049e1fa76a1884a6e213a5.png)
+![image.png](/images/oss/ef794e63ba049e1fa76a1884a6e213a5.png)
 
 #### 异步场景下的性能比较
 
 AsyncAppender to FileAppender
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/29c0786bbcecc092ca7c84cce203453d.png)
+![image.png](/images/oss/29c0786bbcecc092ca7c84cce203453d.png)
 
 ### Log4j2中的异步日志(AsyncAppender)
 

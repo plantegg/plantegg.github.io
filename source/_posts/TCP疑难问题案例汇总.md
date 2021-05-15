@@ -37,7 +37,7 @@ tags:
 
 
 
-## TCP队列问题连接数
+## TCP队列问题以及连接数
 
  [到底一台服务器上最多能创建多少个TCP连接](https://plantegg.github.io/2020/11/30/一台机器上最多能创建多少个TCP连接/)
 
@@ -50,6 +50,8 @@ tags:
 
 
 ## 防火墙和reset定位分析
+
+对ttl、identification等的运用
 
 [关于TCP连接的Keepalive和reset](https://plantegg.github.io/2018/08/26/关于TCP连接的KeepAlive和reset/)
 

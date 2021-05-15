@@ -15,8 +15,8 @@ tags:
 
 MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 
-1. 简单模式，也就是默认模式，数据都先要从MySQL发到client的OS TCP buffer，然后JDBC把 OS buffer读取到JVM内存中，读取到JVM内存的过程中憋着不让client读取，全部读完再通知inputStream.read(). 数据大的话容易导致JVM OOM
-2. **useCursorFetch=true**，配合FetchSize，也就是MySQL把查到的数据先缓存到本地磁盘，然后按照FetchSize挨个发给client。这需要占用MySQL很高的IOPS（先写磁盘缓存），其次每次Fetch需要一个RTT，效率不高。
+1. 简单模式，也就是默认模式，数据都先要从MySQL Server发到client的OS TCP buffer，然后JDBC把 OS buffer读取到JVM内存中，读取到JVM内存的过程中憋着不让client读取，全部读完再通知inputStream.read(). 数据大的话容易导致JVM OOM
+2. **useCursorFetch=true**，配合FetchSize，也就是MySQL Server把查到的数据先缓存到本地磁盘，然后按照FetchSize挨个发给client。这需要占用MySQL很高的IOPS（先写磁盘缓存），其次每次Fetch需要一个RTT，效率不高。
 3. Stream读取，Stream读取是在执行SQL前设置FetchSize：statement.setFetchSize(Integer.MIN_VALUE)，同时确保游标是只读、向前滚动的（为游标的默认值），MySQL JDBC内置的操作方法是将Statement强制转换为：com.mysql.jdbc.StatementImpl，调用其方法：enableStreamingResults()，这2者达到的效果是一致的，都是启动Stream流方式读取数据。这个时候MySQL不停地发数据，inputStream.read()不停地读取。一般来说发数据更快些，很快client的OS TCP recv buffer就满了，这时MySQL停下来等buffer有空闲就继续发数据。等待过程中如果超过 net_write_timeout MySQL就会报错，中断这次查询。
 
 从这里的描述来看，数据小的时候第一种方式还能接受，但是数据大了容易OOM，方式三看起来不错，但是要特别注意 net_write_timeout。
@@ -59,7 +59,7 @@ if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {
 
 一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：
 
-![](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8fe715d3ebb6929afecd19aadbe53e5e.png)
+![](/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
 
 或者：
 

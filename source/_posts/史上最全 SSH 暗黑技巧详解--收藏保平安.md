@@ -46,12 +46,12 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e4a2fdad5b04542dc657b96e195a2b45.png)
+![image.png](/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
 
 
 
 原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：
-![undefined](https://intranetproxy.alipay.com/skylark/lark/0/2019/png/33359/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
+![undefined](/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
 
 ### 科学上网之http特殊代理
 
@@ -120,7 +120,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
  /home/ren/tmp/ssh_mux_10.16.*.*_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时
 
 看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息
-![ssh-demo.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
+![ssh-demo.gif](/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
 
 ## 我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？
 
@@ -174,7 +174,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ## ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器
 
 先来看效果图：
-![ssh_docker.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
+![ssh_docker.gif](/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
 
 ### 实现过程：
 
@@ -193,7 +193,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 **第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号**
 这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b4e460a501c21eac1e4104b9324910d3.png)
+![image.png](/images/oss/b4e460a501c21eac1e4104b9324910d3.png)
 
 ## 将隔离环境中的web端口映射到本地
 
@@ -218,7 +218,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 
 然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/1acbd09b4b45dbd478ddabc0e001a15e.png)
+![image.png](/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
 
 反过来，**也可以让隔离环境机器通过代理上网，比如安装yum**
 
@@ -425,7 +425,7 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 
 `Banner`指定用户登录后，sshd 向其展示的信息文件（`Banner /usr/local/etc/warning.txt`），默认不展示任何内容。
 
-### 动态转发 (-D) 
+### 动态转发 (-D)   SOCKS5 协议
 
 动态转发指的是，本机与 SSH 服务器之间创建了一个加密连接，然后本机内部针对某个端口的通信，都通过这个加密连接转发。它的一个使用场景就是，访问所有外部网站，都通过 SSH 转发。
 
@@ -434,18 +434,39 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 目标还不确定，所以叫动态转发
 
 ```
-$ ssh -D 2121 tunnel-host -N
+$ ssh -D 3000 tunnel-host -N
 ```
 
 注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
 
-下面是 ssh 隧道建立后的一个使用实例。
+![image.png](/images/oss/202466eed33b16c0471016f1c5e574ab.png)
+
+下面是 ssh 隧道建立后的一个**使用实例**。
 
 ```
-$ curl -x socks5://localhost:2121 http://www.example.com
+curl -x socks5://localhost:3000 http://www.example.com
+or
+curl --socks5-hostname localhost:3000 https://www.twitter.com
 ```
 
-上面命令中，curl 的`-x`参数指定代理服务器，即通过 SOCKS5 协议的本地`2121`端口，访问`http://www.example.com`。
+上面命令中，curl 的`-x`参数指定代理服务器，即通过 SOCKS5 协议的本地`3000`端口，访问`http://www.example.com`。
+
+官方文档关于 -D的介绍
+
+     -D [bind_address:]port
+             Specifies a local “dynamic” application-level port forwarding.  This works by allocating a socket to
+             listen to port on the local side, optionally bound to the specified bind_address.  Whenever a connection
+             is made to this port, the connection is forwarded over the secure channel, and the application protocol
+             is then used to determine where to connect to from the remote machine.  Currently the SOCKS4 and SOCKS5
+             protocols are supported, and ssh will act as a SOCKS server.  Only root can forward privileged ports.
+             Dynamic port forwardings can also be specified in the configuration file.
+    
+             IPv6 addresses can be specified by enclosing the address in square brackets.  Only the superuser can
+             forward privileged ports.  By default, the local port is bound in accordance with the GatewayPorts set‐
+             ting.  However, an explicit bind_address may be used to bind the connection to a specific address.  The
+             bind_address of “localhost” indicates that the listening port be bound for local use only, while an
+             empty address or ‘*’ indicates that the port should be available from all interfaces.
+
 
 ### 本地转发 (-L)
 
@@ -465,12 +486,16 @@ $ ssh -L local-port:target-host:target-port tunnel-host
 $ ssh -L 7001:www.example.com:389 tunnel-host -N
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ec20b280dd381b777eb1bfa9f3291e3f.png)
+![image.png](/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png)
 
-然后，访问本机的`2121`端口，就是访问`www.example.com`的80端口。
+![image.png](/images/oss/9dbd774c782ba8be1f5c3a5eb4be778d.png)
+
+
+
+然后，访问本机的8080端口，就是访问`www.example.com`的80端口.
 
 ```
-$ curl http://localhost:2121
+$ curl http://localhost:8080
 ```
 
 注意，**本地端口转发采用 HTTP 协议，不用转成 SOCKS5 协议**。
@@ -516,6 +541,8 @@ $ ssh -R local-port:target-host:target-port -N local
 
 上面的命令，首先需要注意，**不是在本机执行的，而是在 SSH 跳板机执行的**，从跳板机去连接本地计算机。`-R`参数表示远程端口转发，`local-port`是本地计算机的端口，`target-host`和`target-port`是目标服务器及其端口，`local`是本地计算机。
 
+![image.png](/images/oss/160e661caa72e3546e01ea8efe5bbe86.png)
+
 显然，远程端口转发要求本地计算机也安装了 SSH 服务器，这样才能接受 SSH 跳板机的远程登录。
 
 比如，跳板机执行下面的命令，绑定本地计算机的`2121`端口，去访问`www.example.com:80`。
@@ -539,6 +566,32 @@ Host test.example.com
 RemoteForward local-IP:local-port target-ip:target-port
 ```
 
+## 调试 socks5 是否能联通
+
+> curl -I --socks5-hostname 127.0.0.1:13659 twitter.com
+>
+> curl -x socks5://localhost:13659 twitter.com
+
+
+
+Suppose you have a socks5 proxy running on localhost:8001. 
+
+[In curl >= 7.21.7, you can use](https://blog.emacsos.com/use-socks5-proxy-in-curl.html)
+
+```
+curl -x socks5h://localhost:8001 http://www.google.com/
+```
+
+In curl >= 7.18.0, you can use
+
+```
+curl --socks5-hostname localhost:8001 http://www.google.com/
+```
+
+特别注意，如果ssh -D 要启动的本地port已经被占用了是不会报错的，但是实际socks代理会没启动成功
+
+
+
 ## 参考资料：
 
 http://docs.corp-inc.com/pages/editpage.action?pageId=203555361
@@ -546,3 +599,8 @@ https://wiki.archlinux.org/index.php/SSH_keys_(%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96
 
 https://wangdoc.com/ssh/key.html
 
+https://robotmoon.com/ssh-tunnels/
+
+[通过SSH动态转发来建立Socks代以及各种场景应用案例](https://blog.gwlab.page/vpn-over-ssh-the-socks-proxy-8a8d7bdc7028)
+
+https://daniel.haxx.se/blog/2020/05/26/curl-ootw-socks5/

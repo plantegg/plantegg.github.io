@@ -16,7 +16,6 @@ tags:
 
 ![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d57a004c846e193126ca01398e394319.png)
 
-
 所使用的测试命令：
 
 ```
@@ -55,9 +54,29 @@ SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。
 
 **擦除速度相对很慢，通常为几毫秒**。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。
 
+### SSD原理
+
+对于 SSD 硬盘，类似SRAM（CPU cache）它是由一个电容加上一个电压计组合在一起，记录了一个或者多个比特。能够记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。
+
+但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。
+
+只有一个电容，我们怎么能够表示更多的比特呢？别忘了，这里我们还有一个电压计。4 个比特一共可以从 0000-1111 表示 16 个不同的数。那么，如果我们能往电容里面充电的时候，充上 15 个不同的电压，并且我们电压计能够区分出这 15 个不同的电压。加上电容被放空代表的 0，就能够代表从 0000-1111 这样 4 个比特了。
+
+不过，要想表示 15 个不同的电压，充电和读取的时候，对于精度的要求就会更高。这会导致充电和读取的时候都更慢，所以 QLC 的 SSD 的读写速度，要比 SLC 的慢上好几倍。
+
+SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。
+
+#### 为什么断电后SSD不丢数据
+
+SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。
+
 ### 写入放大（Write Amplification, or WA)
 
 这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 / 擦除（P/E）周期，所以写入放大效用会缩短 SSD 的寿命。
+
+SSD 的读取和写入的基本单位，不是一个比特（bit）或者一个字节（byte），而是一个页（Page）。SSD 的擦除单位就更夸张了，我们不仅不能按照比特或者字节来擦除，连按照页来擦除都不行，我们必须按照块来擦除。
+
+SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次左右，而 TLC 和 QLC 就只在几千次了。这也是为什么，你去购买 SSD 硬盘，会看到同样的容量的价格差别很大，因为它们的芯片颗粒和寿命完全不一样。
 
 ### 耗损平衡 (Wear Leveling) 
 
@@ -291,6 +310,7 @@ sfdv0n1           0.00     0.00    0.00 13168.67     0.00 66244.00    10.06     
 Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
 sfdv0n1           0.00     0.00    0.00 12822.67     0.00 65542.67    10.22     1.04    0.02    0.00    0.02   0.08 100.07
 
+//增加压力
 Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
 sfdv0n1           0.00     0.00    0.00 27348.33     0.00 214928.00    15.72     1.27    0.02    0.00    0.02   0.04 100.17
 
@@ -310,7 +330,7 @@ sfdv0n1           0.00     0.00    0.00 27656.33     0.00 224586.67    16.24    
 
 从iostat看出，测试开始前util已经100%（因为ssd，util失去参考意义），w/s 13K左右，压力跑起来后w/s能到30K，svctm、await均保持稳定
 
-fio的direct和buffered似乎很奇怪，正常应该是direct=1性能更好，实际不是这样，这里还需要找资料求证下
+SSD的direct和buffered似乎很奇怪，应该是direct=0性能更好，实际不是这样，这里还需要找资料求证下
 
 > - `direct``=bool`
 >
@@ -793,13 +813,31 @@ Disk stats (read/write):
 
 **SATA SSD的IOPS比NVMe性能差很多**。
 
-SATA SSD当-buffered=1参数下SATA SSD的latency在7-10ms之间。 
+SATA SSD当-buffered=1参数下SATA SSD的latency在7-10us之间。 
 
-NVMe SSD以及SATA SSD当buffered=0的条件下latency均为2-3ms,  NVMe SSD latency参考文章第一个表格， 和本次NVMe测试结果一致.  
+NVMe SSD以及SATA SSD当buffered=0的条件下latency均为2-3us,  NVMe SSD latency参考文章第一个表格， 和本次NVMe测试结果一致.  
 
-ESSD的latency基本是13-16ms。
+ESSD的latency基本是13-16us。
 
 以上NVMe SSD测试数据是在测试过程中还有mysql在全力导入数据的情况下，用fio测试所得。所以空闲情况下测试结果会更好。
+
+### HDD性能测试数据
+
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+
+从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
+
+SATA硬盘，10K转
+
+万转机械硬盘组成RAID5阵列，在顺序条件最好的情况下，带宽可以达到1GB/s以上，平均延时也非常低，最低只有20多us。但是在随机IO的情况下，机械硬盘的短板就充分暴露了，零点几兆的带宽，将近5ms的延迟，IOPS只有200左右。其原因是因为
+
+- 随机访问直接让RAID卡缓存成了个摆设
+- 磁盘不能并行工作，因为我的机器RAID宽度Strip Size为128 KB
+- 机械轴也得在各个磁道之间跳来跳去。
+
+理解了磁盘顺序IO时候的几十M甚至一个GB的带宽，随机IO这个真的是太可怜了。
+
+从上面的测试数据中我们看到了机械硬盘在顺序IO和随机IO下的巨大性能差异。在顺序IO情况下，磁盘是最擅长的顺序IO,再加上Raid卡缓存命中率也高。这时带宽表现有几十、几百M，最好条件下甚至能达到1GB。IOPS这时候能有2-3W左右。到了随机IO的情形下，机械轴也被逼的跳来跳去寻道，RAID卡缓存也失效了。带宽跌到了1MB以下，最低只有100K，IOPS也只有可怜巴巴的200左右。
 
 ### [网上测试数据参考](https://zhuanlan.zhihu.com/p/40497397)
 
@@ -807,7 +845,150 @@ ESSD的latency基本是13-16ms。
 
 ![img](https://pic4.zhimg.com/80/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
 
-硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
+硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
+
+## LVM性能对比
+
+磁盘信息
+
+```
+#lsblk
+NAME         MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+sda            8:0    0 223.6G  0 disk
+├─sda1         8:1    0     3M  0 part
+├─sda2         8:2    0     1G  0 part /boot
+├─sda3         8:3    0    96G  0 part /
+├─sda4         8:4    0    10G  0 part /tmp
+└─sda5         8:5    0 116.6G  0 part /home
+nvme0n1      259:4    0   2.7T  0 disk
+└─nvme0n1p1  259:5    0   2.7T  0 part
+  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds
+nvme1n1      259:0    0   2.7T  0 disk
+└─nvme1n1p1  259:2    0   2.7T  0 part /u02
+nvme2n1      259:1    0   2.7T  0 disk
+└─nvme2n1p1  259:3    0   2.7T  0 part
+  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds
+```
+
+单块nvme SSD盘跑mysql server，运行sysbench导入测试数据
+
+```
+#iostat -x nvme1n1 1
+Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           0.32    0.00    0.17    0.07    0.00   99.44
+
+Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+nvme1n1           0.00    47.19    0.19  445.15     2.03 43110.89   193.62     0.31    0.70    0.03    0.70   0.06   2.85
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.16    0.00    0.36    0.17    0.00   98.31
+
+Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+nvme1n1           0.00   122.00    0.00 3290.00     0.00 271052.00   164.77     1.65    0.50    0.00    0.50   0.05  17.00
+
+#iostat 1
+Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           0.14    0.00    0.13    0.05    0.00   99.67
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda              49.21       554.51      2315.83    1416900    5917488
+nvme1n1           5.65         2.34       844.73       5989    2158468
+nvme2n1           0.06         1.13         0.00       2896          0
+nvme0n1           0.06         1.13         0.00       2900          0
+dm-0              0.02         0.41         0.00       1036          0
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.39    0.00    0.23    0.08    0.00   98.30
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda               8.00         0.00        60.00          0         60
+nvme1n1         868.00         0.00    132100.00          0     132100
+nvme2n1           0.00         0.00         0.00          0          0
+nvme0n1           0.00         0.00         0.00          0          0
+dm-0              0.00         0.00         0.00          0          0
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.44    0.00    0.14    0.09    0.00   98.33
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda               0.00         0.00         0.00          0          0
+nvme1n1         766.00         0.00    132780.00          0     132780
+nvme2n1           0.00         0.00         0.00          0          0
+nvme0n1           0.00         0.00         0.00          0          0
+dm-0              0.00         0.00         0.00          0          0
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.41    0.00    0.16    0.09    0.00   98.34
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda             105.00         0.00       532.00          0        532
+nvme1n1         760.00         0.00    122236.00          0     122236
+nvme2n1           0.00         0.00         0.00          0          0
+nvme0n1           0.00         0.00         0.00          0          0
+dm-0              0.00         0.00         0.00          0          0
+```
+
+如果同样写lvm，由两块nvme组成
+
+```
+Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00
+nvme0n1           0.00   137.00    0.00 5730.00     0.00 421112.00   146.98     2.95    0.52    0.00    0.52   0.05  27.30
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.17    0.00    0.34    0.19    0.00   98.30
+
+Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00
+nvme0n1           0.00   109.00    0.00 2533.00     0.00 271236.00   214.16     1.08    0.43    0.00    0.43   0.06  15.90
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.38    0.00    0.42    0.20    0.00   98.00
+
+Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00
+nvme0n1           0.00   118.00    0.00 3336.00     0.00 320708.00   192.27     1.50    0.45    0.00    0.45   0.06  20.00
+
+[root@k28a11352.eu95sqa /var/lib]
+#iostat  1
+Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           0.40    0.00    0.20    0.07    0.00   99.33
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda              38.96       334.64      1449.68    1419236    6148304
+nvme1n1         324.95         1.43     31201.30       6069  132329072
+nvme2n1           0.07         0.90         0.00       3808          0
+nvme0n1         256.24         1.60     22918.46       6801   97200388
+dm-0            266.98         1.38     22918.46       5849   97200388
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.20    0.00    0.42    0.25    0.00   98.12
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda               0.00         0.00         0.00          0          0
+nvme1n1           0.00         0.00         0.00          0          0
+nvme2n1           0.00         0.00         0.00          0          0
+nvme0n1        4460.00         0.00    332288.00          0     332288
+dm-0           4608.00         0.00    332288.00          0     332288
+
+avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+           1.35    0.00    0.38    0.22    0.00   98.06
+
+Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn
+sda              48.00         0.00       200.00          0        200
+nvme1n1           0.00         0.00         0.00          0          0
+nvme2n1           0.00         0.00         0.00          0          0
+nvme0n1        4187.00         0.00    332368.00          0     332368
+dm-0           4348.00         0.00    332368.00          0     332368
+```
+
+不知道为什么只有一个块ssd有流量，可能跟只写一个文件有关系
 
 ## SSD中，SATA、m2、PCIE和NVME各有什么意义
 
@@ -816,8 +997,8 @@ ESSD的latency基本是13-16ms。
  SAS，SATA，PCIe 这三个是同一个层面上的，模拟串行高速接口。
 
 - SAS 对扩容比较友好，也支持双控双活。接上SAS RAID 卡，一般在阵列上用的比较多。
-- SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb/s，上限 550MB/s左右，现在已经慢慢被pcie取代。
-- PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡 也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb/s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb/s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB/s 左右。
+- SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb/s，上限 768MB/s左右，现在已经慢慢被pcie取代。
+- PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb/s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb/s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB/s 左右。
 
 ### 传输层协议
 
@@ -856,3 +1037,10 @@ http://cizixs.com/2017/01/03/how-slow-is-disk-and-network
 https://tobert.github.io/post/2014-04-17-fio-output-explained.html 
 
 https://zhuanlan.zhihu.com/p/40497397
+
+[块存储NVMe云盘原型实践](https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&flag_data_from=home_algorithm_article)
+
+[机械硬盘随机IO慢的超乎你的想象](https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247483999&idx=1&sn=238d3d1a8cf24443db0da4aa00c9fb7e&chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&scene=178&cur_album_id=1371808335259090944#rd)
+
+[搭载固态硬盘的服务器究竟比搭机械硬盘快多少？](https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247484023&idx=1&sn=1946b4c286ed72da023b402cc30908b6&chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&scene=178&cur_album_id=1371808335259090944#rd)
+

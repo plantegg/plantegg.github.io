@@ -91,6 +91,11 @@ sudo tc qdisc add dev bond0 parent 1: handle 2: tbf rate 1mbit burst 32kbit late
 
 tc qdisc change dev eth0 root netem reorder 50% gap 3 delay 1ms
 tc qdisc change dev eth0 root netem delay 1ms reorder 15%
+
+
+//限制网卡vb603d4dd412d 带宽500kb
+sudo /sbin/tc qdisc add dev vb603d4dd412d root tbf rate 500kbit latency 50ms burst 15kb
+sudo /sbin/tc qdisc ls dev vb603d4dd412d
 ```
 
 
@@ -110,4 +115,8 @@ tc qdisc add dev eth0 root tbf rate 200kbit latency 10ms burst 1540
 
 tc qdisc ls dev eth0 // 查看eth0上的队列规则  
 ```
+
+
+
+## 参考资料
 

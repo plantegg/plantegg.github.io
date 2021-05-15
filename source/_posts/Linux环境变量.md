@@ -104,7 +104,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 
@@ -297,6 +297,8 @@ http://kodango.com/bash-one-liners-explained-part-three
 所以创建出来文件最终是664，文件夹是775，如果umask 是027的话最终文件是 640 文件夹是750
 『尽量不要以数字相加减啦！』你应该要这样想(-rw-rw- rw-) – (——–wx)=-rw-rw-r–这样就对啦！不要用十进制的数字喔！够能力的话，用二进制来算，不晓得的话，用 rwx 来算喔！
 
+
+
 ### 其它
 
 	echo $-   // himBH 
@@ -322,7 +324,7 @@ shell 中：单引号的处理是比较简单的，被单引号包括的所有�
 su命令和su -命令最大的本质区别就是：前者只是切换了root身份，但Shell环境仍然是普通用户的Shell；而后者连用户和Shell环境一起切换成root身份了。只有切换了Shell环境才不会出现PATH环境变量错误。su切换成root用户以后，pwd一下，发现工作目录仍然是普通用户的工作目录；而用su -命令切换以后，工作目录变成root的工作目录了。用echo $PATH命令看一下su和su -以后的环境变量有何不同。以此类推，要从当前用户切换到其它用户也一样，应该使用su -命令。
 
 比如： 
-   su admin 会重新加载 ~/.bashrc ，但是不会切换到adminhome目录。
+   su admin 会重新加载 ~/.bashrc ，但是不会切换到admin 的home目录。
    但是 su - admin 不会重新加载 ~/.bashrc ，但是会切换admin的home目录。
 
 
@@ -335,11 +337,9 @@ The su command is used to become another user during a login session. Invoked wi
 "disown -h"让该任务忽略SIGHUP信号（不会因为掉线而终止执行）；
 "bg"让该任务在后台恢复运行。
 
-创建文件的默认权限是 666 文件夹是777 但是都要跟 umask做运算（按位减法） 一般umask是002 
-所以创建出来文件最终是664，文件夹是775，如果umask 是027的话最终文件是 640 文件夹是750
-『尽量不要以数字相加减啦！』你应该要这样想(-rw-rw- rw-) – (——–wx)=-rw-rw-r–这样就对啦！不要用十进制的数字喔！够能力的话，用二进制来算，不晓得的话，用 rwx 来算喔！
 
-## 调试
+
+## shell 调试与参数
 
 为了方便 Debug，有时在启动 Bash 的时候，可以加上启动参数。
 
@@ -352,6 +352,24 @@ $ bash -n scriptname
 $ bash -v scriptname
 $ bash -x scriptname
 ```
+
+## shell 数值运算
+
+bash中数值运算要这样 $(( $a+$b )) // declare -i 才是定义一个整型变量
+
+- 在中括号 [] 内的每个组件都需要有空白键来分隔；
+- 在中括号内的变量，最好都以双引号括号起来；
+- 在中括号内的常数，最好都以单或双引号括号起来。
+
+## tty
+
+tty（teletype--最早的一种终端设备） stty 设置tty的相关参数
+
+tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端
+
+/dev/pty（Pseudo Terminal） 伪终端
+
+/dev/tty 控制终端
 
 
 

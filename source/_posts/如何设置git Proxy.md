@@ -20,7 +20,7 @@ tags:
 
 下面的例子假设你的socks5代理是： 127.0.0.1:13658
 
-### 执行如下命令
+### 配置git http proxy
 
     git config --global http.proxy socks5://127.0.0.1:13658
 
@@ -58,3 +58,15 @@ tags:
 写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。
 
 整个原理还是穿墙术。 可以参考 ：[SSH 高级用法和技巧大全](https://www.atatech.org/articles/76026)  
+
+### [配置git 走socks](https://superuser.com/questions/454210/how-can-i-use-ssh-with-a-socks-5-proxy)
+
+如果没有海外服务器，但是本地已经有了socks5 服务那么也可以直接走socks5来proxy所有git 流量
+
+```
+cat ~/.ssh/config
+host github.com
+ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口来转发代理流量
+#ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump
+```
+

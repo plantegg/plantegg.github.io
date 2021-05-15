@@ -49,9 +49,9 @@ Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来纪录
 ## 数据取自于4.19内核代码中的 include/net/tcp.h
 
 ```
-//rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得 
+//rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
 #define TCP_RTO_MAX     ((unsigned)(120*HZ))
-#define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN，
+#define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN
 
 /* Maximal number of ACKs sent quickly to accelerate slow-start. */
 #define TCP_MAX_QUICKACKS       16U //默认前16个ack必须quick ack来加速慢启动
@@ -135,17 +135,17 @@ default via 10.0.207.253 dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickac
 
 默认开启delay ack的抓包情况如下，可以清晰地看到有几个40ms的ack
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/7f4590cccf73fd672268dbf0e6a1b309.png)
+![image.png](/images/oss/7f4590cccf73fd672268dbf0e6a1b309.png)
 
 第一个40ms 的ack对应的包， 3306收到 update请求后没有ack，而是等了40ms update也没结束，就ack了
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b06d3148450fc24fa26b2a9cdfe07831.png)
+![image.png](/images/oss/b06d3148450fc24fa26b2a9cdfe07831.png)
 
 同样的机器，执行quick ack后的抓包
 
 > sudo ip route change default via 10.0.207.253  dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickack 1
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9fba9819e769494bc09a2a11245e4769.png)
+![image.png](/images/oss/9fba9819e769494bc09a2a11245e4769.png)
 
 **同样场景下，改成quick ack后基本所有的ack都在0.02ms内发出去了。**
 

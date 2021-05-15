@@ -89,6 +89,31 @@ TCP  11.197.140.20:18089 wlc
     service ipvsadm save:保存规则
 ```
 
+### 查看连接对应的RS ip和端口
+
+```
+# ipvsadm -Lcn |grep "10.68.128.202:1406"
+TCP 15:01  ESTABLISHED 10.68.128.202:1406 10.68.128.202:3306 172.20.188.72:3306
+
+# ipvsadm -Lcn | head -10
+IPVS connection entries
+pro expire state       source             virtual            destination
+TCP 15:01  ESTABLISHED 10.68.128.202:1390 10.68.128.202:3306 172.20.185.132:3306
+TCP 15:01  ESTABLISHED 10.68.128.202:1222 10.68.128.202:3306 172.20.165.202:3306
+TCP 15:01  ESTABLISHED 10.68.128.202:1252 10.68.128.202:3306 172.20.222.65:3306
+TCP 15:01  ESTABLISHED 10.68.128.202:1328 10.68.128.202:3306 172.20.149.68:3306
+
+ipvsadm -Lcn
+IPVS connection entries
+pro expire state       source             virtual            destination
+TCP 00:57  NONE        110.184.96.173:0   122.225.32.142:80  122.225.32.136:80
+TCP 01:57  FIN_WAIT    110.184.96.173:54568 122.225.32.142:80  122.225.32.136:80
+```
+
+当一个client访问vip的时候，ipvs或记录一条状态为NONE的信息，expire初始值是persistence_timeout的值，然后根据时钟主键变小，在以下记录存在期间，同一client ip连接上来，都会被分配到同一个后端。
+
+FIN_WAIT的值就是tcp tcpfin udp的超时时间，当NONE的值为0时，如果FIN_WAIT还存在，那么NONE的值会从新变成60秒，再减少，直到FIN_WAIT消失以后，NONE才会消失，只要NONE存在，同一client的访问，都会分配到统一real server。
+
 ## 通过keepalived来检测RealServer的状态
 
 ```
@@ -178,13 +203,53 @@ $ sudo ip link add eth10 type dummy
 
 5.最后经由POSTROUTING链发往后端服务器。
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/08cb9d37f580b03f37fcace92e21d2e3.png)
+![image.png](/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
 
 ## netfilter 原理
 
 Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：`raw table`, `mangle table`, `nat table`, `filter table`。Netfilter 默认的链有：`INPUT`, `OUTPUT`, `FORWARD`, `PREROUTING`, `POSTROUTING`，根据`表`的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1039cdda7040f20582f36a6a560e4e2e.png)
+![image.png](/images/oss/1039cdda7040f20582f36a6a560e4e2e.png)
+
+## persistence_timeout
+
+用于保证同一ip client的所有连接在timeout时间以内都发往同一个RS，比如ftp 21port listen认证、20 port传输数据，那么希望同一个client的两个连接都在同一个RS上。
+
+persistence_timeout 会导致负载不均衡，timeout时间越大负载不均衡越严重。大多场景下基本没什么意义
+
+
+
+PCC用来实现把某个用户的所有访问在超时时间内定向到同一台REALSERVER，这种方式在实际中不常用
+
+```
+ipvsadm -A -t 192.168.0.1:0 -s wlc -p 600(单位是s)     //port为0表示所有端口
+ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.2 -w 4 -g
+ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g
+```
+
+此时测试一下会发现通过HTTP访问VIP和通过SSH登录VIP的时候都被定向到了同一台REALSERVER上面了
+
+
+
+## OSPF + LVS
+
+OSPF：Open Shortest Path First 开放最短路径优先，SPF算法也被称为Dijkstra算法，这是因为最短路径优先算法SPF是由荷兰计算机科学家狄克斯特拉于1959年提出的。
+
+通过OSPF来替换keepalived，解决两个LVS节点的高可用，以及流量负载问题。keepalived两个节点只能是master-slave模式，而OSPF两个节点都是master，同时都有流量
+
+![img](https://bbsmax.ikafan.com/static/L3Byb3h5L2h0dHAvczMuNTFjdG8uY29tL3d5ZnMwMi9NMDEvMjMvRkUvd0tpb20xTktBSnpqN2JNS0FBRTRQTzI1LVh3ODY2LmpwZw==.jpg)
+
+
+
+这个架构与LVS+keepalived 最明显的区别在于，两台Director都是Master 状态，而不是Master-Backup，如此一来，两台Director 地位就平等了。剩下的问题，就是看如何在这两台Director 间实现负载均衡了。这里会涉及路由器领域的一个概念：等价多路径
+
+### **ECMP（等价多路径）**
+
+ECMP（Equal-CostMultipathRouting）等价多路径，存在多条不同链路到达同一目的地址的网络环境中，如果使用传统的路由技术，发往该目的地址的数据包只能利用其中的一条链路，其它链路处于备份状态或无效状态，并且在动态路由环境下相互的切换需要一定时间，而等值多路径路由协议可以在该网络环境下**同时**使用多条链路，不仅增加了传输带宽，并且可以无时延无丢包地备份失效链路的数据传输。
+
+ECMP最大的特点是实现了等值情况下，多路径负载均衡和链路备份的目的，在静态路由和OSPF中基本上都支持ECMP功能。
+
+
 
 ## 参考资料
 
@@ -193,3 +258,6 @@ http://www.ultramonkey.org/papers/lvs_tutorial/html/
 https://www.jianshu.com/p/d4222ce9b032
 
 https://www.cnblogs.com/zhangxingeng/p/10595058.html
+
+[lvs持久性工作原理和配置](http://xstarcd.github.io/wiki/sysadmin/lvs_persistence.html)
+

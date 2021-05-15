@@ -34,32 +34,32 @@ tags:
 
 ## LVS的几种转发模式
 
-- DR模型 -- （Director Routing-直接路由）
+- DR模型 -- (Director Routing-直接路由)
 - NAT模型 -- (NetWork Address Translation-网络地址转换)
-- fullNAT -- （full NAT）
-- ENAT --（enhence NAT 或者叫三角模式/DNAT，阿里云提供）
+- fullNAT -- (full NAT)
+- ENAT -- (enhence NAT 或者叫三角模式/DNAT，阿里云提供)
 - IP TUN模型 -- (IP Tunneling - IP隧道)
 
 ## DR模型(Director Routing--直接路由)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/574a12e18ebbf0bafcfc97b1984305b5.png)
+![image.png](/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png)
 
-如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1）：
+如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：
 
-1. 请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS（图中Director）
+1. 请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)
 2. 然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC
-3. 然后丢给交换机，交换机将这个包丢给选中的RS
+3. 然后丢给Director，Director将这个包丢给选中的RS
 4. 选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复
-5. 回复包（sip 200.200.200.1， dip 200.200.200.2）
-6. 经过交换机直接回复给client了（不再走LVS）
+5. 回复包(sip 200.200.200.1， dip 200.200.200.2)
+6. 经过交换机直接回复给client了(不再走LVS)
 
 我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。
 
-同时要求多个RS和LVS（Director）都配置的是同一个IP地址，但是用的不同的MAC。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。
+同时**要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA**C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。
 
 RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/739447baddd120ca23c68ac85c0ea36d.png)
+![image.png](/images/oss/739447baddd120ca23c68ac85c0ea36d.png)
 
 
 优点：
@@ -68,13 +68,13 @@ RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则�
 
 缺点：
 
-- 要求LVS和rs在同一个vlan，扩展性不够好；
+- 要求LVS和rs在同一个子网，扩展性不够好；
 - RS需要配置vip同时特殊处理arp；
 - 配置比较复杂；
 - 不支持端口映射。
 
 
-### 为什么要求LVS和RS在同一个vlan（或者说同一个二层网络里）
+### 为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)
 
 因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里
 
@@ -84,11 +84,11 @@ RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则�
 
 ### DR 模式为什么回包不需要走LVS了
 
-因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次（后面讲的NAT、Full NAT都需要）
+因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)
 
 ### 总结下 DR的结构
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/bb209bc08a21a28e99703e700acc82e4.png)
+![image.png](/images/oss/bb209bc08a21a28e99703e700acc82e4.png)
 
 绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。
 
@@ -96,25 +96,25 @@ RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则�
 
 nat模式的结构图如下：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/b806e1615d99f6a018c537a18addc464.png)
+![image.png](/images/oss/b806e1615d99f6a018c537a18addc464.png)
 
 
 基本流程：
 
-1. client发出请求（sip 200.200.200.2，dip 200.200.200.1）
-2. 请求包到达LVS(图中Director)，LVS修改请求包为（sip 200.200.200.2， dip rip）
-3. 请求包到达rs， rs回复（sip rip，dip 200.200.200.2）
-4. 这个回复包不能直接给client，因为rip不是VIP会被reset掉（client看到的连接是vip，突然来一个rip就reset）
+1. client发出请求(sip 200.200.200.2，dip 200.200.200.1)
+2. 请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)
+3. 请求包到达rs， rs回复(sip rip，dip 200.200.200.2)
+4. 这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)
 5. 但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip
-6. 网关修改sip为VIP，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client
+6. 网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/bd311051c55f08c8d0add3cb329b87bf.png)
+![image.png](/images/oss/bd311051c55f08c8d0add3cb329b87bf.png)
 
 
 优点：
 
 - 配置简单
-- 支持端口映射（看名字就知道）
+- 支持端口映射(看名字就知道)
 - RIP一般是私有地址，主要用户LVS和RS之间通信 
 
 
@@ -127,23 +127,23 @@ nat模式的结构图如下：
 
 ### 为什么NAT要求lvs和RS在同一个vlan
 
-因为**回复包必须经过lvs再次修改sip为vip，client才认**，如果回复包的sip不是client包请求的dip（也就是vip），那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip
+因为**回复包必须经过lvs再次修改sip为vip，client才认**，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip
 
 ### 总结下NAT结构
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/51b694409882318d5acd6a1422afce03.png)
+![image.png](/images/oss/51b694409882318d5acd6a1422afce03.png)
 
 注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。
 
 ## full NAT模型(full NetWork Address Translation-全部网络地址转换)
 
-基本流程（类似NAT）：
+基本流程(类似NAT)：
 
-1. client发出请求（sip 200.200.200.2 dip 200.200.200.1）
-2. 请求包到达lvs，lvs修改请求包为**（sip 200.200.200.1， dip rip）** 注意这里sip/dip都被修改了
-3. 请求包到达rs， rs回复（sip rip，dip 200.200.200.1）
+1. client发出请求(sip 200.200.200.2 dip 200.200.200.1)
+2. 请求包到达lvs，lvs修改请求包为**(sip 200.200.200.1， dip rip)** 注意这里sip/dip都被修改了
+3. 请求包到达rs， rs回复(sip rip，dip 200.200.200.1)
 4. 这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs
-5. lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client
+5. lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client
 
 
 优点：
@@ -152,13 +152,13 @@ nat模式的结构图如下：
 
 缺点：
 
-- RS看不到cip（NAT模式下可以看到）
-- 进出流量还是都走的lvs，容易成为瓶颈（跟NAT一样都有这个问题）
+- RS看不到cip(NAT模式下可以看到)
+- 进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)
 
 
 ### 为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题
 
-因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip（NAT中是cip），所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。
+因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。
 
 ### 为什么full NAT后RS看不见cip了
 
@@ -166,15 +166,15 @@ nat模式的结构图如下：
 
 ### 总结下full NAT的结构
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/94d55b926b5bb1573c4cab8353428712.png) 
+![image.png](/images/oss/94d55b926b5bb1573c4cab8353428712.png) 
 
 **注意上图中绿色的进包和红色的出包他们的地址变化**
 
-那么到现在full NAT解决了NAT的同vlan的要求，**基本上可以用于公有云了**，但是还是没解决进出流量都走LVS的问题（LVS要修改进出的包）。
+那么到现在full NAT解决了NAT的同vlan的要求，**基本上可以用于公有云了**，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。
 
 ### 比较下NAT和Full NAT
 
-两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了（这个可以通过自定义的vtoa模块来复原）
+两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)
 
 那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？
 
@@ -188,7 +188,7 @@ Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS�
 
 前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。
 
-与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端（源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用）
+与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)
 
 优点：
 
@@ -197,14 +197,14 @@ Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS�
 
 缺点：
 
-- 阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件（类似full NAT中的vtoa）
+- 阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)
 
 基本流程：
 
-1. client发出请求（cip，vip）
-2. 请求包到达lvs，lvs修改请求包为（vip，rip），并将cip放入TCP Option中
+1. client发出请求(cip，vip)
+2. 请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中
 3. 请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip
-4. 回复包(RIP, vip)被ctk模块截获，并将回复包改写为（vip, cip)
+4. 回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)
 5. 因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client
 
 ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
@@ -219,7 +219,7 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 ### 总结下 ENAT的结构
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/5b498ed88c3233977a592f924affc43a.png)
+![image.png](/images/oss/5b498ed88c3233977a592f924affc43a.png)
 
 最后说一下不太常用的 TUN模型
 
@@ -242,7 +242,7 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 - RS上必须安装运行IPIP模块
 - 多增加了一个IP头
-- LVS和RS上的tunl0虚拟网卡上配置同一个VIP（类似DR）
+- LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)
 
 
 **DR模式中LVS修改的是目的MAC**
@@ -257,7 +257,7 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 ### 总结下 IP TUN的结构
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/218e93e6fa37b6f04dae9669de0e3fe3.png)
+![image.png](/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png)
 
 图中红线是再次封装过的包，ipip是操作系统的一个内核模块。
 
@@ -265,7 +265,7 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 
 ## 阿里云slb的fnat
 
-本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip（本来是lvs ip）替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs（虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等）
+本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)
 
 这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。
 
@@ -277,7 +277,7 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 
 [程序员的网络知识 -- 一个网络包的旅程](https://www.atatech.org/articles/80573)
 
-[章文嵩（正明）博士和他背后的负载均衡(LOAD BANLANCER)帝国](https://yq.aliyun.com/articles/52752)
+[章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国](https://yq.aliyun.com/articles/52752)
 
 https://yizhi.ren/2019/05/03/lvs/
 

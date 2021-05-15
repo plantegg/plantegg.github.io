@@ -72,9 +72,9 @@ $(pwd) 需要修改成：$(shell pwd)
 
 make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息看又能够正确找到libc，[debug方法](https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary)
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f76b841375bb5ed5c5a946614fe494e1.png)
+![image.png](/images/oss/f76b841375bb5ed5c5a946614fe494e1.png)
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/19e493900f7d1ae1937d27366129e8aa.png)
+![image.png](/images/oss/19e493900f7d1ae1937d27366129e8aa.png)
 
 实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static
 
@@ -124,7 +124,7 @@ make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息�
 
 ## 内核函数替换
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/c41363dae054baa6d7f79d03376c57cb.png)
+![image.png](/images/oss/c41363dae054baa6d7f79d03376c57cb.png)
 
 	static int __init hotfix_init(void)
 	{

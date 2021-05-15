@@ -126,6 +126,21 @@ Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem 
 
 kafaka就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一。
 
+非零拷贝代码：
+
+```
+File.read(fileDesc, buf, len);
+Socket.send(socket, buf, len);
+```
+
+Traditional data copying approach：
+
+![Traditional data copying approach](/Users/ren/src/blog/951413iMgBlog/figure1.gif)
+
+Traditional context switches：
+
+![Traditional context switches](/Users/ren/src/blog/951413iMgBlog/figure2.gif)
+
 如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 `transferTo` 方法：
 
 ```java
@@ -134,6 +149,18 @@ long transferFrom(FileChannel fileChannel, long position, long count) throws IOE
     return fileChannel.transferTo(position, count, socketChannel);
 }
 ```
+
+Data copy with transferTo()
+
+![Data copy with transferTo()](/Users/ren/src/blog/951413iMgBlog/figure3.gif)
+
+Context switching with transferTo()：
+
+![Context switching when using transferTo()](/Users/ren/src/blog/951413iMgBlog/figure4.gif)
+
+Data copies when transferTo() and gather operations are used
+
+![Data copies when transferTo() and gather operations are used](/Users/ren/src/blog/951413iMgBlog/figure5.gif)
 
 如果 Linux 系统支持 `sendfile()` 系统调用，那么 `transferTo()` 实际上最后就会使用到 `sendfile()` 系统调用函数。
 
@@ -166,6 +193,23 @@ location /video/ {
 
 当文件大小大于 `directio` 值后，使用「异步 I/O + 直接 I/O」，否则使用「零拷贝技术」。
 
+#### 零拷贝性能
+
+如果用零拷贝和不用零拷贝来做一个文件服务器，来对比下他们的性能
+
+[Performance comparison: Traditional approach vs. zero copy](https://developer.ibm.com/articles/j-zerocopy/)
+
+| File size | Normal file transfer (ms) | transferTo (ms) |
+| :-------- | :------------------------ | :-------------- |
+| 7MB       | 156                       | 45              |
+| 21MB      | 337                       | 128             |
+| 63MB      | 843                       | 387             |
+| 98MB      | 1320                      | 617             |
+| 200MB     | 2124                      | 1150            |
+| 350MB     | 3631                      | 1762            |
+| 700MB     | 13498                     | 4422            |
+| 1GB       | 18399                     | 8537            |
+
 ## DMA
 
 什么是 DMA 技术？简单理解就是，**在进行 I/O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，这样 CPU 就可以去处理别的事务**。	
@@ -181,3 +225,6 @@ https://cloud.tencent.com/developer/article/1087455
 https://www.cnblogs.com/xiaolincoding/p/13719610.html
 
 https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA 从Linux内存管理到零拷贝
+
+[Efficient data transfer through zero copy](https://developer.ibm.com/articles/j-zerocopy/)
+

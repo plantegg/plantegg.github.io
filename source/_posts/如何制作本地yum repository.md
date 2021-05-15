@@ -143,6 +143,27 @@ yum deplist ansible
 
 [Yum commands error "pycurl.so: undefined symbol”](https://access.redhat.com/solutions/641093)
 
+## xargs 作用
+
+`xargs`命令的作用，是将标准输入转为命令行参数。因为有些命令是不接受标准输入的，比如echo
+
+`xargs`的作用在于，大多数命令（比如`rm`、`mkdir`、`ls`）与管道一起使用时，都需要`xargs`将标准输入转为命令行参数。
+
+## dnf 使用
+
+**DNF** 是新一代的rpm软件包管理器。他首先出现在 Fedora 18 这个发行版中。而最近，它取代了yum，正式成为 Fedora 22 的包管理器。
+
+DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》
+
+
+
+DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：
+
+1. 在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。
+2. 在 DNF 中没有判断哪个包提供了指定依赖的 resolvedep 命令。
+3. 在 DNF 中没有用来列出某个软件依赖包的 deplist 命令。
+4. 当你在 DNF 中排除了某个软件库，那么该操作将会影响到你之后所有的操作，不像在 YUM 下那样，你的排除操作只会咋升级和安装软件时才起作用。
+
 ## 安装yum源
 
 安装7.70版本curl yum源
@@ -150,4 +171,10 @@ yum deplist ansible
 ```
 rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm
 ```
+
+
+
+## 参考资料
+
+[xargs 命令教程](https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html)
 

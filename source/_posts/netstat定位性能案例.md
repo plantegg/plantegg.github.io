@@ -24,7 +24,7 @@ netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过�
     tcp0 28 server:22    client-1:51708  ESTABLISHED
     tcp0  0 server:2376  client-1:60269 ESTABLISHED
 
- **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆，顺便建立知识体系，巩固相关知识点 **  
+ **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。
 
 ### Recv-Q 和 Send-Q 的说明
 
@@ -42,15 +42,15 @@ Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn 
 
 #### 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 
 
-#### 下面的case是接收方太慢，从应用机器的netstat统计来看，也是压力端回复太慢（本机listen 9108端口)
+#### 下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)
 
-<img src="https://intranetproxy.alipay.com/skylark/lark/0/2020/png/33359/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+<img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
 
-send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断前端到9108之间有瓶颈**
+send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断client端到9108之间有瓶颈**
 
 实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决
 
@@ -95,3 +95,6 @@ tcp        0    210 192.0.0.1:36483  192.0.68.1:43881   ESTABLISHED on (0.31/254
 As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.
 
 Hope this explains the netstat --timer option well.
+
+
+

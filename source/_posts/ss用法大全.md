@@ -14,8 +14,9 @@ tags:
 ss是Socket Statistics的缩写。
 
 netstat命令大家肯定已经很熟悉了，但是在2001年的时候netstat 1.42版本之后就没更新了，之后取代的工具是ss命令，是iproute2 package的一员。
-	# rpm -ql iproute | grep ss
-	/usr/sbin/ss
+
+> ​	rpm -ql iproute | grep ss
+> ​	/usr/sbin/ss
 
 netstat的替代工具是nstat，当然netstat的大部分功能ss也可以替代
 
@@ -42,7 +43,7 @@ tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,
 tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4a09503e6c6e84c25e026248a1b3ebb6.png)
+![image.png](/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
 
 如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w已经预分配好了的size，t[the memory used for sending packet (which has been sent
                      to layer 3)] , 似乎 w总是等于大于t？
@@ -72,11 +73,17 @@ The entire print format of `ss -m` is given in the source:
 
 example:
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4ed3d8aab6ef3ee45decda75e534baab.png)
+![image.png](/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
 
 最后给出的一个工具，knetstat（需要单独安装），也可以查看tcp的状态下的各种参数
 
 ## ss 查看拥塞窗口、RTO
+
+> //rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
+> #define TCP_RTO_MAX     ((unsigned)(120*HZ))
+> #define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN
+
+下面看到的rto和rtt单位都是毫秒，一般rto最小为200ms、最大为120秒
 
 ```
 #ss -itn |egrep "cwnd|rto"	
@@ -85,9 +92,42 @@ ESTAB       0      165      [::ffff:192.168.0.174]:48074                [::ffff:
 
 ESTAB       0      0        [::ffff:192.168.0.174]:48082                [::ffff:192.168.0.173]:3306
 	 cubic wscale:7,7 rto:201 rtt:0.262/0.112 ato:40 mss:1448 rcvmss:1448 advmss:1448 cwnd:10 bytes_acked:1852907381 bytes_received:8346503207 segs_out:10913962 segs_in:22169704 data_segs_out:9531411 data_segs_in:12796151 send 442.1Mbps lastsnd:2 lastack:2 pacing_rate 881.3Mbps delivery_rate 164.3Mbps app_limited busy:2736500ms retrans:0/260 rcv_rtt:1.042 rcv_space:31874 minrtt:0.133
+	 
+	 -----
+	 skmem:(r0,rb131072,t0,tb133632,f0,w0,o0,bl0,d0) cubic wscale:8,7 rto:233 rtt:32.489/2.99 ato:40 mss:1380 rcvmss:536 advmss:1460 cwnd:11 ssthresh:8 bytes_acked:99862366 bytes_received:2943 segs_out:78933 segs_in:23388 data_segs_out:78925 data_segs_in:81 send 3.7Mbps lastsnd:1735288 lastrcv:1735252 lastack:1735252 pacing_rate 4.5Mbps delivery_rate 2.9Mbps busy:370994ms retrans:0/6479 reordering:5 rcv_space:14600 minrtt:27.984
 ```
 
-### 从系统cache中查看 tcp_metrics item
+### RTO计算算法
+
+RTO的计算依赖于RTT值，或者说一系列RTT值。rto=f(rtt)
+
+```
+1.1. 在没有任何rtt sample的时候，RTO <- TCP_TIMEOUT_INIT (1s)
+   多次重传时同样适用指数回避算法(backoff)增加RTO  
+
+1.2. 获得第一个RTT sample后，
+    SRTT <- RTT
+    RTTVAR <- RTT/2
+    RTO <- SRTT + max(G, K * RTTVAR)
+其中K=4, G表示timestamp的粒度(在CONFIG_HZ=1000时，粒度为1ms)
+
+1.3. 后续获得更多RTT sample后，
+    RTTVAR <- (1 - beta) * RTTVAR + beta * |SRTT - R|
+    SRTT <- (1 - alpha) * SRTT + alpha * R
+其中beta = 1/4, alpha = 1/8
+
+1.4. Whenever RTO is computed, if it is less than 1 second, then the
+   RTO SHOULD be rounder up to 1 second.
+
+1.5. A maximum value MAY be placed on RTO provided it is at least 60 seconds.
+```
+
+RTTVAR表示的是平滑过的平均偏差，SRTT表示的平滑过的RTT。这两个值的具体含义会在后面介绍
+具体实现的时候进一步的解释。
+以上是计算一个初始RTO值的过程，当连续出现RTO超时后，
+RTO值会用一个叫做指数回避的策略进行调整，下面来具体介绍。
+
+## 从系统cache中查看 tcp_metrics item
 
 	$sudo ip tcp_metrics show | grep  100.118.58.7
 	100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
@@ -100,7 +140,7 @@ ESTAB       0      0        [::ffff:192.168.0.174]:48082                [::ffff:
 
 每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。
 
-## ss 过滤地址和端口号，有点类似于tcpdump的用法
+## ss 过滤地址和端口号，类似tcpdump的用法
 
 过滤目标端口是80的或者源端口是1723的连接，dst后面要跟空格然后加“：”：
 
@@ -195,6 +235,8 @@ Where FILTER-NAME-HERE can be any one of the following,
 
 	ss -itn |grep -v "Address:Port" | xargs -L 1  | grep retrans | awk '{gsub("retrans:.*/", "",$21); print $5, $21}' | awk '{arr[$1]+=$2} END {for (i in arr) {print i,arr[i]}}' | sort -rnk 2 
 
+xargs **-L 1**  每一行处理一次，但是这个行如果是空格、tab结尾，那么会被认为是连续行，跟下一行合并
+
 高版本Linux内核的话，可以用systemtap或者bcc来获取每个连接的重传包以及发生重传的阶段
 
 ## 当前和最大全连接队列确认
@@ -279,3 +321,5 @@ http://perthcharles.github.io/2015/11/10/wiki-netstat-proc/
 https://github.com/veithen/knetstat/tree/master
 
 https://access.redhat.com/discussions/782343
+
+[RTO的计算方法(基于RFC6298和Linux 3.10)](https://perthcharles.github.io/2015/09/06/wiki-rtt-estimator/)

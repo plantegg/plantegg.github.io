@@ -78,7 +78,6 @@ ls /
 sudo mkdir /lv2
 sudo mount /dev/vg1/lv2 /lv2
 df -lh
-
 ```
 
 ## 创建LVM

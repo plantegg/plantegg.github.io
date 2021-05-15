@@ -92,11 +92,11 @@ After starting once, you can kill the docker and start as usual. AFAIK, docker h
 
 alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. 
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2ba8bc014d93ad4b6e77c889a024772f.png)
+![image.png](/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png)
 
 非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通
 
-![docker0-tcpdump.gif](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dbc4dac5a9a0289b58952375c5759b15.gif)
+![docker0-tcpdump.gif](/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif)
 
 猜测是 alios 的bug
 
@@ -163,12 +163,24 @@ CMD ["./hello"] 等同于 ./hello 不需要shell
 
 dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT
 
-## 容器调试 -- nsenter
+## 容器中抓包和调试 -- nsenter
 
 ```
 获取pid：docker inspect -f {{.State.Pid}} c8f874efea06
 
 进入namespace：nsenter --target 17277 --net --pid –mount
+
+//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的
+nsenter --target 17277 --net 
+
+// ip netns 获取容器网络信息
+ 1022  [2021-04-14 15:53:06] docker inspect -f '{{.State.Pid}}' ab4e471edf50   //获取容器进程id
+ 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net
+ 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问
+ 
+// 宿主机上查看容器ip
+ 1026  [2021-04-14 15:54:11] ip netns list
+ 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig
 ```
 
 nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可

@@ -136,6 +136,8 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 这里ut_delay 消耗了28%的CPU肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加Tomcat节点，QPS也可以线性增加。
 
+耗CPU最高的调用函数栈是…`mutex_spin_wait`->`ut_delay`，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用ut_delay做空循环实现的，会消耗比较高的CPU。也就是通过高CPU消耗尽量来避免等锁的时候上下文切换。
+
 ## 最终的性能
 
 调整到MySQL官方默认配置innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理rt：0.7，逻辑rt：19.6，cpu：90%，这个时候只需要继续扩容Tomcat节点的数量就可以增加QPS
@@ -207,9 +209,29 @@ CPU专为自旋锁设计了pause指令，一旦自旋抢锁失败先pause一下�
 
 innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。
 
+### pause 和 spinlock
+
+spinlock(自旋锁)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，**spinlock适合用来保护快进快出的临界区**。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠 http://linuxperf.com/?p=138
+
+### pause 和 cpu_relax
+
+内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：
+
+- 主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；
+- 释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；
+
+
+
+对于顺序锁而言，cpu_relax 尤为关键：
+
+- 锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。
+- cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。
+
+由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。
+
 ### Skylake架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同
 
-UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，**在pause期间，同一个core上的HT可以执行其他指令**。
+cpu_relax/UT_RELAX_CPU()的汇编指令为pause，在CPU指令同步数据时进行等待的空转，**在pause期间，同一个core上的HT可以执行其他指令**。
 
 在Intel 64-ia-32-architectures-optimization-manual手册中提到：
 The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.
@@ -252,8 +274,10 @@ Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入�
 
 ![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e4a2fb522be7aa65158778b7ea825207.png)
 
-
 ### cache 一致性
+
+Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。
+这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。
 
 处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了[ MESI 协议](https://en.wikipedia.org/wiki/MESI_protocol)，以及 MESIF 协议。
 
@@ -262,6 +286,46 @@ Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入�
 随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。
 
 cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。
+
+#### 查看cache line
+
+```
+#飞腾(FT2500), ARMv8架构，主频2.1G，服务器两路，每路64个物理core，没有超线程，总共16个numa，每个numa 8个core
+#getconf -a | grep CACHE
+LEVEL1_ICACHE_SIZE                 0
+LEVEL1_ICACHE_ASSOC                0
+LEVEL1_ICACHE_LINESIZE             64  //64 字节
+LEVEL1_DCACHE_SIZE                 0
+LEVEL1_DCACHE_ASSOC                0
+LEVEL1_DCACHE_LINESIZE             64
+LEVEL2_CACHE_SIZE                  0
+LEVEL2_CACHE_ASSOC                 0
+LEVEL2_CACHE_LINESIZE              0
+LEVEL3_CACHE_SIZE                  0
+LEVEL3_CACHE_ASSOC                 0
+LEVEL3_CACHE_LINESIZE              0
+LEVEL4_CACHE_SIZE                  0
+LEVEL4_CACHE_ASSOC                 0
+LEVEL4_CACHE_LINESIZE              0
+
+#intel Xeon Platinum 8269
+# getconf -a | grep CACHE
+LEVEL1_ICACHE_SIZE                 32768
+LEVEL1_ICACHE_ASSOC                8
+LEVEL1_ICACHE_LINESIZE             64
+LEVEL1_DCACHE_SIZE                 32768
+LEVEL1_DCACHE_ASSOC                8
+LEVEL1_DCACHE_LINESIZE             64
+LEVEL2_CACHE_SIZE                  1048576
+LEVEL2_CACHE_ASSOC                 16
+LEVEL2_CACHE_LINESIZE              64
+LEVEL3_CACHE_SIZE                  37486592
+LEVEL3_CACHE_ASSOC                 11
+LEVEL3_CACHE_LINESIZE              64
+LEVEL4_CACHE_SIZE                  0
+LEVEL4_CACHE_ASSOC                 0
+LEVEL4_CACHE_LINESIZE              0
+```
 
 #### Cache Line 伪共享
 
@@ -283,6 +347,8 @@ MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这
 3. 当 A 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，**然后 A 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了**。
 4. 如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。
 5. 如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。
+
+![img](/Users/ren/src/blog/951413iMgBlog/fa98835c78c879ab69fd1f29193e54d1.jpeg)
 
 可以发现当 Cache Line 状态是「已修改」或者「独占」状态时，修改更新其数据不需要发送广播给其他 CPU 核心，这在一定程度上减少了总线带宽压力。 
 
@@ -444,3 +510,7 @@ https://cloud.tencent.com/developer/article/1005284
 [Intel PAUSE指令变化影响到MySQL的性能，该如何解决？](https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q)
 
 https://www.atatech.org/articles/85549
+
+[关于CPU Cache -- 程序猿需要知道的那些事](http://cenalulu.github.io/linux/all-about-cpu-cache/)
+
+[ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield来代替pause，yield 指令的实现退化为 nop 指令，执行时间非常非常锻，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)
