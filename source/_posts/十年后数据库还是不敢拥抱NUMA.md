@@ -2,7 +2,7 @@
 title: 十年后数据库还是不敢拥抱NUMA？
 date: 2021-05-14 17:30:03
 categories:
-    - Linux
+    - CPU
 tags:
     - Linux
     - NUMA
@@ -11,21 +11,19 @@ tags:
     - zone_reclaim_mode
 ---
 
-
-
 # 十年后数据库还是不敢拥抱NUMA？
 
-
+在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  [MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture](http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/) 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在[2014年修复了](https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82)，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。
 
 ## 背景
 
 最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png) 
+![undefined](/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png) 
 
 从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，执行的SQL也是一样
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png) 
+![undefined](/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png) 
 所有MySQL实例流量一样
 
 那么问题来了为什么在同样的机器上、同样的流量下CPU使用率差了这么多？ 换句话来问就是CPU使用率高就有效率吗？
@@ -147,17 +145,38 @@ Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
 ## 关于NUMA
 如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
+![undefined](/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png) 
+在两路及以上的服务器，远程 DRAM 的访问延迟，远远高于本地 DRAM 的访问延迟，有些系统可以达到 2 倍的差异。即使服务器 BIOS 里关闭了 NUMA 特性，也只是对 OS 内核屏蔽了这个特性，这种延迟差异还是存在的。
 
-开启NUMA会优先就近使用内存，在内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是通过 zone_reclaim_mode 可以配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。
+![undefined](/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png) 
+
+如果 BIOS 打开了 NUMA 支持，Linux 内核则会根据 ACPI 提供的表格，针对 NUMA 节点做一系列的 NUMA 亲和性的优化。也就是开启NUMA会优先就近使用内存，在内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是通过 zone_reclaim_mode 可以配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。
 
 **这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃**
 
 以上理论告诉我们：**也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。**
 
+#### UMA和NUMA对比
+
+The SMP/UMA architecture
+
+![img](/images/951413iMgBlog/uma-architecture.png)
+
+The NUMA architecture
+
+![img](/images/951413iMgBlog/numa-architecture.png)
+
+Modern multiprocessor systems mix these basic architectures as seen in the following diagram:
+
+![img](/images/951413iMgBlog/39354-figure-3-184398.jpg)
+
+In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.
+
+
+
 ## 对比测试Intel NUMA 性能
+
 对如下Intel CPU进行一些测试，在开启NUMA的情况下
 
 ```
@@ -203,15 +222,25 @@ other_node                 23652          106041
 用sysbench对一亿条记录跑点查，数据都加载到内存中了：
 
 - 绑0-63core qps 不到8万，总cpu跑到5000%，降低并发的话qps能到11万；
-- 如果绑0-31core qps 12万，总cpu跑到3200%；
-- 如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%；
+- 如果绑0-31core qps 12万，总cpu跑到3200%，IPC 0.29；
+- 如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%  IPC: 0.42；
 - 绑0-15个物理core，qps能到17万，绑32-47也是一样的效果；
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png) 
+![undefined](/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png) 
 
 从这个数据看起来**即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下**， NUMA更多性能差异应该会更大。
 
 说明前面的理论是正确的。
+
+来看看不通绑核情况下node之间的带宽利用情况：
+
+![image-20210525151537507](/images/951413iMgBlog/image-20210525151537507.png)
+
+![image-20210525151622425](/images/951413iMgBlog/image-20210525151622425.png)
+
+实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。
+
+如果比较读写混合场景的话肯定会因为写锁导致CPU跑起来，最终的性能差异也不会这么大，但是绑在同一个NUMA下的性能肯定要好，IPC也会高一些。具体好多少取决于锁的竞争程度。
 
 ## 为什么集团内外所有物理机都把NUMA关掉了呢？
 
@@ -230,12 +259,14 @@ other_node                 23652          106041
 
 所以文章给出的解决方案就是（三选一）：
 * 关掉NUMA
-* 或者启动MySQL的时候指定不分NUMA
+* 或者启动MySQL的时候指定不分NUMA,比如：/usr/bin/numactl --interleave all $cmd
 * 或者启动MySQL的时候先回收所有PageCache
 
 我想这就是这么多人在上面栽了跟头，所以干脆一不做二不休干脆关了NUMA 一了百了。
 
 但真的NUMA有这么糟糕？或者说Linux Kernel有这么笨，默认优先去回收PageCache吗？
+
+
 
 ## Linux Kernel对NUMA内存的使用
 
@@ -249,7 +280,7 @@ intel 芯片跨node延迟远低于其他家，所以跨node性能损耗不大
 
 zone_reclaim_mode，它用来管理当一个内存区域(zone)内部的内存耗尽时，是从其内部进行内存回收还是可以从其他zone进行回收的选项：
 
-> zone_reclaim_mode:
+zone_reclaim_mode:
 
 > Zone_reclaim_mode allows someone to set more or less aggressive approaches to
 > reclaim memory when a zone runs out of memory. If it is set to zero then no
@@ -275,11 +306,11 @@ Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收�
 ### 查看kernel提交记录
 [github kernel commit](https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82)
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png) 
+![undefined](/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png) 
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png) 
+![undefined](/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png) 
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png) 
+![undefined](/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png) 
 
 关键是上图红框中的代码，node distance比较大（也就是开启了NUMA的话），强制将 zone_reclaim_mode设为1，这是2014年提交的代码，将这个强制设为1的逻辑去掉了。
 
@@ -301,19 +332,27 @@ To allocate 64GB memory
 Used time: 39 seconds
 ```
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png) 
+![undefined](/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png) 
 
 从如上截图来看，再分配64G内存的时候即使node0不够了也没有回收node0上的PageCache，而是将内存跨NUMA分配到了node1上，符合预期！
 
 释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png) 
+![undefined](/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png) 
 
 #### 将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试
 可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿
 
-![undefined](/Users/ren/src/blog/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png) 
+![undefined](/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png) 
 
 测试结论：**从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了**
+
+### innodb_numa_interleave
+
+从5.7开始，mysql增加了对NUMA的感知：[innodb_numa_interleave](https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave)
+
+当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 [NUMA memory policy](https://linux.die.net/man/2/set_mempolicy) 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。
+
+innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，**修复后这个参数没有意义了**。
 
 ## 总结
 
@@ -328,9 +367,21 @@ Used time: 39 seconds
 
 关于cpu为什么高但是没有产出的原因是因为CPU流水线长期stall，导致很低的IPC，所以性能自然上不去，可以看[这篇文章](http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html) 
 
+
+
+一些其它不好解释的现象：
+
+1. 增加少量跨NUMA 的core进来时能增加QPS的，但是随着跨NUMA core越来越多（总core也越来越多）QPS反而会达到一个峰值后下降---效率低的core多了，抢走任务，执行得慢
+2. 压12-19和8-15同样8core，不跨NUMA的8-15性能只好5%左右(87873 VS 92801) --- 难以解释
+3. 由1、2所知在测试少量core的时候跨NUMA性能下降体现不出来
+4. 在压0-31core的时候，如果运行 perf这个时候QPS反而会增加（13万上升到15万）--- 抢走了一些CPU资源，让某个地方竞争反而减小了
+
 ## 参考资料
 https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf
 
 https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/
 
 https://queue.acm.org/detail.cfm?id=2513149
+
+[Optimizing Applications for NUMA](https://software.intel.com/content/www/us/en/develop/articles/optimizing-applications-for-numa.html)
+

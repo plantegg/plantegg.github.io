@@ -22,7 +22,7 @@ tags:
 
 精简指令集RISC(Reduced Instruction Set Computer)和复杂指令集CISC(Complex Instruction Set Computer)的区分是从上个世纪70年代开始的，IBM研究关于CPU如何高效的运行，发现有些常用的指令占比很高。20%的指令完成了80%的工作。
 
-![img](/Users/ren/src/blog/951413iMgBlog/35161ebe1d0b571845c1904abaafa604.png)
+![img](/images/951413iMgBlog/35161ebe1d0b571845c1904abaafa604.png)
 
 把CPU从硬件上设计简单一点，从而使得软件上高效一点，这样就提出了精简指令集这个概念，其最大的特点就是它的**指令宽度是相等的**，每个指令执行的周期几乎也相同，这样把复杂的指令简单化，最后用简单的操作去完成一件复杂的任务。
 
@@ -79,7 +79,7 @@ X86处理器特有解码器(Decode Unit)，把长度不定的x86指令转换为�
 
 **而RISC体系的指令格式种类少，寻址方式种类少，大多数是简单指令且都能在一个时钟周期内完成，易于设计超标量与流水线，寄存器数量多，大量操作在寄存器之间进行，其优点是不言而喻的。**
 
-![img](/Users/ren/src/blog/951413iMgBlog/3e9074d16ebaf8d21d7d5cc64ea9e955.png)
+![img](/images/951413iMgBlog/3e9074d16ebaf8d21d7d5cc64ea9e955.png)
 
 
 
@@ -89,7 +89,7 @@ RISC 的 CPU 里完成指令的电路变得简单了，于是也就腾出了更�
 
 除了寄存器这样的存储空间，RISC 的 CPU 也可以把更多的晶体管，用来实现更好的分支预测等相关功能，进一步去提升 CPU 实际的执行效率。
 
-![img](/Users/ren/src/blog/951413iMgBlog/d69a1e753fa1523df054573f13516277.jpeg)
+![img](/images/951413iMgBlog/d69a1e753fa1523df054573f13516277.jpeg)
 
  总体上来看：
 
@@ -129,7 +129,7 @@ X86为了保持高性能，使用乱序执行，这样会让大部分的模块�
 
 这些 RISC 风格的微指令，会被放到一个微指令缓冲区里面，然后再从缓冲区里面，分发给到后面的超标量，并且是乱序执行的流水线架构里面。不过这个流水线架构里面接受的，就不是复杂的指令，而是精简的指令了。在这个架构里，我们的指令译码器相当于变成了设计模式里的一个“适配器”（Adaptor）。这个适配器，填平了 CISC 和 RISC 之间的指令差异。
 
-![img](/Users/ren/src/blog/951413iMgBlog/3c4ceec254e765462b09f393153f4476.jpeg)
+![img](/images/951413iMgBlog/3c4ceec254e765462b09f393153f4476.jpeg)
 
 这样一个能够把 CISC 的指令译码成 RISC 指令的指令译码器，比原来的指令译码器要复杂。这也就意味着更复杂的电路和更长的译码时间：本来以为可以通过 RISC 提升的性能，结果又有一部分浪费在了指令译码上。
 
@@ -153,7 +153,7 @@ RISC-V ---“CPU 届的 Linux”
 
  ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）
 
-![img](/Users/ren/src/blog/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
+![img](/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
 
 
 
@@ -192,13 +192,13 @@ Intel x86从开始就定位于PC机，应用多是计算密集型的，如多媒
 
 CISC架构也会使得硬件的逻辑复杂，晶体管数量庞大。为了进一步高效地进行运算，x86架构会有较长的流水线以达到指令级并行(ILP)，而长流水线也会带来了弊端，当遇到分支时，如果预载入分支指令不是未来真实的分支，那么要清空整个流水。因此，x86有引入了复杂的分支预测机构，来确保流水线的效率。再加上多级cache，超线程、虚拟化等等技术，使得x86的复杂度越来越高，而向后兼容性也使得Intel历史包袱越来越大。
 
-![cascade lake naming scheme.svg](/Users/ren/src/blog/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
+![cascade lake naming scheme.svg](/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
 
 
 
 Intel skylake 架构图
 
-![skylake server block diagram.svg](/Users/ren/src/blog/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
+![skylake server block diagram.svg](/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
 
 
 
@@ -206,17 +206,17 @@ iTLB:instruct TLB
 
 dTLB:data TLB
 
-![img](/Users/ren/src/blog/951413iMgBlog/cache-ht-hierarchy-2.jpg)
+![img](/images/951413iMgBlog/cache-ht-hierarchy-2.jpg)
 
 uma下cpu访问内存：
 
-![x86 UMA](/Users/ren/src/blog/951413iMgBlog/numa-fsb-3.png)
+![x86 UMA](/images/951413iMgBlog/numa-fsb-3.png)
 
 ### numa下
 
 [Non-Uniform Memory Access (NUMA)](http://en.wikipedia.org/wiki/Non-Uniform_Memory_Access)
 
-![img](/Users/ren/src/blog/951413iMgBlog/numa-imc-iio-smb-4.png)
+![img](/images/951413iMgBlog/numa-imc-iio-smb-4.png)
 
 在两路及以上的服务器，远程 DRAM 的访问延迟，远远高于本地 DRAM 的访问延迟，有些系统可以达到 2 倍的差异。即使服务器 BIOS 里关闭了 NUMA 特性，也只是对 OS 内核屏蔽了这个特性，这种延迟差异还是存在的
 
@@ -226,13 +226,13 @@ uma下cpu访问内存：
 
 The speed of each memory channel is increased from 2,666 MHz in Skylake to 2,933 MHz in Cascade Lake. An 8-byte read or write can take place per cycle per channel. With a total of six memory channels, the total half-duplex memory bandwidth is approximately 141 GB/s per socket.
 
-![SLN316864_en_US__1image001(1)](/Users/ren/src/blog/951413iMgBlog/ka02R000000oNBPQA2_en_US_1.jpeg)
+![SLN316864_en_US__1image001(1)](/images/951413iMgBlog/ka02R000000oNBPQA2_en_US_1.jpeg)
 
 [性能测试数据](https://www.dell.com/support/kbdoc/en-sg/000176921/bios-characterization-for-hpc-with-intel-cascade-lake-processors)
 
 ob在鲲鹏920上测试，如果BIOS 里enable NUMA，NUMA-Aware 的就近内存分配和使用能提升性能，在我们的测试中，性能提高8%
 
-![img](/Users/ren/src/blog/951413iMgBlog/e475286bef0d734feca8fba300a501e6.png)
+![img](/images/951413iMgBlog/e475286bef0d734feca8fba300a501e6.png)
 
 sysctl -w kernel.numa_balancing=0 TPS是72W，sysctl -w kernel.numa_balancing=1 TPS为57W
 
@@ -240,11 +240,11 @@ sysctl -w kernel.numa_balancing=0 TPS是72W，sysctl -w kernel.numa_balancing=1 
 
 The SMP/UMA architecture
 
-![img](/Users/ren/src/blog/951413iMgBlog/uma-architecture.png)
+![img](/images/951413iMgBlog/uma-architecture.png)
 
 The NUMA architecture
 
-![img](/Users/ren/src/blog/951413iMgBlog/uma-architecture-20210511183000204.png)
+![img](/images/951413iMgBlog/uma-architecture-20210511183000204.png)
 
 
 
@@ -254,7 +254,7 @@ The NUMA architecture
 
 对于处理器来说，跑高频的能力固然重要，但是高频也会造成功耗的快速上升，一个跑4.8G的CPU只比跑3.2G时高了50%性能，但是功耗可能是3倍乃至更多（比如你看AMD）。
 
-![img](/Users/ren/src/blog/951413iMgBlog/v2-22ac73d34a31de0c98d773199448be24_1440w.jpg)
+![img](/images/951413iMgBlog/v2-22ac73d34a31de0c98d773199448be24_1440w.jpg)
 
 接下来通过实际测试来探讨一下不同CPU架构的性能，以及NUMA和绑核对性能的影响。
 
@@ -262,37 +262,37 @@ The NUMA architecture
 
 ARMv64 架构CPU，基本都是运行网络瓶颈的业务逻辑，绑核前IPC只有0.08
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 cpu详细信息：
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/e177902c-73b2-4535-9c1f-2726451820db.png)
+![img](/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
 
 飞腾芯片，按如下distance绑核基本没区别！展示出来的distance是假的一样
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
+![img](/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
 
 
 
-![image-20210422095217195](/Users/ren/src/blog/951413iMgBlog/image-20210422095217195.png)
+![image-20210422095217195](/images/951413iMgBlog/image-20210422095217195.png)
 
 
 
 绑核后对性能提升非常明显：
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 点查场景：
 
-![image-20210425092158127](/Users/ren/src/blog/951413iMgBlog/image-20210425092158127.png)
+![image-20210425092158127](/images/951413iMgBlog/image-20210425092158127.png)
 
 如上是绑48-63号核
 
-![image-20210425091727122](/Users/ren/src/blog/951413iMgBlog/image-20210425091727122.png)
+![image-20210425091727122](/images/951413iMgBlog/image-20210425091727122.png)
 
-![image-20210425091557750](/Users/ren/src/blog/951413iMgBlog/image-20210425091557750.png)
+![image-20210425091557750](/images/951413iMgBlog/image-20210425091557750.png)
 
-![image-20210425093630438](/Users/ren/src/blog/951413iMgBlog/image-20210425093630438.png)
+![image-20210425093630438](/images/951413iMgBlog/image-20210425093630438.png)
 
 
 
@@ -382,7 +382,7 @@ mapped    :         4742 (  0.02 GB)
 
 绑核前后对比：绑核后QPS翻倍，DRDS上的rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
 
-![image-20210427093424116](/Users/ren/src/blog/951413iMgBlog/image-20210427093424116.png)
+![image-20210427093424116](/images/951413iMgBlog/image-20210427093424116.png)
 
 ```
 #perl numa-maps-summary.pl </proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了
@@ -521,27 +521,27 @@ mapmax    :         1564 (  0.01 GB)
 mapped    :         5920 (  0.02 GB)
 ```
 
-![image-20210427164953340](/Users/ren/src/blog/951413iMgBlog/image-20210427164953340.png)
+![image-20210427164953340](/images/951413iMgBlog/image-20210427164953340.png)
 
 
 
 绑核前的IPC：
 
-![image-20210427093625575](/Users/ren/src/blog/951413iMgBlog/image-20210427093625575.png)
+![image-20210427093625575](/images/951413iMgBlog/image-20210427093625575.png)
 
 绑核后的IPC：
 
-![image-20210427095130343](/Users/ren/src/blog/951413iMgBlog/image-20210427095130343.png)
+![image-20210427095130343](/images/951413iMgBlog/image-20210427095130343.png)
 
 
 
 **如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小**，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到**绑核后性能可以随着加节点线性增加**
 
-![image-20210427172612685](/Users/ren/src/blog/951413iMgBlog/image-20210427172612685.png)
+![image-20210427172612685](/images/951413iMgBlog/image-20210427172612685.png)
 
-![image-20210427173047815](/Users/ren/src/blog/951413iMgBlog/image-20210427173047815.png)
+![image-20210427173047815](/images/951413iMgBlog/image-20210427173047815.png)
 
-![image-20210427173417673](/Users/ren/src/blog/951413iMgBlog/image-20210427173417673.png)
+![image-20210427173417673](/images/951413iMgBlog/image-20210427173417673.png)
 
 结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)
 
@@ -553,7 +553,7 @@ mapped    :         5920 (  0.02 GB)
 
 
 
-![image-20210425180535225](/Users/ren/src/blog/951413iMgBlog/image-20210425180535225.png)
+![image-20210425180535225](/images/951413iMgBlog/image-20210425180535225.png)
 
 
 
@@ -565,7 +565,7 @@ RDS每个实例32core，管控默认已经做了绑核，但是如果两个RDS�
 
 比如这三个rds，qps基本均匀，上面两个cpu高，但是没效率，每个rds绑了32core，上面两个绑在一个socket上，下面的RDS绑在另一个socket上，第一个socket还有网络软中断在争抢cpu，飞腾环境下性能真要冲高还有很大空间。
 
-![image-20210425180518926](/Users/ren/src/blog/951413iMgBlog/image-20210425180518926.png)
+![image-20210425180518926](/images/951413iMgBlog/image-20210425180518926.png)
 
 ```
 #第二个RDS IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
@@ -619,7 +619,7 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 12个RDS流量基本均匀：
 
-![image-20210426083033989](/Users/ren/src/blog/951413iMgBlog/image-20210426083033989.png)
+![image-20210426083033989](/images/951413iMgBlog/image-20210426083033989.png)
 
 ### 网卡队列调整
 
@@ -627,7 +627,7 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 将RDS网卡队列从60个改成6个后RDS性能提升大概10%
 
-![image-20210426085534983](/Users/ren/src/blog/951413iMgBlog/image-20210426085534983.png)
+![image-20210426085534983](/images/951413iMgBlog/image-20210426085534983.png)
 
 默认第一个RDS都绑在0-31号核上,其实改少队列加大了0-5号core的压力，但是实际数据表现要好。
 
@@ -685,7 +685,7 @@ cat /proc/interrupts | grep -i 'eth4\|CPU' | cut -c -8,865-995,1425-
 
 ## 内存和cache的latency对比
 
-![latency](/Users/ren/src/blog/951413iMgBlog/latency.png)
+![latency](/images/951413iMgBlog/latency.png)
 
 ## NUMA
 
@@ -819,7 +819,7 @@ mapmax    :          308 (  0.00 GB)
 mapped    :         2337 (  0.01 GB)
 ```
 
-![image-20210513193951647](/Users/ren/src/blog/951413iMgBlog/image-20210513193951647.png)
+![image-20210513193951647](/images/951413iMgBlog/image-20210513193951647.png)
 
 ### [Understanding what triggers zone reclaim](https://engineering.linkedin.com/performance/optimizing-linux-memory-management-low-latency-high-throughput-databases)
 
@@ -846,7 +846,7 @@ Here is a graph that demonstrates this behavior from our experiment. Some points
 - the red line denotes the number of free pages in the zone.
 - the 'low' watermark for the zone is in green.
 
-![img](/Users/ren/src/blog/951413iMgBlog/app0610-node0.png)
+![img](/images/951413iMgBlog/app0610-node0.png)
 
 #### Characteristics of systems experiencing zone reclaims
 
@@ -854,11 +854,11 @@ We observed similar patterns on our production hosts. In all cases, we see that 
 
 Our first observation was that, with zone reclaim enabled, Linux performed mostly direct reclaims (ie. reclaims performed in the context of application threads and counted as direct page scans). Once zone reclaim was disabled, the direct reclaims stopped, but the number of reclaims performed by kswapd increased. This would explain the high pgscand/s we observed from sar:
 
-![img](/Users/ren/src/blog/951413iMgBlog/app0610-pagescans.png)
+![img](/images/951413iMgBlog/app0610-pagescans.png)
 
 we observed that the number of expensive memory accesses in the program dropped significantly once we disabled zone reclaim mode. The graph below shows the memory access latency in milliseconds, along with the amount of time spent in system and user CPU. We see that the program spent most of its time waiting for I/O while occasionally being blocked in system CPU.
 
-![img](/Users/ren/src/blog/951413iMgBlog/usr-sys-elapsed-times-app0610.png)
+![img](/images/951413iMgBlog/usr-sys-elapsed-times-app0610.png)
 
 #### How zone reclaim impacts read performance
 
@@ -887,7 +887,7 @@ MySQL “swap insanity” problem and the effects of the NUMA architecture 总�
 
 用图片描述上述问题就是：
 
-![img](/Users/ren/src/blog/951413iMgBlog/numa-imbalanced-allocation.png)
+![img](/images/951413iMgBlog/numa-imbalanced-allocation.png)
 
 Node0内存基本用完，但是Node1还有比较多的内存，但是kernel在内存不够的时候没有优先去用Node1，而是尝试回收Node0上的内存，这样就造成了高的swap和暂停。
 
@@ -910,7 +910,7 @@ Node0内存基本用完，但是Node1还有比较多的内存，但是kernel在�
 
 **为什么`Interleave`的策略就解决了问题？** 借用两张 [Carrefour性能测试](https://www.cs.sfu.ca/~fedorova/papers/asplos284-dashti.pdf) 的结果图，可以看到几乎所有情况下`Interleave`模式下的程序性能都要比默认的亲和模式要高，有时甚至能高达30%。究其根本原因是Linux服务器的大多数workload分布都是随机的：即每个线程在处理各个外部请求对应的逻辑时，所需要访问的内存是在物理上随机分布的。而`Interleave`模式就恰恰是针对这种特性将内存page随机打散到各个CPU Core上，使得每个CPU的负载和`Remote Access`的出现频率都均匀分布。相较NUMA默认的内存分配模式，死板的把内存都优先分配在线程所在Core上的做法，显然普遍适用性要强很多。 
 
-![perf1](/Users/ren/src/blog/951413iMgBlog/perf1.png) ![perf2](/Users/ren/src/blog/951413iMgBlog/perf2.png)
+![perf1](/images/951413iMgBlog/perf1.png) ![perf2](/images/951413iMgBlog/perf2.png)
 
 也就是说，像MySQL这种外部请求随机性强，各个线程访问内存在地址上平均分布的这种应用，`Interleave`的内存分配模式相较默认模式可以带来一定程度的性能提升。 此外 [各种](https://www.cs.sfu.ca/~fedorova/papers/asplos284-dashti.pdf) [论文](http://www.lst.inf.ethz.ch/people/alumni/zmajo/publications/11-systor.pdf) 中也都通过实验证实，真正造成程序在NUMA系统上性能瓶颈的并不是`Remote Acess`带来的响应时间损耗，而是内存的不合理分布导致`Remote Access`将inter-connect这个小水管塞满所造成的结果。而`Interleave`恰好，把这种不合理分布情况下的Remote Access请求平均分布在了各个小水管中。所以这也是`Interleave`效果奇佳的一个原因。
 
@@ -1049,7 +1049,7 @@ numa_faults_memory, 1, 1, 0, 0, 113
 
 
 
-![img](/Users/ren/src/blog/951413iMgBlog/802b8f4607f1addf17ad24747fda7fb6.png)
+![img](/images/951413iMgBlog/802b8f4607f1addf17ad24747fda7fb6.png)
 
 ### 内存分配
 
@@ -1082,17 +1082,17 @@ numa_faults_memory, 1, 1, 0, 0, 113
 
 GPU只处理有限的计算指令，不需要分支预测、乱序执行等，所以将Core里面的电路简化（如下图左边），同时通过SIMT（Single Instruction，Multiple Threads， 类似 SIMD）在取指令和指令译码的阶段，取出的指令可以给到后面多个不同的 ALU 并行进行运算。这样，我们的一个 GPU 的核里，就可以放下更多的 ALU，同时进行更多的并行运算了（如下图右边） 。 在 SIMD 里面，CPU 一次性取出了固定长度的多个数据，放到寄存器里面，用一个指令去执行。而 SIMT，可以把多条数据，交给不同的线程去处理。
 
-![img](/Users/ren/src/blog/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg)
+![img](/images/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg)
 
 GPU的core在流水线stall的时候和超线程一样，可以调度别的任务给ALU，既然要调度一个不同的任务过来，我们就需要针对这个任务，提供更多的执行上下文。所以，一个 Core 里面的执行上下文的数量，需要比 ALU 多。
 
-![img](/Users/ren/src/blog/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg)
+![img](/images/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg)
 
 在通过芯片瘦身、SIMT 以及更多的执行上下文，我们就有了一个更擅长并行进行暴力运算的 GPU。这样的芯片，也正适合我们今天的深度学习和挖矿的场景。
 
 NVidia 2080 显卡的技术规格，就可以算出，它到底有多大的计算能力。2080 一共有 46 个 SM（Streaming Multiprocessor，流式处理器），这个 SM 相当于 GPU 里面的 GPU Core，所以你可以认为这是一个 46 核的 GPU，有 46 个取指令指令译码的渲染管线。每个 SM 里面有 64 个 Cuda Core。你可以认为，这里的 Cuda Core 就是我们上面说的 ALU 的数量或者 Pixel Shader 的数量，46x64 呢一共就有 2944 个 Shader。然后，还有 184 个 TMU，TMU 就是 Texture Mapping Unit，也就是用来做纹理映射的计算单元，它也可以认为是另一种类型的 Shader。
 
-![img](/Users/ren/src/blog/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png)
+![img](/images/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png)
 
 2080 的主频是 1515MHz，如果自动超频（Boost）的话，可以到 1700MHz。而 NVidia 的显卡，根据硬件架构的设计，每个时钟周期可以执行两条指令。所以，能做的浮点数运算的能力，就是：
 
@@ -1141,7 +1141,7 @@ SRAM 之所以被称为“静态”存储器，是因为只要处在通电状态
 
 DRAM 被称为“动态”存储器，是因为 DRAM 需要靠不断地“刷新”，才能保持数据被存储起来。DRAM 的一个比特，只需要一个晶体管和一个电容就能存储。所以，DRAM 在同样的物理空间下，能够存储的数据也就更多，也就是存储的“密度”更大。但是，因为数据是存储在电容里的，电容会不断漏电，所以需要定时刷新充电，才能保持数据不丢失。DRAM 的数据访问电路和刷新电路都比 SRAM 更复杂，所以访问延时也就更长。
 
-![img](/Users/ren/src/blog/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png)
+![img](/images/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png)
 
 ## 直接内存访问（Direct Memory Access）DMA
 
@@ -1162,7 +1162,7 @@ File.read(fileDesc, buf, len);
 Socket.send(socket, buf, len);
 ```
 
-![img](/Users/ren/src/blog/951413iMgBlog/e0e85505e793e804e3b396fc50871cd5.jpg)
+![img](/images/951413iMgBlog/e0e85505e793e804e3b396fc50871cd5.jpg)
 
 类似零拷贝和bypass
 
@@ -1175,7 +1175,7 @@ public long transferFrom(FileChannel fileChannel, long position, long count) thr
 }
 ```
 
-![img](/Users/ren/src/blog/951413iMgBlog/596042d111ad9b871045d970a10464ab.jpg)
+![img](/images/951413iMgBlog/596042d111ad9b871045d970a10464ab.jpg)
 
 ## 其它基础知识
 
@@ -1203,7 +1203,7 @@ windows下的exe文件之所以没法放到linux上运行（都是intel x86芯�
 
 **链接器**: 扫描所有输入的目标文件，然后把所有符号表里的信息收集起来，构成一个全局的符号表。然后再根据重定位表，把所有不确定要跳转地址的代码，根据符号表里面存储的地址，进行一次修正。最后，把所有的目标文件的对应段进行一次合并，变成了最终的可执行代码。这也是为什么，可执行文件里面的函数调用的地址都是正确的。
 
-![img](/Users/ren/src/blog/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg)
+![img](/images/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg)
 
 **虚拟内存地址**：应用代码可执行地址必须是连续，这也就意味着一个应用的内存地址必须连续，实际一个OS上会运行多个应用，没办法保证地址连续，所以可以通过虚拟地址来保证连续，虚拟地址再映射到实际零散的物理地址上（可以解决碎片问题），这个零散地址的最小组织形式就是Page。虚拟地址本来是连续的，使用一阵后数据部分也会变成碎片，代码部分是不可变的，一直连续。另外虚拟地址也方便了OS层面的库共享。
 
@@ -1211,7 +1211,7 @@ windows下的exe文件之所以没法放到linux上运行（都是intel x86芯�
 
 **共享库**：在 Windows 下，这些共享库文件就是.dll 文件，也就是 Dynamic-Link Libary（DLL，动态链接库）。在 Linux 下，这些共享库文件就是.so 文件，也就是 Shared Object（一般我们也称之为动态链接库). 不同的进程，调用同样的 lib.so，各自 全局偏移表（GOT，Global Offset Table） 里面指向最终加载的动态链接库里面的虚拟内存地址是不同的, 各个程序各自维护好自己的 GOT，能够找到对应的动态库就好了, 有点像函数指针。
 
-![img](/Users/ren/src/blog/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg)
+![img](/images/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg)
 
 符号表：/boot/System.map 和 /proc/kallsyms 
 
@@ -1260,7 +1260,7 @@ int main(int argc, char *argv[])
 }
 ```
 
-![image-20210512132121856](/Users/ren/src/blog/951413iMgBlog/image-20210512132121856.png)
+![image-20210512132121856](/images/951413iMgBlog/image-20210512132121856.png)
 
 x86_64下的执行结果，确实是case2略快
 
@@ -1275,7 +1275,7 @@ x86_64下的执行结果，确实是case2略快
 23410
 ```
 
-![image-20210512133536939](/Users/ren/src/blog/951413iMgBlog/image-20210512133536939.png)
+![image-20210512133536939](/images/951413iMgBlog/image-20210512133536939.png)
 
 ## cache_line 案例
 

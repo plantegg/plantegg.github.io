@@ -14,6 +14,10 @@ tags:
 
 ## 精华文章推荐
 
+#### [在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecturehttp://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/ 文章描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在2014年修复了https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。](https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/)
+
+![image-20210517082233798](/images/951413iMgBlog/image-20210517082233798.png)
+
 #### [《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大](https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/)
 
 ![image.png](/images/oss/d567449fe52725a9d0b9d4ec9baa372c.png)

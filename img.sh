@@ -15,6 +15,6 @@ find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "cdn.nlark.com
 
 /usr/local/Cellar/dos2unix/7.4.2/bin/dos2unix img.list
 cat img.list | sort | uniq >img_uniq.list
-while read line; do echo $line ; wget -nc -q $line -P ./ossimg/ ; done <./img_uniq.list
+while read line; do  wget -nc -q $line -P ./ossimg/ ; done <./img_uniq.list
 
 cp ossimg/* source/images/oss/ 

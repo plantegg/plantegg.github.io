@@ -315,6 +315,8 @@ bash程序执行，当“$0”是“sh”的时候，则要求下面的代码遵
 
 Linux 分 shell变量(set)，用户变量(env)， shell变量包含用户变量，export是一种命令工具，是显式那些通过export命令把shell变量中包含的用户变量导入给用户变量的那些变量.
 
+set -euxo pipefail //-u unset -e 异常退出  http://www.ruanyifeng.com/blog/2017/11/bash-set.html
+
 ### 引号
 
 shell 中：单引号的处理是比较简单的，被单引号包括的所有字符都保留原有的意思，例如'$a'不会被展开, '`cmd`'也不会执行命令；而双引号，则相对比较松，在双引号中，以下几个字符$, `, \依然有其特殊的含义，比如$可以用于变量展开, 反引号`可以执行命令，反斜杠\可以用于转义。但是，在双引号包围的字符串里，反斜杠的转义也是有限的，它只能转义$, `, ", \或者newline（回车）这几个字符，后面如果跟着的不是这几个字符，只不会被黑底，反斜杠会被保留  http://kodango.com/simple-bash-programming-skills-2

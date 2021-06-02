@@ -142,8 +142,6 @@ kubectl config set-context az1 --cluster=context-az1  --namespace=default --user
 
 ```
 
-
-
 ## apiserver高可用
 
 默认只有一个apiserver，可以考虑用haproxy和keepalive来做一组apiserver的负载均衡：

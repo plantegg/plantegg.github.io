@@ -50,6 +50,11 @@ nvme3n1     ext4   u01       cda85750-c4f7-402e-a874-79cb5244d4e1
 
 ```
 sudo vgcreate vg1 /dev/nvme0n1 /dev/nvme1n1 //两块物理磁盘上创建vg1
+如果报错：
+  Can't open /dev/nvme1n1 exclusively.  Mounted filesystem?
+  Can't open /dev/nvme0n1 exclusively.  Mounted filesystem?
+是说/dev/nvme0n1已经mounted了，需要先umount
+
 vgdisplay 
 sudo lvcreate -L 5T -n u03 vg1  //在虚拟volume-group vg1上创建一个5T大小的分区or: sudo lvcreate -l 100%free -n u03 vg1
 sudo mkfs.ext4 /dev/vg1/u03   
@@ -198,4 +203,12 @@ else
    echo "the lvm exists."
 fi
 ```
+
+
+
+## 参考资料
+
+https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/
+
+[pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?](https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/)
 

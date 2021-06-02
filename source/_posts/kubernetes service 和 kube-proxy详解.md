@@ -252,7 +252,7 @@ ipvs会放置DNAT钩子在INPUT链上，因此必须要让内核识别 VIP 是�
 同时在路由表中增加一些ipvs 的路由条目：
 
 ```
-# ip route show table local
+# ip route show table local  //等于ip route list table local
 local 10.68.0.1 dev kube-ipvs0 proto kernel scope host src 10.68.0.1 
 local 10.68.0.2 dev kube-ipvs0 proto kernel scope host src 10.68.0.2 
 local 10.68.70.130 dev kube-ipvs0 proto kernel scope host src 10.68.70.130 -- ipvs

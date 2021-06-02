@@ -29,38 +29,20 @@ ssh 访问 bbs.newsmth.net 是没问题的，但是**要解决配色和字符编
 
 在iTerm2的配置中增加一个profile，如下图 smth，主要是改字符编码集为 GB 18030，然后修改配色方案，我喜欢的Dracula不适合SMTH，十大完全看不了。
 
-![image.png](/images/oss/c86ee5401de32e6692d3d65ccfe0041a.png)
-
-然后增加一个profile切换脚本：
-
-```
-cat ~/src/script/encode.sh
-#!/bin/bash
-# 使用GBK Profile
-echo -e "\033]50;SetProfile=smth\a"
-# 更改当前 iTerm2 tab title
-echo -ne "\033]0;"$@"\007"
-$@
-echo -ne "\033]0;"${PWD/#$HOME/~}"\007"
-echo -e "\033]50;SetProfile=Default\a"
-```
-
-Encode.sh用来解决profile切换，连smth前切换成GB 18030，断开的时候恢复成UTF-8，要不然的话正常工作的命令行就乱码了。
+![image-20210602133111201](/images/951413iMgBlog/image-20210602133111201.png)
 
 
 
-这行命令保存为可执行文件smth, 用于通过 ssh连上 bbs.newsmth.net 
-
-> /Users/ren/src/script/encode.sh sshpass -p'密码' ssh -o ServerAliveInterval=60 水木id@bbs.newsmth.net
-
-
-
-最终执行命令如下：
+执行脚本如下：
 
 ```
-cat /usr/local/bin/smth
-/Users/ren/src/script/encode.sh sshpass -p'密码' ssh -o ServerAliveInterval=60 水木id@bbs.newsmth.net
+#cat /usr/local/bin/smth
+echo -e "\033]50;SetProfile=smth\a"          //切换到GB18030
+sshpass -p'密码' ssh -o ServerAliveInterval=60 水木id@bbs.newsmth.net
+echo -e "\033]50;SetProfile=Default\a"       //切换回UTF8
 ```
+
+SetProfile=smth用来解决profile切换，连smth term前切换成GB 18030，断开的时候恢复成UTF-8，要不然的话正常工作的命令行就乱码了。
 
 
 
