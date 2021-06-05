@@ -52,7 +52,7 @@ yumdownloader --destdir=/tmp/ansible --resolve ansible
 需要安装工具 yum install createrepo -y：
 
 ```
-# createrepo ./yum/
+# createrepo ./public_yum/
 Spawning worker 0 with 6 pkgs
 Spawning worker 1 with 6 pkgs
 Spawning worker 23 with 5 pkgs

@@ -45,8 +45,7 @@ tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304
 
 ![image.png](/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
 
-如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w已经预分配好了的size，t[the memory used for sending packet (which has been sent
-                     to layer 3)] , 似乎 w总是等于大于t？
+如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w[The memory allocated for sending packet (which has not been sent to layer 3)]已经预分配好了的size，t[the memory used for sending packet (which has been sent to layer 3)] , 似乎 w总是等于大于t？
 
 The entire print format of `ss -m` is given in the source:
 
@@ -69,13 +68,32 @@ The entire print format of `ss -m` is given in the source:
                 printf(",d%u", skmeminfo[SK_MEMINFO_DROPS]);
 
         printf(")");
+        
+        
+net/core/sock.c line:3095
+void sk_get_meminfo(const struct sock *sk, u32 *mem)
+{
+	memset(mem, 0, sizeof(*mem) * SK_MEMINFO_VARS);
+
+	mem[SK_MEMINFO_RMEM_ALLOC] = sk_rmem_alloc_get(sk);
+	mem[SK_MEMINFO_RCVBUF] = sk->sk_rcvbuf;
+	mem[SK_MEMINFO_WMEM_ALLOC] = sk_wmem_alloc_get(sk);
+	mem[SK_MEMINFO_SNDBUF] = sk->sk_sndbuf;
+	mem[SK_MEMINFO_FWD_ALLOC] = sk->sk_forward_alloc;
+	mem[SK_MEMINFO_WMEM_QUEUED] = sk->sk_wmem_queued;
+	mem[SK_MEMINFO_OPTMEM] = atomic_read(&sk->sk_omem_alloc);
+	mem[SK_MEMINFO_BACKLOG] = sk->sk_backlog.len;
+	mem[SK_MEMINFO_DROPS] = atomic_read(&sk->sk_drops);
+}
 ```
+
+![image-20210604120011898](/images/951413iMgBlog/image-20210604120011898.png)
 
 example:
 
 ![image.png](/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
 
-最后给出的一个工具，knetstat（需要单独安装），也可以查看tcp的状态下的各种参数
+
 
 ## ss 查看拥塞窗口、RTO
 
@@ -273,7 +291,7 @@ netstat[参考](http://perthcharles.github.io/2015/11/10/wiki-netstat-proc/)
 
 ## knetstat
 
-需要单独安装
+最后给出的一个工具，knetstat（需要单独安装），也可以查看tcp的状态下的各种参数，需要单独安装
 
 example(3306是本地server，4192是后端MySQL）：
 

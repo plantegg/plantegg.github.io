@@ -10,7 +10,9 @@ tags:
 
 # 为什么这么多CLOSE_WAIT
 
-业务同学发现业务端口上的TCP连接处于CLOSE_WAIT状态的数量有积压，多的时候能堆积到几万个，有时候应用无法响应了
+## 案例1
+
+应用发布新版本上线后，业务同学发现业务端口上的TCP连接处于CLOSE_WAIT状态的数量有积压，多的时候能堆积到几万个，有时候应用无法响应了
 
 > 怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。
 
@@ -67,15 +69,15 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 大概的原因推断是：
 
-1）新版本代码需要消耗更多的CPU，代码增加了新的逻辑 
+1）新版本代码需要消耗更多的CPU，代码增加了新的逻辑 //只是一个微小的诱因
 
-2） 机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个dncs节点，重启dncs会触发dncs之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是tcp buffer中的数据也不读走、连接也不close，连接大量堆积在close_wait状态
-
-
+2）机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个业务节点，重启会触发业务节点之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是tcp buffer中的数据也不读走、连接也不close，连接大量堆积在close_wait状态
 
 ![img](/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
 
 
+
+原因分析
 
 ## 先看TCP连接状态图
 
@@ -91,19 +93,19 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 
 
-## 结论
+## 案例1结论
 
 机器超卖严重、IO卡顿，导致应用线程卡顿
 
 
 
-## server端大量close_wait案例
+## server端大量close_wait案例2
 
 用实际案例来检查自己对CLOSE_WAIT 理论（**CLOSE_WAIT是被动关闭端在等待应用进程的关闭**）的掌握 -- 能不能用这个结论来解决实际问题。同时也可以看看自己从知识到问题的推理能力（跟前面的知识效率呼应一下）。
 
 ### 问题描述：
 
-> 服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）
+> 服务端出现大量CLOSE_WAIT ，并且个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）
 
 根据这个描述先不要往下看，自己推理分析下可能的原因。
 
@@ -117,7 +119,9 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 得检查server 应用为什么没有accept。
 
-![image.png](/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
+![Recv-Q和Send-Q](/images/951413iMgBlog/20190706093602331.png)
+
+
 
 如上是老司机的思路靠经验缺省了一些理论推理，缺省还是对理论理解不够， 这个分析抓住了 大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）但是没有抓住 CLOSE_WAIT 背后的核心原因
 

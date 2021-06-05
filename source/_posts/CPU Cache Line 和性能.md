@@ -605,7 +605,7 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 1. 原子操作，即汇编指令包含Lock前缀；
 2. 操作数地址不对齐，还跨越两个cache lines；
 
-其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。最近，Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版[code review](https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/)。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。
+其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版[code review](https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/)。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。
 
 学过体系结构的同学都应该知道，缓存一制性协议MESI只能保证cache line粒度的一致性。同时访问两个cache lines不是常见操作，为保证split lock的原子性，设计硬件时使用特殊逻辑（冷路径）来处理：**锁住整个访存总线，阻止其它逻辑cpu访存**。
 

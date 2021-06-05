@@ -10,13 +10,13 @@ tags:
 
 # Linux LVM使用
 
-
+LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/卷管理)）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。软RAID配置方法[参考这里](https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/)
 
 **从一块硬盘到能使用LV文件系统的步骤：**
 
 ​     **硬盘----分区(fdisk)----PV(pvcreate)----VG(vgcreate)----LV(lvcreate)----格式化(mkfs.ext4 LV为ext文件系统)----挂载**
 
-![img](https://www.centos.bz/wp-content/uploads/2017/07/1-1.jpg)
+![img](/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
 
 
 
@@ -204,7 +204,7 @@ else
 fi
 ```
 
-
+LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样
 
 ## 参考资料
 

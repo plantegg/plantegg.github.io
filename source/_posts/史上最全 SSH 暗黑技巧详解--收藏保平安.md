@@ -286,7 +286,7 @@ for循环部分一次把生成的密钥对和authorized_keys复制到所有机�
 ## 调试ssh--终极大招，好多问题我都是debug发现的
 
 - 客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道
-- server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等
+- server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，/root 以及 /root/.ssh 文件夹的权限和owner都要对，更不要说 /root/.ssh/authorized_keys 了
 
 ## ~/.ssh/config 参考配置
 

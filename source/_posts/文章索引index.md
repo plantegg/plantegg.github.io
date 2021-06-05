@@ -84,7 +84,7 @@ tags:
 
 ## DNS相关
 
-#### [就是要你懂DNS--一文搞懂域名解析相关问题](https://plantegg.github.io/2019/06/09/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82DNS--%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/)
+#### [就是要你懂DNS--一文搞懂域名解析相关问题](https://plantegg.github.io/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/)
 #### [nslookup OK but ping fail](https://plantegg.github.io/2019/01/09/nslookup-OK-but-ping-fail/)
 
 #### [Docker中的DNS解析过程](https://plantegg.github.io/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/)
@@ -98,10 +98,11 @@ tags:
 
 ## 网络工具
 
-#### [就是要你懂Unix Socket 进行抓包解析](https://plantegg.github.io/2019/04/04/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--Unix-Socket%E6%8A%93%E5%8C%85/)
+#### [就是要你懂Unix Socket 进行抓包解析](https://plantegg.github.io/2018/01/01/%E9%80%9A%E8%BF%87tcpdump%E5%AF%B9Unix%20Socket%20%E8%BF%9B%E8%A1%8C%E6%8A%93%E5%8C%85%E8%A7%A3%E6%9E%90/)
 
-#### [就是要你懂网络监控--ss用法大全](https://plantegg.github.io/2019/10/12/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C%E7%9B%91%E6%8E%A7--ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/)
+#### [就是要你懂网络监控--ss用法大全](https://plantegg.github.io/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/)
 
 #### [就是要你懂抓包--WireShark之命令行版tshark](https://plantegg.github.io/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--WireShark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/)
-#### [netstat timer keepalive explain](https://plantegg.github.io/2017/08/28/netstat%20--timer/)
-#### [Git HTTP Proxy and SSH Proxy](https://plantegg.github.io/2018/03/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82git%E4%BB%A3%E7%90%86--%E5%A6%82%E4%BD%95%E8%AE%BE%E7%BD%AEgit%20Proxy/)
+#### [netstat timer keepalive explain](https://plantegg.github.io/2017/08/28/netstat%20%E7%AD%89%E7%BD%91%E7%BB%9C%E5%B7%A5%E5%85%B7/)
+#### [Git HTTP Proxy and SSH Proxy](https://plantegg.github.io/2018/03/14/%E5%A6%82%E4%BD%95%E8%AE%BE%E7%BD%AEgit%20Proxy/)
+

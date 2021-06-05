@@ -22,13 +22,15 @@ tags:
 
 以一台iPhone X拆解分析里面的芯片：
 
-![img](file:///images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg?lastModify=1622450899)
+![img](/images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg)
 
 整个半导体产业的产值分布
 
-![img](file:///images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png?lastModify=1622450899)
+![img](/images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png)
 
-## Die 制作
+![img](/images/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png)
+
+## 裸片Die 制作
 
 沙子中提纯硅，硅晶柱生长：
 
@@ -44,7 +46,7 @@ tags:
 
 使用特定波长的光，透过光罩（类似印炒里面的母版），照射在涂有光刻胶的晶圆上，光罩上芯片的设计图像，就复制到晶圆上了，这就是光刻，这一步是由光刻机完成的，光刻机是芯片制造中光刻环节的核心设备。你可以把光刻理解为，就是用光罩这个母版，一次次在晶圆上印电路的过程。
 
-![img](file:///images/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg?lastModify=1622467642)
+![img](/images/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg)
 
 光刻是最贵的一个环节，一方面是光罩越来越多，越来越贵，另一方面光刻机也很贵。光刻机是半导体制造设备中价格占比最大，也是最核心的设备。2020 年荷兰公司 ASML 的极紫外光源（EUV）光刻机每台的平均售价是 1.45 亿欧元，而且全世界独家供货，年产量 31 台，有钱也未必能买得到。
 
@@ -58,7 +60,7 @@ tags:
 
 ![img](/images/951413iMgBlog/weixin15664418828785.gif)
 
-![img](file:///images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png?lastModify=1622467642)
+![img](/images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png)
 
 
 
@@ -72,7 +74,7 @@ AMD在猪队友工艺落后Intel的前提下，又想要堆核怒怼。另辟蹊
 
 可惜连接四个Die的片外总线终归没有片内总线效率高，在好些benchmark中败下阵来，可见没有免费的午餐。他也似乎忘记了自己在2005年双核口水大战中调侃Intel是“胶水粘”的双核，自己这次可是“拼积木”式的，为了数据好看也够“拼”的了。
 
-![img](file:///images/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg?lastModify=1622467642)
+![img](/images/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg)
 
 Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后改为Mesh。**AMD这样做，在增加灵活性之外，主要的目的是：省钱！！AMD每个Zeppelin Die都比Intel的小，这对良品率提高很大，节约了生产费用。**
 
@@ -80,7 +82,9 @@ Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后�
 
 一颗芯片的 1/3 的成本，是花在封测阶段的
 
-![img](file:///images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png?lastModify=1622467642)
+![img](/images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png)
+
+![img](/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg)
 
 ### Die和core
 
@@ -90,7 +94,7 @@ One die with multiple cores:
 
 CPU Package containing 2 separate DIEs:
 
-![enter image description here](/images/951413iMgBlog/q201V.jpg)
+![data f1](/images/951413iMgBlog/dataf1-1372099277050.jpg)
 
 第4代酷睿（Haswell）的die：
 
@@ -148,21 +152,21 @@ dTLB:data TLB
 
 如果要实现48core的计算能力，可以有如下三个方案
 
-方案1：一个大Die集成48core：
+#### 方案1：一个大Die集成48core：![Intel Skylake SP Mesh Architecture Conceptual Diagram](/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
 
-![Image](/images/951413iMgBlog/640-20210601095246645)
+#### [方案2](https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/)：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core
 
-方案2：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core
+![image-20210602165525641](/images/951413iMgBlog/image-20210602165525641.png)
 
-![Image](/images/951413iMgBlog/640-20210601095328208)
+四个Die之间的连接方法：
 
-四个Die之间的连接方法（上面是AMD、下面是Intel的实现方案）：
+![image-20210602172555232](/images/951413iMgBlog/image-20210602172555232.png)
 
-![Image](/images/951413iMgBlog/640-20210601095409866)
+上图最下面的方案为[Intel采用的EMIB](https://venturebeat.com/2017/03/28/intel-moves-tech-forward-by-putting-two-chips-in-a-single-package/)（Embedded Multi-die Interconnect Bridge）方案，cost 最低。中间的方案是使用“硅中介层”(Interposer，AMD采用的方案)。这意味着你能在两枚主要芯片的下面放置和使用第三枚芯片。这枚芯片的目的是使得多个设备的连接更加容易，但是也带来了更高的成本。
 
-方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：
+#### 方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：
 
-![Image](/images/951413iMgBlog/640-20210601095627861)
+![image-20210602171352551](/images/951413iMgBlog/image-20210602171352551.png)
 
 三者的比较：
 
@@ -170,7 +174,9 @@ dTLB:data TLB
 
 方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和**内存**
 
-![Image](/images/951413iMgBlog/640-20210601095853119)
+![image-20210602170727459](/images/951413iMgBlog/image-20210602170727459.png)
+
+
 
 ## 多core通讯和NUMA
 
@@ -428,10 +434,36 @@ Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Ne
 
 感觉前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是**Ring bus到Mesh**）
 
+![image-20210602154509596](/images/951413iMgBlog/image-20210602154509596.png)
+
 ### 不同的架构下的参数
 
 
 ![image.png](/images/oss/e4a2fb522be7aa65158778b7ea825207.png)
+
+## 主频睿频超频
+
+**主频=外频×倍频系数**
+
+不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。
+
+超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。
+
+睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。
+
+![img](/images/951413iMgBlog/1000.jpeg)
+
+
+
+CPU能耗公式：
+
+> P = C V*V f
+
+C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率加到，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。
+
+所以最终能耗和f频率是 f^3 的指数关系。
+
+即使不考虑散热问题，Core也没法做到无限大，必须要考虑光速不可超越的影响。也就是1GHz电信号智能传播30cm， 10GHz的话电信号只能传播3cm，也就是Die的大小不能超过3cm。当然这个推论简化了很多其他因素
 
 ## UEFI和Bios
 

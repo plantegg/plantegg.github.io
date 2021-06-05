@@ -143,11 +143,31 @@ Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
 这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。
 
 ## 关于NUMA
-如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。
+如下图，是一个4路服务器的架构图，每个Die内部是8core，8core之间是Ring Bus（红色矩形线）， 左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。
 
 ![undefined](/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
 
 在两路及以上的服务器，远程 DRAM 的访问延迟，远远高于本地 DRAM 的访问延迟，有些系统可以达到 2 倍的差异。即使服务器 BIOS 里关闭了 NUMA 特性，也只是对 OS 内核屏蔽了这个特性，这种延迟差异还是存在的。
+
+实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket，也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。
+
+```
+//E5-2682
+Intel(R) Memory Latency Checker - v3.9
+Measuring idle latencies (in ns)...
+		Numa node
+Numa node	     0	     1
+       0	  85.0	 136.3
+       1	 137.2	  84.2
+
+//8269
+Intel(R) Memory Latency Checker - v3.9  
+Measuring idle latencies (in ns)...
+    Numa node
+Numa node      0       1
+       0    78.6   144.1
+       1   144.7    78.5
+```
 
 ![undefined](/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png) 
 

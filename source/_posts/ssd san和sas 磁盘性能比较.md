@@ -66,9 +66,46 @@ SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。
 
 SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。
 
+SSD寿命：以Intel 335为例再来算一下，BT用户可以用600TB × 1024 / 843 = **728天**，普通用户可以用600TB/2 = **300年**！情况十分乐观
+
+#### 两种逻辑门
+
+**NAND**(NOT-AND)  gate 
+
+**NOR**(NOT-OR)  gate 
+
+如上两种门实现的介质**都是非易失存储介质**，**在写入前都需要擦除**。实际上NOR Flash的一个bit可以从1变成0，而要从0变1就要擦除整块。NAND flash都需要擦除。
+
+|          | NAND Flash                                   | NOR Flash                         |
+| -------- | -------------------------------------------- | --------------------------------- |
+| 芯片容量 | <32GBit                                      | <1GBit                            |
+| 访问方式 | 块读写（顺序读写）                           | 随机读写                          |
+| 接口方式 | 任意I/O口                                    | 特定完整存储器接口                |
+| 读写性能 | 读取快（顺序读） 写入快 擦除快（可按块擦除） | 读取快（RAM方式） 写入慢 檫除很慢 |
+| 使用寿命 | 百万次                                       | 十万次                            |
+| 价格     | 低廉                                         | 高昂                              |
+
+NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。
+
+[高端SSD会选取MLC](https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf)（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）
+
+![image-20210603161822079](/images/951413iMgBlog/image-20210603161822079.png)
+
+
+
+![slc-mlc-tlc-buckets](/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
+
+
+
+NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB
+
+
+
 #### 为什么断电后SSD不丢数据
 
 SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。
+
+比如标准要求SSD：温度在30度的情况下，数据要能保持52周。
 
 ### 写入放大（Write Amplification, or WA)
 

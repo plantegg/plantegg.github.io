@@ -73,9 +73,6 @@ tags:
 
 ## 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
-<!--（图片来源：http://www.cnxct.com/something-about-phpfpm-s-backlog/）-->
-
 ![image.png](/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
@@ -124,7 +121,6 @@ tags:
 > The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.
 >
 > There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it "defines the maximum length the queue of pending connections may grow to." Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.
->
 
 这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：
 
@@ -385,4 +381,3 @@ https://www.cnblogs.com/xiaolincoding/p/12995358.html
 >                     NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
 >                     goto drop;
 >             }
-> 
