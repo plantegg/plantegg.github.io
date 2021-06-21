@@ -256,7 +256,7 @@ local port: 7994
 local port: 7996
 ```
 
-之所以都是偶数端口，是因为port_range 从偶数开始：
+之所以都是偶数端口，是因为port_range 从偶数开始, 每次从++变到+2的[原因](https://github.com/plantegg/linux/commit/1580ab63fc9a03593072cc5656167a75c4f1d173)：
 
 ```
 $cat /proc/sys/net/ipv4/ip_local_port_range
@@ -309,3 +309,7 @@ https://segmentfault.com/a/1190000002396411
 [How Linux allows TCP introspection The inner workings of bind and listen on Linux.](https://ops.tips/blog/how-linux-tcp-introspection/)
 
 https://idea.popcount.org/2014-04-03-bind-before-connect/
+
+[TCP连接中客户端的端口号是如何确定的？](https://mp.weixin.qq.com/s/C-Eeoeh9GHxugF4J30fz1A)
+
+[对应4.19内核代码解析](https://github.com/plantegg/linux/commit/9b3312bf18f6873e67f1f51dab3364c95c9dc54c)

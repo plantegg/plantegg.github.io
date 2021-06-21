@@ -53,7 +53,7 @@ Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
 先来看这两个MySQL 进程的Perf数据
 
 ```
-#第二个RDS IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
+#第二个 MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
 perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 61238
 ^C
  Performance counter stats for process id '61238':
@@ -77,7 +77,7 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
        1.163750756 seconds time elapsed
 
-#第三个RDS
+#第三个 MySQL
 perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 53400
 ^C
  Performance counter stats for process id '53400':
@@ -143,13 +143,12 @@ Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
 这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。
 
 ## 关于NUMA
-如下图，是一个4路服务器的架构图，每个Die内部是8core，8core之间是Ring Bus（红色矩形线）， 左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。
 
-![undefined](/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
+如下图，是一个Intel Xeon E5 CPU的架构信息，左右两边的大红框分别是两个NUMA，每个NUMA的core访问直接插在自己红环上的内存必然很快，如果访问插在其它NUMA上的内存还要走两个红环之间上下的黑色箭头线路，所以要慢很多。
 
-在两路及以上的服务器，远程 DRAM 的访问延迟，远远高于本地 DRAM 的访问延迟，有些系统可以达到 2 倍的差异。即使服务器 BIOS 里关闭了 NUMA 特性，也只是对 OS 内核屏蔽了这个特性，这种延迟差异还是存在的。
+![img](/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png)
 
-实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket，也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。
+实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket（这两块CPU内部不再是上图的红环Bus,而是改用了Mesh Bus一个Die就是一个NUMA，服务器有两路，也就是一个Socket就是一个NUMA），也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。[测试工具从这里下载](https://software.intel.com/content/www/us/en/develop/articles/intelr-memory-latency-checker.html)
 
 ```
 //E5-2682
@@ -166,14 +165,12 @@ Measuring idle latencies (in ns)...
     Numa node
 Numa node      0       1
        0    78.6   144.1
-       1   144.7    78.5
+       1   144.7    78.5 
 ```
 
-![undefined](/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png) 
+开启NUMA会优先就近使用内存，在本NUMA上的内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是可以通过Linux参数 zone_reclaim_mode 来配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。
 
-如果 BIOS 打开了 NUMA 支持，Linux 内核则会根据 ACPI 提供的表格，针对 NUMA 节点做一系列的 NUMA 亲和性的优化。也就是开启NUMA会优先就近使用内存，在内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是通过 zone_reclaim_mode 可以配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。
-
-**这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃**
+**这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃。**
 
 以上理论告诉我们：**也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。**
 
@@ -286,8 +283,6 @@ other_node                 23652          106041
 
 但真的NUMA有这么糟糕？或者说Linux Kernel有这么笨，默认优先去回收PageCache吗？
 
-
-
 ## Linux Kernel对NUMA内存的使用
 
 实际我们使用NUMA的时候期望是：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。
@@ -307,7 +302,7 @@ zone_reclaim_mode:
 > zone reclaim occurs. Allocations will be satisfied from other zones / nodes
 > in the system.
 
-This is value ORed together of
+zone_reclaim_mode的四个参数值的意义分别是：
 
 0   = Allocate from all nodes before reclaiming memory
 1   = Reclaim memory from local node vs allocating from next node
@@ -339,13 +334,17 @@ Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收�
 ### 验证一下zone_reclaim_mode 0是生效的
 内核版本：3.10.0-327.ali2017.alios7.x86_64
 
-测试方法：
+#### 测试方法：
+
 先将一个160G的文件加载到内存里，然后再用代码分配64G的内存出来使用。
 单个NUMA node的内存为256G，本身用掉了60G，加上这次的160G的PageCache，和之前的一些其他PageCache,总的 PageCache用了179G，那么这个node总内存还剩256G-60G-179G，
 
 如果这个时候再分配64G内存的话，本node肯定不够了，我们来看在 zone_reclaim_mode=0 的时候是优先回收PageCache还是分配了到另外一个NUMA node(这个NUMA node 有240G以上的内存空闲）
 
+#### 测试过程：
+
 分配64G内存
+
 ```
 #taskset -c 0 ./alloc 64
 To allocate 64GB memory
@@ -359,7 +358,7 @@ Used time: 39 seconds
 释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：
 ![undefined](/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png) 
 
-#### 将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试
+### 将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试
 可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿
 
 ![undefined](/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png) 

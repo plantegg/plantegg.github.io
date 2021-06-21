@@ -42,7 +42,15 @@ Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes
 TCP  11.197.140.20:18089                 5       48       48     2951     6938
   -> 11.197.140.20:28089                 3       33       33     1989     4938
   -> 11.197.141.110:28089                2       15       15      962     2000
-
+#流量统计
+ipvsadm -L -n --stats -t 192.168.1.10:28080 //-t service-address
+Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes
+  -> RemoteAddress:Port
+TCP  192.168.1.10:28080              39835    1030M  863494K     150G     203G
+  -> 172.20.62.78:3306                 774 46173852 38899725    6575M    9250M
+  -> 172.20.78.79:3306                 781 45106566 37997254    6421M    9038M
+  -> 172.20.81.80:3306                 783 45531236 38387112    6479M    9128M
+  
 #清空统计数据
 #ipvsadm --zero
 #列出所有连接信息

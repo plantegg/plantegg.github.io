@@ -57,6 +57,10 @@ cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个
 
 ![Memory Hierarchy](/images/951413iMgBlog/cache-hierarchy-1.jpg)
 
+[推荐从这里看延时，拖动时间轴可以看到每一年的变化](https://colin-scott.github.io/personal_website/research/interactive_latency.html)
+
+![image-20210613123006681](/images/951413iMgBlog/image-20210613123006681.png)
+
 查看cpu cache数据
 
 	cat /proc/cpuinfo |grep -i cache
@@ -359,7 +363,7 @@ Time spent is 17267ms with lock
 
 可以看到最终时间差了100倍，IPC差了8倍，从指令数来看加锁后指令数会略多，但是加锁造成了stall（即使没有实际竞争）。
 
-上述代码如果是在：Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz 上运行，差距要小很多，也可以看出intel x86芯片对锁优化比较好。不加锁的循环X86比ARM要慢一点点是因为ARM芯片的主频是2.6G，要高一点点。
+上述代码如果是在：Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz 上运行，差距要小很多，也可以看出intel x86芯片优化比较好。不加锁的循环X86比ARM要慢一点点是因为ARM芯片的主频是2.6G，要高一点点。
 
 ```
 #java test.LockBenchmark  //x86
@@ -416,7 +420,7 @@ public class LockBenchmark{
 							for(int i=0; i<10; ++i){
 								sum += sum*3.75/3;
 							}
-                lock.unlock();
+              lock.unlock();
             }
         }
         long end = System.currentTimeMillis();
@@ -431,57 +435,57 @@ public class LockBenchmark{
 }
 ```
 
-在Intel芯片下，运行时间和IPC 分别为：
+在Intel芯片下，加锁运行时间慢了1倍，IPC差不多，运行时间和IPC 分别为：
 
 ```
-#java test.LockBenchmark
-Time spent is 11917ms without lock:10810.40962948895
+#java test.LockBenchmark  //如上代码循环次数都是5亿次， intel cpu
+Time spent is 11884ms without lock:10810.40962948895
 start runIncrementWithLock.
-Time spent is 22664ms with lock:10817.060142949109
+Time spent is 22662ms with lock:10817.060142949109
 
 #perf stat -p `jps | grep LockBenchmark | awk '{ print $1 }'`
 ^C
- Performance counter stats for process id '107844':
+ Performance counter stats for process id '117862':
 
-       3314.045166      task-clock (msec)         #    1.002 CPUs utilized            (100.00%)
-               117      context-switches          #    0.035 K/sec                    (100.00%)
-                 6      cpu-migrations            #    0.002 K/sec                    (100.00%)
-               257      page-faults               #    0.078 K/sec
-     8,276,280,330      cycles                    #    2.497 GHz                      (100.00%)
+       7144.193030      task-clock (msec)         #    1.002 CPUs utilized            (100.00%)
+               227      context-switches          #    0.032 K/sec                    (100.00%)
+                26      cpu-migrations            #    0.004 K/sec                    (100.00%)
+               199      page-faults               #    0.028 K/sec
+    17,842,543,877      cycles                    #    2.497 GHz                      (100.00%)
    <not supported>      stalled-cycles-frontend
    <not supported>      stalled-cycles-backend
-     7,935,056,088      instructions              #    0.96  insns per cycle          (100.00%)
-     1,116,843,531      branches                  #  337.003 M/sec                    (100.00%)
-            55,215      branch-misses             #    0.00% of all branches
+    17,153,665,963      instructions              #    0.96  insns per cycle          (100.00%)
+     2,408,676,080      branches                  #  337.152 M/sec                    (100.00%)
+            39,593      branch-misses             #    0.00% of all branches
 
-       3.307842869 seconds time elapsed
+       7.133030625 seconds time elapsed
 
-[root@intel /root]
+
 #perf stat -p `jps | grep LockBenchmark | awk '{ print $1 }'`
 ^C
- Performance counter stats for process id '107844':
+ Performance counter stats for process id '117862':
 
-       7160.177050      task-clock (msec)         #    1.001 CPUs utilized            (100.00%)
-               220      context-switches          #    0.031 K/sec                    (100.00%)
-                17      cpu-migrations            #    0.002 K/sec                    (100.00%)
-               138      page-faults               #    0.019 K/sec
-    17,882,065,308      cycles                    #    2.497 GHz                      (100.00%)
+       3962.496661      task-clock (msec)         #    1.002 CPUs utilized            (100.00%)
+               123      context-switches          #    0.031 K/sec                    (100.00%)
+                 3      cpu-migrations            #    0.001 K/sec                    (100.00%)
+                77      page-faults               #    0.019 K/sec
+     9,895,900,342      cycles                    #    2.497 GHz                      (100.00%)
    <not supported>      stalled-cycles-frontend
    <not supported>      stalled-cycles-backend
-    18,968,057,953      instructions              #    1.06  insns per cycle          (100.00%)
-     3,477,298,460      branches                  #  485.644 M/sec                    (100.00%)
-           104,431      branch-misses             #    0.00% of all branches
+    10,504,412,147      instructions              #    1.06  insns per cycle          (100.00%)
+     1,925,721,763      branches                  #  485.987 M/sec                    (100.00%)
+            55,018      branch-misses             #    0.00% of all branches
 
-       7.149505297 seconds time elapsed
+       3.955251872 seconds time elapsed
 ```
 
 在鲲鹏920下的运行时间和IPC，两个循环最终执行时间一样，但是加锁的循环 IPC 反而要高，应该是加锁指令简单，比乘法对流水线更友好
 
 ```
-#java test.LockBenchmark
+#java test.LockBenchmark  //鲲鹏920
 Time spent is 37037ms without lock:10810.40962948895
 start runIncrementWithLock.
-Time spent is 37045ms with lock:10817.060142949109
+Time spent is 37045ms with lock:10817.060142949109  //极低的概率这里能跑出来15秒，应该是偷鸡优化了
 
 
 #perf stat -p `jps | grep LockBenchmark | awk '{ print $1 }'`
@@ -496,7 +500,7 @@ Time spent is 37045ms with lock:10817.060142949109
      8,995,482,376      cycles                    #    2.600 GHz
        344,461,881      stalled-cycles-frontend   #    3.83% frontend cycles idle
      7,060,741,196      stalled-cycles-backend    #   78.49% backend  cycles idle
-     2,667,443,624      instructions              #    0.30  insns per cycle         //不带Lock 乘法除法拉低了IPC
+     2,667,443,624      instructions              #    0.30  insns per cycle         //不带Lock 乘除法拉低了IPC
                                                   #    2.65  stalled cycles per insn
    <not supported>      branches
         93,302,896      branch-misses             #    0.00% of all branches
@@ -522,6 +526,10 @@ Time spent is 37045ms with lock:10817.060142949109
 
        3.199261610 seconds time elapsed
 ```
+
+这个代码加锁后指令多了1倍，所以intel CPU下体现出来的时间就差了一倍（IPC一样的）；鲲鹏 CPU下时间差不多是因为没加锁的IPC太低了（乘除法对流水线没优化好），最终IPC差了一倍，就把执行时间拉平了。另外就就是Intel和鲲鹏的执行时间对比和IPC也是一致的，IPC高执行就快。
+
+
 
 ### Disruptor中对cache_line的使用
 
@@ -612,6 +620,79 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。
 
 ![img](/images/951413iMgBlog/1.png)
+
+
+
+## 分支预测案例
+
+这个案例循环次数一样多：
+
+```
+#include "stdio.h"
+#include <stdlib.h>
+#include <time.h>
+
+long timediff(clock_t t1, clock_t t2) {
+    long elapsed;
+    elapsed = ((double)t2 - t1) / CLOCKS_PER_SEC * 1000;
+    return elapsed;
+}
+
+int main(int argc, char *argv[])
+{
+    int j=0;
+    int k=0;
+    int c=0;
+    clock_t start=clock();
+    for(j=0; j<100000; j++){
+        for(k=0; k<1000; k++){
+					for(c=0; c<100; c++){
+			}
+		}
+    }
+    clock_t end =clock();
+    printf("%lu\n", timediff(start,end));    //case1
+
+    start=clock();
+    for(j=0; j<100; j++){
+        for(k=0; k<1000; k++){
+					for(c=0; c<100000; c++){
+			}
+		}
+    }
+    end =clock();
+    printf("%lu\n", timediff(start,end));   //case2
+    return 0;
+}
+```
+
+x86_64下的执行结果，确实是case2略快
+
+```
+#taskset -c 0 ./for_prediction.out
+25560
+23420
+
+#taskset -c 0 ./for_prediction.out
+25510
+23410
+```
+
+case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由xperf 1.3.8采集）
+
+![image-20210517111209985](/images/951413iMgBlog/image-20210517111209985.png)
+
+case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以最终的执行时间差异不大
+
+![image-20210517111244550](/images/951413iMgBlog/image-20210517111244550.png)
+
+![image-20210512133536939](/images/951413iMgBlog/image-20210512133536939.png)
+
+在arm下case1反而更快，如截图
+
+![image-20210512132121856](/images/951413iMgBlog/image-20210512132121856.png)
+
+
 
 ## 参考资料
 

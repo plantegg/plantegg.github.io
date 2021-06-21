@@ -884,6 +884,48 @@ SATA硬盘，10K转
 
 硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
 
+## rq_affinity
+
+参考[aliyun测试文档](https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll) , rq_affinity增加2的commit： git show 5757a6d76c
+
+```
+function RunFio
+{
+ numjobs=$1   # 实例中的测试线程数，例如示例中的10
+ iodepth=$2   # 同时发出I/O数的上限，例如示例中的64
+ bs=$3        # 单次I/O的块文件大小，例如示例中的4k
+ rw=$4        # 测试时的读写策略，例如示例中的randwrite
+ filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device
+ nr_cpus=`cat /proc/cpuinfo |grep "processor" |wc -l`
+ if [ $nr_cpus -lt $numjobs ];then
+     echo “Numjobs is more than cpu cores, exit!”
+     exit -1
+ fi
+ let nu=$numjobs+1
+ cpulist=""
+ for ((i=1;i<10;i++))
+ do
+     list=`cat /sys/block/your_device/mq/*/cpu_list | awk '{if(i<=NF) print $i;}' i="$i" | tr -d ',' | tr '\n' ','`
+     if [ -z $list ];then
+         break
+     fi
+     cpulist=${cpulist}${list}
+ done
+ spincpu=`echo $cpulist | cut -d ',' -f 2-${nu}`
+ echo $spincpu
+ fio --ioengine=libaio --runtime=30s --numjobs=${numjobs} --iodepth=${iodepth} --bs=${bs} --rw=${rw} --filename=${filename} --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split
+}
+echo 2 > /sys/block/your_device/queue/rq_affinity
+sleep 5
+RunFio 10 64 4k randwrite filename
+```
+
+对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
+
+![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
+
+
+
 ## LVM性能对比
 
 磁盘信息

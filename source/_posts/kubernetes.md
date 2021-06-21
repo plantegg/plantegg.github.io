@@ -490,12 +490,9 @@ data:
     [mysqld]
     super-read-only
 
-
-
   786  26/08/20 15:27:00 kubectl create configmap game-config-env-file --from-env-file=configure-pod-container/configmap/game-env-file.properties
   787  26/08/20 15:28:10 kubectl get configmap -n kube-system kubeadm-config -o yaml
   788  26/08/20 15:28:11 kubectl get configmap game-config-env-file -o yaml
-
 ```
 
 将mysql root密码放入secret并查看 secret密码：
@@ -510,7 +507,7 @@ type: Opaque
 data:
   password: MTIz
 
-# echo -n '123' | base64  //生成密码编码
+# echo -n '123' | base64  //生成密码编码  
 # kubectl get secret mysql-root-password -o jsonpath='{.data.password}' | base64 --decode -
 
 或者创建一个新的 secret：
@@ -612,8 +609,6 @@ kubectl apply 命令才是“声明式 API”
 声明式 API，相当于对外界所有操作（并发接收）串行merge，才是 Kubernetes 项目编排能力“赖以生存”的核心所在
 
 > 如何使用控制器模式，同 Kubernetes 里 API 对象的“增、删、改、查”进行协作，进而完成用户业务逻辑的编写过程。
-
-
 
 
 

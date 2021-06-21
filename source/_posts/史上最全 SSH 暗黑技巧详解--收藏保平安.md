@@ -353,6 +353,12 @@ ForwardX11Trusted yes
 
 SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password**，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。
 
+### 验证秘钥对
+
+**-y** Read a private OpenSSH format file and print an OpenSSH public key to stdout.
+
+> ssh-keygen -y -f id_rsa | cut -d' ' -f 2  和 cut -d' ' -f 2 id_rsa.pub
+
 ### ssh-agent
 
 私钥设置了密码以后，每次使用都必须输入密码，有时让人感觉非常麻烦。比如，连续使用`scp`命令远程拷贝文件时，每次都要求输入密码。

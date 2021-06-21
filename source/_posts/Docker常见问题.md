@@ -151,7 +151,7 @@ Alpine一个精简版的Linux 发行版，更小更安全，用的musl libc而�
 
 scratch一个空的框架，什么也没有
 
-## 找不到shell
+## 找不到shell 
 
 Dockerfile 中(https://www.ardanlabs.com/blog/2020/02/docker-images-part1-reducing-image-size.html)：
 
@@ -161,7 +161,30 @@ CMD ./hello OR RUN 等同于 /bin/sh -c "./hello", 需要shell，
 CMD ["./hello"] 等同于 ./hello 不需要shell
 ```
 
+## entrypoint VS cmd
+
 dockerfile中：CMD 可以是命令、也可以是参数，如果是参数， 把它传递给：ENTRYPOINT
+
+在写Dockerfile时, ENTRYPOINT或者CMD命令会自动覆盖之前的ENTRYPOINT或者CMD命令
+
+从参数中传入的ENTRYPOINT或者CMD命令会自动覆盖Dockerfile中的ENTRYPOINT或者CMD命令
+
+## copy VS add
+
+**COPY**指令和**ADD**指令的唯一区别在于是否支持从远程URL获取资源。 **COPY**指令只能从执行**docker** build所在的主机上读取资源并复制到镜像中。 而**ADD**指令还支持通过URL从远程服务器读取资源并复制到镜像中。 
+
+满足同等功能的情况下，推荐使用**COPY**指令。ADD指令更擅长读取本地tar文件并解压缩
+
+## Digest VS Image ID
+
+pull镜像的时候，将docker digest带上，即使黑客使用手段将某一个digest对应的内容强行修改了，docker也能check出来，因为docker会在pull下镜像的时候，只要根据image的内容计算sha256
+
+```
+docker images --digests
+```
+
+- The "digest" is a hash of the manifest, introduced in Docker registry v2.
+- The image ID is a hash of the local image JSON configuration. 就是inspect 看到的 RepoDigests
 
 ## 容器中抓包和调试 -- nsenter
 

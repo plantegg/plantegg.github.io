@@ -27,6 +27,10 @@ bash$ tc qdisc show dev eth0
  
 4.stop the delay
 bash$ tc qdisc del dev eth0 root
+
+#corrupt
+The following rule corrupts 5% of the packets by introducing single bit error at a random offset in the packet:
+tc qdisc change dev eth0 root netem corrupt 5%
 ```
 
 
