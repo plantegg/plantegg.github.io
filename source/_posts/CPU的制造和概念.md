@@ -10,6 +10,46 @@ tags:
 
 # CPU的制造和概念
 
+为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。
+
+这次让我们从最底层的沙子开始回答各种疑问。
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+
+
+## 几个重要概念
+
+为了增加对文章的理解先解释下几个高频概念
+
+Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路
+
+Die：从晶圆上切割下来的CPU(包含多个core、北桥、GPU等)，Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试
+
+封装：将一个或多个Die封装成一个物理上可以售卖的CPU
+
+路：就是socket、也就是封装后的物理CPU
+
+node：同一个Die下的多个core以及他们对应的内存，对应着NUMA
+
+## CPU实物图片
+
 购买到的CPU实体外观和大小，一般是40mm X 50mm大小
 
 ![How to Perform a CPU Stress Test and Push It to the Limit | AVG](/images/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg)
@@ -18,27 +58,37 @@ tags:
 
 ![enter image description here](/images/951413iMgBlog/yp6cf.jpg)
 
-## 集成电路和芯片
+## 对集成电路半导体行业的宏观认识
 
-以一台iPhone X拆解分析里面的芯片：
+### 集成电路和芯片
+
+先看一台iPhone X拆解分析里面的所有芯片：
 
 ![img](/images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg)
 
-整个半导体产业的产值分布
+### 半导体产业的产值分布
+
+下图中的处理器就是我们日常所说的CPU，当然还包含了GPU等
+
+我们常说的内存、固态硬盘这些存储器也是数字IC，后面你会看到一个CPU core里面还会有用于存储的cache电路
 
 ![img](/images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png)
+
+### 半导体营收分布
 
 ![img](/images/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png)
 
 美光：美国；Hynix海力士：韩国现代；美国双通：高通(CDMA)、博通(各种买买买、并购，网络设备芯片)；欧洲双雄(汽车芯片)：恩智浦和英飞凌
 
-半导体行业近 5 年的行业前十的公司列了一下，如下：
+半导体行业近 5 年的行业前十的公司列了如下：
 
 ![img](/images/951413iMgBlog/639990db9d26a8a54d1baaf3d6e513d4.png)
 
 半导体产品的十大买家，BBK是步步高集团，包含vivo、oppo、oneplus、realme等
 
 ![img](/images/951413iMgBlog/3bb8531b7ab4c503436838ab15434310.png)
+
+### 国内半导体市场情况
 
 中国半导体协会总结过国产芯片的比例，2014 年出台的《国家集成电路产业发展纲要》和 2015 年的《中国制造 2025》文件中有明确提出：到 2020 年，集成电路产业与国际先进水平的差距逐步缩小；2020 年中国芯片自给率要达到 40%，2025 年要达到 50%。
 
@@ -50,9 +100,11 @@ tags:
 
 市场份额上，国产存储芯片市场，也许还有望达到 2025 的目标。
 
+以上是我们对集成电路半导体行业的宏观认识。
+
 ## 裸片Die 制作
 
-沙子中提纯硅，硅晶柱生长：
+晶圆为什么总是圆的呢？生产过程就是从沙子中提纯硅，硅晶柱生长得到晶圆：
 
 ![img](/images/951413iMgBlog/weixin15664418828781.gif)
 
@@ -78,15 +130,15 @@ tags:
 
 品质合格的die切割下去后，原来的晶圆成了下图的样子，是挑剩下的Downgrade Flash Wafer。残余的die是品质不合格的晶圆。黑色的部分是合格的die，会被原厂封装制作为成品NAND颗粒，而不合格的部分，也就是图中留下的部分则当做废品处理掉。
 
-从晶圆上切割检测合格的Die
+从晶圆上切割检测合格的Die（螺片），所以Die跟Wafer不一样不是圆的，而是是方形的，因为方形的在切割封测工艺上最简单
 
 ![img](/images/951413iMgBlog/weixin15664418828785.gif)
 
+一个大晶圆，拿走了合格的Die后剩下的次品：
+
 ![img](/images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png)
 
-
-
-
+可见次品率不低，后面会谈到怎么降低次品率，次品率决定了CPU的价格。
 
 台积电一片 5nm 晶圆的加工费高达 12500 美金。根据台积电的财报推算，台积电平均每片晶圆可以产生近 4000 美金（300mm 晶圆）的利润。无论是哪个数字，对比 400 美金的纯硅晶圆原料来说，这都是一个至少增值 10 倍的高价值的加工过程。
 
@@ -94,7 +146,7 @@ tags:
 
 光刻机有一个加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。
 
-AMD在猪队友工艺落后Intel的前提下，又想要堆核怒怼。另辟蹊径，采取一个Package封装4个独立Die的做法，推出了EPYC服务器芯片，即不影响良率，又可以核心数目好看，可谓一举两得。
+AMD在工艺落后Intel的前提下，又想要堆核怒怼。另辟蹊径，采取一个Package封装4个独立Die的做法，推出了EPYC服务器芯片，即不影响良率，又可以核心数目好看，可谓一举两得。
 
 可惜连接四个Die的片外总线终归没有片内总线效率高，在好些benchmark中败下阵来，可见没有免费的午餐。他也似乎忘记了自己在2005年双核口水大战中调侃Intel是“胶水粘”的双核，自己这次可是“拼积木”式的，为了数据好看也够“拼”的了。
 
@@ -114,7 +166,7 @@ Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后�
 
 ### Die和core
 
-One die with multiple cores:
+One die with multiple cores，下图是一个Die内部图:
 
 ![enter image description here](/images/951413iMgBlog/xCqqv.jpg)
 
@@ -128,9 +180,7 @@ CPU Package containing 2 separate DIEs:
 
 
 
-主要分为几个部分：GPU、4个内核、System Agent(uncore,类似北桥)、cache和内存控制器和其他小部件。比如我们发现core 3和4有问题，我们可以直接关闭3和4。坏的关掉就是i5,都是好的就是i7。
-
-
+主要分为几个部分：GPU、4个内核、System Agent(uncore,类似北桥)、cache和内存控制器和其他小部件。**比如我们发现core 3和4有问题，我们可以直接关闭3和4。坏的关掉就是i5,都是好的就是i7。**
 
 ## 北桥和南桥
 
@@ -171,8 +221,6 @@ dTLB:data TLB
 多个core加上L3等组成一个Die：
 
 ![img](/images/951413iMgBlog/cache-ht-hierarchy-2.jpg)
-
-
 
 ## 多核和多个CPU
 
@@ -228,7 +276,7 @@ Ring Bus设计简单，双环设计可以保证任何两个ring stop之间距离
 
 于是采用如下两个Ring Bus并列，然后再通过双向总线把两个Ring Bus连起来。
 
-在至强HCC(High Core Count, 核很多版)版本中，又加入了一个ring bus。两个ring bus各接12个Core，将延迟控制在可控的范围内。俩个Ring Bus直接用两个双向Pipe Line连接，保证通讯顺畅。于此同时由于Ring 0中的模块访问Ring 1中的模块延迟明显高于本Ring，亲缘度不同，所以两个Ring分属于不同的NUMA（Non-Uniform Memory Access Architecture）node。这点在BIOS设计中要特别注意。
+在至强HCC(High Core Count, 核很多版)版本中，又加入了一个ring bus。两个ring bus各接12个Core，将延迟控制在可控的范围内。俩个Ring Bus直接用两个双向Pipe Line连接，保证通讯顺畅。与此同时由于Ring 0中的模块访问Ring 1中的模块延迟明显高于本Ring，亲缘度不同，所以两个Ring分属于不同的NUMA（Non-Uniform Memory Access Architecture）node。这点在BIOS设计中要特别注意。
 
 ![Intel Xeon E5-2600 V4 High Core Count Die](/images/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png)
 
@@ -257,15 +305,11 @@ RAM延迟大大缩短：
 
 ![Broadwell Ring V Skylake Mesh DRAM Example](/images/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg)
 
-
-
-左边的是ring bus，从一个ring里面访问另一个ring里面的内存控制器。最坏情况下是那条绿线，拐了一个大圈才到达内存控制器，需要310个cycle。而在Mesh网络中则路径缩短很多。
+上图左边的是ring bus，从一个ring里面访问另一个ring里面的内存控制器。最坏情况下是那条绿线，拐了一个大圈才到达内存控制器，需要310个cycle。而在Mesh网络中则路径缩短很多。
 
 Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计带来复杂性的增加，从而对Die的大小带来了负面影响
 
 ![image-20210602104851803](/images/951413iMgBlog/image-20210602104851803.png)
-
-
 
 ### uncore
 
@@ -487,11 +531,11 @@ CPU能耗公式：
 
 > P = C V*V f
 
-C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率加到，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。
+C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。
 
 所以最终能耗和f频率是 f^3 的指数关系。
 
-即使不考虑散热问题，Core也没法做到无限大，必须要考虑光速不可超越的影响。也就是1GHz电信号智能传播30cm， 10GHz的话电信号只能传播3cm，也就是Die的大小不能超过3cm。当然这个推论简化了很多其他因素
+即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。~~另外要不要考虑光速不可超越的影响，也就是1GHz电信号智能传播30cm， 10GHz的话电信号只能传播3cm，也就是Die的大小不能超过3cm。当然这个推论简化了很多其他因素~~
 
 ## UEFI和Bios
 
@@ -551,17 +595,15 @@ GPU的每个core拥有更小更快的cache和registry，但是整个GPU的regist
 
 ![image-20210615105019238](/images/951413iMgBlog/image-20210615105019238.png)
 
-总之GPU像是一群小学生和一个大学教授一起比赛计算10以内的加减法。
+总之GPU相对于CPU像是一群小学生和一个大学教授一起比赛计算10以内的加减法。
 
-### 英伟达和GPU
+### 英伟达的GPU出圈
 
 2016年之前英伟达的营收和是指基本跟intel一致，但是2021 年 4 月中旬的数字，Intel 是英伟达的近 5 倍，但是如果论市值，英伟达是 Intel 的 1.5 倍。
 
 **GPGPU：点亮并行计算的科技树**
 
 2007 年，英伟达首席科学家 David Kirk 非常前瞻性地提出 GPGPU 的概念，把英伟达和 GPU 从单纯图形计算拓展为通用计算，强调并行计算，鼓励开发者用 GPU 做计算，而不是局限在图形加速这个传统的领域。GPGPU，前面这个 GP，就是 General Purpose 通用的意思。
-
-
 
 CUDA（Compute Unified Device Architecture，统一计算架构），CUDA 不仅仅是一个 GPU 计算的框架，它对下抽象了所有的英伟达出品的 GPU，对上构建了一个通用的编程框架，它实质上制定了一个 GPU 和上层软件之间的接口标准。
 
@@ -620,8 +662,6 @@ FPGA 通过“软件”来控制“硬件”
 
 **制程**：7nm、14nm、4nm都是指的晶体大小，用更小的晶体可以在相同面积CPU上集成更多的晶体数量，那么CPU的运算能力也更强。增加晶体管可以增加硬件能够支持的指令数量，增加数字通路的位数，以及利用好电路天然的并行性，从硬件层面更快地实现特定的指。打个比方，比如我们最简单的电路可以只有加法功能，没有乘法功能。乘法都变成很多个加法指令，那么实现一个乘法需要的指令数就比较多。但是如果我们增加晶体管在电路层面就实现了这个，那么需要的指令数就变少了，执行时间也可以缩短。
 
-
-
 > 功耗 ~= 1/2 ×负载电容×电压的平方×开关频率×晶体管数量
 
 功耗和电压的平方是成正比的。这意味着电压下降到原来的 1/5，整个的功耗会变成原来的 1/25。
@@ -652,12 +692,32 @@ windows下的exe文件之所以没法放到linux上运行（都是intel x86芯�
 
 ## 总结
 
-路：就是socket、也就是封装后的物理CPU
+Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路
 
 Die：从晶圆上切割下来的CPU(包含多个core、北桥、GPU等)，Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试
 
 封装：将一个或多个Die封装成一个物理上可以售卖的CPU
 
-node：同一个Die下的多个core以及他们对应的内存
+路：就是socket、也就是封装后的物理CPU
+
+node：同一个Die下的多个core以及他们对应的内存，对应着NUMA
 
 现在计算机系统的CPU和芯片组内核Die都是先封装到一个印制板上（PCB，printed circuit board），再通过LGA等等插槽（Socket）连上主板或直接焊接在主板上。这个过程叫做封装（Package），相关技术叫做封装技术。
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)

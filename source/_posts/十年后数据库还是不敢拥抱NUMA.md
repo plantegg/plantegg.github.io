@@ -388,14 +388,40 @@ innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 
 
 
 
+其它同学测试的结论：
+
+- ODPS离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%
+
+
+
 一些其它不好解释的现象：
 
 1. 增加少量跨NUMA 的core进来时能增加QPS的，但是随着跨NUMA core越来越多（总core也越来越多）QPS反而会达到一个峰值后下降---效率低的core多了，抢走任务，执行得慢
 2. 压12-19和8-15同样8core，不跨NUMA的8-15性能只好5%左右(87873 VS 92801) --- 难以解释
 3. 由1、2所知在测试少量core的时候跨NUMA性能下降体现不出来
 4. 在压0-31core的时候，如果运行 perf这个时候QPS反而会增加（13万上升到15万）--- 抢走了一些CPU资源，让某个地方竞争反而减小了
+5. 综上在我个人理解是core越多的时候UPI压力到了瓶颈，才会出现加core性能反而下降
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
+
 https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf
 
 https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/

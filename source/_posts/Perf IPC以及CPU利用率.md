@@ -11,7 +11,31 @@ tags:
 
 # Perf IPC以及CPU性能
 
-程序性能
+为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。
+
+这次让我们从最底层的沙子开始回答各种疑问。
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+
+
+## 程序性能
 
 >  程序的 CPU 执行时间 = 指令数/(主频*IPC)
 
@@ -31,9 +55,31 @@ cycles：CPU时钟周期。CPU从它的指令集(instruction set)中选择指令
 - 	内存访问(memory access，MEM)
 - 	寄存器回写(register write-back， WB)
 
+![skylake server block diagram.svg](/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
+
+以上结构简化成流水线就是：
+
 ![image-20210511154816751](/images/951413iMgBlog/image-20210511154816751.png)
 
 五个步骤只能串行，**但是可以做成pipeline提升效率**，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。
+
+```
+$sudo perf stat -a -- sleep 10
+
+Performance counter stats for 'system wide':
+
+ 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)
+        45,709      context-switches          #    0.191 K/sec                    (100.00%)
+         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)
+        79,586      page-faults               #    0.332 K/sec
+ 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)
+ 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)
+ 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)
+ 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles
+                                              #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)
+   447,584,805      branches                  #    1.866 M/sec                    (83.33%)
+     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)
+```
 
 stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发生停滞的时钟周期。stalled-cycles-frontend指指令读取或解码的指令步骤，而stalled-cycles-backend则是指令执行步骤。第二列中的cycles idle其实意思跟stalled是一样的，由于指令执行停滞了，所以指令管道也就空闲了，千万不要误解为CPU的空闲率。这个数值是由stalled-cycles-frontend或stalled-cycles-backend除以上面的cycles得出的。
 
@@ -133,7 +179,6 @@ sudo perf sched latency //查看
 
 ```
 void main() {
-
     while(1) {
          __asm__ ("nop\n\t"
                  "nop\n\t"
@@ -204,6 +249,8 @@ ipc是指每个core的IPC
 > ARM芯片基本不做超线程，另外请思考为什么有了应用层的多线程切换还需要CPU层面的超线程？
 
 **超线程(Hyper-Threading)物理实现**: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。
+
+CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%
 
 ### 超线程如何查看
 
@@ -286,6 +333,24 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 ## Perf 和 false share cache_line
 
 [从4.2kernel开始，perf支持perf c2c (cache 2 cahce) 来监控cache_line的伪共享](https://joemario.github.io/blog/2016/09/01/c2c-blog/)
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 

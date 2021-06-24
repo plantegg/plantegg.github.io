@@ -599,7 +599,23 @@ cat /proc/interrupts | grep -i 'eth4\|CPU' | cut -c -8,865-995,1425-
 
 FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT2500上的业务按node绑核后性能提升了几倍，但是离Intel x86还有很大的距离
 
+## 系列文章
 
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 

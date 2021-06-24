@@ -13,8 +13,6 @@ tags:
 
 # Intel 海光 鲲鹏920 飞腾2500 CPU性能对比
 
-
-
 ## CPU基本信息
 
 ### 海光
@@ -83,20 +81,6 @@ physical         core      processor
 0                0~15         32~47
 1                0~15         48~63
 ```
-
-#### 海光简介
-
-公司成立于2016年3月，当前送测处理器为其第一代1.0版本的7185对标处理器为Intel的E5-2680V4，其服务器样机为曙光H620-G30。
-
-其后续roadmap如下图，会包含1Die和2Die的处理器产品
-
-![img](/images/951413iMgBlog/8faf9b906427972cb59ac4332d41d8a4.png)
-
-![img](/images/oss/376c93772606e5e237231ede0da64c0c.png)
-
-海光其产品规格如下，产品相对密集，但是产品之间差异化很小，频率总体接近。
-
-![img](/images/951413iMgBlog/bad3d840f2d5017c50b77d47d4292eef.png)
 
 ### Intel CPU
 
@@ -517,8 +501,6 @@ intel的流水线适合跑高带宽应用，不适合跑密集计算应用，也
 
 prime计算一般走的fpu，不走cpu
 
-
-
 ## intel x86 cpu bound和memory bond数据
 
 测试代码
@@ -560,8 +542,6 @@ int main() {
 ### **测试结果**
 
 **cpu_bound部分飞腾只有intel性能的30%**
-
-
 
 如下测试perf数据可以看到IPC的明显差异
 
@@ -681,6 +661,24 @@ sys	0m0.165s
   - 简单理解在这两个场景下Intel的HT能发挥半个物理core的作用，海光的HT就只能发挥0.2个物理core的作用了
 - 海光zen1的AMD 架构，每个core只有一个fpu，综上在多个场景下HT基本上都可以忽略
 - 飞腾2500性能比较差
+
+## 系列文章
+
+[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+
+[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+
+[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+
+[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 

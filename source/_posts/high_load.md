@@ -78,6 +78,7 @@ vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，
 - 如果Load高，CPU使用率不高的检查一下IO、网络等是否比较慢
 - 如果是虚拟机，检查是否物理机超卖或者物理机其它ECS抢占CPU、IO导致的（https://www.atatech.org/articles/77929）
 - 如果两台一样的机器一样的流量，Load有一台偏高的话检查硬件信息，比如CPU被降频了，QPI，内存效率等等（https://www.atatech.org/articles/12201），这个时候可能需要硬件相关同学加入一起排查了，当然牛逼的工程师能把这块也Cover了排查效率自然更高
+- load计算是看TASK_RUNNING(R)或者TASK_UNINTERRUPTIBLE(D--不可中断的睡眠进程)的数量，R肯定会占用CPU，但是D一般就不占用CPU了
 
 ## 参考文章
 
