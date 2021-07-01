@@ -1,7 +1,7 @@
 ---
 title: Linux内存--HugePage
 date: 2020-11-15 16:30:03
-categories: Linux
+categories: Memory
 tags:
     - Linux
     - free
@@ -10,6 +10,18 @@ tags:
 ---
 
 # Linux内存--HugePage
+
+本系列有如下几篇
+
+[Linux 内存问题汇总](https://plantegg.github.io/2020/01/15/Linux 内存问题汇总/)
+
+[Linux内存--PageCache](https://plantegg.github.io/2020/11/15/Linux内存--pagecache/)
+
+[Linux内存--管理和碎片](https://plantegg.github.io/2020/11/15/Linux内存--管理和碎片/)
+
+[Linux内存--HugePage](https://plantegg.github.io/2020/11/15/Linux内存--HugePage/)
+
+[Linux内存--零拷贝](https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/)
 
 
 
@@ -32,84 +44,9 @@ Normal行的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列表示：
 
 slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes
 
-## 消失的内存
-
-OS刚启动后就报内存不够了，什么都没跑就500G没了，cached和buffer基本没用，纯粹就是used占用高，top按内存排序没有超过0.5%的进程
-
-参考： https://cloud.tencent.com/developer/article/1087455
-
-```
-[aliyun@uos15 18:40 /u02/backup_15/leo/benchmark/run]
-$free -g
-              total        used        free      shared  buff/cache   available
-Mem:            503         501           1           0           0           1
-Swap:            15          12           3
-
-$cat /proc/meminfo 
-MemTotal:       528031512 kB
-MemFree:         1469632 kB
-MemAvailable:          0 kB
-VmallocTotal:   135290290112 kB
-VmallocUsed:           0 kB
-VmallocChunk:          0 kB
-Percpu:            81920 kB
-AnonHugePages:    950272 kB
-ShmemHugePages:        0 kB
-ShmemPmdMapped:        0 kB
-HugePages_Total:   252557   ----- 预分配太多，一个2M，加起来刚好500G了
-HugePages_Free:    252557
-HugePages_Rsvd:        0
-HugePages_Surp:        0
-Hugepagesize:       2048 kB
-Hugetlb:        517236736 kB
-
-以下是一台正常的机器对比：
-Percpu:            41856 kB
-AnonHugePages:  11442176 kB
-ShmemHugePages:        0 kB
-ShmemPmdMapped:        0 kB
-HugePages_Total:       0            ----没有做预分配
-HugePages_Free:        0
-HugePages_Rsvd:        0
-HugePages_Surp:        0
-Hugepagesize:       2048 kB
-Hugetlb:               0 kB
-
-[aliyun@uos16 18:43 /home/aliyun]
-$free -g
-              total        used        free      shared  buff/cache   available
-Mem:            503          20         481           0           1         480
-Swap:            15           0          15
-
-对有问题的机器执行：
-# echo 1024 > /proc/sys/vm/nr_hugepages
-可以看到内存恢复正常了 
-root@uos15:/u02/backup_15/leo/benchmark/run# free -g
-              total        used        free      shared  buff/cache   available
-Mem:            503          10         492           0           0         490
-Swap:            15          12           3
-root@uos15:/u02/backup_15/leo/benchmark/run# cat /proc/meminfo 
-MemTotal:       528031512 kB
-MemFree:        516106832 kB
-MemAvailable:   514454408 kB
-VmallocTotal:   135290290112 kB
-VmallocUsed:           0 kB
-VmallocChunk:          0 kB
-Percpu:            81920 kB
-AnonHugePages:    313344 kB
-ShmemHugePages:        0 kB
-ShmemPmdMapped:        0 kB
-HugePages_Total:    1024
-HugePages_Free:     1024
-HugePages_Rsvd:        0
-HugePages_Surp:        0
-Hugepagesize:       2048 kB
-Hugetlb:         2097152 kB
-```
-
 ## 关于hugetlb
 
- This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a "hugetlb page entry". The 'hugetlb" term is also (and mostly) used synonymously with a HugePage (See Note 261889.1). In this document the term "HugePage" is going to be used but keep in mind that mostly "hugetlb" refers to the same concept.
+This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a "hugetlb page entry". The 'hugetlb" term is also (and mostly) used synonymously with a HugePage (See Note 261889.1). In this document the term "HugePage" is going to be used but keep in mind that mostly "hugetlb" refers to the same concept.
 
  hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。
 
@@ -123,6 +60,10 @@ hugetlbfs比THP要好，开thp的机器碎片化严重（不开THP会有更严�
 
 Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存不足时，它们也不会被 Swap 到磁盘上，这也就能从根源上杜绝了重要内存被频繁换入和换出的可能。
 
+> **Transparent Hugepages** are similar to standard **HugePages**. However, while standard **HugePages** allocate memory at startup, **Transparent Hugepages** memory uses the khugepaged thread in the kernel to allocate memory dynamically during runtime, using swappable **HugePages**.
+
+HugePage要求OS启动的时候提前分配出来，管理难度比较大，所以Enterprise Linux 6增加了一层抽象层来动态创建管理HugePage，这就是THP，而这个THP对应用透明，由khugepaged thread在后台动态将小页组成大页给应用使用，这里会遇上碎片问题导致需要compact才能得到大页，应用感知到的就是SYS CPU飙高，应用卡顿了。
+
 虽然 HugePages 的开启大都需要开发或者运维工程师的额外配置，但是在应用程序中启用 HugePages 却可以在以下几个方面降低内存页面的管理开销：
 
 - 更大的内存页能够减少内存中的页表层级，这不仅可以降低页表的内存占用，也能降低从虚拟内存到物理内存转换的性能损耗；
@@ -135,7 +76,27 @@ Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存
 
 所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
 
+Huge pages require contiguous areas of memory, so allocating them at boot is the most reliable method since memory has not yet become fragmented. To do so, add the following parameters to the kernel boot command line:
 
+**Huge pages kernel options**
+
+- hugepages
+
+  Defines the number of persistent huge pages configured in the kernel at boot time. The default value is `0`. It is only possible to allocate (or deallocate) huge pages if there are sufficient physically contiguous free pages in the system. Pages reserved by this parameter cannot be used for other purposes.
+
+  Default size huge pages can be dynamically allocated or deallocated by changing the value of the `/proc/sys/vm/nr_hugepages` file.
+
+  In a NUMA system, huge pages assigned with this parameter are divided equally between nodes. You can assign huge pages to specific nodes at runtime by changing the value of the node's `/sys/devices/system/node/node_id/hugepages/hugepages-1048576kB/nr_hugepages` file.
+
+  For more information, read the relevant kernel documentation, which is installed in `/usr/share/doc/kernel-doc-kernel_version/Documentation/vm/hugetlbpage.txt` by default. This documentation is available only if the *kernel-doc* package is installed.
+
+- hugepagesz
+
+  Defines the size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.
+
+- default_hugepagesz
+
+  Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.
 
 ### [HugePage 带来的问题](http://cenalulu.github.io/linux/huge-page-on-numa/)
 
@@ -155,7 +116,7 @@ Page太大，更容易造成Page跨Numa/CPU 分布。
 
 从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，`Array A`和`Array B`大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此`Array B`就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。
 
-![img](/images/951413iMgBlog/false_sharing.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/false_sharing.png)
 
 ### Java进程开启HugePage
 
@@ -191,7 +152,7 @@ hugepage的在减少page_fault上和thp效果一样第二个作用是，他只�
 
 ## THP
 
-Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时每次写命令引起的复制内存页单位放大了512倍，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  
+Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时**每次写命令引起的复制内存页单位放大了512倍**，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  
 
 THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。
 
@@ -247,6 +208,93 @@ HugePages_Free:        1
 内存碎片严重的话会导致系统hang很久(回收、压缩内存）
 
 尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G/8G), 线上机器直接修改vm.min_free_kbytes**会触发回收，导致系统hang住** https://www.atatech.org/articles/163233 https://www.atatech.org/articles/97130
+
+
+
+compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。
+
+![image-20210628144121108](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210628144121108.png)
+
+一次THP compact堆栈：
+
+```
+java          R  running task        0 144305 144271 0x00000080
+ ffff88096393d788 0000000000000086 ffff88096393d7b8 ffffffff81060b13
+ ffff88096393d738 ffffea003968ce50 000000000000000e ffff880caa713040
+ ffff8801688b0638 ffff88096393dfd8 000000000000fbc8 ffff8801688b0640
+
+Call Trace:
+ [<ffffffff81060b13>] ? perf_event_task_sched_out+0x33/0x70
+ [<ffffffff8100bb8e>] ? apic_timer_interrupt+0xe/0x20
+ [<ffffffff810686da>] __cond_resched+0x2a/0x40
+ [<ffffffff81528300>] _cond_resched+0x30/0x40
+ [<ffffffff81169505>] compact_checklock_irqsave+0x65/0xd0
+ [<ffffffff81169862>] compaction_alloc+0x202/0x460
+ [<ffffffff811748d8>] ? buffer_migrate_page+0xe8/0x130
+ [<ffffffff81174b4a>] migrate_pages+0xaa/0x480
+ [<ffffffff81169660>] ? compaction_alloc+0x0/0x460                 //compact and migrate
+ [<ffffffff8116a1a1>] compact_zone+0x581/0x950
+ [<ffffffff8116a81c>] compact_zone_order+0xac/0x100
+ [<ffffffff8116a951>] try_to_compact_pages+0xe1/0x120
+ [<ffffffff8112f1ba>] __alloc_pages_direct_compact+0xda/0x1b0
+ [<ffffffff8112f80b>] __alloc_pages_nodemask+0x57b/0x8d0
+ [<ffffffff81167b9a>] alloc_pages_vma+0x9a/0x150
+ [<ffffffff8118337d>] do_huge_pmd_anonymous_page+0x14d/0x3b0        //huge page
+ [<ffffffff8152a116>] ? rwsem_down_read_failed+0x26/0x30
+ [<ffffffff8114b350>] handle_mm_fault+0x2f0/0x300
+ [<ffffffff810ae950>] ? wake_futex+0x40/0x60
+ [<ffffffff8104a8d8>] __do_page_fault+0x138/0x480
+ [<ffffffff810097cc>] ? __switch_to+0x1ac/0x320
+ [<ffffffff81527910>] ? thread_return+0x4e/0x76e
+ [<ffffffff8152d45e>] do_page_fault+0x3e/0xa0                       //page fault
+ [<ffffffff8152a815>] page_fault+0x25/0x30
+```
+
+### 查看pagetypeinfo
+
+```
+#cat /proc/pagetypeinfo
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    0, zone      DMA, type    Unmovable      1      1      1      0      2      1      1      0      1      0      0
+Node    0, zone      DMA, type  Reclaimable      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      1      3
+Node    0, zone      DMA, type      Reserve      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone      DMA, type          CMA      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone    DMA32, type    Unmovable     89    144     98     42     21     14      5      2      1      0      1
+Node    0, zone    DMA32, type  Reclaimable     28     22      9      8      0      0      0      0      0      1      7
+Node    0, zone    DMA32, type      Movable    402     50     21      8    880    924    321     51      4      1    227
+Node    0, zone    DMA32, type      Reserve      0      0      0      0      0      0      0      0      0      0      1
+Node    0, zone    DMA32, type          CMA      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone   Normal, type    Unmovable  13709  15231   6637   2646    816    181     46      4      4      1      0
+Node    0, zone   Normal, type  Reclaimable      1      5      6   3293   1295    128     29      7      5      0      0
+Node    0, zone   Normal, type      Movable   6396 1383350 1301956 1007627 670102 366248 160232  54894  13126   1482     37
+Node    0, zone   Normal, type      Reserve      0      0      0      2      1      1      0      0      0      0      0
+Node    0, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate
+Node 0, zone      DMA            1            0            7            0            0            0
+Node 0, zone    DMA32           24           38          889            1            0            0
+Node 0, zone   Normal         1568          795       127683            2            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    1, zone   Normal, type    Unmovable   3938   8735   5469   3221   2097    989    202      6      0      0      0
+Node    1, zone   Normal, type  Reclaimable      1      7      7      8      7      2      2      2      1      0      0
+Node    1, zone   Normal, type      Movable  18623 1001037 2084894 1261484 631159 276096  87272  17169   1389    797      0
+Node    1, zone   Normal, type      Reserve      0      0      0      8      0      0      0      0      0      0      0
+Node    1, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0
+Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate
+Node 1, zone   Normal         1530          637       128903            2            0            0
+```
 
 每个zone都有自己的min low high,如下，但是单位是page, 计算案例：
 
@@ -310,25 +358,6 @@ sum=624 MB
 [root@jiangyi01.sqa.zmf /home/ahao.mah]
 #T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk '{print $NF}'`;do sum=`echo "$sum+$i" |bc`;done;sum=`echo "$sum*4/1024" |bc`;echo "sum=${sum} MB"
 sum=802 MB
-```
-
-## 定制内存
-
-物理内存700多G，要求OS只能用512G：
-
-```
-24条32G的内存条，总内存768G
-# dmidecode -t memory |grep "Size: 32 GB"
-  Size: 32 GB
-…………
-  Size: 32 GB
-  Size: 32 GB
-root@uos15:/etc# dmidecode -t memory |grep "Size: 32 GB" | wc -l
-24
-
-# cat /boot/grub/grub.cfg  |grep 512
-  linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE
-    linux /vmlinuz-4.19.0-arm64-server root=UUID=dbc68010-8c36-40bf-b794-271e59ff5727 ro  splash quiet console=tty video=VGA-1:1280x1024@60 mem=512G DEEPIN_GFXMODE=$DEEPIN_GFXMODE
 ```
 
 ## 内存碎片化导致rt升高的诊断

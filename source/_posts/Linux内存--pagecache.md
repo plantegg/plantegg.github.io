@@ -1,7 +1,7 @@
 ---
 title: Linux内存--PageCache
 date: 2020-11-15 16:30:03
-categories: Linux
+categories: Memory
 tags:
     - Linux
     - free
@@ -11,53 +11,59 @@ tags:
 
 # Linux内存--PageCache
 
+本系列有如下几篇
+
+[Linux 内存问题汇总](https://plantegg.github.io/2020/01/15/Linux 内存问题汇总/)
+
+[Linux内存--PageCache](https://plantegg.github.io/2020/11/15/Linux内存--pagecache/)
+
+[Linux内存--管理和碎片](https://plantegg.github.io/2020/11/15/Linux内存--管理和碎片/)
+
+[Linux内存--HugePage](https://plantegg.github.io/2020/11/15/Linux内存--HugePage/)
+
+[Linux内存--零拷贝](https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/)
+
+## read/write
+
 `read(2)/write(2)` 是 Linux 系统中最基本的 I/O 读写系统调用，我们开发操作 I/O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 `Kernel buffer cache` 的缓冲区缓存。在 Linux 中 I/O 缓存其实可以细分为两个：`Page Cache` 和 `Buffer Cache`，这两个其实是一体两面，共同组成了 Linux 的内核缓冲区（Kernel Buffer Cache），Page Cache 是在应用程序读写文件的过程中产生的：
 
 - **读磁盘**：内核会先检查 `Page Cache` 里是不是已经缓存了这个数据，若是，直接从这个内存缓冲区里读取返回，若否，则穿透到磁盘去读取，然后再缓存在 `Page Cache` 里，以备下次缓存命中；
 - **写磁盘**：内核直接把数据写入 `Page Cache`，并把对应的页标记为 dirty，添加到 dirty list 里，然后就直接返回，内核会定期把 dirty list 的页缓存 flush 到磁盘，保证页缓存和磁盘的最终一致性。
 
- 在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 `Buffer Cache` 是基于操作系统读写磁盘的最小单位 -- 块（block）来进行的，所有的磁盘块操作都是通过 `Buffer Cache` 来加速，**Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位**，因此也引入了 `Page Cache` 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 `read()/write()` 操作，另外也包括了通过 `mmap()` 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 `Buffer Cache` 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。
+在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 `Buffer Cache` 是基于操作系统读写磁盘的最小单位 -- 块（block）来进行的，所有的磁盘块操作都是通过 `Buffer Cache` 来加速，**Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位**，因此也引入了 `Page Cache` 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 `read()/write()` 操作，另外也包括了通过 `mmap()` 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 `Buffer Cache` 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。
 
 在 Linux 2.4 版本之后，kernel 就将两者进行了统一，`Buffer Cache` 不再以独立的形式存在，而是以融合的方式存在于 `Page Cache` 中
 
-![](/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png)
 
 融合之后就可以统一操作 `Page Cache` 和 `Buffer Cache`：处理文件 I/O 缓存交给 `Page Cache`，而当底层 RAW device 刷新数据时以 `Buffer Cache` 的块单位来实际处理。
-
-
-
-手动回收系统Cache、Buffer，这个文件可以设置的值分别为1、2、3。它们所表示的含义为：
-
-**echo 1 > /proc/sys/vm/drop_caches**:表示清除pagecache。
-
-**echo 2 > /proc/sys/vm/drop_caches**:表示清除回收slab分配器中的对象（包括目录项缓存和inode缓存）。slab分配器是内核中管理内存的一种机制，其中很多缓存数据实现都是用的pagecache。
-
-**echo 3 > /proc/sys/vm/drop_caches**:表示清除pagecache和slab分配器中的缓存对象。
 
 ## pagecache 的产生和释放
 
 - 标准 I/O 是写的 (write(2)) 用户缓冲区 (Userpace Page 对应的内存)，**然后再将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)**；如果是读的 (read(2)) 话则是先从内核缓冲区拷贝到用户缓冲区，再从用户缓冲区读数据，也就是 buffer 和文件内容不存在任何映射关系。
 - 对于存储映射 I/O（Memory-Mapped I/O） 而言，则是直接将 Pagecache Page 给映射到用户地址空间，用户直接读写 Pagecache Page 中内容，效率相对标准IO更高一些
 
-![image.png](/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png" alt="image.png" style="zoom: 20%;" />
 
 当 **将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)** 最容易发生缺页中断，OS需要先分配Page（应用感知到的就是卡顿了）
 
-![image.png](/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png)  
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png" alt="img.png" style="zoom: 25%;" />  
+
+
 
 - Page Cache 是在应用程序读写文件的过程中产生的，所以在读写文件之前你需要留意是否还有足够的内存来分配 Page Cache；
 - Page Cache 中的脏页很容易引起问题，你要重点注意这一块；
-- 在系统可用内存不足的时候就会回收 Page Cache 来释放出来内存，我建议你可以通过 sar 或者 /proc/vmstat 来观察这个行为从而更好的判断问题是否跟回收有关
+- 在系统可用内存不足的时候就会回收 Page Cache 来释放出来内存，可以通过 sar 或者 /proc/vmstat 来观察这个行为从而更好的判断问题是否跟回收有关
 
 
 
 缺页后kswapd在短时间内回收不了足够多的 free 内存，或kswapd 还没有触发执行，操作系统就会进行内存页直接回收。这个过程中，应用会进行自旋等待直到回收的完成，从而产生巨大的延迟。
 
-![](/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png" style="zoom:50%;" />
 
-如果page被swapped，那么恢复进内存的过程也对延迟有影响，当被匿名内存页被回收后，如果下次再访问就会产生IO的延迟。
+如果page被swapped，那么恢复进内存的过程也对延迟有影响，当匿名内存页被回收后，如果下次再访问就会产生IO的延迟。
 
-![](/images/oss/740b95056dace8ae6fb3b8f58d91572e.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/740b95056dace8ae6fb3b8f58d91572e.png" style="zoom:50%;" />
 
 
 
@@ -75,11 +81,11 @@ tags:
 
 为了减少缺页中断，首先就要保证我们有足够的内存可以使用。由于Linux会尽可能多的使用free的内存，运行很久的应用free的内存是很少的。下面的图中，紫色表示已经使用的内存，白色表示尚未分配的内存。当我们的内存使用达到水位的low值的时候，kswapd就会开始回收工作，而一旦内存分配超过了min，就会进行内存的直接回收。
 
-![](/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png" style="zoom:50%;" />
 
-针对这种情况，我们需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。**需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。**
+针对这种情况，需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。**需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。**
 
-![](/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;" />
 
 或者禁止： vm.swappiness  来避免swapped来减少延迟
 
@@ -87,15 +93,56 @@ tags:
 
 绕过page cache，直接读写硬盘
 
+## cache回收	
+
+系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。
+
+- 应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。
+- 系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。
+
+- Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0<= n <=10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。
+
+> echo 1/2/3 >/proc/sys/vm/drop_caches
+
+查看回收后：
+
+	cat /proc/meminfo
+
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:20%;" />
+
+当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉
+
+在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 > /proc/sys/vm/drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。
+
+查看 drop_caches 是否执行过释放：
+
+```
+$ grep drop /proc/vmstat
+drop_pagecache 1
+drop_slab 0
+
+$ grep inodesteal /proc/vmstat 
+pginodesteal 114341
+kswapd_inodesteal 1291853
+```
+
+在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal /proc/vmstat 观察到
+
+> kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；
+>
+> pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;
+
+
+
 ## Page回收--缺页中断
 
-<img src="/images/oss/3fdffacd66c0981956b15be348fff46a.png" alt="image.png" style="zoom:50%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3fdffacd66c0981956b15be348fff46a.png" alt="image.png" style="zoom:20%;" />
 
 从图里你可以看到，在开始内存回收后，首先进行后台异步回收（上图中蓝色标记的地方），这不会引起进程的延迟；如果后台异步回收跟不上进程内存申请的速度，就会开始同步阻塞回收，导致延迟（上图中红色和粉色标记的地方，这就是引起 load 高的地址 -- Sys CPU 使用率飙升/Sys load 飙升）。
 
 那么，针对直接内存回收引起 load 飙高或者业务 RT 抖动的问题，一个解决方案就是及早地触发后台回收来避免应用程序进行直接内存回收，那具体要怎么做呢？
 
-<img src="/images/oss/4b341ba757d27e3a81145a55f54363e1.png" alt="image.png" style="zoom:67%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4b341ba757d27e3a81145a55f54363e1.png" alt="image.png" style="zoom:25%;" />
 
 它的意思是：当内存水位低于 watermark low 时，就会唤醒 kswapd 进行后台回收，然后 kswapd 会一直回收到 watermark high。
 
@@ -113,7 +160,7 @@ tags:
 
 直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。
 
-<img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 25%;" />
 
 可以通过 sar -r 来观察系统中的脏页个数：
 
@@ -138,7 +185,7 @@ kbdirty 就是系统中的脏页大小，它同样也是对 /proc/vmstat 中 nr_
 >
 > vm.dirty_ratio = 20
 
-至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果你可以通过 /proc/vmstat 来查看：
+至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果可以通过 /proc/vmstat 来查看：
 
 ```
 #grep "nr_dirty_" /proc/vmstat
@@ -153,13 +200,13 @@ some avg10=45.49 avg60=10.23 avg300=5.41 total=76464318
 full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082
 ```
 
-你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
+重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
 
-![image.png](/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png" alt="image.png" style="zoom: 25%;" />
 
 ## 通过tracepoint分析内存卡顿问题
 
-![image.png](/images/oss/d5446b656e8d91a9fb72200a7b97e723.png)
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d5446b656e8d91a9fb72200a7b97e723.png" alt="image.png" style="zoom:25%;" />
 
 我们继续以内存规整 (memory compaction) 为例，来看下如何利用 tracepoint 来对它进行观察：
 

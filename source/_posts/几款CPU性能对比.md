@@ -496,13 +496,13 @@ sys	0m0.127s
 
 intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
-![image.png](/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
 
-![image.png](/images/oss/d0151c855011b24590efd672398bd9eb.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0151c855011b24590efd672398bd9eb.png)
 
-![image.png](/images/oss/175a1df9274a830d4a7157dfda96c180.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/175a1df9274a830d4a7157dfda96c180.png)
 
-![image.png](/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
 
 
 
@@ -510,23 +510,23 @@ intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
 如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着兵法增加ipc相应减少，性能再也上不去了。
 
-![image.png](/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
 
-![image.png](/images/oss/0f2410165932835a36d8c0611877ae77.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0f2410165932835a36d8c0611877ae77.png)
 
-![image.png](/images/oss/67df9ff04209a00bd864ba21b7593477.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/67df9ff04209a00bd864ba21b7593477.png)
 
-![image.png](/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
 
-![image.png](/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
 
 ### 鲲鹏920
 
 可以看到**鲲鹏920多核跑openssl是没有什么争抢的，所以还能保证完全线性**
 
-![image.png](/images/oss/39720b5eb41937b462e1772854e2d832.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/39720b5eb41937b462e1772854e2d832.png)
 
-![image.png](/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
 
 ### 小结
 

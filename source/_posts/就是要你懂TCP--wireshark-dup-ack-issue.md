@@ -19,7 +19,7 @@ tags:
 
 ## 如下截图：
 
-![](/images/951413iMgBlog/bm3W68Q.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bm3W68Q.png)
 
 
 client都一直在回复收到2号包（ack=2）了，可是server跟傻了一样居然还发seq=1的包（按理，应该发比2大的包啊）
@@ -72,7 +72,7 @@ server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server�
 
 ## TCP Window Update
 
-![](/images/oss/1558941016099-bc4504f1-e9c7-4d84-85e1-a7f5c6554306.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1558941016099-bc4504f1-e9c7-4d84-85e1-a7f5c6554306.png)
 
 如上图，当接收方的tcp Window Size不足一个MSS的时候，为了避免 Silly Window Syndrome，Client不再发小包，而是发送探测包（跟keepalive一样，发一个回退一格的包，触发server ack同时server ack的时候会带过来新的window size）探测包间隔时间是200/400/800/1600……ms这样
 

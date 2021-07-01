@@ -14,7 +14,7 @@ tags:
 
 正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
 
-![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png)
 
 所使用的测试命令：
 
@@ -36,7 +36,7 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 ## NVMe SSD 和 HDD的性能比较
 
-![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
 
 表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
 
@@ -89,11 +89,11 @@ NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、
 
 [高端SSD会选取MLC](https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf)（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）
 
-![image-20210603161822079](/images/951413iMgBlog/image-20210603161822079.png)
+![image-20210603161822079](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210603161822079.png)
 
 
 
-![slc-mlc-tlc-buckets](/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
+![slc-mlc-tlc-buckets](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
 
 
 
@@ -123,7 +123,7 @@ SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次�
 
 以下都是在4.19内核的UOS，光纤交换机为锐捷，服务器是华为鲲鹏920
 
-![image.png](/images/oss/553e1c5fff2dd04a668434f0da4f9d90.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/553e1c5fff2dd04a668434f0da4f9d90.png)
 
 光纤稳定性好很多，平均rt是网线的三分之一，最大值则是网线的十分之一. 光纤的带宽大约是网线的1.5倍
 
@@ -189,7 +189,7 @@ rtt min/avg/max/mdev = 0.012/0.016/0.406/0.006 ms, pipe 2, ipg/ewma 0.034/0.014 
 
 光纤接口：
 
-<img src="/images/oss/b67715de1b8e143f6fc17ba574bcf0c4.png" alt="image.png" style="zoom:60%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b67715de1b8e143f6fc17ba574bcf0c4.png" alt="image.png" style="zoom:60%;" />
 
 ## Cache、内存、磁盘、网络的延迟比较
 
@@ -860,7 +860,7 @@ ESSD的latency基本是13-16us。
 
 ### HDD性能测试数据
 
-![img](/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -922,7 +922,7 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png)
 
 
 

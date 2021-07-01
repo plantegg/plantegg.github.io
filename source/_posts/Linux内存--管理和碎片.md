@@ -1,7 +1,7 @@
 ---
 title: Linux内存--管理和碎片
 date: 2020-11-15 16:30:03
-categories: Linux
+categories: Memory
 tags:
     - Linux
     - free
@@ -11,15 +11,25 @@ tags:
 
 # Linux内存--管理和碎片
 
-node->zone->buddy->slab
+本系列有如下几篇
+
+[Linux 内存问题汇总](https://plantegg.github.io/2020/01/15/Linux 内存问题汇总/)
+
+[Linux内存--PageCache](https://plantegg.github.io/2020/11/15/Linux内存--pagecache/)
+
+[Linux内存--管理和碎片](https://plantegg.github.io/2020/11/15/Linux内存--管理和碎片/)
+
+[Linux内存--HugePage](https://plantegg.github.io/2020/11/15/Linux内存--HugePage/)
+
+[Linux内存--零拷贝](https://plantegg.github.io/2020/11/15/Linux内存--零拷贝/)
 
 
 
 ## 内存管理和使用
 
-### node、zone、buddy、slab
+### node->zone->buddy->slab
 
-![img](/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
 
 
 
@@ -99,15 +109,15 @@ Normal那行之后的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列
 
 ### /proc/pagetypeinfo
 
-`cat /proc/pagetypeinfo`, 你可以看到当前系统里伙伴系统里各个尺寸的可用连续内存块数量。
+`cat /proc/pagetypeinfo`, 你可以看到当前系统里伙伴系统里各个尺寸的可用连续内存块数量。unmovable pages是不可以被迁移的，比如slab等kmem都不可以被迁移，因为内核里面对这些内存很多情况下是通过指针来访问的，而不是通过页表，如果迁移的话，就会导致原来的指针访问出错。
 
-![img](/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
 
 **当迁移类型为 Unmovable 的页面都聚集在 order < 3 时，说明内核 slab 碎片化严重**
 
 alloc_pages分配内存的时候就到上面对应大小的free_area的链表上寻找可用连续页面。`alloc_pages`是怎么工作的呢？我们举个简单的小例子。假如要申请8K-连续两个页框的内存。为了描述方便，我们先暂时忽略UNMOVEABLE、RELCLAIMABLE等不同类型
 
-![img](/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
 
 基于伙伴系统的内存分配中，有可能需要将大块内存拆分成两个小伙伴。在释放中，可能会将两个小伙伴合并再次组成更大块的连续内存。
 
@@ -123,15 +133,17 @@ alloc_pages分配内存的时候就到上面对应大小的free_area的链表上
 
 这个分配器最大的特点就是，一个slab内只分配特定大小、甚至是特定的对象。这样当一个对象释放内存后，另一个同类对象可以直接使用这块内存。通过这种办法极大地降低了碎片发生的几率。
 
+#### kmem cache
 
+slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes
 
 通过查看 `/proc/slabinfo` 我们可以查看到所有的 kmem cache。
 
-![img](/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
 
 slabtop 按占用内存从大往小进行排列。用来分析 slab 内存开销。
 
-![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
+![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
 
 无论是 `/proc/slabinfo`，还是 slabtop 命令的输出。里面都包含了每个 cache 中 slab的如下几个关键属性。
 
@@ -153,7 +165,7 @@ TCP                 6090   6144   1984   16    8 : tunables    0    0    0 : sla
 
 TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
 
-![img](/images/951413iMgBlog/tlb_lookup.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/tlb_lookup.png)
 
 以intel x86为例，一个cpu也就32到64个tlb, 超出这个范畴，就得去查页表。 每个型号的cpu都不一样，需要查看[spec](https://en.wikichip.org/wiki/WikiChip)
 
@@ -161,7 +173,7 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 [虚拟内存的核心原理](https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA)是：为每个程序设置一段"连续"的虚拟地址空间，把这个地址空间分割成多个具有连续地址范围的页 (page)，并把这些页和物理内存做映射，在程序运行期间动态映射到物理内存。当程序引用到一段在物理内存的地址空间时，由硬件立刻执行必要的映射；而当程序引用到一段不在物理内存中的地址空间时，由操作系统负责将缺失的部分装入物理内存并重新执行失败的指令：
 
-![img](/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
 
 在 **内存管理单元（Memory Management Unit，MMU）**进行地址转换时，如果页表项的 "在/不在" 位是 0，则表示该页面并没有映射到真实的物理页框，则会引发一个**缺页中断**，CPU 陷入操作系统内核，接着操作系统就会通过页面置换算法选择一个页面将其换出 (swap)，以便为即将调入的新页面腾出位置，如果要换出的页面的页表项里的修改位已经被设置过，也就是被更新过，则这是一个脏页 (dirty page)，需要写回磁盘更新改页面在磁盘上的副本，如果该页面是"干净"的，也就是没有被修改过，则直接用调入的新页面覆盖掉被换出的旧页面即可。
 
@@ -178,38 +190,6 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 由于第2步是类似于寄存器的访问速度，所以**如果TLB能命中，则虚拟地址到物理地址的时间开销几乎可以忽**略。tlab miss比较高的话开启内存大页对性能是有提升的，但是会有一定的内存浪费。
 
-## cache回收	
-
-> echo 1/2/3 >/proc/sys/vm/drop_cached
-
-查看回收后：
-
-	cat /proc/meminfo
-
-<img src="/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:33%;" />
-
-当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉
-
-在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 > /proc/sys/vm/drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。
-
-查看 drop_caches 是否执行过释放：
-
-```
-$ grep drop /proc/vmstat
-drop_pagecache 1
-drop_slab 0
-
- $ grep inodesteal /proc/vmstat 
- pginodesteal 114341
- kswapd_inodesteal 1291853
-```
-
-在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal /proc/vmstat 观察到
-
-> kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;
-
-
-
 ## 内存分配和延迟
 
 内存不够、脏页太多、碎片太多，都会导致分配失败，从而触发回收，导致卡顿。
@@ -218,7 +198,7 @@ drop_slab 0
 
 直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。
 
-<img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
 
 可以通过 sar -r 来观察系统中的脏页个数：
 
@@ -260,9 +240,7 @@ full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082
 
 你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
 
-![image.png](/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
-
-
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
 
 ## 碎片化
 
@@ -344,13 +322,13 @@ sum=802 MB
 
 LVS后面三个RS在同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题
 
-![image.png](/images/oss/8bbb5c886dc06196546daec46712ff71.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8bbb5c886dc06196546daec46712ff71.png)
 
 原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在ECS中大页场景下会慢很多
 
 通过 **openssl speed aes-256-ige 能稳定重现** 在大块的加密上慢很多
 
-![image.png](/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
 
 小块上性能一致，这也就是为什么算Prime性能没问题。导致慢只涉及到大块内存分配的场景，这里需要映射到宿主机，但是碎片多分配慢导致了问题。
 

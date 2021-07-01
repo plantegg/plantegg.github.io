@@ -16,7 +16,7 @@ LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/�
 
 ​     **硬盘----分区(fdisk)----PV(pvcreate)----VG(vgcreate)----LV(lvcreate)----格式化(mkfs.ext4 LV为ext文件系统)----挂载**
 
-![img](/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
 
 
 

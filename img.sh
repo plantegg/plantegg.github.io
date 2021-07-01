@@ -17,4 +17,5 @@ find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "cdn.nlark.com
 cat img.list | sort | uniq >img_uniq.list
 while read line; do  wget -nc -q $line -P ./ossimg/ ; done <./img_uniq.list
 
-cp ossimg/* source/images/oss/ 
+#cp ossimg/* source/images/oss/ 
+rsync -a ossimg/ source/images/oss

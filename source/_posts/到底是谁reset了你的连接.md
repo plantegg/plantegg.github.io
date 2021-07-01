@@ -34,17 +34,17 @@ tags:
 
 在 Navicat 机器上抓包如下：
 
-![image.png](/images/oss/83b07725d92b9e4d3eb4a504cf83cc09.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/83b07725d92b9e4d3eb4a504cf83cc09.png)
 
 从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。
 
-![image.png](/images/oss/53b5dc8e0a90ed9ad641caf38399141b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/53b5dc8e0a90ed9ad641caf38399141b.png)
 
 ## DRDS Server上抓包
 
 特别说明下，MySQL上抓到的不是跟Navicat上抓到的同一次报错，所以报错的端口等会不一样
 
-![image.png](/images/oss/70287488290b38cd4753d9fce0bee945.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/70287488290b38cd4753d9fce0bee945.png)
 
 从这个图中可以清楚看到reset是从 Navicat 客户端发过来的，并且 Use Database被拦截了，没有发到MySQL上。
 
@@ -68,7 +68,7 @@ tags:
 
 还记得第一个截图中的两个相同的identification 13052吧，让我们来看看基础知识：
 
-![image.png](/images/oss/eed9ba1f9ba492ed8954ae7f39e72803.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/eed9ba1f9ba492ed8954ae7f39e72803.png)
 
 （摘自 TCP卷一），简单来说这个 identification 用来标识一个连接中的每个包，这个序号按包的个数依次递增，通信双方是两个不同的序列。**主要是用于ip packet的reassemble**。
 
@@ -84,11 +84,11 @@ tags:
 
 identification基本撇清了DRDS的嫌疑，还得进一步找到是哪个机器，我们先来看一个基础知识 TTL(Time-to-Live):
 
-![image.png](/images/oss/ed8c624b704b0c94da2ca76a37b39916.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed8c624b704b0c94da2ca76a37b39916.png)
 
 然后我们再看看 Navicat收到的这个reset包的ttl是63，而正常的MySQL Server回过来的包是47，而发出的第一个包初始ttl是64，所以这里可以很清楚地看到在Navicat 下一跳发出的这个reset
 
-![image.png](/images/oss/b288a740f9f10007485e37fd339051f8.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b288a740f9f10007485e37fd339051f8.png)
 
 既然是下一跳干的直接拿这个包的src mac地址，然后到内网中找这个内网设备就可以了，最终找到是一个锐捷的防火墙。
 
@@ -96,7 +96,7 @@ identification基本撇清了DRDS的嫌疑，还得进一步找到是哪个机�
 
 ## 某家居的reset
 
-![undefined](/images/oss/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png) 
+![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png) 
 
 从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。
 
@@ -108,11 +108,11 @@ client通过公网到server有几十跳，偶尔会出现连接被reset。反复
 
 如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）
 
-![image.png](/images/oss/89f584899a5e5e00ba5c2b16707ed24a.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/89f584899a5e5e00ba5c2b16707ed24a.png)
 
 下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset
 
-![](/images/oss/ec1f04befe56823668b4d1f831bd3ea4.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec1f04befe56823668b4d1f831bd3ea4.png)
 
 最终排查后client端
 
@@ -136,7 +136,7 @@ ttl是102, identification是31415，探活reset不是这样的。
 
 如下图就是SLB发出来的reset packet
 
-![img](/images/oss/9de70216-188c-4ca4-898f-0fa88e853c18.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9de70216-188c-4ca4-898f-0fa88e853c18.png)
 
 ## 总结
 
