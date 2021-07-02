@@ -80,7 +80,7 @@ server收到了3和8号包，但是没有收到中间的4/5/6/7，那么server�
 
 
 ## 正常的keep-alive Case：
-![](http://i.imgur.com/DsTWFZr.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/DsTWFZr.png)
 
 keep-alive 通过发一个比实际seq小1的包，比如server都已经 ack 12583了，client故意发一个seq 12582来标识这是一个keep-Alive包
 

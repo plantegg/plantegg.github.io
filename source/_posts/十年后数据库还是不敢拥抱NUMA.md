@@ -190,7 +190,7 @@ Modern multiprocessor systems mix these basic architectures as seen in the follo
 
 In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.
 
-
+![03-05-Broadwell_HCC_Architecture](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
 
 ## 对比测试Intel NUMA 性能
 

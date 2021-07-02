@@ -16,7 +16,7 @@ tags:
 
 经常碰到一些断网环境下需要做快速切换，那么断网后需要多久tcp才能感知到这个断网，并断开连接触发上层的重连（一般会连向新的server）
 
-netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp
+netstat -st命令中，tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp
 
 ### keepalive
 
@@ -89,7 +89,7 @@ As you can see, in this case things are a little different. When the client went
 
 Hope this explains the netstat --timer option well.
 
-## [RTO](https://pracucci.com/linux-tcp-rto-min-max-and-tcp-retries2.html)
+## [RTO](https://pracucci.com/linux-tcp-rto-min-max-and-tcp-retries2.html) 重传
 
 ```
 #define TCP_RTO_MAX ((unsigned)(120*HZ)) //HZ 通常为1秒 
@@ -102,7 +102,7 @@ Linux 2.6+ uses HZ of 1000ms, so `TCP_RTO_MIN` is ~200 ms and `TCP_RTO_MAX` is ~
 
 The `tcp_retries2` sysctl can be **tuned** via `/proc/sys/net/ipv4/tcp_retries2` or the sysctl `net.ipv4.tcp_retries2`.
 
-## 重传
+### 查看重传状态
 
 重传状态的连接：
 
@@ -260,7 +260,7 @@ static bool retransmits_timed_out(struct sock *sk,
         [924.6s, 1044.6s)
 ```
 
-## RTO重传案例
+### RTO重传案例
 
 我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快
 
@@ -295,8 +295,6 @@ netstat -st | grep stamp | grep reject
 18 passive connections rejected because of time stamp
 1453 packets rejects in established connections because of timestamp
 ```
-
-
 
 丢包统计：
 

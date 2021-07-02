@@ -242,13 +242,13 @@ ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/autho
 
 如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。
 
-![](http://i.imgur.com/S9jLW7B.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/S9jLW7B.png)
 
 这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。
 
 再在外面写一个循环对每个IP执行如下操作：
 
-![](http://i.imgur.com/4SZcnvc.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4SZcnvc.png)
 
 if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。
 
@@ -494,7 +494,7 @@ $ ssh -L 7001:www.example.com:389 tunnel-host -N
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9dbd774c782ba8be1f5c3a5eb4be778d.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png)
 
 
 
@@ -547,7 +547,7 @@ $ ssh -R local-port:target-host:target-port -N local
 
 上面的命令，首先需要注意，**不是在本机执行的，而是在 SSH 跳板机执行的**，从跳板机去连接本地计算机。`-R`参数表示远程端口转发，`local-port`是本地计算机的端口，`target-host`和`target-port`是目标服务器及其端口，`local`是本地计算机。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/160e661caa72e3546e01ea8efe5bbe86.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/160e661caa72e3546e01ea8efe5bbe86-20210701095358462-20210701113310769.png)
 
 显然，远程端口转发要求本地计算机也安装了 SSH 服务器，这样才能接受 SSH 跳板机的远程登录。
 

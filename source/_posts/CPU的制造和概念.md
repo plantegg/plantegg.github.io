@@ -289,7 +289,9 @@ Ring Bus设计简单，双环设计可以保证任何两个ring stop之间距离
 
 ![Intel Xeon E5-2600 V4 High Core Count Die](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png)
 
+或者这个更清晰点的图：
 
+![03-05-Broadwell_HCC_Architecture](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
 
 #### [Mesh网络](https://www.servethehome.com/the-new-intel-mesh-interconnect-architecture-and-platform-implications/)
 
