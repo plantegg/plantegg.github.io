@@ -31,7 +31,7 @@ tags:
 
 这个时候可以试试将指定协议的reassembled属性关掉
 
-![image.png](/images/oss/1fc544dcd6e064f967481472f6688be9.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1fc544dcd6e064f967481472f6688be9.png)
 
 [PDU：Protocol Data Unit](https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html)
 
@@ -586,18 +586,18 @@ tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高�
 
 下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析
 
-![image.png](/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d99665729dbc0ccbcbebd5176900ce6c.png)
 
 ** 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 **
 
-![image.png](/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/3a80fa647b634e1671a0ebfd40a468bd.png)
 
 #### 从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）
-![image.png](/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52cb9d61ce948f9b64737b7be88ac84e.png)
 
 #### 从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）
 
-![image.png](/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/196033f267c33c08a4ca6b6fdb957cf3.png)
 
 
 

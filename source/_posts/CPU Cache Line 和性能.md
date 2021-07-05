@@ -25,21 +25,21 @@ tags:
 
 ## 系列文章
 
-[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
 
-[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
-[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
-[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
-[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+[一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
-[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
 ## 什么是 cache_line
 
@@ -65,48 +65,33 @@ cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个
 
 2012 年延迟数字对比表
 
-| Work                               | Latency        |
-| ---------------------------------- | -------------- |
-| L1 cache reference                 | 0.5 ns         |
-| Branch mispredict                  | 5 ns           |
-| L2 cache reference                 | 7 ns           |
-| Mutex lock/unlock                  | 25 ns          |
-| Main memory reference              | 100 ns         |
-| Compress 1K bytes with Zippy       | 3,000 ns       |
-| Send 1K bytes over 1 Gbps network  | 10,000 ns      |
-| Read 4K randomly from SSD*         | 150,000 ns     |
-| Read 1 MB sequentially from memory | 250,000 ns     |
-| Round trip within same datacenter  | 500,000 ns     |
-| Read 1 MB sequentially from SSD*   | 1,000,000 ns   |
-| Disk seek                          | 10,000,000 ns  |
-| Read 1 MB sequentially from disk   | 20,000,000 ns  |
-| Send packet CA->Netherlands->CA    | 150,000,000 ns |
+![image-20210702161817496](/Users/ren/src/blog/951413iMgBlog/image-20210702161817496.png)
 
 一个比较有体感的比较：如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。
 
 当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：
 
-![Memory Hierarchy](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-hierarchy-1.jpg)
+![Memory Hierarchy](/Users/ren/src/blog/951413iMgBlog/cache-hierarchy-1.jpg)
 
 [推荐从这里看延时，拖动时间轴可以看到每一年的变化](https://colin-scott.github.io/personal_website/research/interactive_latency.html)
 
-![image-20210613123006681](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210613123006681.png)
+![image-20210613123006681](/Users/ren/src/blog/951413iMgBlog/image-20210613123006681.png)
 
 查看cpu cache数据
 
 	cat /proc/cpuinfo |grep -i cache
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ad19b92ccc97763aa7f78d8d1d514c84.png)
 
 ### L1C、L2C、L3C、DDR 的Latency
 
 [下图从左至右响应时间分别是L1C、L2C、L3C、DDR](https://topic.atatech.org/articles/100065)，可以看出这四个Latency变化还是非常明显的，泾渭分明。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/58286da947132f269cb26ff3eda25c68.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/58286da947132f269cb26ff3eda25c68.png)
 
-![image-20210511160107225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511160107225.png)
+![image-20210511160107225](/Users/ren/src/blog/951413iMgBlog/image-20210511160107225.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f5728a2afb29c653a3e1bf21f4d56056.png)
 
 ## 查看 cache_line
 
@@ -589,12 +574,12 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
 
 重点留意上述代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
+![image.png](/Users/ren/src/blog/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
 
 队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中
 
 
-![image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
+![image](https://cdn.nlark.com/yuque/0/2019/png/162611/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
 
 
 
@@ -606,7 +591,7 @@ MySQL利用Intel 的Pause指令在spinlock(自旋锁)的时候尽量避免cache 
 
 详细请看：
 
-[《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ### pause 和 spinlock
 
@@ -649,7 +634,7 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 
 从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1.png)
+![img](/Users/ren/src/blog/951413iMgBlog/1.png)
 
 
 
@@ -710,37 +695,37 @@ x86_64下的执行结果，确实是case2略快
 
 case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由xperf 1.3.8采集）
 
-![image-20210517111209985](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111209985.png)
+![image-20210517111209985](/Users/ren/src/blog/951413iMgBlog/image-20210517111209985.png)
 
 case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以最终的执行时间差异不大
 
-![image-20210517111244550](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111244550.png)
+![image-20210517111244550](/Users/ren/src/blog/951413iMgBlog/image-20210517111244550.png)
 
-![image-20210512133536939](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512133536939.png)
+![image-20210512133536939](/Users/ren/src/blog/951413iMgBlog/image-20210512133536939.png)
 
 在arm下case1反而更快，如截图
 
-![image-20210512132121856](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512132121856.png)
+![image-20210512132121856](/Users/ren/src/blog/951413iMgBlog/image-20210512132121856.png)
 
 
 
 ## 系列文章
 
-[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
 
-[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
-[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
-[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
 
-[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
-[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+[一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 
 

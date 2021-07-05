@@ -1,5 +1,5 @@
 ---
-title: 飞腾ARM芯片(FT2500)的性能测试
+title: 飞腾ARM芯片-FT2500的性能测试
 date: 2021-05-15 17:30:03
 categories:
     - CPU
@@ -13,13 +13,13 @@ tags:
     - FT2500
 ---
 
-# 飞腾ARM芯片(FT2500)的性能测试
+# 飞腾ARM芯片-FT2500的性能测试
 
 ## ARM
 
  ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
+![img](/Users/ren/src/blog/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
 
 
 
@@ -156,41 +156,41 @@ node   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
  15:  100  100  100  100  100  100  100  100  40  50  30  50  20  40  30  10
 ```
 
-![image-20210422121346490](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422121346490.png)
+![image-20210422121346490](/Users/ren/src/blog/951413iMgBlog/image-20210422121346490.png)
 
 cpu详细信息：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/e177902c-73b2-4535-9c1f-2726451820db.png)
 
 飞腾芯片，按如下distance绑核基本没区别！展示出来的distance是假的一样
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
 
 ### 飞腾2500 和 鲲鹏9200 参数对比：
 
-![image-20210422095217195](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422095217195.png)
+![image-20210422095217195](/Users/ren/src/blog/951413iMgBlog/image-20210422095217195.png)
 
 ## 飞腾ARM芯片性能测试数据
 
 一下测试场景基本都是运行CPU和网络瓶颈的业务逻辑，绑核前IPC只有0.08
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 绑核后对性能提升非常明显：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 点查场景：
 
-![image-20210425092158127](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425092158127.png)
+![image-20210425092158127](/Users/ren/src/blog/951413iMgBlog/image-20210425092158127.png)
 
 如上是绑48-63号核
 
-![image-20210425091727122](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091727122.png)
+![image-20210425091727122](/Users/ren/src/blog/951413iMgBlog/image-20210425091727122.png)
 
-![image-20210425091557750](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091557750.png)
+![image-20210425091557750](/Users/ren/src/blog/951413iMgBlog/image-20210425091557750.png)
 
-![image-20210425093630438](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425093630438.png)
+![image-20210425093630438](/Users/ren/src/blog/951413iMgBlog/image-20210425093630438.png)
 
 
 
@@ -278,7 +278,7 @@ mapped    :         4742 (  0.02 GB)
 
 绑核前后对比：绑核后QPS翻倍，DMySQL上的rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
 
-![image-20210427093424116](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093424116.png)
+![image-20210427093424116](/Users/ren/src/blog/951413iMgBlog/image-20210427093424116.png)
 
 ```
 #perl numa-maps-summary.pl </proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了
@@ -417,27 +417,27 @@ mapmax    :         1564 (  0.01 GB)
 mapped    :         5920 (  0.02 GB)
 ```
 
-![image-20210427164953340](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427164953340.png)
+![image-20210427164953340](/Users/ren/src/blog/951413iMgBlog/image-20210427164953340.png)
 
 
 
 绑核前的IPC：
 
-![image-20210427093625575](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093625575.png)
+![image-20210427093625575](/Users/ren/src/blog/951413iMgBlog/image-20210427093625575.png)
 
 绑核后的IPC：
 
-![image-20210427095130343](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427095130343.png)
+![image-20210427095130343](/Users/ren/src/blog/951413iMgBlog/image-20210427095130343.png)
 
 
 
 **如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小**，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到**绑核后性能可以随着加节点线性增加**
 
-![image-20210427172612685](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427172612685.png)
+![image-20210427172612685](/Users/ren/src/blog/951413iMgBlog/image-20210427172612685.png)
 
-![image-20210427173047815](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173047815.png)
+![image-20210427173047815](/Users/ren/src/blog/951413iMgBlog/image-20210427173047815.png)
 
-![image-20210427173417673](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173417673.png)
+![image-20210427173417673](/Users/ren/src/blog/951413iMgBlog/image-20210427173417673.png)
 
 结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)
 
@@ -449,7 +449,7 @@ mapped    :         5920 (  0.02 GB)
 
 
 
-![image-20210425180535225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180535225.png)
+![image-20210425180535225](/Users/ren/src/blog/951413iMgBlog/image-20210425180535225.png)
 
 
 
@@ -461,7 +461,7 @@ MySQL每个实例32core，管控默认已经做了绑核，但是如果两个MyS
 
 比如这三个MySQL，qps基本均匀，上面两个cpu高，但是没效率，每个MySQL绑了32core，上面两个绑在一个socket上，下面的MySQL绑在另一个socket上，第一个socket还有网络软中断在争抢cpu，飞腾环境下性能真要冲高还有很大空间。
 
-![image-20210425180518926](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180518926.png)
+![image-20210425180518926](/Users/ren/src/blog/951413iMgBlog/image-20210425180518926.png)
 
 ```
 #第二个MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
@@ -515,17 +515,17 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 12个MySQL流量基本均匀：
 
-![image-20210426083033989](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426083033989.png)
+![image-20210426083033989](/Users/ren/src/blog/951413iMgBlog/image-20210426083033989.png)
 
 ### numa太多，每个numa下core比较少
 
 导致跨numa高概率发生，如下是在正常部署下的测试perf 数据，可以看到IPC极低，才0.08，同样的场景在其他家芯片都能打到0.6
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 执行绑核，将一个进程限制在2个numa内，因为进程需要16core，理论上用8core的进程性能会更好
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 可以看到IPC从0.08提升到了0.22，实际能到0.27，对应的业务测试QPS也是原来的4倍。 
 
@@ -535,7 +535,7 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 将MySQL网卡队列从60个改成6个后MySQL性能提升大概10%
 
-![image-20210426085534983](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426085534983.png)
+![image-20210426085534983](/Users/ren/src/blog/951413iMgBlog/image-20210426085534983.png)
 
 默认第一个MySQL都绑在0-31号核上,其实改少队列加大了0-5号core的压力，但是实际数据表现要好。
 
@@ -593,7 +593,7 @@ cat /proc/interrupts | grep -i 'eth4\|CPU' | cut -c -8,865-995,1425-
 
 ## 内存和cache的latency对比
 
-![latency](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/latency.png)
+![latency](/Users/ren/src/blog/951413iMgBlog/latency.png)
 
 ## 结论
 
@@ -601,21 +601,21 @@ FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT250
 
 ## 系列文章
 
-[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
 
-[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
-[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
-[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
 
-[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
-[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+[一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 

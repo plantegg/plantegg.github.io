@@ -41,7 +41,7 @@ MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索�
 - 索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。
 - 每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： 
 
-![image.png](/images/oss/87f90b5535714486f4e0c86982b54141.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png)
 
 每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。
 
@@ -83,7 +83,7 @@ select * from table order by id limit  150000,10 这样limit后偏移很大一�
 mysql> insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在
 ```
 
-![image.png](/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d1c817af83ba09c6ee6da2eca87af6d3.png)
 
 
 

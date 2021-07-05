@@ -24,7 +24,7 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
 问题原因：https://access.redhat.com/solutions/30316
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/63a4ac6669f820156bff035e7dc49ac2.png)
 
 如上图去掉 admin nproc限制就可以了
 
@@ -106,7 +106,7 @@ ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：
 
 ## pam 权限报错
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b646979272e71e015de4a47c62b89747.png)
 
 从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficientS
 
@@ -227,7 +227,7 @@ session     required      pam_unix.so
 
 ## 强制重启系统
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ee2e438907fa72c70d5393a651dc9113.png)
 
 ## hostname
 
@@ -235,19 +235,19 @@ hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没�
 
 ## tsar Floating point execption
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/72197d600425656ec9a8ed18bcc5853b.png)
 
 因为 /etc/localtime 是deleted状态
 
 ## 奇怪的文件大小 [sparse file](https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
 如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。实际是写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
 
 [图片来源](https://www.systutorials.com/handling-sparse-files-on-linux/)
 

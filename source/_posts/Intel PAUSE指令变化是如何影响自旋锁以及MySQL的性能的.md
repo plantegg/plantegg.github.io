@@ -50,7 +50,7 @@ client -> Tomcat -> slb -> MySQL（32实例，每个实例8Core）
 
 继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL rt是0.8ms，这就严重不符合预期了。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/28610e403282d493e2ce18fbecc69421.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/28610e403282d493e2ce18fbecc69421.png)
 
 **到这里一切都还是符合我们的经验的，看起来是后端有瓶颈。**
 
@@ -63,13 +63,13 @@ client -> Tomcat -> slb -> MySQL（32实例，每个实例8Core）
 首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了xgw、slb的限流之类的
 
 pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b84245c17e213de528f2ad8090d504f6.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/b84245c17e213de528f2ad8090d504f6.png)
 
 在xgw可以看到pps大概是100万：
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/87a6b32986859828dc3b5f2de3d4f430.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/87a6b32986859828dc3b5f2de3d4f430.png)
 
 另外检查lvs，也没看到有进出丢包的问题：
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3754ba7ac526423eba8e20f7d2953ae1.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/3754ba7ac526423eba8e20f7d2953ae1.png)
 
 所以网络因素被排除，另外做压测的时候反复从Tomcat上ping 后面的MySQL，rt跟没有压力的时候一样，也说明了网络没有问题。
 
@@ -81,7 +81,7 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 同时在Tomcat进行抓包，对网卡上的rt进行统计分析：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ffd66d9a6098979b555dfb00d3494255.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ffd66d9a6098979b555dfb00d3494255.png)
 
 这是Tomcat上抓到的每个sql的物理rt 平均值，上面是QPS 430的时候，rt 0.6ms，下面是3个server，QPS为700，但是rt上升到了0.9ms，基本跟Tomcat监控记录到的物理rt一致。如果MySQL上也有类似抓包计算rt时间的话可以快速排除网络问题。
 
@@ -94,10 +94,10 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。
 
 这是Tomcat上监控到的MySQL状态（Tomcat的监控还是很给力的)：
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e73c1371a02106a52f8a13f89a9dd9ad.png)
 
 同时在MySQL机器上通过vmstat也可以看到这种飙升：
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/4dbd9dff9deacec0e9911e3a7d025578.png)
 
 另外像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL
 
@@ -115,10 +115,10 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 可以清楚地看到一些锁等待：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/481d7bef3dc0a1fbe20ab9cf01978a7c.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/481d7bef3dc0a1fbe20ab9cf01978a7c.png)
 从上图可以看到主要是select wait比较多，符合业务场景（都是 select sum语句），这里wait是98%，QPS为38000的时候wait才88%。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/745790bf9b7562cc60bf311c7963c983.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/745790bf9b7562cc60bf311c7963c983.png)
 
 从这里可以看到fil_system_mutex锁等待比较多，但是还是不清楚这个锁是怎么产生的，得怎么优化掉。QPS为38000的时候这个等待才 10%
 
@@ -126,15 +126,15 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 直接上 perf ，发现ut_delay高得不符合逻辑：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/cd145c494c074e01e9d2d1d5583a87a0.png)
 
 展开看一下，基本是在优化器中做索引命中行数的选择：
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;" />
+<img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;" />
 
 跟直接在MySQL命令行中通过 show processlist看到的基本一致：
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;" />
+<img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;" />
 
 主要是优化器在做statistics的时候需要对索引进行统计，统计的时候要加锁，thread running抖动时对应的通过show processlist看到很多thread处于 statistics 状态。
 
@@ -146,16 +146,16 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 调整到MySQL官方默认配置innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理rt：0.7，逻辑rt：19.6，cpu：90%，这个时候只需要继续扩容Tomcat节点的数量就可以增加QPS
 19.6，cpu：90%
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48c976f989747266f9892403794996c0.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/48c976f989747266f9892403794996c0.png)
 
 再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理rt：2.6ms 逻辑rt：72.1ms cpu：37%
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/fdb459972926cff371f5f5ab703790bb.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/fdb459972926cff371f5f5ab703790bb.png)
 
 再看看调整前压测的时候的vmstat和tsar --cpu，可以看到process running抖动明显
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/4dbd9dff9deacec0e9911e3a7d025578.png)
 
 对比修改delay后的process running就很稳定了，即使QPS大了3倍
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed46d35161ea28352acd4289a3e9ddad.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ed46d35161ea28352acd4289a3e9ddad.png)
 
 ## 分析源代码
 
@@ -352,7 +352,7 @@ The latency of the PAUSE instruction in prior generation microarchitectures is a
 
 **Skylake架构的CPU的PAUSE指令从之前的10 cycles提升到140 cycles。**
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f712640a787655ad1bcddec4c65215e5.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f712640a787655ad1bcddec4c65215e5.png)
 
 可以看到V52的CPU绝大部分时间消耗在ut_delay函数上。（注：V42和V52表示两种不同的机型，他们使用的CPU型号不一样）
 
@@ -368,15 +368,15 @@ MySQL使用innodb_spin_wait_delay控制spin lock等待时间，等待时间时�
 
 E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9377127947c23dd166f6aa399b6a89b9.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/9377127947c23dd166f6aa399b6a89b9.png)
 
 Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d567449fe52725a9d0b9d4ec9baa372c.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d567449fe52725a9d0b9d4ec9baa372c.png)
 
 因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0b0687ab72cfb785441bfb343b9f948.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d0b0687ab72cfb785441bfb343b9f948.png)
 
 ### cache 一致性
 
@@ -442,7 +442,7 @@ Cache Line 伪共享问题，就是由多个 CPU 上的多个线程同时修改�
 
 MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这个读取应该不是一个 Shared读，猜测是一个Exclusive读（加锁成功肯定会Modified），意味着读取就会让其他 cache line失效。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2a5245c81a37d166c7e0b2ace45b9e4b.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/2a5245c81a37d166c7e0b2ace45b9e4b.png)
 
 我们举个具体的例子来看看这四个状态的转换：
 
@@ -452,11 +452,11 @@ MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这
 4. 如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。
 5. 如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/fa98835c78c879ab69fd1f29193e54d1.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/fa98835c78c879ab69fd1f29193e54d1.jpeg)
 
 可以发现当 Cache Line 状态是「已修改」或者「独占」状态时，修改更新其数据不需要发送广播给其他 CPU 核心，这在一定程度上减少了总线带宽压力。 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/29c4ae48501984787dfc232e4673b86d.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/29c4ae48501984787dfc232e4673b86d.png)
 
 如果内存中的数据已经在 CPU Cache 中了，那 CPU 访问一个内存地址的时候，会经历这 4 个步骤：
 
@@ -480,11 +480,11 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 案例：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/864427c491497acb02d37c02cb35eeb2.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/864427c491497acb02d37c02cb35eeb2.png)
 
 对如上两个pause指令以及一个 count++（addq），进行perf top：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/40945b005eb9f716e429fd30be55b6d1.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/40945b005eb9f716e429fd30be55b6d1.png)
 
 可以看到第一个pasue在perf top中cycles为0，第二个为46.85%，另外一个addq也有48.83%，基本可以猜测perf top在这里数据都往后挪了一个。
 
@@ -513,7 +513,7 @@ CPU 架构不同Pause 指令的需要的CPU Cycles不同导致了 MySQL innodb_s
 
 关于这个抖动对整体rt的影响计算：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c47d2bd0e4d9d0f005d0e1132b385eab.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/c47d2bd0e4d9d0f005d0e1132b385eab.png)
 
 ## 参考文章
 

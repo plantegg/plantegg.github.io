@@ -133,7 +133,7 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 - 修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口
 - 修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b432f41572f17529d4a1da774d0d34a6.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b432f41572f17529d4a1da774d0d34a6.png)
 
 - Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差
 - Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。
@@ -151,11 +151,11 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 
 从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到别的socket上的read/write或者accept
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/912854ed07613bbef1feaede37508548.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/912854ed07613bbef1feaede37508548.png)
 
 SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b432f41572f17529d4a1da774d0d34a6.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b432f41572f17529d4a1da774d0d34a6.png)
 
 再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个cpu一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例
 
@@ -167,11 +167,11 @@ SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
 开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。
 
-但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。[这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。](https://plantegg.github.io/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/)
+但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。[这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。](/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/)
 
 用图形展示大概如下：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/49d19ef1eaf13638b488ad126beb58ef.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/49d19ef1eaf13638b488ad126beb58ef.png)
 
 比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲
 
@@ -217,7 +217,7 @@ EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡�
 
 连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9bbf15909be8d1bffd3ee1958463c041.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/9bbf15909be8d1bffd3ee1958463c041.png)
 
 图中的电话机相当于一个worker，只是**实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复**。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。
 
@@ -225,7 +225,7 @@ EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡�
 
 下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6551777f24be3da9d2b41ceb20a2b040.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/6551777f24be3da9d2b41ceb20a2b040.png)
 
 这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐
 

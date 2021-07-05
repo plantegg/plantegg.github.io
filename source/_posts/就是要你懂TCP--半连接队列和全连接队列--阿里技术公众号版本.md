@@ -34,7 +34,7 @@ tags:
 
 #### 正常TCP建连接三次握手过程：
 
-![image.png](/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -66,7 +66,7 @@ tags:
 
 ### 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
 （图片来源：http://www.cnxct.com/something-about-phpfpm-s-backlog/）
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
@@ -160,13 +160,13 @@ Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn 
 
 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
-![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/77ed9ba81f70f7940546f0a22dabf010.png)
 
 
 
 下面的case是接收方太慢，从应用机器的netstat统计来看，也是压力端回复太慢（本机listen 9108端口)
 
-<img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+<img src="https://intranetproxy.alipay.com/skylark/lark/0/2020/png/33359/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
 
 send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断PTS到9108之间有瓶颈**
 

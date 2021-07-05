@@ -18,9 +18,9 @@ tags:
 
 ## 检查机器状态
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/418b94ee-18ee-4976-857b-69f3016af2b0.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/418b94ee-18ee-4976-857b-69f3016af2b0.png)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/160490c8-56e9-46f2-9c48-713944b94a5c.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/160490c8-56e9-46f2-9c48-713944b94a5c.png)
 
 
 
@@ -63,7 +63,7 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 磁盘util 100%和CLOSE_WAIT强相关，也和理论比较符合，CLOSE_WAIT就是应用没调socket.close
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
 
 
 
@@ -73,7 +73,7 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 2）机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个业务节点，重启会触发业务节点之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是tcp buffer中的数据也不读走、连接也不close，连接大量堆积在close_wait状态
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
+![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/227c69f1-0467-425c-a19d-26c03d50c36c.png)
 
 
 
@@ -83,7 +83,7 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 这是网络、书本上凡是描述TCP状态一定会出现的状态图，理论上看这个图能解决任何TCP状态问题。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b3d075782450b0c8d2615c5d2b75d923.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b3d075782450b0c8d2615c5d2b75d923.png)
 
 反复看这个图的右下部分的CLOSE_WAIT ，从这个图里可以得到如下结论：
 
@@ -119,7 +119,7 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 得检查server 应用为什么没有accept。
 
-![Recv-Q和Send-Q](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/20190706093602331.png)
+![Recv-Q和Send-Q](/Users/ren/src/blog/951413iMgBlog/20190706093602331.png)
 
 
 

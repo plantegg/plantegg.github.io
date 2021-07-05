@@ -32,27 +32,27 @@ tags:
 
 经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：
 
-![image.png](/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b8ed95b7081ee80eb23465ee0e9acc74.png)
 
 以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。
 
 慢的SQL的response按时间排序基本都在3秒以上：
 
-<img src="/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;" />
+<img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;" />
 
 或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询
 
-!<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
+!<img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
 
 ### 快的连接
 
 同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图
 
-![image.png](/images/oss/d129dfe1a50b182f4d100ac7147f9099.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d129dfe1a50b182f4d100ac7147f9099.png)
 
 别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL
 
-![image.png](/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/01531d138b9bc8dafda76b7c8bbb5bc9.png)
 
 ## MySQL相关参数
 
@@ -108,7 +108,7 @@ mysql> show variables like '%thread%';
 
 18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：
 
-<img src="/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
+<img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
 
 当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）
 
@@ -118,7 +118,7 @@ MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁
 
 ## Thread Pool原理
 
-![image.png](/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/6fbe1c10f07dd1c26eba0c0e804fa9a8.png)
 
 MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。
 
@@ -142,17 +142,17 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 应用出现大量1秒超时报错：
 
-![image.png](/images/oss/52dbeb1c1058e6dbff0a790b4b4ba477.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/52dbeb1c1058e6dbff0a790b4b4ba477.png)
 
 分析代码，这个报错是是数据库连接池在创建到MySQL的连接后会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明连接创建成功，但是MySQL处理指令缓慢。
 
 继续分析MySQL的参数：
 
-![image.png](/images/oss/8987545cc311fdd3ae232aee8c3f855a.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8987545cc311fdd3ae232aee8c3f855a.png)
 
 可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。
 
-![image.png](/images/oss/114b5b71468b33128e76129bbc7fb8f4.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/114b5b71468b33128e76129bbc7fb8f4.png)
 
 这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是给MySQL发一个ping指令，一般都很快，这个ping验证过程设置的是1秒超时，但是实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。
 
@@ -177,7 +177,7 @@ public class MySQLPingPacket implements CommandPacket {
 }
 ```
 
-![image.png](/images/oss/7cf291546a167b0ca6a017e98db5a821.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/7cf291546a167b0ca6a017e98db5a821.png)
 
 也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）
 

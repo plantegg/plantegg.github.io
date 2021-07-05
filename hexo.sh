@@ -8,6 +8,4 @@ sh replace_img.sh
 hexo g -d
 
 #sync all blog to oss
-#git co master
-ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/images oss://plantegg/images -u --output-dir=/tmp/
-#git co main
+ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/

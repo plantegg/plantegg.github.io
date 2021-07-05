@@ -28,21 +28,21 @@ tags:
 
 ## 系列文章
 
-[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
 
-[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
-[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
-[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
-[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+[一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
-[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
 
 
@@ -496,13 +496,13 @@ sys	0m0.127s
 
 intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dcb68dff74ace2cf6f9c30378acdb377.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0151c855011b24590efd672398bd9eb.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d0151c855011b24590efd672398bd9eb.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/175a1df9274a830d4a7157dfda96c180.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/175a1df9274a830d4a7157dfda96c180.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e63a992fcd1df547568eb93f515a5c99.png)
 
 
 
@@ -510,23 +510,23 @@ intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
 如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着兵法增加ipc相应减少，性能再也上不去了。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0f2410165932835a36d8c0611877ae77.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0f2410165932835a36d8c0611877ae77.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/67df9ff04209a00bd864ba21b7593477.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/67df9ff04209a00bd864ba21b7593477.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1bc01f6e880c7e49672170f940ff40a0.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/307d30c2b3507d5561d774f96b13e67a.png)
 
 ### 鲲鹏920
 
 可以看到**鲲鹏920多核跑openssl是没有什么争抢的，所以还能保证完全线性**
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/39720b5eb41937b462e1772854e2d832.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/39720b5eb41937b462e1772854e2d832.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/a98a482a10f09bccd4a6ac49fd2850b9.png)
 
 ### 小结
 
@@ -699,21 +699,21 @@ sys	0m0.165s
 
 ## 系列文章
 
-[CPU的制造和概念](https://plantegg.github.io/2021/06/01/CPU的制造和概念/)
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
 
-[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU Cache Line 和性能/)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
-[Perf IPC以及CPU性能](https://plantegg.github.io/2021/05/16/Perf IPC以及CPU利用率/)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](https://plantegg.github.io/2021/06/18/几款CPU性能对比/)
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
-[飞腾ARM芯片(FT2500)的性能测试](https://plantegg.github.io/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片(FT2500)的性能测试/)
 
-[十年后数据库还是不敢拥抱NUMA？](https://plantegg.github.io/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
-[一次海光物理机资源竞争压测的记录](https://plantegg.github.io/2021/03/07/一次海光物理机资源竞争压测的记录/)
+[一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 

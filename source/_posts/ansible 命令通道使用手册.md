@@ -1480,7 +1480,7 @@ $cat create_user.yml
 
 playbook task规范：
 
-![image.png](/images/oss/d502a11765273304abd673fb358b482a.png)
+![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d502a11765273304abd673fb358b482a.png)
 
 **对齐的时候不能用tab和空格混合**
 
