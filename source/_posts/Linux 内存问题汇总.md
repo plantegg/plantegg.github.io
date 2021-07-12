@@ -35,7 +35,7 @@ tags:
 
 
 
-<img src="https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
 
 **上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。**
 

@@ -41,7 +41,7 @@ MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索�
 - 索引的树根节点一定在内存中，第二层大概率也在内存，再下层基本都是在磁盘中。
 - 每往下读一层就要进行一次磁盘IO。 从B+树的检索过程如下图所示： 
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/87f90b5535714486f4e0c86982b54141.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/87f90b5535714486f4e0c86982b54141.png)
 
 每往下读一层就会进行一次磁盘IO，然后会一次性读取一些连续的数据放入内存中。
 
@@ -83,7 +83,7 @@ select * from table order by id limit  150000,10 这样limit后偏移很大一�
 mysql> insert into t(id,k) values(id1,k1),(id2,k2);//假设k1页在buffer中，k2不在
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d1c817af83ba09c6ee6da2eca87af6d3.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d1c817af83ba09c6ee6da2eca87af6d3.png)
 
 
 
@@ -176,18 +176,51 @@ bin-log和redo-log的一致性是通过两阶段提交来保证的，两阶段�
 
 ### 当前读
 
-更新数据都是先读后写的，而这个读，只能读当前的值，称为“当前读”（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。
+**更新数据都是先读后写的**，而这个读，只能读当前的值，称为"**当前读**"（current read）。除了 update 语句外，select 语句如果加锁，也是当前读。
 
 事务的可重复读的能力是怎么实现的？
 
-可重复读的核心就是一致性读（consistent read）；而事务更新数据的时候，只能用当前读。如果
-当前的记录的行锁被其他事务占用的话，就需要进入锁等待。
+可重复读的核心就是一致性读（consistent read）；而**事务更新数据的时候，只能用当前读**。如果当前的记录的行锁被其他事务占用的话，就需要进入锁等待。
 
 而读提交的逻辑和可重复读的逻辑类似，它们最主要的区别是：
 
 - 在可重复读隔离级别下，只需要在事务开始的时候创建一致性视图，之后事务里的其他查询都共
   用这个一致性视图；
 - 在读提交隔离级别下，每一个语句执行前都会重新算出一个新的视图。
+
+
+
+### 可重复读、当前读以及行锁案例
+
+案例表结构
+
+```
+
+mysql> CREATE TABLE `t` (
+  `id` int(11) NOT NULL,
+  `k` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+insert into t(id, k) values(1,1),(2,2);
+```
+
+上表执行如下三个事务
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/823acf76e53c0bdba7beab45e72e90d6.png)
+
+> begin/start transaction 命令并不是一个事务的起点，在执行到它们之后的第一个操作 InnoDB 表的语句，事务才真正启动。如果你想要马上启动一个事务，可以使用 start transaction with consistent snapshot 这个命令。
+>
+> “start transaction with consistent snapshot; ”的意思是从这个语句开始，创建一个持续整个事务的一致性快照
+>
+> 在读提交隔离级别(RC)下，这个用法就没意义了，等效于普通的 start transaction。
+
+因为以上案例是RR(start transaction with consistent snapshot;), 也就是可重复读隔离级别。
+
+那么事务B select到的K是3，因为事务C已提交，事务B update的时候不会等锁了，同时update必须要做当前读，这是因为update不做当前读而是可重复性读的话读到的K是1，这样覆盖了事务C的提交！也就是更新数据伴随的是当前读。
+
+事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.
+
+如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。
 
 ## 总结
 

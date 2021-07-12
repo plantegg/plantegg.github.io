@@ -40,7 +40,7 @@ tags:
 
 重启后 jstack 看看tomcat状态，同时跟正常的server对比了一下，发现明显有一个线程不太对，一直在增加
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/c6a60ee1c4e93e2d4912b7c5ef26a95e.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c6a60ee1c4e93e2d4912b7c5ef26a95e.png)
 
 
 所以到这里大概知道问题的原因了，只是还不能完全确认。
@@ -56,7 +56,7 @@ tags:
 故意将全连接队列从当前的128改成16，重启后运行正常，实际并发不是很高的时候16也够了，改成16是为了让问题出现的时候如果是全连接队列不够导致的，那么会影响更明显一些，经过一天的运行后，可以清晰地观察到：
 
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/91a12c64e360ffd5a7ab7231da6d8430.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/91a12c64e360ffd5a7ab7231da6d8430.png)
 
 tsar的重传率稳定的很高，ss -lnt也能明显地看到全连接队列完全满了，这个满不是因为压力大了，压力一直还是差不多的，所以只能理解是Tomcat处理非常慢了，同时netstat -s 看到 overflowed也稳定增加
 
@@ -64,19 +64,19 @@ tsar的重传率稳定的很高，ss -lnt也能明显地看到全连接队列完
 
 Tomcat jstack也能看到这几个线程创建了2万多个：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/adca65f70c19929d78f63d8e5f70ed5a.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/adca65f70c19929d78f63d8e5f70ed5a.png)
 
 抓包(第二次抓包的机会，所以这次抓了所有网卡而不只是eth0)看到 Tomcat的8080端口上基本是这样的：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/d12cd194822280906353d9961897ad19.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d12cd194822280906353d9961897ad19.png)
 
 而看所有网卡的所有重传的话，这次终于可以看到重传率和tsar看到的一致，同时也清晰的看到主要127.0.0.1的本地流量，也就是Nginx过来的，而之前的抓包只抓了eth0，只能零星看到几个eth0上的重传包，跟tsar对不上，也导致问题跑偏了（重点去关注reset了）
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/1e7a22621908e7b6f790ebcb6970ae39.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1e7a22621908e7b6f790ebcb6970ae39.png)
 
 ### 或者这个异常状态的截图
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e3870d58dd88ccd7b2977748dffe5496.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e3870d58dd88ccd7b2977748dffe5496.png)
 
 ## 一些疑问
 
@@ -84,7 +84,7 @@ Tomcat jstack也能看到这几个线程创建了2万多个：
 
 因为对业务部署的不了解只抓了eth0, 导致没抓到真正跟客户端表现出来的卡顿相关的重传。比如这是只抓eth0上的包，看到的重传：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ffb525eb443e0656712f6d8c6357adc2.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ffb525eb443e0656712f6d8c6357adc2.png)
 
 可以看到明显非常少，这完全不是问题。
 
@@ -104,11 +104,11 @@ Tomcat jstack也能看到这几个线程创建了2万多个：
 
 bcc、bpftrace或者systemtap等工具都提供了观察网络重传包发生的时候的网络四元组以及发生重传的阶段（握手、建立连接后……），这样对我们定位问题就很容易了
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 总结
 

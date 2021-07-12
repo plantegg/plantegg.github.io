@@ -18,7 +18,7 @@ tags:
 
 如图所示：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/892a98b53c7f9e65da79d1d6d890c3b0.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/892a98b53c7f9e65da79d1d6d890c3b0.png)
 
 图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。
 
@@ -70,7 +70,7 @@ Docker的域名解析为什么要这么做，是因为容器中有两种域名�
 
 dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png)
 
 （高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）
 

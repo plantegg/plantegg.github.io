@@ -35,7 +35,7 @@ tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到�
 
 来看一个java代码连接数据库的三次握手过程
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/6d66dadecb72e11e3e5ab765c6c3ea2e.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6d66dadecb72e11e3e5ab765c6c3ea2e.png)
 
 三个红框表示建立连接的三次握手：
 
@@ -51,7 +51,7 @@ tcp在传输过程中都有一个ack，接收方通过ack告诉发送方收到�
 - SACK_PERM--是否支持Selective ack(用户优化重传效率）
 - WS--窗口计算指数（有点复杂的话先不用管）
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1423013fe76719cfa3088ebc4704c023.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1423013fe76719cfa3088ebc4704c023.png)
 
 全连接队列（accept queue）的长度是由 listen(sockfd, backlog) 这个函数里的 backlog 控制的，而该 backlog 的最大值则是 somaxconn。somaxconn 在 5.4 之前的内核中，默认都是 128（5.4 开始调整为了默认 4096）
 
@@ -96,7 +96,7 @@ TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一
 
 再来看java连上mysql后，执行了一个SQL： select sleep(2); 然后就断开了连接
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b6f4a952cdf8ffbb8f6e9434d1432e05.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b6f4a952cdf8ffbb8f6e9434d1432e05.png)
 
 四个红框表示断开连接的四次挥手：
 
@@ -105,7 +105,7 @@ TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一
 - 第三步： server发送fin包给client，表示server也可以断开了
 - 第四部： client回复ack给server，表示既然双发都发送fin包表示断开，那么就真的断开吧
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/321f96243eef2f6437fe4e1559c15efe.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/321f96243eef2f6437fe4e1559c15efe.png)
 
 除了 CLOSE_WAIT 状态外，其余两个状态都有对应的系统配置项来控制。
 
@@ -117,7 +117,7 @@ TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一
 
 TIME_WAIT 状态存在的意义是：最后发送的这个 ACK 包可能会被丢弃掉或者有延迟，这样对端就会再次发送 FIN 包。如果不维持 TIME_WAIT 这个状态，那么再次收到对端的 FIN 包后，本端就会回一个 Reset 包，这可能会产生一些异常。
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9fbe15fa8b913ba76048f3b2ad2b923a.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9fbe15fa8b913ba76048f3b2ad2b923a.png)
 
 ### 为什么握手三次、挥手四次
 
@@ -131,7 +131,7 @@ TIME_WAIT 状态存在的意义是：最后发送的这个 ACK 包可能会被�
 
 看起来挥手的时候多一次，主要是收到第一个fin包后单独回复了一个ack包，如果能回复fin+ack那么四次挥手也就变成三次了。 来看一个案例：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9db33f9304f8236b1ebcb215064bb2af.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9db33f9304f8236b1ebcb215064bb2af.png)
 
 图中第二个红框就是回复的fin+ack，这样四次挥手变成三次了（如果一个包就是一次的话）。
 
@@ -143,7 +143,7 @@ ack总是seq+len（包的大小），这样发送方明确知道server收到那�
 
 但是特例是三次握手和四次挥手，虽然len都是0，但是syn和fin都要占用一个seq号，所以这里的ack都是seq+1
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/45c6d36ce8b17a5c0442e66fce002ab4.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/45c6d36ce8b17a5c0442e66fce002ab4.png)
 
 看图中左边红框里的len+seq就是接收方回复的ack的数字，表示这个包接收方收到了。然后下一个包的seq就是前一个包的len+seq，依次增加，一旦中间发出去的东西没有收到ack就是丢包了，过一段时间（或者其他方式）触发重传，保障了tcp传输的可靠性。
 
@@ -159,7 +159,7 @@ SACK_PERM 用于丢包的话提升重传效率，比如client一次发了1、2�
 
 来看一个例子：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5322d0cf77a3a1ae6c87a972cc5843d0.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5322d0cf77a3a1ae6c87a972cc5843d0.png)
 
 图中的红框就是SACK。
 
@@ -240,7 +240,7 @@ tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT
 
 得检查server 应用为什么没有accept。
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png)
 
 结论：
 
@@ -250,7 +250,7 @@ tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      CLOSE_WAIT
 
 ## TCP连接状态图
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b3d075782450b0c8d2615c5d2b75d923.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b3d075782450b0c8d2615c5d2b75d923.png)
 
 ## 总结下
 

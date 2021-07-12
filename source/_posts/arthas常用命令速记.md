@@ -163,7 +163,7 @@ thread 16
 	stack ch.qos.logback.core.AppenderBase doAppend
 	trace -j ch.qos.logback.core.AppenderBase doAppend '#cost > 10'
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/a62e3703ec9f3fef024fef4ff39441c7.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a62e3703ec9f3fef024fef4ff39441c7.png)
 
 截图中红框的数字表示代码行号
 

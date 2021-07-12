@@ -400,7 +400,7 @@ tags:
 | 32678 | 0.244 | 0.335             | 0.242           | 0.320      | 0.352         |
 | 64512 | 0.300 | 0.481             | 0.419           | 0.437      | 0.541         |
 
-![image.png](https://cdn.nlark.com/yuque/0/2020/png/162611/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png)
 
 
 
@@ -417,7 +417,7 @@ tags:
 | 32678 | 9410 | 8810              | 8580            | 8550       | 4950          |
 | 65507 | 9410 | 8660              | 8410            | 8540       | 4920          |
 
-![image.png](https://cdn.nlark.com/yuque/0/2020/png/162611/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png)
 
 从延迟上来看，rama与calico-bgp相差不大，从数据上略低于host性能，略高于flannel-vxlan；从吞吐量上看，区别会明显一些，当报文长度大于4096 KB 时，均观察到各网络插件的吞吐量达到最大值，从最大值上来看可以初步得出以下结论：
 

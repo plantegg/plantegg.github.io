@@ -130,7 +130,7 @@ select(4, [0 3], [], [], NULL
 
 抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/341f2891253baa4eebdaeaf34aa60c4b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png)
 
 这里算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。
 
@@ -142,7 +142,7 @@ select(4, [0 3], [], [], NULL
 
 在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/b9a0144a3835759c844f697bc45103fa.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b9a0144a3835759c844f697bc45103fa.png)
 
 ​							                                           摘自《tcp/ip卷1》
 
@@ -246,7 +246,7 @@ setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
 bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/5373ecfe0d4496d106c64d3f370c893c.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5373ecfe0d4496d106c64d3f370c893c.png)
 
 
 
@@ -256,7 +256,7 @@ bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")
 
 
 
-![image-20200702131215819](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/4d188cab03e919f055bb9dbe3da0188c.png)
+![image-20200702131215819](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d188cab03e919f055bb9dbe3da0188c.png)
 
 
 

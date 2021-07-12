@@ -24,13 +24,13 @@ tags:
 
 在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/dd657fee9d961a786c05e8d3cccbc297.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dd657fee9d961a786c05e8d3cccbc297.png)
 
 粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）
 
 于是我过滤了一下端口61902上的所有包：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8ca7da8ccec0041dd5d3f66f94d1f574.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png)
 
 可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。
 
@@ -66,7 +66,7 @@ tags:
 4. 这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs
 5. lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/94d55b926b5bb1573c4cab8353428712.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d55b926b5bb1573c4cab8353428712.png)
 
 **注意上图中绿色的进包和红色的出包他们的地址变化**
 

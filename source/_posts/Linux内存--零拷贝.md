@@ -33,15 +33,15 @@ tags:
 
 零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 
 
-![](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/83e2dfbd25d703c58877b2faf71c4944.jpg)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg)
 
 比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/b2d0ffb366ef78faca4b7924c2a66cc1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png)
 
 改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ccdc10037d35349293cba8a63ad72af5.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ccdc10037d35349293cba8a63ad72af5.png)
 
 零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。
 
@@ -58,13 +58,13 @@ read(file, tmp_buf, len);
 write(socket, tmp_buf, len);
 ```
 
-![image-20201104175056589](/Users/ren/src/blog/951413iMgBlog/image-20201104175056589.png)
+![image-20201104175056589](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20201104175056589.png)
 
 ### 通过mmap替换read优化一下
 
 用 `mmap()` 替换原先的 `read()`，`mmap()` 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/516c11b9b9d3f6092f00645c1742c111.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/516c11b9b9d3f6092f00645c1742c111.png)
 
 通过使用 `mmap()` 来代替 `read()`， 可以减少一次数据拷贝的过程。
 
@@ -85,7 +85,7 @@ ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 
 其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/bd72f4a031bcd88db0ca233e59234832.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bd72f4a031bcd88db0ca233e59234832.png)
 
 当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。`sendfile()` 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。
 
@@ -101,7 +101,7 @@ ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 
 当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter/gather -- 分散/收集功能，并修改了 `sendfile()` 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2361e8c6dcfd20a67f404b684196c160.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2361e8c6dcfd20a67f404b684196c160.png)
 
 如果网卡支持 SG-DMA（*The Scatter-Gather Direct Memory Access*）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。
 
@@ -149,11 +149,11 @@ Socket.send(socket, buf, len);
 
 Traditional data copying approach：
 
-![Traditional data copying approach](/Users/ren/src/blog/951413iMgBlog/figure1.gif)
+![Traditional data copying approach](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure1.gif)
 
 Traditional context switches：
 
-![Traditional context switches](/Users/ren/src/blog/951413iMgBlog/figure2.gif)
+![Traditional context switches](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure2.gif)
 
 如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 `transferTo` 方法：
 
@@ -166,15 +166,15 @@ long transferFrom(FileChannel fileChannel, long position, long count) throws IOE
 
 Data copy with transferTo()
 
-![Data copy with transferTo()](/Users/ren/src/blog/951413iMgBlog/figure3.gif)
+![Data copy with transferTo()](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure3.gif)
 
 Context switching with transferTo()：
 
-![Context switching when using transferTo()](/Users/ren/src/blog/951413iMgBlog/figure4.gif)
+![Context switching when using transferTo()](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure4.gif)
 
 Data copies when transferTo() and gather operations are used
 
-![Data copies when transferTo() and gather operations are used](/Users/ren/src/blog/951413iMgBlog/figure5.gif)
+![Data copies when transferTo() and gather operations are used](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/figure5.gif)
 
 如果 Linux 系统支持 `sendfile()` 系统调用，那么 `transferTo()` 实际上最后就会使用到 `sendfile()` 系统调用函数。
 

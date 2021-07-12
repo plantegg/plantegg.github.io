@@ -30,7 +30,7 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 升级前先看看目前的性能数据好对比（以下各个场景都是CPU基本跑到85%）
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/b57c5ee5fe50ceb81cbad158f7b7aeeb.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b57c5ee5fe50ceb81cbad158f7b7aeeb.png)
 
 
 ## 一波N折的4.19
@@ -92,7 +92,7 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 下图中对4.9的内核版本验证发现，tps能到24000，明显比2.6.32要好，所以传说中的新内核版本性能要好看来是真的，这下坚定了升级的念头，同时也看到了兜底的方案--最差就升级到4.9
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/2f035e145f1bc41eb4a8b8bda8ed4ea2.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2f035e145f1bc41eb4a8b8bda8ed4ea2.png)
 
 **多队列是指网卡多队列功能，也是这次升级的一个动力。看起来在没达到单核瓶颈前，网卡多队列性能反而差点，这也符合预期**
 
@@ -109,7 +109,7 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 将其改到 always 后4.19的tps终于稳定在了28300
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/081c08801adb36cdfd8ff62be54fce94.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/081c08801adb36cdfd8ff62be54fce94.png)
 
 这个过程中花了两个月的一些其他折腾就不多说了，主要是内核补丁和transparent_hugepage导致了性能差异。
 
@@ -150,19 +150,19 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 顺便给一下部分机型的包月价格比较：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/7c8b107fb12e285c8eab2c2d136bbd4e.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7c8b107fb12e285c8eab2c2d136bbd4e.png)
 
 
 官方给出的CPU数据：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/5f57f4228621378d14ffdd124fe54626.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5f57f4228621378d14ffdd124fe54626.png)
 
 
 ## 4.19内核在MySQL Server场景下的性能比较
 
 这只是sysbench点查场景粗略比较，因为本次的目标是对DRDS性能的改进
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/4f276e93cb914b3cdd312423be63c376.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4f276e93cb914b3cdd312423be63c376.png)
 
 （以上表格数据主要由 @夷则 团队和我一起测试得到）
 
@@ -180,7 +180,7 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 	sudo /usr/share/bcc/tools/tcpretrans -l
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/c68cc22b2e6eb7dd51d8613c5e79e88c.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c68cc22b2e6eb7dd51d8613c5e79e88c.png)
 
 从截图可以看到重传时间、pid、tcp四元组、状态，针对重传发生的端口和阶段（SYN_SENT握手、ESTABLISHED）可以快速推断导致重传的不同原因。
 
@@ -194,7 +194,7 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 	sudo perf top
 
 
-![](https://intranetproxy.alipay.com/skylark/lark/0/2019/gif/33359/1568775788220-32745082-5155-4ecd-832a-e814a682c0df.gif)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1568775788220-32745082-5155-4ecd-832a-e814a682c0df.gif)
 
 
 ### 快速定位Java中的锁等待
@@ -286,7 +286,7 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 日志异步化和使用协程后的性能数据：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/bec4e8105091bc4b8a263aef245c0ce9.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bec4e8105091bc4b8a263aef245c0ce9.png)
 
 
 ### Wisp2 协程带来的红利
@@ -297,11 +297,11 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 比如同一测试过程中tps抖动明显，从15000到50000：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/1550cc74116a56220d25e1434a675d14.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1550cc74116a56220d25e1434a675d14.png)
 
 100个并发的时候cs很小，40个并发的时候cs反而要大很多：
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/3f79909f89889459d1f0dfe4fa0a2f53.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3f79909f89889459d1f0dfe4fa0a2f53.png)
 
 最终在 @梁希 同学的攻关下发布了新的jdk版本，问题基本都解决了。不但tps提升明显，rt也有很大的下降。
 

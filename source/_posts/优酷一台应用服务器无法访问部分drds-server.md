@@ -17,7 +17,7 @@ tags:
 
 直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。
 
-![youku-mac-ip.gif](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9deff3045e3213df81c3ad785cfddefa.gif)
+![youku-mac-ip.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9deff3045e3213df81c3ad785cfddefa.gif)
 
 **上图是不通的IP，下图是正常IP**
 

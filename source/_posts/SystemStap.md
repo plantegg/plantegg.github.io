@@ -203,11 +203,11 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 
 ## 网络重传
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 网络包大小分布
 
@@ -223,11 +223,11 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 	}'
 
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/297eb625b1e157d85a29754108871c08.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/297eb625b1e157d85a29754108871c08.png)
 
 ## 产看网络流量由哪个进程发出，或者说哪个进程在发包
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/74b0a393a6334421957a032f1f141a9c.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png)
 
 ## 网络连接创建rt？
 

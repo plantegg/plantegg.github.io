@@ -59,7 +59,7 @@ if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {
 
 一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：
 
-![](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8fe715d3ebb6929afecd19aadbe53e5e.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
 
 或者：
 

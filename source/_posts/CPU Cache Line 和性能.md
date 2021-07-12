@@ -65,33 +65,33 @@ cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个
 
 2012 年延迟数字对比表
 
-![image-20210702161817496](/Users/ren/src/blog/951413iMgBlog/image-20210702161817496.png)
+![image-20210702161817496](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210702161817496.png)
 
 一个比较有体感的比较：如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。
 
 当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：
 
-![Memory Hierarchy](/Users/ren/src/blog/951413iMgBlog/cache-hierarchy-1.jpg)
+![Memory Hierarchy](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-hierarchy-1.jpg)
 
 [推荐从这里看延时，拖动时间轴可以看到每一年的变化](https://colin-scott.github.io/personal_website/research/interactive_latency.html)
 
-![image-20210613123006681](/Users/ren/src/blog/951413iMgBlog/image-20210613123006681.png)
+![image-20210613123006681](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210613123006681.png)
 
 查看cpu cache数据
 
 	cat /proc/cpuinfo |grep -i cache
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/ad19b92ccc97763aa7f78d8d1d514c84.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png)
 
 ### L1C、L2C、L3C、DDR 的Latency
 
 [下图从左至右响应时间分别是L1C、L2C、L3C、DDR](https://topic.atatech.org/articles/100065)，可以看出这四个Latency变化还是非常明显的，泾渭分明。
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/58286da947132f269cb26ff3eda25c68.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/58286da947132f269cb26ff3eda25c68.png)
 
-![image-20210511160107225](/Users/ren/src/blog/951413iMgBlog/image-20210511160107225.png)
+![image-20210511160107225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511160107225.png)
 
-![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/f5728a2afb29c653a3e1bf21f4d56056.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png)
 
 ## 查看 cache_line
 
@@ -574,12 +574,12 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
 
 重点留意上述代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。
 
-![image.png](/Users/ren/src/blog/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
 
 队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中
 
 
-![image](https://cdn.nlark.com/yuque/0/2019/png/162611/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
+![image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
 
 
 
@@ -634,7 +634,7 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 
 从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。
 
-![img](/Users/ren/src/blog/951413iMgBlog/1.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1.png)
 
 
 
@@ -695,17 +695,17 @@ x86_64下的执行结果，确实是case2略快
 
 case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由xperf 1.3.8采集）
 
-![image-20210517111209985](/Users/ren/src/blog/951413iMgBlog/image-20210517111209985.png)
+![image-20210517111209985](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111209985.png)
 
 case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以最终的执行时间差异不大
 
-![image-20210517111244550](/Users/ren/src/blog/951413iMgBlog/image-20210517111244550.png)
+![image-20210517111244550](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111244550.png)
 
-![image-20210512133536939](/Users/ren/src/blog/951413iMgBlog/image-20210512133536939.png)
+![image-20210512133536939](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512133536939.png)
 
 在arm下case1反而更快，如截图
 
-![image-20210512132121856](/Users/ren/src/blog/951413iMgBlog/image-20210512132121856.png)
+![image-20210512132121856](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512132121856.png)
 
 
 

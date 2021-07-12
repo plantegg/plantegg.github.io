@@ -17,35 +17,35 @@ tags:
 
 如图一：
 vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，但是CPU idle 95%以上
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/046077102b3a0fd89e53f62cf32874c0.png)
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/d905abc4576e0c6ac952c71005696131.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/046077102b3a0fd89e53f62cf32874c0.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d905abc4576e0c6ac952c71005696131.png)
 
 这个现象不太合乎常规，也许是在等磁盘IO、也许在等网络返回会导致CPU利用率很低而Load很高
 
 贴个vmstat 说明文档（图片来源于网络N年了，找不到出处）
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9a0c040b24699d4128bbecae1af08b1d.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9a0c040b24699d4128bbecae1af08b1d.png)
 
 ### 检查磁盘状态，很正常（vmstat 第二列也一直为0）
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/19d7d02c9472ddb2b057a4d09b497463.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19d7d02c9472ddb2b057a4d09b497463.png)
 
 
 
 ### 再看Load是在5号下午15：50突然飙起来的：
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/71127256e8e33a716770f74cb563a1b6.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/71127256e8e33a716770f74cb563a1b6.png)
 
 ### 同一时间段的网络流量、TCP连接相关数据很平稳：
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/8f7ff0bf2f313409f521f6863f2375aa.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8f7ff0bf2f313409f521f6863f2375aa.png)
 
 所以分析到此，可以得出：**Load高跟磁盘、网络、压力都没啥关系**
 
 ### 物理机上是跑的Docker，分析了一下CPUSet情况：
 
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e7996a82da2c140594835e3264c6ef4b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e7996a82da2c140594835e3264c6ef4b.png)
 
 **发现基本上所有容器都绑定在CPU1上（感谢 @辺客 发现这个问题）**
 
 ### 进而检查top每个核的状态，果然CPU1 的idle一直为0
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/2b32adb2071b3fdb334e0735db899a2e.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2b32adb2071b3fdb334e0735db899a2e.png)
 
 看到这里大致明白了，虽然CPU整体很闲但是因为很多进程都绑定在CPU1上，导致CPU1上排队很长，看前面tsar的--load负载截图的 等待运行进程排队长度（runq）确实也很长。
 
@@ -58,12 +58,12 @@ vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，
 检查Docker系统日志，发现同一时间点所有物理机同时批量执行docker update 把几百个容器都绑定到CPU1上，导致这个核忙死了，其它核闲得要死（所以看到整体CPU不忙，最忙的那个核被平均掩盖掉了），但是Load高（CPU1上排队太长，即使平均到32个核，这个队列还是长，这就是瓶颈啊）。
 
 如下Docker日志，Load飙升的那个时间点有人批量调docker update 把所有容器都绑定到CPU1上：
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/f4925c698c9fd4edb56fcfc2ebb9f625.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f4925c698c9fd4edb56fcfc2ebb9f625.png)
 
 检查Docker集群Swarm的日志，发现Swarm没有发起这样的update操作，似乎是每个Docker Daemon自己的行为，谁触发了这个CPU的绑定过程的原因还没找到，求指点。
 
 ### 手动执行docker update, 把容器打散到不同的cpu核上，恢复正常：
-![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/9e1adae472cf0b4f95af83390adaead9.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9e1adae472cf0b4f95af83390adaead9.png)
 
 ## 关于这个Case的总结
 

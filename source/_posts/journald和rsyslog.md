@@ -20,7 +20,7 @@ rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-
 
 现象：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/12d137f9416d7935dbe6540c626ca8b4.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/12d137f9416d7935dbe6540c626ca8b4.png)
 
 ```
 KiB Mem :  7971268 total,   131436 free,  7712020 used,   127812 buff/cache
@@ -69,11 +69,11 @@ FAIL: /var/log/journal/20190829214900434421844640356160/system.journal (Bad mess
 
 [来自redhat官网的描述](https://access.redhat.com/solutions/3705051)
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/e1a1cd75553b5cbe2a64e835ba9f99a7.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png)
 
 以下是现场收集到的日志：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/cdfe3fb8d50ee148b816a82a432f1b88.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png)
 
 主要是rsyslogd的sd_journal_get_cursor报错，然后导致内存泄露。
 
@@ -126,7 +126,7 @@ MemoryHigh=8M
 
 rsyslogd内存消耗过高后导致了OOM Kill
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/c7332f5b48506ea1faa015cfc6ae1709.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png)
 
 **RSS对应物理内存，单位是4K（page大小）**，红框两个进程用了5G+2G，总内存是8G，所以触发OOM killer了
 
@@ -153,7 +153,7 @@ Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded...
 Jan 28 20:14:38 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-57.1.al7 try http://www.rsyslog.com/e/0 ]
 ```
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/45008a8323742fb7f145211a6281afbc.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/45008a8323742fb7f145211a6281afbc.png)
 
 OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(limit 3min)，造成timeout的原因是journald定期要把日志刷到磁盘上，然后要么是内存不够，要么是io负载太重，导致刷磁盘这个过程非常慢，于是就timeout了。
 
@@ -286,13 +286,13 @@ mail.info            /var/log/maillog_info
 # /var/log/maillog_info 文件中的意思。
 ```
 
-![syslog 所制订的服务名称与软件调用的方式](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/1cce7612a84cf1a1addceeff6032cb5c.png)
+![syslog 所制订的服务名称与软件调用的方式](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png)
 
 
 
  CentOS 7.x 默认的 rsyslogd 本身就已经具有远程日志服务器的功能了， 只是默认并没有启动该功能而已。你可以通过 man rsyslogd 去查询一下相关的选项就能够知道啦！ 既然是远程日志服务器，那么我们的 Linux 主机当然会启动一个端口来监听了，那个默认的端口就是 UDP 或 TCP 的 port 514 
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/40740cd5cfc8896c07c15b959420646f.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/40740cd5cfc8896c07c15b959420646f.png)
 
 Server配置如下：
 
@@ -397,7 +397,7 @@ sudo systemd-analyze blame networkd
 
 systemd-analyze critical-chain network.target local-fs.target
 
-![img](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png)
 
 ## 参考资料
 
