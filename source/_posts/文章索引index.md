@@ -14,6 +14,10 @@ tags:
 
 ## 精华文章推荐
 
+[CPU的制造和概念](/2021/06/01/CPU的制造和概念/) 从最底层的沙子开始用8篇文章来回答关于CPU的各种疑问以及大量的实验对比案例和测试数据来展示了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）。
+
+![image-20210802161410524](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161410524.png)
+
 #### [在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/ 文章描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在2014年修复了https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。](2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/)
 
 ![image-20210517082233798](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517082233798.png)
@@ -63,11 +67,34 @@ tags:
 ## 性能相关
 
 #### [就是要你懂TCP--半连接队列和全连接队列](2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/)  偶发性的连接reset异常、重启服务后短时间的连接异常
+
 #### [就是要你懂TCP--性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的](2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/)  发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响
+
 #### [就是要你懂TCP--性能优化大全](2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%A4%A7%E5%85%A8/)
 
 #### [就是要你懂TCP--TCP性能问题](2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/) Nagle算法和delay ack
 #### [10倍性能提升全过程](2018/01/23/10+%E5%80%8D%E6%80%A7%E8%83%BD%E6%8F%90%E5%8D%87%E5%85%A8%E8%BF%87%E7%A8%8B/) 在双11的紧张流程下，将系统tps从500优化到5500，从网络到snat、再到Spring和StackTrace，看看一个性能全栈工程师如何在各种工具加持下发现各种问题的。
+
+
+
+## CPU系列文章
+
+#### [CPU的制造和概念](/2021/06/01/CPU的制造和概念/)
+
+#### [十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
+
+#### [Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+#### [Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
+
+#### [CPU性能和CACHE](https://plantegg.github.io/2021/07/19/CPU性能和CACHE/)
+
+#### [CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
+
+#### [AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比](/2021/08/13/AMD_Zen_CPU架构/)
+
+#### [Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
+
 
 
 ## 网络相关基础知识

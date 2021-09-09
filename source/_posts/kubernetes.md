@@ -610,6 +610,17 @@ kubectl apply 命令才是“声明式 API”
 
 > 如何使用控制器模式，同 Kubernetes 里 API 对象的“增、删、改、查”进行协作，进而完成用户业务逻辑的编写过程。
 
+## label
+
+给多个节点加标签
+
+```
+ kubectl label  --overwrite=true nodes 10.0.0.172 10.0.1.192 10.0.2.48 topology.kubernetes.io/region=cn-hangzhou
+ 
+ //查看
+ kubectl get nodes --show-labels
+```
+
 
 
 ## helm
@@ -688,6 +699,13 @@ helm completion bash > .helmrc && echo "source .helmrc" >> .bashrc && source .ba
 
 
 kubectl -s polarx-test-ackk8s-atp-3826.adbgw.alibabacloud.test exec -it bushu016polarx282bc7216f-5161 bash
+
+## 启动时间排序
+
+```
+  532  [2021-08-24 18:37:19] kubectl get po --sort-by=.status.startTime -ndrds
+  533  [2021-08-24 18:37:41] kubectl get pods --sort-by=.metadata.creationTimestamp -ndrds
+```
 
 
 

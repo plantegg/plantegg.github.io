@@ -388,7 +388,7 @@ innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 
 
 
 
-其它同学测试的结论：
+其他同学测试的结论：
 
 - ODPS离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%
 

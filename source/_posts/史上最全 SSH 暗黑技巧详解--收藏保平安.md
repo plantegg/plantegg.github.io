@@ -46,12 +46,12 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
+![image.png](/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
 
 
 
 原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
+![undefined](/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
 
 ### 科学上网之http特殊代理
 
@@ -120,7 +120,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
  /home/ren/tmp/ssh_mux_10.16.*.*_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时
 
 看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息
-![ssh-demo.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
+![ssh-demo.gif](/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
 
 ## 我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？
 
@@ -174,7 +174,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ## ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器
 
 先来看效果图：
-![ssh_docker.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
+![ssh_docker.gif](/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
 
 ### 实现过程：
 
@@ -193,7 +193,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 **第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号**
 这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b4e460a501c21eac1e4104b9324910d3.png)
+![image.png](/images/oss/b4e460a501c21eac1e4104b9324910d3.png)
 
 ## 将隔离环境中的web端口映射到本地
 
@@ -218,7 +218,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 
 然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
+![image.png](/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
 
 反过来，**也可以让隔离环境机器通过代理上网，比如安装yum**
 
@@ -242,13 +242,13 @@ ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/autho
 
 如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/S9jLW7B.png)
+![](/images/951413iMgBlog/S9jLW7B.png)
 
 这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。
 
 再在外面写一个循环对每个IP执行如下操作：
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4SZcnvc.png)
+![](/images/951413iMgBlog/4SZcnvc.png)
 
 if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。
 
@@ -289,6 +289,12 @@ for循环部分一次把生成的密钥对和authorized_keys复制到所有机�
 
 - 客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道
 - server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，/root 以及 /root/.ssh 文件夹的权限和owner都要对，更不要说 /root/.ssh/authorized_keys 了
+
+```
+/usr/sbin/sshd -ddd -p 2222 
+```
+
+
 
 ## ~/.ssh/config 参考配置
 
@@ -362,11 +368,67 @@ ForwardX11Trusted yes
 
 SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password**，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。
 
+### ssh 提示信息
+
+可以用一下脚本生成一个彩色文件
+
+Basic colors are numbered:
+
+- 1 – Red
+- 2 – Green
+- 3 – Yellow
+- 4 – Blue
+- 5 – Magenta
+- 6 – Cyan
+- 7 – White
+
+```shell
+#!/bin/sh
+export TERM=xterm-256color
+
+read one five fifteen rest < /proc/loadavg
+echo "$(tput setaf 2)
+Kernel: `uname -v | awk -v OFS=' ' '{print $4, $5}'`
+                                                                                                                                   
+        \\   ^__^
+         \\  (oo)\\_______
+            (__)\\       )\\\/\\
+                ||----w |
+                ||     ||
+
+本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务
+
+有任何需要请联系 ** 多谢!
+
+$(tput setaf 4)Load Averages......: ${one}, ${five}, ${fifteen} (1, 5, 15 min)
+$(tput setaf 5)
+ ______________
+本机器为长稳测试环境, 千万不要kill进程, 不要跑负载过重的任务
+
+有任何需要请联系 ** 多谢!
+ --------------
+        \\   ^__^
+         \\  (oo)\\_______
+            (__)\\       )\\\/\\
+                ||----w |
+                ||     ||
+
+$(tput sgr0)"
+```
+
+以上脚本运行结果
+
+![image-20210902224011450](/images/951413iMgBlog/image-20210902224011450.png)
+
+
+
 ### 验证秘钥对
 
 **-y** Read a private OpenSSH format file and print an OpenSSH public key to stdout.
 
-> ssh-keygen -y -f id_rsa | cut -d' ' -f 2  和 cut -d' ' -f 2 id_rsa.pub
+> cd ~/.ssh/ ; ssh-keygen -y -f id_rsa | cut -d' ' -f 2  ;  cut -d' ' -f 2 id_rsa.pub
+
+`ssh-keygen -y -e -f <private key>`获取一个私钥并打印相应的公钥，该公钥可以直接与您可用的公钥进行比较
 
 ### ssh-agent
 
@@ -450,7 +512,7 @@ $ ssh -D 3000 tunnel-host -N
 
 注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/202466eed33b16c0471016f1c5e574ab.png)
+![image.png](/images/oss/202466eed33b16c0471016f1c5e574ab.png)
 
 下面是 ssh 隧道建立后的一个**使用实例**。
 
@@ -478,7 +540,6 @@ curl --socks5-hostname localhost:3000 https://www.twitter.com
              bind_address of “localhost” indicates that the listening port be bound for local use only, while an
              empty address or ‘*’ indicates that the port should be available from all interfaces.
 
-
 ### 本地转发 (-L)
 
 本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定目标网站之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。
@@ -497,9 +558,9 @@ $ ssh -L local-port:target-host:target-port tunnel-host
 $ ssh -L 7001:www.example.com:389 tunnel-host -N
 ```
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png)
+![image.png](/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png)
+![image.png](/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png)
 
 
 

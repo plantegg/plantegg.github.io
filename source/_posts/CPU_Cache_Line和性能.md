@@ -6,6 +6,7 @@ tags:
     - performance
     - Linux
     - cache_line
+    - CPU
 ---
 
 # CPU 性能和Cache Line
@@ -41,57 +42,27 @@ tags:
 
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
+
+
+CPU为什么要CACHE，请看这篇
+
 ## 什么是 cache_line
 
-CPU访问内存是非常慢的，所以我们在CPU中增加了3级缓存，并且每次CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）
+CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）
 
-Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。
-
-这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。
+Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。
 
 处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了[ MESI 协议](https://en.wikipedia.org/wiki/MESI_protocol)，以及 MESIF 协议。
 
 ### cache 失效
 
-假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，
-还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。
-随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。
+假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。
 
 cache ping-pong(cache-line ping-ponging) 是指不同的CPU共享位于同一个cache-line里边的变量，当不同的CPU频繁的对该变量进行读写时，会导致其他CPU cache-line的失效。
 
 显而易见的是一旦cache失效就需要访问内存重新从内存中读取数据到CPU cache中，这个过程会很慢。
 
-## 各级IO延迟数字
 
-2012 年延迟数字对比表
-
-![image-20210702161817496](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210702161817496.png)
-
-一个比较有体感的比较：如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。
-
-当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：
-
-![Memory Hierarchy](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-hierarchy-1.jpg)
-
-[推荐从这里看延时，拖动时间轴可以看到每一年的变化](https://colin-scott.github.io/personal_website/research/interactive_latency.html)
-
-![image-20210613123006681](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210613123006681.png)
-
-查看cpu cache数据
-
-	cat /proc/cpuinfo |grep -i cache
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ad19b92ccc97763aa7f78d8d1d514c84.png)
-
-### L1C、L2C、L3C、DDR 的Latency
-
-[下图从左至右响应时间分别是L1C、L2C、L3C、DDR](https://topic.atatech.org/articles/100065)，可以看出这四个Latency变化还是非常明显的，泾渭分明。
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/58286da947132f269cb26ff3eda25c68.png)
-
-![image-20210511160107225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511160107225.png)
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f5728a2afb29c653a3e1bf21f4d56056.png)
 
 ## 查看 cache_line
 
@@ -218,6 +189,40 @@ failed to read counter branches
 1770
 370
 ```
+
+更多案例请参考7个示例科普CPU CACHE：[Gallery of Processor Cache Effects](http://igoro.com/archive/gallery-of-processor-cache-effects/)
+
+如下图，表示的是for循环每次跳K个int，在K小于16的时候虽然循环次数逐渐减少到原来的1/16, 但是总时间没变，因为一直是访问的同一个cache里面的数据。 到16个之后就会产生突变（跨了cache_line），再后面32、64、128的时间减少来源于循环次数的减少，因为如论如何每次循环都需要访问内存加载数据到cache_line中
+
+```
+for (int i = 0; i < arr.Length; i += K) arr[i] *= 3;
+```
+
+![running times of this loop for different step values (K)](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png)
+
+更典型的案例是对一个二维数组逐行遍历和逐列遍历的时间差异，变量次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好
+
+```
+const int row = 1024;
+const int col = 512
+int matrix[row][col];
+//逐行遍历  0.081ms
+int sum_row=0;
+for(int _r=0; _r<row; _r++) {
+    for(int _c=0; _c<col; _c++){
+        sum_row += matrix[_r][_c];
+    }
+}
+//逐列遍历 1.069ms
+int sum_col=0;
+for(int _c=0; _c<col; _c++) {
+    for(int _r=0; _r<row; _r++){
+        sum_col += matrix[_r][_c];
+    }
+}
+```
+
+
 
 ## [Disruptor](https://lmax-exchange.github.io/disruptor/disruptor.html)
 
@@ -387,7 +392,7 @@ start runIncrementWithLock.
 Time spent is 13056ms with lock
 ```
 
-**此时对应的IPC分别是3.99和1.**
+**此时Intel CPU上对应的IPC分别是3.99和1.**
 
 
 
@@ -581,8 +586,6 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
 
 ![image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
 
-
-
 数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache
 
 ## Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的
@@ -640,7 +643,7 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 
 ## 分支预测案例
 
-这个案例循环次数一样多：
+这个案例总循环次数一样多，但是里外循环次数不一样：
 
 ```
 #include "stdio.h"
@@ -693,7 +696,7 @@ x86_64下的执行结果，确实是case2略快
 23410
 ```
 
-case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由xperf 1.3.8采集）
+case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由 xperf 1.3.8采集）
 
 ![image-20210517111209985](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111209985.png)
 
@@ -734,3 +737,9 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 [Analysis of False Cache Line Sharing Effects on Multicore CPUs](https://scholarworks.sjsu.edu/cgi/viewcontent.cgi?referer=https://www.google.com/&httpsredir=1&article=1001&context=etd_projects)
 
 [Avoiding and Identifying False Sharing Among Threads](https://software.intel.com/content/www/us/en/develop/articles/avoiding-and-identifying-false-sharing-among-threads.html)
+
+[Gallery of Processor Cache Effects](http://igoro.com/archive/gallery-of-processor-cache-effects/)
+
+[7个示例科普CPU CACHE](https://coolshell.cn/articles/10249.html)
+
+[与程序员相关的CPU缓存知识](https://coolshell.cn/articles/20793.html)

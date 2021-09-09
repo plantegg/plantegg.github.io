@@ -104,6 +104,20 @@ ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：
 
 `lsof +L1` 或者` lsof | grep delete` 发现有被删除的文件，且占用大量磁盘空间
 
+## No route to host
+
+如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题
+
+可以停掉防火墙验证,或者添加端口到防火墙:
+
+```
+#firewall-cmd --permanent --add-port=8090/tcp
+success
+#firewall-cmd --reload
+```
+
+
+
 ## pam 权限报错
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png)
@@ -309,6 +323,12 @@ http://yum.baseurl.org/wiki/Faq
 - **查看软中断总耗时**， 首先用top命令可以看出每个核上软中断的开销占比，是在si列（1.2%--1秒[1000ms]中的1.2%）
 - **查看软中断次数**，再用vmstat命令可以看到软中断的次数（in列 56000）
 - **计算每次软中断的耗时**，该机器是16核的物理实机，故可以得出每个软中断需要的CPU时间是=12ms/(56000/16)次=3.428us。从实验数据来看，一次软中断CPU开销大约3.4us左右
+
+## Linux 启动进入紧急模式
+
+可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载
+
+否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的
 
 ## 参考文章
 

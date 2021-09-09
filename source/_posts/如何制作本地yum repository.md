@@ -155,8 +155,6 @@ yum deplist ansible
 
 DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》
 
-
-
 DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：
 
 1. 在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。
@@ -170,6 +168,17 @@ DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成�
 
 ```
 rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm
+```
+
+## 其它技巧
+
+### rpm依赖查询
+
+```shell
+rpm -q --whatprovides file-name //查询一个文件来自哪个rpm包
+rpm -qf /usr/lib/systemd/libsystemd-shared-239.so // 查询一个so lib来自哪个rpm包
+或者 yum whatprovides /usr/lib/systemd/libsystemd-shared-239.so
+yum provides */libmysqlclient.so.18
 ```
 
 

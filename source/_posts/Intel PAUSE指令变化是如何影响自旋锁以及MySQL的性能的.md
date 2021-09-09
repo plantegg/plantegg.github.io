@@ -310,15 +310,21 @@ innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局�
 
 ### 为什么要有Pause
 
-在类似自旋锁等一些场景下CPU希望等会重试，但是又不希望进行上下文切换（代价太大），所以X86芯片增加了Pause指令
+提高超线程的利用率,在类似自旋锁等一些场景下CPU希望等会重试，但是又不希望进行上下文切换（代价太大），所以X86芯片增加了Pause指令
 
 - 避免上下文切换
 - 能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源）
 - 节能（CPU可以休息、但是不让出来）
 
+> [The PAUSE instruction is first introduced](https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_pause_instruction/) for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.
+>
+> An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.
+
 ### pause 和 spinlock
 
-[spinlock(自旋锁)](http://linuxperf.com/?p=138)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，**spinlock适合用来保护快进快出的临界区**。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠 
+[spinlock(自旋锁)](http://linuxperf.com/?p=138)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，**spinlock适合用来保护快进快出的临界区**。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠。推荐在spin_lock 等待间隙调用Pause指令为HT等让出cpu。
+
+![image-20210804164219568](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210804164219568.png)
 
 ### pause 和 cpu_relax
 
@@ -348,13 +354,144 @@ The latency of the PAUSE instruction in prior generation microarchitectures is a
 > [The PAUSE instruction can improves the performance](https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html) of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-
 > pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See[ Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more ](https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html)information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)
 
-
-
 **Skylake架构的CPU的PAUSE指令从之前的10 cycles提升到140 cycles。**
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f712640a787655ad1bcddec4c65215e5.png)
 
 可以看到V52的CPU绝大部分时间消耗在ut_delay函数上。（注：V42和V52表示两种不同的机型，他们使用的CPU型号不一样）
+
+在两种CPU上测试Pause：
+
+```
+while(1) {
+         __asm__ ("pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause\n\t"
+                 "pause");
+                 }
+```
+
+以上代码在Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz下，pause的IPC只有可怜的0.03，用这个0.03*140（指令对应的circle数量）为4.2，基本等于nop指令执行下来的 IPC 3.9.
+
+```
+pause：
+sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -p 29469
+^C
+ Performance counter stats for process id '29469':
+
+        11,703,650      branch-instructions                                           (10.72%)
+            48,859      branch-misses             #    0.42% of all branches          (14.29%)
+       121,464,662      bus-cycles                                                    (14.29%)
+           192,135      cache-misses              #   28.912 % of all cache refs      (14.29%)
+           664,551      cache-references                                              (14.28%)
+    15,542,649,611      cpu-cycles                                                    (14.28%)
+       436,989,474      instructions              #    0.03  insns per cycle          (17.84%)
+    12,142,423,027      ref-cycles                                                    (21.41%)
+           266,924      L1-dcache-load-misses     #    7.30% of all L1-dcache hits    (378407232880.48%)
+         3,656,826      L1-dcache-loads                                               (378407646153.61%)
+         2,159,589      L1-dcache-stores                                              (378407862183.77%)
+           311,327      L1-icache-load-misses                                         (378408294399.22%)
+             5,291      LLC-load-misses           #    2.83% of all LL-cache hits     (378408718764.77%)
+           187,291      LLC-loads                                                     (14.28%)
+            60,172      LLC-store-misses                                              (7.14%)
+           226,723      LLC-stores                                                    (7.14%)
+            47,915      branch-load-misses                                            (10.74%)
+        14,566,705      branch-loads                                                  (14.30%)
+           179,082      dTLB-load-misses          #    0.88% of all dTLB cache hits   (14.30%)
+        20,452,363      dTLB-loads                                                    (14.30%)
+                70      dTLB-store-misses                                             (14.27%)
+        10,159,064      dTLB-stores                                                   (14.28%)
+             8,220      iTLB-load-misses          #  536.55% of all iTLB cache hits   (14.31%)
+             1,532      iTLB-loads                                                    (14.30%)
+           257,901      node-load-misses                                              (14.30%)
+           240,172      node-loads                                                    (14.30%)
+            54,909      node-store-misses                                             (7.14%)
+             4,048      node-stores                                                   (7.14%)
+             
+对应 nop指令的perf数据：
+sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -p 34027
+^C
+ Performance counter stats for process id '34027':
+
+       341,128,781      branch-instructions                                           (10.72%)
+            75,264      branch-misses             #    0.02% of all branches          (14.31%)
+        87,397,083      bus-cycles                                                    (14.34%)
+            55,392      cache-misses              #   41.712 % of all cache refs      (14.37%)
+           132,797      cache-references                                              (14.37%)
+    11,183,166,104      cpu-cycles                                                    (14.37%)
+    43,569,041,837      instructions              #    3.90  insns per cycle          (17.96%)
+     8,737,007,028      ref-cycles                                                    (21.53%)
+            84,895      L1-dcache-load-misses     #    6.79% of all L1-dcache hits    (525917413228.16%)
+         1,251,035      L1-dcache-loads                                               (525917593755.65%)
+           713,805      L1-dcache-stores                                              (525917430621.00%)
+           214,851      L1-icache-load-misses                                         (525917608299.66%)
+             3,236      LLC-load-misses           #    5.59% of all LL-cache hits     (525917938759.06%)
+            57,872      LLC-loads                                                     (14.26%)
+             3,324      LLC-store-misses                                              (7.13%)
+            17,169      LLC-stores                                                    (7.13%)
+            78,246      branch-load-misses                                            (10.69%)
+       341,245,230      branch-loads                                                  (14.26%)
+                14      dTLB-load-misses          #    0.00% of all dTLB cache hits   (14.26%)
+         5,785,864      dTLB-loads                                                    (14.26%)
+                 0      dTLB-store-misses                                             (14.26%)
+         3,312,084      dTLB-stores                                                   (14.26%)
+                21      iTLB-load-misses          #   20.00% of all iTLB cache hits   (14.26%)
+               105      iTLB-loads                                                    (14.26%)
+            17,122      node-load-misses                                              (14.26%)
+             7,456      node-loads                                                    (14.26%)
+             3,520      node-store-misses                                             (7.13%)
+               126      node-stores                                                   (7.13%)
+```
+
+ 对应的Broadwell架构 E5-2682 只能将CPU 跑到0.11，nop是3.78（理论最大值是4），4/0.11 =36, 推算下来pause的cycles是36，比10大了不少，可能是perf 事件取错了，也可能是执行上别的地方导致IPC低了。
+
+```
+pause：
+sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -p 87520
+^C
+ Performance counter stats for process id '87520':
+
+         9,583,940      branch-instructions                                           (10.69%)
+            44,521      branch-misses             #    0.46% of all branches          (14.27%)
+       328,034,833      bus-cycles                                                    (14.30%)
+            61,519      cache-misses              #   58.122 % of all cache refs      (14.33%)
+           105,845      cache-references                                              (14.33%)
+     8,197,464,156      cpu-cycles                                                    (14.33%)
+       882,697,883      instructions              #    0.11  insns per cycle          (17.91%)
+     8,197,622,550      ref-cycles                                                    (21.49%)
+            75,652      L1-dcache-load-misses     #    6.80% of all L1-dcache hits    (560124080204.82%)
+         1,112,580      L1-dcache-loads                                               (560124874471.32%)
+           685,612      L1-dcache-stores                                              (560125422295.41%)
+             9,345      L1-icache-load-misses                                         (560126333070.23%)
+             2,144      LLC-load-misses           #    7.89% of all LL-cache hits     (560127311022.52%)
+            27,171      LLC-loads                                                     (14.33%)
+            21,501      LLC-store-misses                                              (7.17%)
+            33,100      LLC-stores                                                    (7.17%)
+            45,038      branch-load-misses                                            (10.75%)
+         9,570,287      branch-loads                                                  (14.33%)
+               797      dTLB-load-misses          #    0.02% of all dTLB cache hits   (14.30%)
+         5,212,987      dTLB-loads                                                    (14.27%)
+               140      dTLB-store-misses                                             (14.24%)
+         3,187,728      dTLB-stores                                                   (14.21%)
+                21      iTLB-load-misses          #   12.96% of all iTLB cache hits   (14.21%)
+               162      iTLB-loads                                                    (14.21%)
+            15,364      node-load-misses                                              (14.21%)
+               197      node-loads                                                    (14.21%)
+             1,745      node-store-misses                                             (7.11%)
+            18,493      node-stores                                                   (7.11%)
+
+       3.293713358 seconds time elapsed
+```
 
 使用pqos观测CPU的IPC指标：
 在128并发写入场景下，V42 CPU的IPC为0.35左右，而V52 CPU的IPC只有0.18
@@ -469,7 +606,9 @@ MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这
 
 在NUMA架构中，多个处理器中的同一个缓存页面必定在其中一个处理器中属于 F 状态(可以修改的状态)，这个页面在这个处理器中没有理由不可以多核心共享(可以多核心共享就意味着这个能进入修改状态的页面的多个有效位被设置为一)。MESIF协议应该是工作在核心(L1+L2)层面而不是处理器(L3)层面，这样同一处理器里多个核心共享的页面，只有其中一个是出于 F 状态(可以修改的状态)。见后面对 NUMA 和 MESIF 的解析。(L1/L2/L3 的同步应该是不需要 MESIF 的同步机制)
 
+## 自旋锁对性能的影响
 
+如果一个任务可以并行化并且我们有64个CPU核心， 但他们之间只有1%的串行化代码（如即使性能达到理论值的Spinlock操作）， 那么根据 阿姆达尔法则，我们的吞吐量提升度是： T/(0.99T/64 + 0.01T) = 1/(0.99/64 + 0.01) = 39.26， 也就是说64个核心只给了我们40个核心的吞吐量，因此spinlock会严重影响吞吐量。
 
 ## [perf top 和 pause 的案例](https://topic.atatech.org/articles/85549)
 

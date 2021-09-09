@@ -177,6 +177,13 @@ tcp:tcp_retransmit_skb
  Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE
 ```
 
+## iptables 打通网络
+
+```
+//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)
+iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16
+```
+
 
 
 ## 参考资料

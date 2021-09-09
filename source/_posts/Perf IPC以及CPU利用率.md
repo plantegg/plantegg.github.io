@@ -30,6 +30,8 @@ tags:
 
 [Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
+[CPU性能和CACHE](https://plantegg.github.io/2021/07/19/CPU性能和CACHE/)
+
 [CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
 [十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
@@ -42,7 +44,7 @@ tags:
 
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
-
+![image-20210802161455950](/images/951413iMgBlog/image-20210802161455950.png)
 
 ## 程序性能
 
@@ -64,11 +66,13 @@ cycles：CPU时钟周期。CPU从它的指令集(instruction set)中选择指令
 - 	内存访问(memory access，MEM)
 - 	寄存器回写(register write-back， WB)
 
-![skylake server block diagram.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
+![skylake server block diagram.svg](/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
 
 以上结构简化成流水线就是：
 
-![image-20210511154816751](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511154816751.png)
+![image-20210511154816751](/images/951413iMgBlog/image-20210511154816751.png)
+
+IF/ID 就是我们常说的前端，他负责不停地取指和译指，然后为后端提供译指之后的指令，最核心的优化就是要做好**分支预测**，终归取指是要比执行慢，只有提前做好预测才能尽量匹配上后端。后端核心优化是要做好执行单元的并发量，以及乱序执行能力，最终要将乱序执行结果正确组合并输出。
 
 五个步骤只能串行，**但是可以做成pipeline提升效率**，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。
 
@@ -100,7 +104,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 - 非流水线：
 
-![image-20210511154859711](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511154859711.png)
+![image-20210511154859711](/images/951413iMgBlog/image-20210511154859711.png)
 
 
 
@@ -108,15 +112,15 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 - 标量流水线, 标量（Scalar）流水计算机是**只有一条指令流水线**的计算机:
 
-![image-20210511155530477](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511155530477.png)
+![image-20210511155530477](/images/951413iMgBlog/image-20210511155530477.png)
 
  
 
 进一步优化，如果我们加大流水线的条数，让多个指令并行执行，就能得到更高的IPC了，但是这种并行必然会有指令之间的依赖，比如第二个指令依赖第一个的结果，所以多个指令并行更容易出现互相等待(stall).
 
-- 超标量流水线：所谓超标量（Superscalar）流 水计算机，是指它**具有两条以上的指令流水线**
+- 超标量流水线：所谓超标量（Superscalar）流 水计算机，是指它**具有两条以上的指令流水线**, 超标流水线数量也就是ALU执行单元的并行度
 
-![image-20210511155708234](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511155708234.png)
+![image-20210511155708234](/images/951413iMgBlog/image-20210511155708234.png)
 
 一般而言流水线的超标量不能超过单条流水线的深度
 
@@ -125,7 +129,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 每一个功能单元的流水线的长度是不同的。事实上，不同的功能单元的流水线长度本来就不一样。我们平时所说的 14 级流水线，指的通常是进行整数计算指令的流水线长度。如果是浮点数运算，实际的流水线长度则会更长一些。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg)
+![img](/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg)
 
 
 
@@ -133,11 +137,11 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 在第 1 条指令执行到访存（MEM）阶段的时候，流水线里的第 4 条指令，在执行取指令（Fetch）的操作。访存和取指令，都要进行内存数据的读取。我们的内存，只有一个地址译码器的作为地址输入，那就只能在一个时钟周期里面读取一条数据，没办法同时执行第 1 条指令的读取内存数据和第 4 条指令的读取指令代码。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg)
+![img](/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg)
 
 把内存拆成两部分的解决方案，在计算机体系结构里叫作哈佛架构（Harvard Architecture），来自哈佛大学设计Mark I 型计算机时候的设计。我们今天使用的 CPU，仍然是冯·诺依曼体系结构的，并没有把内存拆成程序内存和数据内存这两部分。因为如果那样拆的话，对程序指令和数据需要的内存空间，我们就没有办法根据实际的应用去动态分配了。虽然解决了资源冲突的问题，但是也失去了灵活性。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg)
+![img](/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg)
 
 在流水线产生依赖的时候必须pipeline stall，也就是让依赖的指令执行NOP。
 
@@ -145,7 +149,19 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 Intel xeon
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg)
+![img](/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg)
+
+不同架构带来IPC变化：
+
+![img](/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
+
+Intel 最新的CPU Ice Lake和其上一代的性能对比数据：
+
+![img](/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
+
+上图最终结果导致了IPC提升了20%，以及整体效率的提升：
+
+![img](/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
 
 ## perf 使用
 
@@ -178,7 +194,7 @@ sudo perf sched latency //查看
 	     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)
 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f96e50b5f3d0825b68be5b654624f839.png)
+![image.png](/images/oss/f96e50b5f3d0825b68be5b654624f839.png)
 
 
 
@@ -259,13 +275,13 @@ ipc是指每个core的IPC
 
 **超线程(Hyper-Threading)物理实现**: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。
 
-CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%
+CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样，阿里的OB/MySQL/ODPS业务经验是提升35%），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%
 
 ### 超线程如何查看
 
 如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png)
+![image.png](/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png)
 
 physical id对应socket，也就是物理上购买到的一块CPU； core id对应着每个物理CPU里面的一个物理core，同一个phyiscal id下core id一样说明开了HT
 
@@ -273,13 +289,53 @@ physical id对应socket，也就是物理上购买到的一块CPU； core id对�
 
 IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是从core里面取到的，不针对具体进程。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍
 
-![image-20210513123233344](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210513123233344.png)
+![image-20210513123233344](/images/951413iMgBlog/image-20210513123233344.png)
 
 对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%
 
-![image-20210513130252565](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210513130252565.png)
+![image-20210513130252565](/images/951413iMgBlog/image-20210513130252565.png)
 
 以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)
+
+### Intel和AMD单核以及HT性能比较
+
+测试命令，这个测试命令无论在哪个CPU下，用2个物理核用时都是一个物理核的一半，所以这个计算是可以完全并行的
+
+```
+taskset -c 1,53 /usr/bin/sysbench --num-threads=2 --test=cpu --cpu-max-prime=50000 run //单核用一个threads，绑核， HT用2个threads，绑一对HT
+```
+
+测试结果为耗时，单位秒，Hygon 7280 就是Zen2架构
+
+| Family Name       | Intel 8269CY CPU @ 2.50GHz | Intel E5-2682 v4 @ 2.50GHz | Hygon 7280 2.1G |
+| :---------------- | :------------------------- | :------------------------- | :-------------- |
+| 单核  prime 50000 | 83                         | 109                        | 89              |
+| HT  prime 50000   | 48                         | 74                         | 87              |
+
+
+
+## 主频和性价比
+
+拿Intel 在数据中心计算的大核CPU IvyBridge与当时用于 存储系列的小核CPU Avoton（ATOM）, 分别测试阿里巴巴(Oceanbase ，MySQL, ODPS)的workload，得到性能吞吐如下：
+
+Intel 大小CPU 核心                   阿里 Workload Output(QPS)
+
+Avoton(8 cores) 2.4GHZ                 10K on single core
+
+Ivy Bridge(2650 v2 disable HT) 2.6GHZ      20K on single core
+
+Ivy Bridge(2650 v2 enable HT) 2.4GHZ       25K on single core
+
+Ivy Bridge(2650 v2 enable HT) 2.6GHZ       27K on single core
+
+1. 超线程等于将一个大核CPU 分拆成两个小核，Ivy Bridge的数据显示超线程给 Ivy Bridge **1.35倍**(27K/20K) 的提升
+2. 现在我们分别评判 两种CPU对应的性能密度 (performance/core die size) ，该数据越大越好，根据我们的计算和测量发现：Avoton(包含L1D, L1I, and L2 per core)大约是 3~4平方毫米，Ivy Bridge (包含L1D, L1I, L2 )大约是12~13平方毫米, L3/core是 6~7平方毫米, 所以 Ivy Bridge 单核心的芯片面积需要18 ~ 20平方毫米。基于上面的数据我们得到的 Avoton core的性能密度为 2.5 (10K/4sqmm)，而Ivy Bridge的性能密度是1.35 (27K/20sqmm)，因此相同的芯片面积下 Avoton 的性能是 Ivy Bridge的 **1.85倍**(2.5/1.35).
+3. 从功耗的角度看性能的提升的对比数据，E5-2650v2(Ivy Bridge) 8core TDP 90w， Avoton 8 core TDP 20瓦， 性能/功耗 Avoton 是 10K QPS/20瓦， Ivy Bridge是 27KQPS/90瓦， 因此 相同的功耗下 Avoton是 Ivy Bridge的 **1.75倍**（10K QPS/20）/ （27KQPS/95）
+4. 从价格方面再进行比较，E5-2650v2(Ivy Bridge) 8core 官方价格是1107美元， Avoton 8 core官方价格是171美元。性能/价格 Avoton是 10KQPS/171美元，Ivy Bridge 是 27KQPS/1107美元， 因此相同的美元 Avoton的性能是 Ivy Bridge 的**2.3倍（**1 10KQPS/171美元）/ （27KQPS/1107美元）
+
+从以上结论可以看到在数据中心的场景下，由于指令数据相关性较高，同时由于内存访问的延迟更多，因此复杂的CPU体系结构并不能获得相应性能提升，该原因导致我们需要的是更多的小核CPU，以此达到高吞吐量的能力，因此2014年我们向Intel提出需要将物理CPU的超线程由 2个升级到4个/8个， 或者直接将用更多的小核CPU增加服务器的吞吐能力，最新数据表明Intel 会在大核CPU中引入4个超线程，和在相同的芯片面积下引入更多的小核CPU。
+
+预测：为了减少数据中心的功耗，我们需要提升单位面积下的计算密度，因此将来会引入Rack Computing的计算模式，每台服务器将会有4～5百个CPU core，如果使用4个CPU socket，每台机器将会达到～1000个CPU core，结合Compute Express Link (CXL), 一个机架内允许16台服务器情况下，可以引入共享内存，那么一个进程可以运行在上万个CPU core中，这样复杂环境下，我们需要对于这样的软件环境做出更多的布局和优化。
 
 ## [perf top 和 pause 的案例](https://topic.atatech.org/articles/85549)
 
@@ -290,11 +346,11 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 案例：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/864427c491497acb02d37c02cb35eeb2.png)
+![image.png](/images/oss/864427c491497acb02d37c02cb35eeb2.png)
 
 对如上两个pause指令以及一个 count++（addq），进行perf top：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/40945b005eb9f716e429fd30be55b6d1.png)
+![image.png](/images/oss/40945b005eb9f716e429fd30be55b6d1.png)
 
 可以看到第一个pasue在perf top中cycles为0，第二个为46.85%，另外一个addq也有48.83%，基本可以猜测perf top在这里数据都往后挪了一个。
 
@@ -337,7 +393,7 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 在ECS会采集不到 cycles等，cpu-clock、page-faults都是内核中的软事件，cycles/instructions得采集cpu的PMU数据，ECS采集不到这些PMU数据。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a120388ff72d712a4fd176e7cea005cf.png)
+![image.png](/images/oss/a120388ff72d712a4fd176e7cea005cf.png)
 
 ## Perf 和 false share cache_line
 

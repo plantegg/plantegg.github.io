@@ -59,8 +59,6 @@ b=number of retransmissions that have occurred
 
 c=number of keepalive probes that have been sent
 
-
-
 > /proc/sys/net/ipv4/tcp_keepalive_time
 > 当keepalive起用的时候，TCP发送keepalive消息的频度。缺省是2小时。
 >

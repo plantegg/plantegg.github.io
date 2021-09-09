@@ -87,6 +87,16 @@ tags:
 
 <img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;" />
 
+三个watermark的计算方法：
+
+watermark[min] = vm.min_free_kbytes换算为page单位即可，假设为vm.min_free_kbytes。
+
+watermark[low] = watermark[min] * 5 / 4
+
+watermark[high] = watermark[min] * 3 / 2
+
+比如默认 vm.min_free_kbytes = 65536是64K，很容易导致应用的毛刺，可以适当改大
+
 或者禁止： vm.swappiness  来避免swapped来减少延迟
 
 ### direct IO

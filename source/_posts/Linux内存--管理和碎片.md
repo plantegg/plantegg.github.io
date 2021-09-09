@@ -400,6 +400,73 @@ maps： 文件可以查看某个进程的代码段、栈区、堆区、动态库
 smaps: 显示每个分区更详细的内存占用数据
 status: 包含了所有CPU活跃的信息，该文件中的所有值都是从系统启动开始累计到当前时刻
 
+## [Java内存使用分析](https://docs.oracle.com/javase/8/docs/technotes/guides/troubleshoot/tooldescr007.html)
+
+```
+创建1000个线程，ss为2M
+java -XX:NativeMemoryTracking=detail -Xms10g -Xmx10g -Xmn5g -XX:ReservedCodeCacheSize=512m -XX:MetaspaceSize=512m -XX:MaxMetaspaceSize=512m -XX:MaxDirectMemorySize=1g -Xss2048K ThreadPoolExample
+
+分析结果：
+#jcmd 81849 VM.native_memory summary
+81849:
+
+Native Memory Tracking:
+
+Total: reserved=14737064KB, committed=13157168KB
+-                 Java Heap (reserved=10485760KB, committed=10485760KB)
+                            (mmap: reserved=10485760KB, committed=10485760KB)
+
+-                     Class (reserved=1102016KB, committed=50112KB)
+                            (classes #416)
+                            (malloc=45248KB #1420)
+                            (mmap: reserved=1056768KB, committed=4864KB)
+
+										//committed 已向OS提请分配，实际要到使用时page fault才会实际分配物理内存并在RSS中反应出来
+-                    Thread (reserved=2134883KB, committed=2134883KB)//reserved还没分配,不能访问
+                            (thread #1070) //1000个应用线程，加70个JVM native线程
+                            (stack: reserved=2128820KB, committed=2128820KB) //需要2G多点
+                            (malloc=3500KB #5390)
+                            (arena=2563KB #2138)
+
+-                      Code (reserved=532612KB, committed=4620KB)
+                            (malloc=132KB #528)
+                            (mmap: reserved=532480KB, committed=4488KB)
+
+-                        GC (reserved=430421KB, committed=430421KB)
+                            (malloc=50737KB #235)
+                            (mmap: reserved=379684KB, committed=379684KB)
+
+-                  Compiler (reserved=137KB, committed=137KB)
+                            (malloc=6KB #53)
+                            (arena=131KB #3)
+
+-                  Internal (reserved=48901KB, committed=48901KB)
+                            (malloc=48869KB #14030)
+                            (mmap: reserved=32KB, committed=32KB)
+
+-                    Symbol (reserved=1479KB, committed=1479KB)
+                            (malloc=959KB #110)
+                            (arena=520KB #1)
+
+-    Native Memory Tracking (reserved=608KB, committed=608KB)
+                            (malloc=193KB #2556)
+                            (tracking overhead=415KB)
+
+-               Arena Chunk (reserved=248KB, committed=248KB)
+                            (malloc=248KB)
+```
+
+We can see two types of memory:
+
+- **Reserved** — the size which is guaranteed to be available by a host's OS (but still not allocated and cannot be accessed by JVM) — it's just a promise
+- **Committed** — already taken, accessible, and allocated by JVM
+
+### page fault
+
+内核给用户态申请的内存，默认都只是一段虚拟地址空间而已，并没有分配真正的物理内存。在第一次读写的时候才触发物理内存的分配，这个过程叫做page fault。那么，为了访问到真正的物理内存，page fault的时候，就需要更新对应的page table了。
+
+
+
 ## 参考资料
 
 https://www.atatech.org/articles/66885

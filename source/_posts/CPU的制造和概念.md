@@ -29,11 +29,15 @@ tags:
 
 [Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
+[CPU性能和CACHE](https://plantegg.github.io/2021/07/19/CPU性能和CACHE/)
+
 [CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
 [十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
 
 [Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+[AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比](/2021/08/13/AMD_Zen_CPU架构/)
 
 [Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/几款CPU性能对比/)
 
@@ -42,6 +46,8 @@ tags:
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
 
+
+![image-20210802161410524](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161410524.png)
 
 ## 几个重要概念
 
@@ -159,7 +165,7 @@ BBK是步步高集团，包含vivo、oppo、oneplus、realme等
 
 光刻机有一个加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。
 
-AMD在工艺落后Intel的前提下，又想要堆核，只能采取一个Package封装4个独立Die的做法，推出了EPYC服务器芯片，即不影响良率，又可以核心数目好看，可谓一举两得。
+AMD在工艺落后Intel的前提下，又想要堆核，只能采取一个Package封装4个独立Die的做法，推出了Zen1 EPYC服务器芯片，即不影响良率，又可以核心数目好看，可谓一举两得。
 
 可惜连接四个Die的片外总线终归没有片内通信效率高，在好些benchmark中败下阵来，可见没有免费的午餐。
 
@@ -177,13 +183,21 @@ Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后�
 
 ![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg)
 
+晶体管密度比较
+
+![image-20210728095829384](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210728095829384.png)
+
 ### Die和core
 
 One die with multiple cores，下图是一个Die内部图:
 
 ![enter image description here](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/xCqqv.jpg)
 
-CPU Package containing 2 separate DIEs:
+或者Skylake：
+
+![skylake sp mesh core tile zoom with client shown.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000px-skylake_sp_mesh_core_tile_zoom_with_client_shown.png)
+
+将两个Die封装成一块CPU(core多，成本低):
 
 ![data f1](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/dataf1-1372099277050.jpg)
 
@@ -237,9 +251,9 @@ dTLB:data TLB
 
 如果要实现一台48core的计算能力的服务器，可以有如下三个方案
 
-#### 方案1：一个大Die集成48core：![Intel Skylake SP Mesh Architecture Conceptual Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
+### 方案1：一个大Die集成48core：![Intel Skylake SP Mesh Architecture Conceptual Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
 
-#### [方案2](https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/)：一个CPU封装4个Die，也叫MCM（Multi-Chip-Module），每个Die12个core
+### [方案2](https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/)：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die 6个core
 
 ![image-20210602165525641](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602165525641.png)
 
@@ -249,7 +263,7 @@ dTLB:data TLB
 
 上图最下面的方案为[Intel采用的EMIB](https://venturebeat.com/2017/03/28/intel-moves-tech-forward-by-putting-two-chips-in-a-single-package/)（Embedded Multi-die Interconnect Bridge）方案，cost 最低。中间的方案是使用“硅中介层”(Interposer，AMD采用的方案)。这意味着你能在两枚主要芯片的下面放置和使用第三枚芯片。这枚芯片的目的是使得多个设备的连接更加容易，但是也带来了更高的成本。
 
-#### 方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：
+### 方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：
 
 ![image-20210602171352551](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602171352551.png)
 
@@ -260,6 +274,104 @@ dTLB:data TLB
 方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和**内存**
 
 ![image-20210602170727459](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602170727459.png)
+
+### 面积和性能
+
+我们使用了当时Intel 用在数据中心计算的大核CPU IvyBridge与当时用于 存储系列的小核CPU Avoton（ATOM）, 分别测试阿里巴巴的workload，得到性能吞吐如下：
+
+| Intel 大小CPU 核心                    | 阿里 Workload Output(QPS) |
+| ------------------------------------- | ------------------------- |
+| Avoton(8 cores) 2.4GHZ                | 10K on single core        |
+| Ivy Bridge(2650 v2 disable HT) 2.6GHZ | 20K on single core        |
+| Ivy Bridge(2650 v2 enable HT) 2.4GHZ  | 25K on single core        |
+| Ivy Bridge(2650 v2 enable HT) 2.6GHZ  | 27K on single core        |
+
+1. 大小核心直观比较：超线程等于将一个大核CPU 分拆成两个小核，Ivy Bridge的数据显示超线程给 Ivy Bridge **1.35倍**(27K/20K) 的提升
+2. 性能与芯片面积方面比较：现在我们分别评判 两种CPU对应的性能密度 (performance/core die size) ，该数据越大越好，根据我们的计算和测量发现 Avoton(包含L1D, L1I, and L2 per core)大约是 3~4平方毫米，Ivy Bridge (包含L1D, L1I, L2 )大约是12~13平方毫米, L3/core是 6~7平方毫米, 所以 Ivy Bridge 单核心的芯片面积需要18 ~ 20平方毫米。基于上面的数据我们得到的 Avoton core的性能密度为 2.5 (10K/4sqmm)，而Ivy Bridge的性能密度是1.35 (27K/20sqmm)，因此相同的芯片面积下 Avoton 的性能是 Ivy Bridge的 **1.85倍**(2.5/1.35).
+3. 性能与功耗方面比较：  从功耗的角度看性能的提升的对比数据，E5-2650v2(Ivy Bridge) 8core TDP 90w， Avoton 8 core TDP 20瓦， 性能/功耗 Avoton 是 10K QPS/20瓦， Ivy Bridge是 27KQPS/90瓦， 因此 相同的功耗下 Avoton是 Ivy Bridge的 **1.75倍**（10K QPS/20）/ （27KQPS/95）
+4. 性能与价格方面比较：  从价格方面再进行比较，E5-2650v2(Ivy Bridge) 8core 官方价格是1107美元， Avoton 8 core官方价格是171美元性能/价格 Avoton是 10KQPS/171美元，Ivy Bridge 是 27KQPS/1107美元， 因此相同的美元 Avoton的性能是 Ivy Bridge 的**2.3倍（**1 10KQPS/171美元）/ （27KQPS/1107美元）
+
+总结：在数据中心的场景下，由于指令数据相关性较高，同时由于内存访问的延迟更多，复杂的CPU体系结构并不能获得相应性能提升，该原因导致我们需要的是更多的小核CPU，以达到高吞吐量的能力，因此2014 年我们向Intel提出数据中心的CPU倾向“小核”CPU，需要将现有的大核CPU的超线程由 2个升级到4个/8个， 或者直接将用更多的小核CPU增加服务器的吞吐能力，经过了近8年，最新数据表明Intel 会在每个大核CPU中引入4个超线程，和在相同的芯片面积下单socket CPU 引入200多个小核CPU，该方案与我们的建议再次吻合
+
+## 为什么这20年主频基本没有提升了
+
+今天的2.5G CPU性能和20年前的2.5G比起来性能差别大吗？
+
+因为能耗导致CPU的主频近些年基本不怎么提升了，不是技术上不能提升，是性价比不高. 
+
+在提升主频之外可以提升性能的有：提升跳转预测率，增加Decoded Cache，增加每周期的并发读个数，增加执行通道，增加ROB， RS，Read & Write buffer等等，这些主要是为了增加IPC，当然增加core数量也是提升整体性能的王道。另外就是优化指令所需要的时钟周期、增加并行度更好的指令等等指令集相关的优化。
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/main-qimg-7a34de25ee9d09ba88a1671d22d4b0f1.jpeg)
+
+the industry came up with many different solution to create better computers w/o (or almost without) increasing the clock speed. 
+
+Intel 最新的CPU Ice Lake(8380)和其上一代(8280)的性能对比数据：
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Ice-Lake-3rd-Gen-Xeon-overview-slide.png)
+
+上图最终结果导致了IPC提升了20%
+
+> But tock Intel did with the [Ice Lake](https://www.nextplatform.com/2021/04/19/deep-dive-into-intels-ice-lake-xeon-sp-architecture/) processors and their Sunny Cove cores, and the tock, at 20 percent instructions per clock (IPC) improvement on integer work
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
+
+ICE Lake在网络转发上的延时更小、更稳定了：
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-sunny-cove-dpdk-latency.jpg)
+
+[两代CPU整体性能差异](https://wccftech.com/intel-unveils-ice-lake-sp-xeon-cpu-family-10nm-sunny-cove-cores-28-core-die/)：
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
+
+### 指令集优化
+
+新增等效于某种常见指令组合的指令。原来多个指令执行需要多个时钟周期，合并后的单条指令可以在一个时钟周期执行完成。例如FMA指令，就是一条指令计算A×B+C，而无需分两个时钟周期计算。这种指令一般来说现有程序直接就能用上，无需优化。限制在于只对特定代码有效，还是以FMA为例，更普遍的普通加法、乘法运算都不能从中获益。
+
+#### AVX(Advanced Vector Extension，高级矢量扩展指令集)
+
+英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了**SIMD**（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。
+
+**SSE**（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。
+
+AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。
+
+> 2013 年， 英特尔 发布了**AVX**-**512 指令**集，其**指令**宽度扩展为512bit，每个时钟周期内可打包32 次双精度或64 次单精度浮点运算，因此在图像/ 音视频处理、数据分析、科学计算、数据加密和压缩和 深度学习 等应用场景中，会带来更强大的性能表现，理论上浮点性能翻倍，整数计算则增加约33% 的性能。
+
+Linus Torvalds ：
+
+> AVX512 有很明显的缺点。我宁愿看到那些晶体管被用于其他更相关的事情。即使同样是用于进行浮点数学运算（通过 GPU 来做，而不是通过 AVX512 在 CPU 上），或者直接给我更多的核心（有着更多单线程性能，而且没有 AVX512 这样的垃圾），就像 AMD 所做的一样。
+>
+> 我希望通过常规的整数代码来达到自己能力的极限，而不是通过 AVX512 这样的功率病毒来达到最高频率（因为人们最终还是会拿它来做 memory-to-memory copy），还占据了核心的很大面积。
+
+所以今天的2.6G单核skylake，能秒掉20年前2.6G的酷睿, 尤其是复杂场景。
+
+![image-20210715094527563](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094527563.png)
+
+![image-20210715094637227](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094637227.png)
+
+CPU能耗公式：
+
+> P = C V*V * f
+
+C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。
+
+所以最终能耗和f频率是 f^3 的指数关系。
+
+即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。光刻机加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。
+
+![image-20210715100609552](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715100609552.png)
+
+**主频=外频×倍频系数**
+
+不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。
+
+超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。
+
+睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000.jpeg)
 
 
 
@@ -324,6 +436,8 @@ RAM延迟大大缩短：
 
 Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计带来复杂性的增加，从而对Die的大小带来了负面影响
 
+CPU的总线为铜薄膜，虽然摩尔定律使单位面积晶体管的密度不断增加，但是对于连接导线的电阻却没有明显的下降，导线的RC延迟几乎决定现有CPU性能，因此数据传输在CPU的角度来看是个极为沉重的负担。 虽然2D-mesh为数据提供了更多的迁移路径减少了数据堵塞，但也同样为数据一致性带来更多问题，例如过去ring-bus 结构下对于存在于某个CPU私用缓存的数据争抢请求只有两个方向（左和右）， 但是在2D-mesh环境下会来自于4个方向（上，下，左，右）
+
 ![image-20210602104851803](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602104851803.png)
 
 ### uncore
@@ -331,12 +445,6 @@ Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计�
 "**Uncore**" is a term used by [Intel](https://en.wikipedia.org/wiki/Intel) to describe the functions of a [microprocessor](https://en.wikipedia.org/wiki/Microprocessor) that are not in the core, but which must be closely connected to the core to achieve high performance.[[1\]](https://en.wikipedia.org/wiki/Uncore#cite_note-modular_uncore-1) It has been called "**system agent**" since the release of the [Sandy Bridge](https://en.wikipedia.org/wiki/Sandy_Bridge) [microarchitecture](https://en.wikipedia.org/wiki/Microarchitecture).[[2\]](https://en.wikipedia.org/wiki/Uncore#cite_note-sandybridge-2)
 
 The core contains the components of the processor involved in executing instructions, including the [ALU](https://en.wikipedia.org/wiki/Arithmetic_logic_unit), [FPU](https://en.wikipedia.org/wiki/Floating_point_unit), [L1](https://en.wikipedia.org/wiki/L1_cache) and [L2 cache](https://en.wikipedia.org/wiki/L2_cache). Uncore functions include [QPI](https://en.wikipedia.org/wiki/Intel_QuickPath_Interconnect) controllers, [L3 cache](https://en.wikipedia.org/wiki/L3_cache), [snoop agent](https://en.wikipedia.org/wiki/Memory_coherence) [pipeline](https://en.wikipedia.org/wiki/Instruction_pipeline), on-die [memory controller](https://en.wikipedia.org/wiki/Memory_controller), on-die [PCI Express Root Complex](https://en.wikipedia.org/wiki/PCI_Express_Root_Complex), and [Thunderbolt controller](https://en.wikipedia.org/wiki/Thunderbolt_(interface)).[[3\]](https://en.wikipedia.org/wiki/Uncore#cite_note-thunderbolt-3) Other bus controllers such as [SPI](https://en.wikipedia.org/wiki/Serial_Peripheral_Interface_Bus) and [LPC](https://en.wikipedia.org/wiki/Low_Pin_Count) are part of the [chipset](https://en.wikipedia.org/wiki/Chipset).[[4\]](https://en.wikipedia.org/wiki/Uncore#cite_note-Anandtech:_Nehalem:_The_Unwritten_Chapters-4)
-
-### LLC Miss
-
-#### Metric Description
-
-The LLC (last-level cache) is the last, and longest-latency, level in the memory hierarchy before main memory (DRAM). Any memory requests missing here must be serviced by local or remote DRAM, with significant latency. The LLC Miss metric shows a ratio of cycles with outstanding LLC misses to all cycles.
 
 ## 一些Intel CPU NUMA结构参考
 
@@ -495,13 +603,17 @@ Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca 
 
 ![Intel processor roadmap](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png)
 
-2008年的 Nehalem 是采用 45nm 工艺的新架构；
+2006年90、65纳米工艺酷睿core Yonah上市，32位架构，仍然算是奔腾Pro系列；
+
+2006年7月[酷睿2](https://zh.wikipedia.org/wiki/酷睿2)处理器代号为“[Conroe](https://zh.wikipedia.org/w/index.php?title=Conroe&action=edit&redlink=1)”，采用[x86-64](https://zh.wikipedia.org/wiki/X86-64)指令集与65纳米双核心架构。该处理器基于全新的酷睿微架构，虽然时脉大大降低，但在效率方面和性能方面有了重大改进。从这一时期开始，在深度流水线和资源混乱的运行引擎上维持每个周期的高指令（IPC）
+
+2008年的 Nehalem （酷睿i7）是采用 45nm 工艺的新架构，主要优势来自重新设计的I/O和存储系统，这些系统具有新的Intel QuickPath Interconnect和集成的内存控制器，可支持三通道的DDR3内存。
 
 2009年的 Westmere 升级到 32nm；
 
 2010年的 Lynnfield/Clarkdale 基于 45nm/32nm 工艺的新架构，第一代智能酷睿处理器；
 
-2011年的 Sandy Bridge ，基于 32nm 工艺的新架构，第二代智能酷睿处理器；
+2011年的 Sandy Bridge ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；
 
 2012年的 IVY Bridge，是 Sandy Bridge 的 22nm 升级版，第三代智能酷睿处理器；
 
@@ -528,29 +640,7 @@ Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Ne
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fb522be7aa65158778b7ea825207.png)
 
-## 主频睿频超频
 
-**主频=外频×倍频系数**
-
-不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。
-
-超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。
-
-睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000.jpeg)
-
-
-
-CPU能耗公式：
-
-> P = C V*V * f
-
-C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。
-
-所以最终能耗和f频率是 f^3 的指数关系。
-
-即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。~~另外要不要考虑光速不可超越的影响，也就是1GHz电信号智能传播30cm， 10GHz的话电信号只能传播3cm，也就是Die的大小不能超过3cm。当然这个推论简化了很多其他因素~~
 
 ## UEFI和Bios
 
@@ -709,7 +799,7 @@ windows下的exe文件之所以没法放到linux上运行（都是intel x86芯�
 
 Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路
 
-Die：从晶圆上切割下来的CPU(包含多个core、北桥、GPU等)，Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试
+Die：从晶圆上切割下来的裸片(包含多个core、北桥、GPU等)，Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试
 
 封装：将一个或多个Die封装成一个物理上可以售卖的CPU
 

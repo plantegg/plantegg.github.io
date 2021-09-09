@@ -209,8 +209,6 @@ HugePages_Free:        1
 
 尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G/8G), 线上机器直接修改vm.min_free_kbytes**会触发回收，导致系统hang住** https://www.atatech.org/articles/163233 https://www.atatech.org/articles/97130
 
-
-
 compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。
 
 ![image-20210628144121108](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210628144121108.png)

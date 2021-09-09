@@ -32,6 +32,8 @@ tags:
 
 [Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
+[CPU性能和CACHE](https://plantegg.github.io/2021/07/19/CPU性能和CACHE/)
+
 [CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
 
 [十年后数据库还是不敢拥抱NUMA？](/2021/05/14/十年后数据库还是不敢拥抱NUMA/)
@@ -49,6 +51,8 @@ tags:
 本篇是收尾篇，横向对比一下x86和ARM芯片，以及不同方案权衡下的性能比较
 
 ## CPU基本信息
+
+![image-20210723161314138](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210723161314138.png)
 
 ### 海光
 
@@ -117,7 +121,13 @@ physical         core      processor
 1                0~15         48~63
 ```
 
+![image-20210805085715353](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210805085715353.png)
+
 ### Intel CPU
+
+![cascade lake naming scheme.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
+
+Cascade Lake架构相对Broadwell L1没变，L2从256K增加到1M增加了4倍，L3从2.5下降到1.38M每core
 
 ```
 #lscpu
@@ -155,9 +165,53 @@ node 0 free: 108373 MB
 node distances:
 node   0
   0:  10  
+  
+//志强E5
+  #lscpu
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                64
+On-line CPU(s) list:   0-63
+Thread(s) per core:    2
+Core(s) per socket:    16
+Socket(s):             2
+NUMA node(s):          2
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 79
+Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz
+Stepping:              1
+CPU MHz:               2500.000
+CPU max MHz:           3000.0000
+CPU min MHz:           1200.0000
+BogoMIPS:              5000.06
+Virtualization:        VT-x
+L1d cache:             32K
+L1i cache:             32K
+L2 cache:              256K
+L3 cache:              40960K
+NUMA node0 CPU(s):     0-15,32-47
+NUMA node1 CPU(s):     16-31,48-63
+Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3
+
+#numactl -H
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47
+node 0 size: 262008 MB
+node 0 free: 240846 MB
+node 1 cpus: 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63
+node 1 size: 262144 MB
+node 1 free: 242774 MB
+node distances:
+node   0   1
+  0:  10  21
+  1:  21  10
 ```
 
 ### 鲲鹏920
+
+鲲鹏920-4826的L1比8269C 大一倍，但是L2小一倍。L3鲲鹏为1M/core  8269为1.38M/core(物理core）
 
 ```
 #lscpu
@@ -204,7 +258,170 @@ node   0   1   2   3
 #dmidecode -t processor | grep Version
 	Version: Kunpeng 920-4826
 	Version: Kunpeng 920-4826  
+
+以上四个鲲鹏920的四个NUMA node之间的距离描述如下：
+node 0 <------------ socket distance ------------> node 2
+    | (die distance)                                  | (die distance)
+node 1                                             node 3	
+要注意node1到node3比node0到node3要大，猜测Socket之间的UPI只接上了node1和node2
 ```
+
+[鲲鹏920架构参考这里](https://fuse.wikichip.org/news/2274/huawei-expands-kunpeng-server-cpus-plans-smt-sve-for-next-gen/)
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/taishan-v110-soc-block-diagram.png)
+
+Though Huawei has been keeping a tight lip on the chip design itself, the Hi1620 is actually a multi-chip design. Actually, we believe are three dies. The chip itself comprise two compute dies called the **Super CPU cluster** (SCCL), each one packing 32 cores. It’s also possible the SCCL only have 24 cores, in which case there are three such dies with a theoretical maximum core count of 72 cores possible but are not offered for yield reasons. Regardless of this, there are at least two SCCL dies for sure. Additionally, there is also an I/O die called the **Super IO Cluster** (SICL) which contains all the high-speed SerDes and low-speed I/Os.
+
+下图是6426型号，我测试用的是4826型号，也就是一个CPU内是48core，一个CPU封装3个Die，两个Die是 core，还有一个是Super IO Cluster
+
+![taishan v110 soc details.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
+
+鲲鹏命令规范：
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-naming-scheme.png)
+
+鲲鹏 RoadMap
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-future-roadmap-1024x512.png)
+
+#### 鲲鹏 Kunpeng 920-4826 跨numa性能比较
+
+绑24core，跨numa0、numa3，是numactl -H看到的比较远距离。两分钟的 Current tpmC: 69660
+
+```
+#taskset -a -cp  12-23,72-83 20799
+
+#perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads,cpu-migrations -p 20799
+^C
+ Performance counter stats for process id '20799':
+
+     2,866,418,154      branch-misses                                                 (59.84%)
+   549,673,215,827      bus-cycles                                                    (59.89%)
+     2,179,816,578      cache-misses              #    2.360 % of all cache refs      (59.93%)
+    92,377,674,343      cache-references                                              (60.04%)
+   549,605,057,475      cpu-cycles                                                    (65.05%)
+   229,958,980,614      instructions              #    0.42  insn per cycle
+                                                  #    1.31  stalled cycles per insn  (65.05%)
+   146,201,062,116      stalled-cycles-backend    #   26.60% backend cycles idle      (65.08%)
+   301,814,831,043      stalled-cycles-frontend   #   54.91% frontend cycles idle     (65.08%)
+     2,177,062,319      L1-dcache-load-misses     #    2.35% of all L1-dcache hits    (65.04%)
+    92,481,797,426      L1-dcache-loads                                               (65.11%)
+     2,175,030,428      L1-dcache-store-misses                                        (65.15%)
+    92,507,474,710      L1-dcache-stores                                              (65.14%)
+     9,299,812,249      L1-icache-load-misses     #   12.47% of all L1-icache hits    (65.20%)
+    74,579,909,037      L1-icache-loads                                               (65.16%)
+     2,862,664,443      branch-load-misses                                            (65.08%)
+    52,826,930,842      branch-loads                                                  (65.04%)
+     3,729,265,130      dTLB-load-misses          #    3.11% of all dTLB cache hits   (64.95%)
+   119,896,014,498      dTLB-loads                                                    (59.90%)
+     1,350,782,047      iTLB-load-misses          #    1.83% of all iTLB cache hits   (59.84%)
+    74,005,620,378      iTLB-loads                                                    (59.82%)
+               510      cpu-migrations
+
+       9.483137760 seconds time elapsed
+```
+
+绑72-95core，在同一个numa下，但是没有重启进程，导致有一半内存仍然在numa0上，2分钟的Current tpmC: 75900
+
+```
+#taskset -a -cp  72-95 20799
+
+#perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads,cpu-migrations -p 20799
+^C
+ Performance counter stats for process id '20799':
+
+     2,665,583,722      branch-misses                                                 (59.90%)
+   500,184,789,050      bus-cycles                                                    (59.95%)
+     1,997,726,097      cache-misses              #    2.254 % of all cache refs      (59.94%)
+    88,628,013,529      cache-references                                              (59.93%)
+   500,111,712,450      cpu-cycles                                                    (64.98%)
+   221,098,464,920      instructions              #    0.44  insn per cycle
+                                                  #    1.35  stalled cycles per insn  (65.02%)
+   105,957,124,479      stalled-cycles-backend    #   21.19% backend cycles idle      (65.02%)
+   298,186,439,955      stalled-cycles-frontend   #   59.62% frontend cycles idle     (65.02%)
+     1,996,313,908      L1-dcache-load-misses     #    2.25% of all L1-dcache hits    (65.04%)
+    88,701,699,646      L1-dcache-loads                                               (65.09%)
+     1,997,851,364      L1-dcache-store-misses                                        (65.10%)
+    88,614,658,960      L1-dcache-stores                                              (65.10%)
+     8,635,807,737      L1-icache-load-misses     #   12.30% of all L1-icache hits    (65.13%)
+    70,233,323,630      L1-icache-loads                                               (65.16%)
+     2,665,567,783      branch-load-misses                                            (65.10%)
+    50,482,936,168      branch-loads                                                  (65.09%)
+     3,614,564,473      dTLB-load-misses          #    3.15% of all dTLB cache hits   (65.04%)
+   114,619,822,486      dTLB-loads                                                    (59.96%)
+     1,270,926,362      iTLB-load-misses          #    1.81% of all iTLB cache hits   (59.97%)
+    70,248,645,721      iTLB-loads                                                    (59.94%)
+               128      cpu-migrations
+
+       8.610934700 seconds time elapsed
+
+#/root/numa-maps-summary.pl </proc/20799/numa_maps
+N0        :      8220658 ( 31.36 GB)
+N1        :        38620 (  0.15 GB)
+N2        :       480619 (  1.83 GB)
+N3        :      8281759 ( 31.59 GB)
+active    :        28797 (  0.11 GB)
+anon      :     17015902 ( 64.91 GB)
+dirty     :     16990615 ( 64.81 GB)
+kernelpagesize_kB:         9076 (  0.03 GB)
+mapmax    :          760 (  0.00 GB)
+mapped    :         5754 (  0.02 GB)
+```
+
+重启进程后继续绑72-95core，在同一个numa下，先进成充分热身，然后2分钟的 Current tpmC: 77880
+
+```
+#perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads,cpu-migrations -p 49512
+^C
+ Performance counter stats for process id '49512':
+
+     1,849,313,199      branch-misses                                                 (59.99%)
+   319,122,053,367      bus-cycles                                                    (60.02%)
+     1,319,212,546      cache-misses              #    2.238 % of all cache refs      (59.95%)
+    58,950,581,370      cache-references                                              (60.02%)
+   319,088,767,311      cpu-cycles                                                    (65.01%)
+   146,580,891,374      instructions              #    0.46  insn per cycle
+                                                  #    1.32  stalled cycles per insn  (65.01%)
+    61,109,919,226      stalled-cycles-backend    #   19.15% backend cycles idle      (65.04%)
+   193,963,590,196      stalled-cycles-frontend   #   60.79% frontend cycles idle     (65.06%)
+     1,319,593,051      L1-dcache-load-misses     #    2.24% of all L1-dcache hits    (65.03%)
+    58,967,303,454      L1-dcache-loads                                               (65.04%)
+     1,318,842,690      L1-dcache-store-misses                                        (65.13%)
+    58,988,059,583      L1-dcache-stores                                              (65.07%)
+     5,769,871,870      L1-icache-load-misses     #   12.25% of all L1-icache hits    (65.12%)
+    47,085,299,316      L1-icache-loads                                               (65.10%)
+     1,850,419,802      branch-load-misses                                            (65.03%)
+    33,687,548,636      branch-loads                                                  (65.08%)
+     2,375,028,039      dTLB-load-misses          #    3.12% of all dTLB cache hits   (65.08%)
+    76,113,084,244      dTLB-loads                                                    (60.01%)
+       825,388,210      iTLB-load-misses          #    1.75% of all iTLB cache hits   (59.99%)
+    47,092,738,092      iTLB-loads                                                    (59.95%)
+                49      cpu-migrations
+               
+#/root/numa-maps-summary.pl </proc/49512/numa_maps
+N0        :         5765 (  0.02 GB)
+N1        :        41599 (  0.16 GB)
+N2        :          566 (  0.00 GB)
+N3        :     16955491 ( 64.68 GB)
+active    :        30430 (  0.12 GB)
+anon      :     16997663 ( 64.84 GB)
+dirty     :     16989252 ( 64.81 GB)
+kernelpagesize_kB:         9020 (  0.03 GB)
+mapmax    :          745 (  0.00 GB)
+mapped    :         5758 (  0.02 GB) 
+```
+
+IPC从0.42到0.44再到0.46，tpmC也不断增加，整体压力都不大只压了25%的CPU，所以跨NUMA大概有10%的性能差异. IPC也是0.42 VS 0.46 。测试场景是DRDS Server服务。
+
+如果跨4core绑定core的话最好和最差绑法性能会下降25-30%，四个core绑不同numa的性能比较
+
+| 被压进程绑定的core id | tpmC  |
+| --------------------- | ----- |
+| 72,73,74,75           | 14460 |
+| 48,49,72,73           | 13800 |
+| 24,25,72,73           | 11760 |
+| 0,1,72,73             | 11940 |
+| 0,24,48,72            | 10800 |
 
 ### 飞腾2500
 
@@ -685,6 +902,21 @@ user	0m31.096s
 sys	0m0.165s
 ```
 
+## ARM 和 X86的总结
+
+对比硬件：
+
+ARM：泰山ARM 双路 128核心64核心/路），2.5G，4指令/周期，8个内存通道/路，mips体系架构。
+X86: intel 8163服务器 双路 48核心（24核心/路），2.5GHZ， 6指令/周期，96smt， 6个内存通道
+
+用 Geabase(C++)  测试所得 ARM是X86 性能的1.36倍，接近理论值的1.4倍
+
+理论值的计算公式：
+
+> CPU性能验证公式：频率 x 核数 x 发射数/周期 x 1.3/1.5(smt2/smt4) (smt是指超线程数量)
+
+ARM 优势的来源主要是工艺领先一代(7nm VS 14nm)
+
 ## 总结
 
 - 对纯CPU 运算场景，并发不超过物理core时，比如Prime运算，比如DRDS(CPU bound，IO在网络，可以加并发弥补)
@@ -696,6 +928,9 @@ sys	0m0.165s
   - 简单理解在这两个场景下Intel的HT能发挥半个物理core的作用，海光的HT就只能发挥0.2个物理core的作用了
 - 海光zen1的AMD 架构，每个core只有一个fpu，综上在多个场景下HT基本上都可以忽略
 - 飞腾2500性能比较差
+- 国产CPU：飞腾、鲲鹏、龙芯、申威、海光(AMD授权)、兆芯(威盛via 授权x86)
+- CPU性能验证公式：频率 x 核数 x 发射数/周期 x 1.3/1.5(smt2/smt4) (smt是指超线程数量)
+- 大吞吐量计算由多核CPU数量决定，多核CPU数量由制程工艺决定，制程工艺由资本决定，制程工艺资本由主流消费电子决定, 摩尔定律仍在持续
 
 ## 系列文章
 

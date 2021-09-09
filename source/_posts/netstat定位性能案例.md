@@ -42,13 +42,13 @@ Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn 
 
 #### 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 
 
 #### 下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+<img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
 
 send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断client端到9108之间有瓶颈**
 
@@ -95,6 +95,3 @@ tcp        0    210 192.0.0.1:36483  192.0.68.1:43881   ESTABLISHED on (0.31/254
 As you can see, in this case things are a little different. When the client went down, my server started sending keepalive messages, but while it was still sending those keepalives, my server tried to send a message to the client. Since the client had gone down, the server couldn’t get any ACK from the client, so the TCP retransmission started and the server tried to send the data again, each time incrementing the retransmit count (2nd field) when the retransmission timer (1st field) expired.
 
 Hope this explains the netstat --timer option well.
-
-
-

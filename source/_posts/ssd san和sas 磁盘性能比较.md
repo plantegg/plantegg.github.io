@@ -14,7 +14,7 @@ tags:
 
 正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png)
+![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
 
 所使用的测试命令：
 
@@ -36,7 +36,7 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 ## NVMe SSD 和 HDD的性能比较
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
 
 表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
 
@@ -89,11 +89,11 @@ NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、
 
 [高端SSD会选取MLC](https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf)（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）
 
-![image-20210603161822079](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210603161822079.png)
+![image-20210603161822079](/images/951413iMgBlog/image-20210603161822079.png)
 
 
 
-![slc-mlc-tlc-buckets](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
+![slc-mlc-tlc-buckets](/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
 
 
 
@@ -118,123 +118,6 @@ SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次�
 ### 耗损平衡 (Wear Leveling) 
 
 对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P/E 周期的典型数目是十万次；对于 MLC 块，P/E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。
-
-## 光纤和网线的性能差异
-
-以下都是在4.19内核的UOS，光纤交换机为锐捷，服务器是华为鲲鹏920
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/553e1c5fff2dd04a668434f0da4f9d90.png)
-
-光纤稳定性好很多，平均rt是网线的三分之一，最大值则是网线的十分之一. 光纤的带宽大约是网线的1.5倍
-
-```
-[aliyun@uos15 11:00 /home/aliyun]  一下88都是光口、89都是电口。
-$ping -c 10 10.88.88.16 //光纤
-PING 10.88.88.16 (10.88.88.16) 56(84) bytes of data.
-64 bytes from 10.88.88.16: icmp_seq=1 ttl=64 time=0.058 ms
-64 bytes from 10.88.88.16: icmp_seq=2 ttl=64 time=0.049 ms
-64 bytes from 10.88.88.16: icmp_seq=3 ttl=64 time=0.053 ms
-64 bytes from 10.88.88.16: icmp_seq=4 ttl=64 time=0.040 ms
-64 bytes from 10.88.88.16: icmp_seq=5 ttl=64 time=0.053 ms
-64 bytes from 10.88.88.16: icmp_seq=6 ttl=64 time=0.043 ms
-64 bytes from 10.88.88.16: icmp_seq=7 ttl=64 time=0.038 ms
-64 bytes from 10.88.88.16: icmp_seq=8 ttl=64 time=0.050 ms
-64 bytes from 10.88.88.16: icmp_seq=9 ttl=64 time=0.043 ms
-64 bytes from 10.88.88.16: icmp_seq=10 ttl=64 time=0.064 ms
-
---- 10.88.88.16 ping statistics ---
-10 packets transmitted, 10 received, 0% packet loss, time 159ms
-rtt min/avg/max/mdev = 0.038/0.049/0.064/0.008 ms
-
-[aliyun@uos15 11:01 /home/aliyun]
-$ping -c 10 10.88.89.16 //电口
-PING 10.88.89.16 (10.88.89.16) 56(84) bytes of data.
-64 bytes from 10.88.89.16: icmp_seq=1 ttl=64 time=0.087 ms
-64 bytes from 10.88.89.16: icmp_seq=2 ttl=64 time=0.053 ms
-64 bytes from 10.88.89.16: icmp_seq=3 ttl=64 time=0.095 ms
-64 bytes from 10.88.89.16: icmp_seq=4 ttl=64 time=0.391 ms
-64 bytes from 10.88.89.16: icmp_seq=5 ttl=64 time=0.051 ms
-64 bytes from 10.88.89.16: icmp_seq=6 ttl=64 time=0.343 ms
-64 bytes from 10.88.89.16: icmp_seq=7 ttl=64 time=0.045 ms
-64 bytes from 10.88.89.16: icmp_seq=8 ttl=64 time=0.341 ms
-64 bytes from 10.88.89.16: icmp_seq=9 ttl=64 time=0.054 ms
-64 bytes from 10.88.89.16: icmp_seq=10 ttl=64 time=0.066 ms
-
---- 10.88.89.16 ping statistics ---
-10 packets transmitted, 10 received, 0% packet loss, time 149ms
-rtt min/avg/max/mdev = 0.045/0.152/0.391/0.136 ms
-
-[aliyun@uos15 11:02 /u01]
-$scp uos.tar aliyun@10.88.89.16:/tmp/
-uos.tar                                  100% 3743MB 111.8MB/s   00:33    
-
-[aliyun@uos15 11:03 /u01]
-$scp uos.tar aliyun@10.88.88.16:/tmp/
-uos.tar                                   100% 3743MB 178.7MB/s   00:20    
-
-[aliyun@uos15 11:07 /u01]
-$sudo ping -f 10.88.89.16
-PING 10.88.89.16 (10.88.89.16) 56(84) bytes of data.
---- 10.88.89.16 ping statistics ---
-284504 packets transmitted, 284504 received, 0% packet loss, time 702ms
-rtt min/avg/max/mdev = 0.019/0.040/1.014/0.013 ms, ipg/ewma 0.048/0.042 ms
-
-[aliyun@uos15 11:07 /u01]
-$sudo ping -f 10.88.88.16
-PING 10.88.88.16 (10.88.88.16) 56(84) bytes of data.
---- 10.88.88.16 ping statistics ---
-299748 packets transmitted, 299748 received, 0% packet loss, time 242ms
-rtt min/avg/max/mdev = 0.012/0.016/0.406/0.006 ms, pipe 2, ipg/ewma 0.034/0.014 ms
-```
-
-光纤接口：
-
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b67715de1b8e143f6fc17ba574bcf0c4.png" alt="image.png" style="zoom:60%;" />
-
-## Cache、内存、磁盘、网络的延迟比较
-
-[假设主频2.6G的CPU，每个指令只需要 0.38ns](http://cizixs.com/2017/01/03/how-slow-is-disk-and-network) 
-
-每次内存寻址需要 100ns 
-
-一次 CPU 上下文切换（系统调用）需要大约 1500ns，也就是 1.5us（这个数字参考了[这篇文章](http://blog.tsunanet.net/2010/11/how-long-does-it-take-to-make-context.html)，采用的是单核 CPU 线程平均时间）
-
-SSD 随机读取耗时为 150us
-
-从内存中读取 1MB 的连续数据，耗时大约为 250us
-
-同一个数据中心网络上跑一个来回需要 0.5ms
-
-从 SSD 读取 1MB 的顺序数据，大约需要 1ms （是内存速度的四分之一）
-
-磁盘寻址时间为 10ms
-
-从磁盘读取 1MB 连续数据需要 20ms
-
-
-
-如果 CPU 访问 L1 缓存需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。
-
-
-
-**2012 年延迟数字对比表：**
-
-| Work                               | Latency        |
-| ---------------------------------- | -------------- |
-| L1 cache reference                 | 0.5 ns         |
-| Branch mispredict                  | 5 ns           |
-| L2 cache reference                 | 7 ns           |
-| Mutex lock/unlock                  | 25 ns          |
-| Main memory reference              | 100 ns         |
-| Compress 1K bytes with Zippy       | 3,000 ns       |
-| Send 1K bytes over 1 Gbps network  | 10,000 ns      |
-| Read 4K randomly from SSD*         | 150,000 ns     |
-| Read 1 MB sequentially from memory | 250,000 ns     |
-| Round trip within same datacenter  | 500,000 ns     |
-| Read 1 MB sequentially from SSD*   | 1,000,000 ns   |
-| Disk seek                          | 10,000,000 ns  |
-| Read 1 MB sequentially from disk   | 20,000,000 ns  |
-| Send packet CA->Netherlands->CA    | 150,000,000 ns |
 
 ## 磁盘类型查看
 
@@ -860,7 +743,7 @@ ESSD的latency基本是13-16us。
 
 ### HDD性能测试数据
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -922,7 +805,7 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
 
 
 

@@ -27,7 +27,7 @@ tags:
 
 查看厂家
 
-> cat /proc/cpuinfo |grep implementer
+> #cat /proc/cpuinfo |grep implementer
 >
 > CPU implementer	: 0x70
 >
@@ -192,11 +192,9 @@ cpu详细信息：
 
 ![image-20210425093630438](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425093630438.png)
 
-
-
 绑不同的核性能差异比较大，比如同样绑第一个socket最后16core和绑第二个socket最后16core，第二个socket的最后16core性能要好25-30%---**这是因为网卡软中断，如果将软中断绑定到0-4号cpu后差异基本消失**,因为网卡队列设置的是60，基本跑在前60core上，也就是第一个socket上。
 
-点查场景绑核和不绑核性能能差1倍, 将table分表后，物理rt稳定了(**截图中物理rt下降是因为压力小了**)
+点查场景绑核和不绑核性能能差1倍, 将table分表后，物理rt稳定了(**截图中物理rt下降是因为压力小了**--待证)
 
 ### 点查场景压测16个core的节点
 
@@ -276,7 +274,7 @@ mapped    :         4742 (  0.02 GB)
 
 因为每个NUMA才8个core，所以测试一下8core的节点绑核前后性能对比。实际结果看起来和16core节点绑核性能提升差不多。
 
-绑核前后对比：绑核后QPS翻倍，DMySQL上的rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
+绑核前后对比：绑核后QPS翻倍，绑核后的服务rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
 
 ![image-20210427093424116](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093424116.png)
 
@@ -419,8 +417,6 @@ mapped    :         5920 (  0.02 GB)
 
 ![image-20210427164953340](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427164953340.png)
 
-
-
 绑核前的IPC：
 
 ![image-20210427093625575](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093625575.png)
@@ -428,8 +424,6 @@ mapped    :         5920 (  0.02 GB)
 绑核后的IPC：
 
 ![image-20210427095130343](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427095130343.png)
-
-
 
 **如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小**，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到**绑核后性能可以随着加节点线性增加**
 
@@ -447,13 +441,7 @@ mapped    :         5920 (  0.02 GB)
 
 通过同一台物理上6个Tomcat节点，总共96个core，压6台MySQL，MySQL基本快打挂了。sysbench 点查，32个分表，增加Tomcat节点进来物理rt就增加，从最初的的1.2ms加到6个Tomcat节点后变成8ms。
 
-
-
 ![image-20210425180535225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180535225.png)
-
-
-
-
 
 MySQL没绑好核，BIOS默认关闭了NUMA，外加12个MySQL分布在物理机上不均匀，3个节点3个MySQL，剩下的物理机上只有一个MySQL实例。
 
