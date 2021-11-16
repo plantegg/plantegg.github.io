@@ -172,16 +172,16 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 ​     
 ​    }
 ​     
-    # 任务持续时间
-    probe timer.s(20) {
-        if (!found) {
-    	    warn("No backtraces found. Quitting now...\n")
-    	    exit()
-        } else {
-    	    warn("Time's up. Quitting now...(it may take a while)\n")
-    	    quit = 1
-        }
-    }
+​    # 任务持续时间
+​    probe timer.s(20) {
+​        if (!found) {
+​    	    warn("No backtraces found. Quitting now...\n")
+​    	    exit()
+​        } else {
+​    	    warn("Time's up. Quitting now...(it may take a while)\n")
+​    	    quit = 1
+​        }
+​    }
 
 
 
@@ -198,16 +198,42 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
       mdelay(THIS->ms);
     %}
 
-
 [使用Systemtap生成Flame Graph(火焰图) ](http://blog.csdn.net/justlinux2010/article/details/11171291)
+
+## 案例3 追踪丢包
+
+```
+probe kernel.trace("kfree_skb")
+{
+
+         printf("sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n",$skb->sk,$skb,ntohs(@cast($skb->data, "struct tcphdr")->source),ntohs(@cast($skb->data, "struct tcphdr")->dest),@cast($skb->data, "struct tcphdr")->syn,@cast($skb->data, "struct tcphdr")->ack,@cast($skb->data, "struct tcphdr")->rst,ntohl(@cast($skb->data, "struct tcphdr")->seq),ntohl(@cast($skb->data, "struct tcphdr")->ack_seq), symname($location));
+}
+```
+
+![img](/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
+
+以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：
+
+```
+probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
+{
+                  printf("source:%d,dest:%d,skb:%x,sk:%x,syn:%x,ack:%x,%x-%x,%s\n",ntohs(@cast($skb->data, "struct tcphdr")->source),ntohs(@cast($skb->data, "struct tcphdr")->dest),$skb,$skb->sk,@cast($skb->data, "struct tcphdr")->syn,@cast($skb->data, "struct tcphdr")->ack,@cast($skb->data, "struct tcphdr")->source,@cast($skb->data, "struct tcphdr")->dest,pp())
+}
+```
+
+![img](/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
+
+以上输出对应的代码如下：
+
+![img](/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
 
 ## 网络重传
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](/images/oss/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](/images/oss/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](/images/oss/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 网络包大小分布
 
@@ -223,11 +249,11 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 	}'
 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/297eb625b1e157d85a29754108871c08.png)
+![image.png](/images/oss/297eb625b1e157d85a29754108871c08.png)
 
 ## 产看网络流量由哪个进程发出，或者说哪个进程在发包
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png)
+![image.png](/images/oss/74b0a393a6334421957a032f1f141a9c.png)
 
 ## 网络连接创建rt？
 
@@ -338,9 +364,9 @@ bpftrace工具包
 ​	kernel function performing accept. It is not tracing every packet and then
 ​	filtering.
 ​	
-	This tool only traces successful TCP accept()s. Connection attempts to closed
-	ports will not be shown (those can be traced via other functions).
-	
+​	This tool only traces successful TCP accept()s. Connection attempts to closed
+​	ports will not be shown (those can be traced via other functions).
+​	
 	There is another version of this tool in bcc: https://github.com/iovisor/bcc
 
 最后一列就是backlog最大大小和已经多少

@@ -673,3 +673,5 @@ https://cloud.tencent.com/developer/article/1005284
 [关于CPU Cache -- 程序猿需要知道的那些事](http://cenalulu.github.io/linux/all-about-cpu-cache/)
 
 [ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield来代替pause，yield 指令的实现退化为 nop 指令，执行时间非常非常锻，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)
+
+http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html

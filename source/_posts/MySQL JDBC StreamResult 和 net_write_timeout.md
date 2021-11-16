@@ -13,6 +13,8 @@ tags:
 
 # MySQL JDBC StreamResult 和 net_write_timeout
 
+## MySQL JDBC 拉取数据的三种方式
+
 MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 
 1. 简单模式，也就是默认模式，数据都先要从MySQL Server发到client的OS TCP buffer，然后JDBC把 OS buffer读取到JVM内存中，读取到JVM内存的过程中憋着不让client读取，全部读完再通知inputStream.read(). 数据大的话容易导致JVM OOM
@@ -39,6 +41,10 @@ MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 | Default Value       | `60`                    |
 | Minimum Value       | `1`                     |
 
+> **案例**：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，知道MySQL  Server 触发 net_write_timeout，报异常
+>
+> 首先可以尝试在 DRDS jdbcurl 配置 netTimeoutForStreamingResults 参数,设置为 0 可以使其一直等待,或设置一个合理的值(秒).
+
 从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery（）方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：
 
 ```
@@ -59,7 +65,7 @@ if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {
 
 一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
+![](/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
 
 或者：
 
@@ -96,7 +102,17 @@ Caused by: java.io.EOFException: Can not read response from server. Expected to 
 
 connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间，默认值0，表示不设置超时，单位毫秒，建议30000。 JDBC驱动连接属性
 
-socketTimeout：表示客户端和MySQL数据库建立socket后，读写socket时的等待的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。 JDBC驱动连接属性
+socketTimeout：JDBC参数，表示客户端发送请求给MySQL数据库后block在read的等待数据的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。要特别注意socketTimeout仅仅是指等待socket数据时间，如果在传输数据那么这个值就没有用了。[socketTimeout通过mysql-connector中的NativeProtocol最终设置在socketOptions上](https://docs.oracle.com/javase/7/docs/api/java/net/SocketOptions.html#SO_TIMEOUT)
+
+![image-20211024171459127](/images/951413iMgBlog/image-20211024171459127.png)
+
+> static final int SO_TIMEOUT。 **Set a timeout on blocking Socket operations**:
+>
+>  ServerSocket.accept();
+>  SocketInputStream.read();
+>  DatagramSocket.receive();
+>
+> The option must be set prior to entering a blocking operation to take effect. If the timeout expires and the operation would continue to block, **java.io.InterruptedIOException** is raised. The Socket is not closed in this case.
 
 Statement Timeout：用来限制statement的执行时长，timeout的值通过调用JDBC的java.sql.Statement.setQueryTimeout(int timeout) API进行设置。不过现在开发者已经很少直接在代码中设置，而多是通过框架来进行设置。
 
@@ -111,7 +127,7 @@ Statement Timeout：用来限制statement的执行时长，timeout的值通过�
 | Type                | Integer                  |
 | Default Value       | `0`                      |
 
-[`wait_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout) The number of seconds the server waits for activity on a noninteractive connection before closing it. MySQL 属性，一般设置tcp keepalive后这个值基本不会超时。
+[`wait_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout) The number of seconds the server waits for activity on a noninteractive connection before closing it. MySQL 属性，一般设置tcp keepalive后这个值基本不会超时（这句话存疑 202110）。
 
 On thread startup, the session [`wait_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout) value is initialized from the global [`wait_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_wait_timeout) value or from the global [`interactive_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout) value, depending on the type of client (as defined by the `CLIENT_INTERACTIVE` connect option to [`mysql_real_connect()`](https://dev.mysql.com/doc/refman/5.7/en/mysql-real-connect.html)). See also [`interactive_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_interactive_timeout).
 
@@ -141,4 +157,4 @@ queryTimeout（queryTimeoutKillsConnection=True--来强制关闭连接）会触�
 
 ## 参考资料
 
-https://www.atatech.org/articles/122079
+[MySQL JDBC StreamResult通信原理浅析](https://www.atatech.org/articles/122079)

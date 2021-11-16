@@ -19,7 +19,7 @@ tags:
 
  ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
+![img](/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
 
 
 
@@ -54,7 +54,13 @@ vendor id对应厂家
 
 ## 飞腾ARM芯片介绍
 
-**飞腾处理器**，又称**银河飞腾处理器**，是由[中国人民解放军国防科学技术大学](https://zh.wikipedia.org/wiki/中國人民解放軍國防科學技術大學)研制的一系列嵌入式[数字信号处理器](https://zh.wikipedia.org/wiki/数字信号处理器)（DSP）和[中央处理器](https://zh.wikipedia.org/wiki/中央处理器)（CPU）芯片。[[1\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-cw-1)这个处理器系列的研发，是由国防科技大的[邢座程](https://zh.wikipedia.org/w/index.php?title=邢座程&action=edit&redlink=1)教授[[2\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-2)带领的团队负责研发。[[3\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-Xing_671-3)其[商业化](https://zh.wikipedia.org/w/index.php?title=商業化&action=edit&redlink=1)[推广](https://zh.wikipedia.org/wiki/推廣)则是由[中国电子信息产业集团有限公司](https://zh.wikipedia.org/wiki/中国电子信息产业集团有限公司)旗下的天津飞腾信息技术有限公司负责
+**飞腾处理器**，又称**银河飞腾处理器**，是由[中国人民解放军国防科学技术大学](https://zh.wikipedia.org/wiki/中國人民解放軍國防科學技術大學)研制的一系列嵌入式[数字信号处理器](https://zh.wikipedia.org/wiki/数字信号处理器)（DSP）和[中央处理器](https://zh.wikipedia.org/wiki/中央处理器)（CPU）芯片。[[1\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-cw-1)这个处理器系列的研发，是由国防科技大的[邢座程](https://zh.wikipedia.org/w/index.php?title=邢座程&action=edit&redlink=1)教授[[2\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-2)带领的团队负责研发。[[3\]](https://zh.wikipedia.org/wiki/飞腾处理器#cite_note-Xing_671-3)其[商业化](https://zh.wikipedia.org/w/index.php?title=商業化&action=edit&redlink=1)[推广](https://zh.wikipedia.org/wiki/推廣)则是由[中国电子信息产业集团有限公司](https://zh.wikipedia.org/wiki/中国电子信息产业集团有限公司)旗下的天津飞腾信息技术有限公司负责。
+
+飞腾公司在早期，考察了SPARC、MIPS、ALPHA架构，这三种指令集架构都可以以极其低廉的价格（据说SPARC的授权价只有99美元，ALPHA不要钱）获得授权，飞腾选择了SPARC架构进行了CPU的研发。
+
+2012年ARM正式推出了自己的第一个64位指令集处理器架构ARMv8，进入服务器等新的领域。此后飞腾放弃了SPARC，拿了ARMv8指令集架构的授权，全面转向了ARM阵营，芯片roadmap如下：
+
+![img](/images/951413iMgBlog/3407604faa7ca9a87fa26610606081ab.png)
 
 ### [测试芯片详细信息](https://pdf.dfcfw.com/pdf/H3_AP202010201422468889_1.pdf?1603181661000.pdf)
 
@@ -156,41 +162,81 @@ node   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
  15:  100  100  100  100  100  100  100  100  40  50  30  50  20  40  30  10
 ```
 
-![image-20210422121346490](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422121346490.png)
+![image-20210422121346490](/images/951413iMgBlog/image-20210422121346490.png)
 
 cpu详细信息：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
+![img](/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
 
 飞腾芯片，按如下distance绑核基本没区别！展示出来的distance是假的一样
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
+![img](/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
 
-### 飞腾2500 和 鲲鹏9200 参数对比：
+FT2500芯片集成的 64 个处理器核心，划分为 8 个 Panel，每个 Panel 中有两个 Cluster (每个 Cluster 包含 4 个处理器核心及共享的 2M 二级 cache)、两个本地目录控 制部件(DCU)、一个片上网络路由器节点(Cell)和一个紧密耦合的访存控制 器(MCU)。Panel 之间通过片上网络接口连接，一致性维护报文、数据报文、 调测试报文、中断报文等统一从同一套网络接口进行路由和通信
 
-![image-20210422095217195](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422095217195.png)
+一个Panel的实现是FTC663版本，采用四发射乱序超标量流水线结构，兼容 ARMv8 指令集，支持 EL0~EL3 多个特权级。流水线分为取指、译码、分派、执 行和写回五个阶段，采用顺序取指、乱序执行、顺序提交的多发射执行机制，取 值宽度、译码宽度、分派宽度均是 4 条指令，共有 9 个执行部件(或者称为 9 条功能流水线)，分别是 4 个整数部件、2 个浮点部件、1 个 load 部件、1 个 load/store 部件和 1 个系统管理指令执行部件。浮点流水线能够合并执行双路浮点 SIMD 指 令，实现每拍可以执行 4 条双精度浮点操作的峰值性能。
+
+![image-20210910120438276](/images/951413iMgBlog/image-20210910120438276.png)
+
+猜测FT2500 64core用的是一个Die, 但是core之间的连接是Ring Bus，而Ring Bus下core太多后延迟会快速增加，所以一个Die 内部做了8个小的Ring Bus，每个Ring Bus下8个core。
+
+### 飞腾官方提供的测试结果
+
+![image-20210909175954574](/images/951413iMgBlog/image-20210909175954574.png)
+
+### 飞腾2500 和 鲲鹏9200 参数对比
+
+![image-20210422095217195](/images/951413iMgBlog/image-20210422095217195.png)
+
+### FT2000与FT2500差异
+
+下表是FT2000和FT2500产品规格对比表，和芯片的单核内部结构变化较少，多了L3，主频提高了，其他基本没有变化。
+
+| **特征**     | **FT-2000+/64**                                              | **FT-2500**                                                  |
+| ------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 指令         | 兼容 ARM V8 指令集 FTC662 内核                               | 兼容 ARM V8 指令集FTC663 内核                                |
+| Core数       | 64个                                                         | 64个                                                         |
+| 频率         | 2.2GHZ/2.0GHZ/1.8GHZ                                         | **2.0~2.3GHz**                                               |
+| 体系架构     | NUMA                                                         | NUMA                                                         |
+| RAS          | 无                                                           | 支持                                                         |
+| 加解密       | 无                                                           | **ASE128、SHA1、SHA2-256、PMULL**                            |
+| L1 Cache     | 每个核独占32KB指令Cache与32KB数据Cache                       | 每个核独占32K指令Cache与32K数据Cache                         |
+| L2 Cache     | 共32MB，每4个核共享2MB                                       | 共32MB，每4个核共享2MB                                       |
+| L3 Cache     | 无                                                           | **64MB**                                                     |
+| LMU数量      | 8个                                                          | 8个                                                          |
+| 支持最大容量 | 1TB                                                          | 1TB*socket数量                                               |
+| 支持最大频率 | 3200MHZ                                                      | 支持3200MHZ                                                  |
+| 外接设备     | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、 LR-DIMM，电压 1.2V | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、LR-DIMM，电压 1.2V |
+| 镜像存储     | 无                                                           | 每两个MCU互为备份                                            |
+| PCIe         | PCIE3.02 个 x16 和 1 个 x1每个 x16 可拆分成 2 个 x8，支持翻转 | PCIE3.01 个 x16 和 1 个 x1x16 可拆分成 2 个 x8，支持翻转     |
+| SPI          | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V           | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V           |
+| UART         | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口    | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口    |
+| GPIO         | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] |
+| LPC          | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V      | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V      |
+| I2C          | 2 个 I2C master 控制器                                       | 2 个 I2C master /Slave控制器,2个slave控制器                  |
+| 直连         | 无                                                           | 四个直连通路，每路X4个lane，每条lane速率为25Gbps，支持2路、4路、8路 |
 
 ## 飞腾ARM芯片性能测试数据
 
-一下测试场景基本都是运行CPU和网络瓶颈的业务逻辑，绑核前IPC只有0.08
+以下测试场景基本都是运行CPU和网络瓶颈的业务逻辑，绑核前IPC只有0.08
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 绑核后对性能提升非常明显：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 点查场景：
 
-![image-20210425092158127](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425092158127.png)
+![image-20210425092158127](/images/951413iMgBlog/image-20210425092158127.png)
 
 如上是绑48-63号核
 
-![image-20210425091727122](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091727122.png)
+![image-20210425091727122](/images/951413iMgBlog/image-20210425091727122.png)
 
-![image-20210425091557750](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091557750.png)
+![image-20210425091557750](/images/951413iMgBlog/image-20210425091557750.png)
 
-![image-20210425093630438](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425093630438.png)
+![image-20210425093630438](/images/951413iMgBlog/image-20210425093630438.png)
 
 绑不同的核性能差异比较大，比如同样绑第一个socket最后16core和绑第二个socket最后16core，第二个socket的最后16core性能要好25-30%---**这是因为网卡软中断，如果将软中断绑定到0-4号cpu后差异基本消失**,因为网卡队列设置的是60，基本跑在前60core上，也就是第一个socket上。
 
@@ -276,7 +322,7 @@ mapped    :         4742 (  0.02 GB)
 
 绑核前后对比：绑核后QPS翻倍，绑核后的服务rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
 
-![image-20210427093424116](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093424116.png)
+![image-20210427093424116](/images/951413iMgBlog/image-20210427093424116.png)
 
 ```
 #perl numa-maps-summary.pl </proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了
@@ -353,7 +399,6 @@ mapped    :         5959 (  0.02 GB)
 [ 287s] threads: 100, tps: 0.00, reads/s: 11886.00, writes/s: 0.00, response time: 19.43ms (95%)
 [ 288s] threads: 100, tps: 0.00, reads/s: 12700.00, writes/s: 0.00, response time: 16.97ms (95%)
 
-
 #perl numa-maps-summary.pl </proc/54723/numa_maps  //54723绑定在NUMA6上
 N0        :          551 (  0.00 GB)
 N1        :          115 (  0.00 GB)
@@ -415,23 +460,23 @@ mapmax    :         1564 (  0.01 GB)
 mapped    :         5920 (  0.02 GB)
 ```
 
-![image-20210427164953340](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427164953340.png)
+![image-20210427164953340](/images/951413iMgBlog/image-20210427164953340.png)
 
 绑核前的IPC：
 
-![image-20210427093625575](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093625575.png)
+![image-20210427093625575](/images/951413iMgBlog/image-20210427093625575.png)
 
 绑核后的IPC：
 
-![image-20210427095130343](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427095130343.png)
+![image-20210427095130343](/images/951413iMgBlog/image-20210427095130343.png)
 
 **如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小**，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到**绑核后性能可以随着加节点线性增加**
 
-![image-20210427172612685](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427172612685.png)
+![image-20210427172612685](/images/951413iMgBlog/image-20210427172612685.png)
 
-![image-20210427173047815](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173047815.png)
+![image-20210427173047815](/images/951413iMgBlog/image-20210427173047815.png)
 
-![image-20210427173417673](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173417673.png)
+![image-20210427173417673](/images/951413iMgBlog/image-20210427173417673.png)
 
 结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)
 
@@ -441,7 +486,7 @@ mapped    :         5920 (  0.02 GB)
 
 通过同一台物理上6个Tomcat节点，总共96个core，压6台MySQL，MySQL基本快打挂了。sysbench 点查，32个分表，增加Tomcat节点进来物理rt就增加，从最初的的1.2ms加到6个Tomcat节点后变成8ms。
 
-![image-20210425180535225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180535225.png)
+![image-20210425180535225](/images/951413iMgBlog/image-20210425180535225.png)
 
 MySQL没绑好核，BIOS默认关闭了NUMA，外加12个MySQL分布在物理机上不均匀，3个节点3个MySQL，剩下的物理机上只有一个MySQL实例。
 
@@ -449,7 +494,7 @@ MySQL每个实例32core，管控默认已经做了绑核，但是如果两个MyS
 
 比如这三个MySQL，qps基本均匀，上面两个cpu高，但是没效率，每个MySQL绑了32core，上面两个绑在一个socket上，下面的MySQL绑在另一个socket上，第一个socket还有网络软中断在争抢cpu，飞腾环境下性能真要冲高还有很大空间。
 
-![image-20210425180518926](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180518926.png)
+![image-20210425180518926](/images/951413iMgBlog/image-20210425180518926.png)
 
 ```
 #第二个MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
@@ -503,19 +548,27 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 12个MySQL流量基本均匀：
 
-![image-20210426083033989](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426083033989.png)
+![image-20210426083033989](/images/951413iMgBlog/image-20210426083033989.png)
 
 ### numa太多，每个numa下core比较少
 
 导致跨numa高概率发生，如下是在正常部署下的测试perf 数据，可以看到IPC极低，才0.08，同样的场景在其他家芯片都能打到0.6
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 执行绑核，将一个进程限制在2个numa内，因为进程需要16core，理论上用8core的进程性能会更好
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 可以看到IPC从0.08提升到了0.22，实际能到0.27，对应的业务测试QPS也是原来的4倍。 
+
+用numactl 在启动的时候绑定cpu在 node0、1上，优先使用node0、1的内存，不够再用其它node的内存
+
+```
+numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --defaults-file=/polarx/xcluster3308/my.cnf  --basedir=/u01/xcluster80_current  --datadir=/polarx/xcluster3308/data  --plugin-dir=/u01/xcluster80/lib/plugin  --user=mysql  --log-error=/polarx/xcluster3308/log/alert.log  --open-files-limit=615350  --pid-file=/polarx/xcluster3308/run/mysql.pid  --socket=/polarx/xcluster3308/run/mysql.sock  --cluster-info=11.158.239.200:11308@1  --mysqlx-port=13308  --port=3308
+```
+
+
 
 ### 网卡队列调整
 
@@ -523,69 +576,46 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 将MySQL网卡队列从60个改成6个后MySQL性能提升大概10%
 
-![image-20210426085534983](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426085534983.png)
+![image-20210426085534983](/images/951413iMgBlog/image-20210426085534983.png)
 
 默认第一个MySQL都绑在0-31号核上,其实改少队列加大了0-5号core的压力，但是实际数据表现要好。
 
+## 比较其它
 
+绑核的时候还要考虑磁盘、网卡在哪个socket上，相对来说node和磁盘、网卡在同一个socket下性能要好一些。
 
-#### 查看网卡和numa的关系
+左边的mysqld绑定在socket1的64core上，磁盘、网卡都在socket1上；右边的mysqld绑定在0-31core上，网卡在socket0上，但是磁盘在socket1上
 
-```
-#yum install lshw -y
-#lshw -C network -short
-H/W path               Device          Class      Description
-=============================================================
-/0/100/0/9/0           eth0            network    MT27710 Family [ConnectX-4 Lx]
-/0/100/0/9/0.1         eth1            network    MT27710 Family [ConnectX-4 Lx]
-/1                     e41358fae4ee_h  network    Ethernet interface
-/2                     86b0637ef1e1_h  network    Ethernet interface
-/3                     a6706e785f53_h  network    Ethernet interface
-/4                     d351290e50a0_h  network    Ethernet interface
-/5                     1a9e5df98dd1_h  network    Ethernet interface
-/6                     766ec0dab599_h  network    Ethernet interface
-/7                     bond0.11        network    Ethernet interface
-/8                     ea004888c217_h  network    Ethernet interface
-```
+右边这个刚好是跨socket访问磁盘，不知道是不是巧合log_flush排位比较高
 
-以及：
+![image-20210910180305752](/images/951413iMgBlog/image-20210910180305752.png)
 
-```
-lscpu | grep -i numa
-numactl --hardware
-cat /proc/interrupts | egrep -i "CPU|rx"
-```
+此时对应的IPC：
 
-[Check if the network interfaces are tied to Numa](https://ixnfo.com/en/how-to-find-out-on-which-numa-node-network-interfaces.html) (if -1 means not tied, if 0, then to numa0):
+![image-20210910181820803](/images/951413iMgBlog/image-20210910181820803.png)
 
-```
-cat /sys/class/net/eth0/device/numa_node
-```
+如果上面两个进程在没有刷日志的场景下时候对应的IPC两者基本一样：
 
-You can see which NAMA the network card belongs to, for example, using lstopo:
-
-```
-yum install hwloc -y
-lstopo
-lstopo --logical
-lstopo --logical --output-format png > lstopo.png
-```
-
-如果cpu core太多, interrupts 没法看的话，通过cut只看其中一部分core
-
-```
-cat /proc/interrupts | grep -i 'eth4\|CPU' | cut -c -8,865-995,1425-
-```
-
-
-
-## 内存和cache的latency对比
-
-![latency](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/latency.png)
+![image-20210910181909962](/images/951413iMgBlog/image-20210910181909962.png)
 
 ## 结论
 
 FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT2500上的业务按node绑核后性能提升了几倍，但是离Intel x86还有很大的距离
+
+用循环跑多个nop指令在飞腾2500下IPC只能跑到1，据说这是因为nop指令被扔掉了，所以一直在跑跳转循环判断；
+
+对寄存器变量进行++运算，IPC是0.5； 
+
+用如下代码能将IPC跑到2.49，也是我能跑出来的最高IPC了，去掉nop那行，IPC是1.99
+
+```
+				register unsigned i=0;
+        for (i=0;i<(1u<<31);i++) {
+                __asm__ ("nop"); 
+        }
+```
+
+
 
 ## 系列文章
 

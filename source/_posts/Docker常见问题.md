@@ -212,7 +212,9 @@ nsenter相当于在setns的示例程序之上做了一层封装，使我们无�
 
 **搞Docker就得上el7， 6的性能太差了** Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。
 
+## 清理
 
+删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk '{ print $3 }' |grep overlay2| xargs umount 批量删除
 
 ## 参考资料
 

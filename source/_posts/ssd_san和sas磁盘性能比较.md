@@ -10,37 +10,7 @@ tags:
     - 光纤
 ---
 
-# ssd/san/sas 磁盘 光纤性能比较
-
-正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png)
-
-所使用的测试命令：
-
-```
-fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
-```
-
-ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排除了其他因素的干扰。
-
-简要的结论： 
-
-- 本地ssd性能最好、sas机械盘(RAID10)性能最差
-
-- san存储走特定的光纤网络，不是走tcp的san（至少从网卡看不到san的流量），性能居中
-
-- 从rt来看 ssd:san:sas 大概是 1:3:15
-
-- san比本地sas机械盘性能要好，这也许取决于san的网络传输性能和san存储中的设备（比如用的ssd而不是机械盘）
-
-## NVMe SSD 和 HDD的性能比较
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
-
-表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
-
-**HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
+# SSD原理以及ssd/san/sas/磁盘/光纤性能比较
 
 ##  SSD 的性能特性和机制
 
@@ -51,6 +21,8 @@ SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。
 一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。
 
 多个页面组合成块。一个块的典型大小为 512KB 或 1MB，也就是大约 128 或 256 页。**块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。**
+
+![image-20210915090731401](/images/951413iMgBlog/image-20210915090731401.png)
 
 **擦除速度相对很慢，通常为几毫秒**。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。
 
@@ -89,17 +61,33 @@ NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、
 
 [高端SSD会选取MLC](https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf)（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）
 
-![image-20210603161822079](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210603161822079.png)
+![image-20210603161822079](/images/951413iMgBlog/image-20210603161822079.png)
 
-
-
-![slc-mlc-tlc-buckets](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
+![slc-mlc-tlc-buckets](/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg)
 
 
 
 NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB
 
+对于TLC NAND （每个NAND cell存储3 bits的信息），下面列出了每种操作的典型耗时的范围：
 
+​      读操作（Tread）    ：      50-100us，
+
+​      写操作（Tprog）    ：     500us-5ms，
+
+​      擦除操作（Terase） ：      2-10ms。
+
+
+
+SSD的基本结构：
+
+![image-20210915090459823](/images/951413iMgBlog/image-20210915090459823.png)
+
+SSD内部使用写缓存。写缓存主要用来降低写延迟。当写请求发送给SSD时，写数据会被先保存在写缓存，此时SSD会直接发送确认消息通知主机端写请求已完成，实现最低的写延迟。SSD固件在后台会异步的定期把写缓存中的数据通过写操作命令刷回给NAND颗粒。为了满足写操作的持久化语义，SSD内有大容量电容保证写缓存中数据的安全。当紧急断电情况发生时，固件会及时把写缓存中的数据写回NAND颗粒. 也就是紧急断电后还能通过大电容供电来维持最后的落盘。
+
+[以海康威视E200P为例](https://www.bilibili.com/read/cv4139832)，PCB上的硬件PLP掉电保护电路从D200Pro的10个钽电容+6个电感，简化为6个钽电容+6个电感。钽电容来自Panasonic，单颗47uF，6个钽电容并联可以为SSD提供几十毫秒的放电时间，让SSD把处理中的数据写入NAND中并更新映射表。这样的硬件PLP电路对比普通的家用产品要强悍很多。 
+
+![img](/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp)
 
 #### 为什么断电后SSD不丢数据
 
@@ -118,6 +106,56 @@ SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次�
 ### 耗损平衡 (Wear Leveling) 
 
 对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P/E 周期的典型数目是十万次；对于 MLC 块，P/E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。
+
+##性能比较
+
+正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
+
+![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
+
+所使用的测试命令：
+
+```
+fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+```
+
+ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排除了其他因素的干扰。
+
+简要的结论： 
+
+- 本地ssd性能最好、sas机械盘(RAID10)性能最差
+
+- san存储走特定的光纤网络，不是走tcp的san（至少从网卡看不到san的流量），性能居中
+
+- 从rt来看 ssd:san:sas 大概是 1:3:15
+
+- san比本地sas机械盘性能要好，这也许取决于san的网络传输性能和san存储中的设备（比如用的ssd而不是机械盘）
+
+## NVMe SSD 和 HDD的性能比较
+
+![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+
+表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
+
+**HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
+
+## non-volatile memory (NVM)
+
+NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。
+
+**1、NVM特性**
+
+**数据访问延迟**：NVM的读延迟比磁盘小很多。由于NVM仍处于开发阶段，来源不同延迟不同。STT-RAM的延迟1-20ns。尽管如此，他的延迟也已经非常接近DRAM了。
+
+PC_RAM 和R-RAM的写延迟比DRAM高。但是写延迟不是很重要，因为可以通过buffer来缓解。
+
+**密度**：NVM的密度比DRAM高，可以作为主存的替代品，尤其是在嵌入式系统中。例如，相对于DRAM，PC-RAM提供2到4倍的容量，便于扩展。
+
+**耐久性**：即每个内存单元写的最大次数。最具竞争性的是PC-RAM和STT-RAM，提供接近DRAM的耐久性。更精确的说，NVM的耐久性是1015而DRAM是1016。另外，NVM比闪存技术的耐久性更大。
+
+**能量消耗**：NVM不需要像DRAM一样周期性刷写以维护内存中数据，所以消耗的能量更少。PC-RAM比DRAM消耗能量显著的少，其他比较接近。
+
+此外，还有字节寻址、持久性。Interl和Micron已经发起了3D XPoint技术，同时Interl开发了新的指令以支持持久内存的使用。
 
 ## 磁盘类型查看
 
@@ -743,7 +781,7 @@ ESSD的latency基本是13-16us。
 
 ### HDD性能测试数据
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -805,7 +843,7 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
 
 
 
@@ -1005,4 +1043,6 @@ https://zhuanlan.zhihu.com/p/40497397
 [机械硬盘随机IO慢的超乎你的想象](https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247483999&idx=1&sn=238d3d1a8cf24443db0da4aa00c9fb7e&chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&scene=178&cur_album_id=1371808335259090944#rd)
 
 [搭载固态硬盘的服务器究竟比搭机械硬盘快多少？](https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247484023&idx=1&sn=1946b4c286ed72da023b402cc30908b6&chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&scene=178&cur_album_id=1371808335259090944#rd)
+
+[SSD基本工作原理](http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml)
 

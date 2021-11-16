@@ -29,23 +29,55 @@ ss可以显示跟netstat类似的信息，但是速度却比netstat快很多，n
 
 ss参数说明[权威参考](https://man7.org/linux/man-pages/man8/ss.8.html)
 
---memory/-m ： 展示buffer窗口的大小
+```shell
+-m, --memory
+              Show socket memory usage. The output format is:
 
+              skmem:(r<rmem_alloc>,rb<rcv_buf>,t<wmem_alloc>,tb<snd_buf>,
+                            f<fwd_alloc>,w<wmem_queued>,o<opt_mem>,
+                            bl<back_log>,d<sock_drop>)
+
+              <rmem_alloc>
+                     the memory allocated for receiving packet
+
+              <rcv_buf>
+                     the total memory can be allocated for receiving
+                     packet
+
+              <wmem_alloc>
+                     the memory used for sending packet (which has been
+                     sent to layer 3)
+
+              <snd_buf>
+                     the total memory can be allocated for sending
+                     packet
+
+              <fwd_alloc>
+                     the memory allocated by the socket as cache, but
+                     not used for receiving/sending packet yet. If need
+                     memory to send/receive packet, the memory in this
+                     cache will be used before allocate additional
+                     memory.
+
+              <wmem_queued>
+                     The memory allocated for sending packet (which has
+                     not been sent to layer 3)
+
+              <ropt_mem>
+                     The memory used for storing socket option, e.g.,
+                     the key for TCP MD5 signature
+
+              <back_log>
+                     The memory used for the sk backlog queue. On a
+                     process context, if the process is receiving
+                     packet, and a new packet is received, it will be
+                     put into the sk backlog queue, so it can be
+                     received by the process immediately
+
+              <sock_drop>
+                     the number of packets dropped before they are de-
+                     multiplexed into the socket
 ```
-#ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
-tcp ESTAB 0 31 10.97.137.1:7764 10.97.137.2:41019 skmem:(r0,rb7160692,t0,tb87040,f1792,w2304,o0,bl0)
-tcp ESTAB 0 193 ::ffff:10.97.137.1:sdo-tls ::ffff:10.97.137.2:55545 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
-tcp ESTAB 0 65 ::ffff:10.97.137.1:splitlock ::ffff:10.97.137.2:47796 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
-tcp ESTAB 0 80 ::ffff:10.97.137.1:informer ::ffff:10.97.137.3:49279 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
-tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
-
-#ss -m -n | xargs -L 1 | grep "tcp EST" | grep "t[1-9]"
-tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
-```
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
-
-如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w[The memory allocated for sending packet (which has not been sent to layer 3)]已经预分配好了的size，t[the memory used for sending packet (which has been sent to layer 3)] , 似乎 w总是等于大于t？
 
 The entire print format of `ss -m` is given in the source:
 
@@ -87,17 +119,78 @@ void sk_get_meminfo(const struct sock *sk, u32 *mem)
 }
 ```
 
-![image-20210604120011898](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210604120011898.png)
+![image-20210604120011898](/images/951413iMgBlog/image-20210604120011898.png)
+
+--memory/-m ： 展示buffer窗口的大小
+
+```
+#ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
+tcp ESTAB 0 31 10.97.137.1:7764 10.97.137.2:41019 skmem:(r0,rb7160692,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 193 ::ffff:10.97.137.1:sdo-tls ::ffff:10.97.137.2:55545 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 65 ::ffff:10.97.137.1:splitlock ::ffff:10.97.137.2:47796 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 80 ::ffff:10.97.137.1:informer ::ffff:10.97.137.3:49279 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
+
+#ss -m -n | xargs -L 1 | grep "tcp EST" | grep "t[1-9]"
+tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
+```
+
+![image.png](/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
+
+如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w[The memory allocated for sending packet (which has not been sent to layer 3)]已经预分配好了的size，t[the memory used for sending packet (which has been sent to layer 3)] , 似乎 w总是等于大于t？
+
+
 
 example:
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
+![image.png](/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
+
+对带宽限速50MB后的观察：
+
+```shell
+$ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
+Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port
+tcp ESTAB 1431028 0 172.16.210.17:30082 172.16.160.1:4847 skmem:(r2066432,rb2135508,t0,tb46080,f2048,w0,o0,bl0,d72)
+tcp ESTAB 1195628 0 172.16.210.17:30086 172.16.160.1:4847 skmem:(r1742848,rb1915632,t8,tb46080,f190464,w0,o0,bl0,d187)
+tcp ESTAB 86416 0 172.16.210.17:40470 172.16.160.1:4847 skmem:(r127232,rb131072,t0,tb46080,f3840,w0,o0,bl0,d16)
+tcp ESTAB 1909826 0 172.16.210.17:40476 172.16.160.1:4847 skmem:(r2861568,rb2933688,t2,tb46080,f26112,w0,o0,bl0,d15)
+tcp ESTAB 758312 0 172.16.210.17:40286 172.16.160.1:4847 skmem:(r1124864,rb1177692,t0,tb46080,f1536,w0,o0,bl0,d17)
+tcp ESTAB 2238720 0 172.16.210.17:40310 172.16.160.1:4847 skmem:(r3265280,rb3334284,t0,tb46080,f3328,w0,o0,bl0,d30)
+tcp ESTAB 88172 0 172.16.210.17:40508 172.16.160.1:4847 skmem:(r128000,rb131072,t0,tb46080,f3072,w0,o0,bl0,d16)
+tcp ESTAB 87700 0 172.16.210.17:41572 172.16.160.1:4847 skmem:(r130560,rb131072,t0,tb46080,f512,w0,o0,bl0,d10)
+tcp ESTAB 4147293 0 172.16.210.17:40572 172.16.160.1:4847 skmem:(r6064896,rb6291456,t2,tb46080,f75008,w0,o0,bl0,d27)
+tcp ESTAB 1610940 0 172.16.210.17:30100 172.16.160.1:4847 skmem:(r2358784,rb2533092,t6,tb46080,f82432,w0,o0,bl0,d304)
+tcp ESTAB 4216156 0 172.16.210.17:30068 172.16.160.1:4847 skmem:(r6091008,rb6291456,t0,tb46080,f3840,w0,o0,bl0,d112)
+tcp ESTAB 87468 0 172.16.210.17:40564 172.16.160.1:4847 skmem:(r127232,rb131072,t0,tb46080,f3840,w0,o0,bl0,d16)
+tcp ESTAB 0 84608 172.16.210.17:3306 10.100.7.27:43114 skmem:(r0,rb65536,t8352,tb131072,f75648,w92288,o0,bl0,d0)
+tcp ESTAB 4141872 0 172.16.210.17:40584 172.16.160.1:4847 skmem:(r6050560,rb6291456,t2,tb46080,f19712,w0,o0,bl0,d14)
+
+
+$ss -itn
+State       Recv-Q Send-Q   Local Address:Port                  Peer Address:Port
+ESTAB       965824 0        172.16.210.17:19310                 172.16.160.1:4847
+         cubic wscale:9,7 rto:215 rtt:14.405/0.346 ato:160 mss:1440 rcvmss:1460 advmss:1460 cwnd:10 bytes_acked:1324584 bytes_received:2073688144 segs_out:91806 segs_in:1461520 data_segs_out:4824 data_segs_in:1456130 send 8.0Mbps lastsnd:545583 lastrcv:545276 lastack:13173 pacing_rate 16.0Mbps delivery_rate 8.9Mbps app_limited busy:9071ms rcv_rtt:1.303 rcv_space:164245 minrtt:1.293
+ESTAB       0      84371    172.16.210.17:3306                  10.100.7.147:59664
+         cubic wscale:7,7 rto:217 rtt:16.662/0.581 ato:40 mss:1448 rcvmss:976 advmss:1448 cwnd:375 ssthresh:19 bytes_acked:5087795046 bytes_received:1647 segs_out:3589314 segs_in:358086 data_segs_out:3589313 data_segs_in:8 send 260.7Mbps lastsnd:6 lastrcv:1177745 lastack:4 pacing_rate 312.8Mbps delivery_rate 32.9Mbps busy:1176476ms rwnd_limited:1717ms(0.1%) sndbuf_limited:159867ms(13.6%) unacked:37 retrans:0/214 rcv_space:14600 notsent:32055 minrtt:7.945
+ESTAB       0      83002    172.16.210.17:3306                   10.100.7.28:34066
+         cubic wscale:7,7 rto:215 rtt:14.635/0.432 ato:40 mss:1448 rcvmss:976 advmss:1448 cwnd:144 ssthresh:144 bytes_acked:972464708 bytes_received:1466 segs_out:671667 segs_in:94369 data_segs_out:671666 data_segs_in:8 send 114.0Mbps lastsnd:1 lastrcv:453365 lastack:1 pacing_rate 136.8Mbps delivery_rate 24.0Mbps busy:453493ms sndbuf_limited:200ms(0.0%) unacked:23 rcv_space:14600 notsent:49698 minrtt:9.937
+ESTAB       1239616 0        172.16.210.17:41592                 172.16.160.1:4847
+         cubic wscale:9,7 rto:216 rtt:15.754/0.775 ato:144 mss:1440 rcvmss:1460 advmss:1460 cwnd:10 bytes_acked:20321 bytes_received:1351071 segs_out:269 segs_in:1091 data_segs_out:76 data_segs_in:988 send 7.3Mbps lastsnd:339339 lastrcv:337401 lastack:10100 pacing_rate 14.6Mbps delivery_rate 1.0Mbps app_limited busy:1214ms rcv_rtt:227.156 rcv_space:55581 minrtt:11.38
+ESTAB       3415748 0        172.16.210.17:30090                 172.16.160.1:4847
+         cubic wscale:9,7 rto:202 rtt:1.667/0.011 ato:80 mss:1440 rcvmss:1460 advmss:1460 cwnd:10 bytes_acked:398583 bytes_received:613824362 segs_out:28630 segs_in:437621 data_segs_out:1495 data_segs_in:435792 send 69.1Mbps lastsnd:1179931 lastrcv:1179306 lastack:12149 pacing_rate 138.2Mbps delivery_rate 7.2Mbps app_limited busy:2520ms rcv_rtt:1.664 rcv_space:212976 minrtt:1.601
+ESTAB       86480  0        172.16.210.17:41482                 172.16.160.1:4847
+         cubic wscale:9,7 rto:215 rtt:14.945/1.83 ato:94 mss:1440 rcvmss:1460 advmss:1460 cwnd:10 bytes_acked:3899 bytes_received:93744 segs_out:73 segs_in:136 data_segs_out:20 data_segs_in:83 send 7.7Mbps lastsnd:449541 lastrcv:449145 lastack:19314 pacing_rate 15.4Mbps delivery_rate 964.2Kbps app_limited busy:296ms rcv_rtt:8561.27 rcv_space:14600 minrtt:11.948
+ESTAB       89136  0        172.16.210.17:40480                 172.16.160.1:4847
+         cubic wscale:9,7 rto:213 rtt:12.11/0.79 ato:196 mss:1440 rcvmss:1460 advmss:1460 cwnd:10 bytes_acked:2510 bytes_received:95652 segs_out:102 segs_in:168 data_segs_out:16 data_segs_in:81send 9.5Mbps lastsnd:1099067 lastrcv:1098659 lastack:13686 pacing_rate 19.0Mbps delivery_rate 1.0Mbps app_limited busy:199ms rcv_rtt:2438.63 rcv_space:14600 minrtt:11.178
+ESTAB       0      84288    172.16.210.17:3306                   10.100.7.26:51160
+         cubic wscale:7,7 rto:216 rtt:15.129/0.314 ato:40 mss:1448 rcvmss:976 advmss:1448 cwnd:157 ssthresh:157 bytes_acked:2954689465 bytes_received:1393 segs_out:2041403 segs_in:237797 data_segs_out:2041402 data_segs_in:8 send 120.2Mbps lastsnd:11 lastrcv:1103462 lastack:10 pacing_rate 144.2Mbps delivery_rate 31.3Mbps busy:1103503ms sndbuf_limited:3398ms(0.3%) unacked:24 retrans:0/7rcv_space:14600 notsent:49536 minrtt:9.551
+```
 
 
 
 ## ss 查看拥塞窗口、RTO
 
-> //rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
+> //rto的定义，不让修改，每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
 > #define TCP_RTO_MAX     ((unsigned)(120*HZ))
 > #define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN
 

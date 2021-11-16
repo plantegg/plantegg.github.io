@@ -33,19 +33,19 @@ tags:
 	-/+ buffers/cache:        432       7082
 	Swap:            0          0          0
 
+其中，[cached 列表示当前的页缓存（Page Cache）占用量](https://spongecaptain.cool/SimpleClearFileIO/1.%20page%20cache.html)，buffers 列表示当前的块缓存（buffer cache）占用量。用一句话来解释：**Page Cache 用于缓存文件的页数据，buffer cache 用于缓存块设备（如磁盘）的块数据。**页是逻辑上的概念，因此 Page Cache 是与文件系统同级的；块是物理上的概念，因此 buffer cache 是与块设备驱动程序同级的。
 
-
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
+<img src="/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
 
 **上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。**
-
-
 
 ## free
 
 free是从 /proc/meminfo 读取数据然后展示：
 
 > buff/cache = Buffers + Cached + SReclaimable
+>
+> Buffers + Cached + SwapCached = Active(file) + Inactive(file) + Shmem + SwapCached
 
 ```
 [root@az1-drds-79 ~]# cat /proc/meminfo |egrep -i "buff|cach|SReclai"

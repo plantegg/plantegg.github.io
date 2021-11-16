@@ -104,7 +104,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](http://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 
@@ -373,7 +373,33 @@ tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以�
 
 /dev/tty 控制终端
 
+## [rsync](https://wangdoc.com/ssh/rsync.html)
 
+```
+将本地yum备份到150上的/data/yum/ 下
+rsync -arv ./yum/ root@11.167.60.150:/data/yum/
+
+走ssh的8022端口把目录备份到本地
+rsync -e 'ssh -p 8022' -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./
+```
+
+`-a`、`--archive`参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。
+
+`--delete`参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。
+
+`-i`参数表示输出源目录与目标目录之间文件差异的详细情况。
+
+`--link-dest`参数指定增量备份的基准目录。
+
+`-n`参数或`--dry-run`参数模拟将要执行的操作，而并不真的执行。配合`-v`参数使用，可以看到哪些内容会被同步过去。
+
+`--partial`参数允许恢复中断的传输。不使用该参数时，`rsync`会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与`--append`或`--append-verify`配合使用。
+
+`--progress`参数表示显示进展。
+
+`-r`参数表示递归，即包含子目录。
+
+`-v`参数表示输出细节。`-vv`表示输出更详细的信息，`-vvv`表示输出最详细的信息。
 
 ## 参考文章：
 

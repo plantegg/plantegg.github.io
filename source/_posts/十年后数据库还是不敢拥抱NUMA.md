@@ -373,6 +373,22 @@ Used time: 39 seconds
 
 innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，**修复后这个参数没有意义了**。
 
+### [AUTOMATIC NUMA BALANCING](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing)
+
+RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离更近以达到最好的效果
+
+> Automatic NUMA balancing improves the performance of applications running on NUMA hardware systems. It is enabled by default on Red Hat Enterprise Linux 7 systems.
+>
+> An application will generally perform best when the threads of its processes are accessing memory on the same NUMA node as the threads are scheduled. Automatic NUMA balancing moves tasks (which can be threads or processes) closer to the memory they are accessing. It also moves application data to memory closer to the tasks that reference it. This is all done automatically by the kernel when automatic NUMA balancing is active.
+
+对应参数
+
+```
+cat /proc/sys/kernel/numa_balancing shows 1
+```
+
+
+
 ## 总结
 
 * 放弃对NUMA的偏见吧，优先回收 PageCache 这个Bug早已修复了

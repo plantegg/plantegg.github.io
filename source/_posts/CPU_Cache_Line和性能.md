@@ -87,6 +87,10 @@ LEVEL4_CACHE_ASSOC                 0
 LEVEL4_CACHE_LINESIZE              0
 ```
 
+比如，对于下面的FT2500 ARM芯片下，L1D是32K，是因为32K=256\*2\*64（64就是cache_line大小，16个int）, 这32K是256个组，每组2行（x86一般是每组8行），每行就是一个cache_line
+
+![image-20210914175307651](/images/951413iMgBlog/image-20210914175307651.png)
+
 ## cache_line 影响性能的案例
 
 如下两个循环执行次数循环2是循环1的十六分之一。但是在x86和arm下执行时间都是循环2是循环1的四分之一左右。
@@ -198,7 +202,7 @@ failed to read counter branches
 for (int i = 0; i < arr.Length; i += K) arr[i] *= 3;
 ```
 
-![running times of this loop for different step values (K)](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image6.png)
+![running times of this loop for different step values (K)](/images/951413iMgBlog/image6.png)
 
 更典型的案例是对一个二维数组逐行遍历和逐列遍历的时间差异，变量次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好
 
@@ -579,12 +583,12 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
 
 重点留意上述代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
+![image.png](/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png)
 
 队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中
 
 
-![image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
+![image](/images/oss/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689.png)
 
 数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache
 
@@ -637,7 +641,7 @@ Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却�
 
 从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1.png)
+![img](/images/951413iMgBlog/1.png)
 
 
 
@@ -698,17 +702,17 @@ x86_64下的执行结果，确实是case2略快
 
 case1的branch miss大概接近1%（看0 core上的 BrchMiss%， 数据由 xperf 1.3.8采集）
 
-![image-20210517111209985](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111209985.png)
+![image-20210517111209985](/images/951413iMgBlog/image-20210517111209985.png)
 
 case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以最终的执行时间差异不大
 
-![image-20210517111244550](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210517111244550.png)
+![image-20210517111244550](/images/951413iMgBlog/image-20210517111244550.png)
 
-![image-20210512133536939](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512133536939.png)
+![image-20210512133536939](/images/951413iMgBlog/image-20210512133536939.png)
 
 在arm下case1反而更快，如截图
 
-![image-20210512132121856](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210512132121856.png)
+![image-20210512132121856](/images/951413iMgBlog/image-20210512132121856.png)
 
 
 
@@ -743,3 +747,6 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 [7个示例科普CPU CACHE](https://coolshell.cn/articles/10249.html)
 
 [与程序员相关的CPU缓存知识](https://coolshell.cn/articles/20793.html)
+
+[Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?](http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj) 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share
+

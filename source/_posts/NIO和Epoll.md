@@ -25,17 +25,17 @@ tags:
 
 零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg)
+![](/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg)
 
 
 
 比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png)
+![image.png](/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png)
 
 改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ccdc10037d35349293cba8a63ad72af5.png)
+![image.png](/images/oss/ccdc10037d35349293cba8a63ad72af5.png)
 
 零拷贝就是操作系统提供的新函数(**sendfile**)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。
 
@@ -57,7 +57,7 @@ tags:
 
 用户线程发起read后，不阻塞，反复尝试读取，直到内核把网卡数据读到内核空间，用户线程继续read，这时进入阻塞直到数据拷贝到用户空间
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png) 
+![undefined](/images/oss/1562207744743-e86e37bb-c8e4-40aa-b581-ac862011221a.png) 
 
 **阻塞和非阻塞指的是发起IO操作后是等待还是返回，同步和异步指的是应用程序与内核通信时数据从内核空间拷贝到用户空间的操作是内核主动触发（异步）还是应用程序触发（同步）**
 
@@ -67,13 +67,13 @@ tags:
 
 epoll作用：进程内同时刻找到缓冲区或者连接状态变化的所有TCP连接，主要是基于同一时刻活跃连接只在总连接中占一小部分
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/45b484a77965974c20faa9d034b734f4.png)
+![image.png](/images/oss/45b484a77965974c20faa9d034b734f4.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5c03818e5fab6431a709753130be5897.png)
+![image.png](/images/oss/5c03818e5fab6431a709753130be5897.png)
 
 用户线程读取分成两步，用户线程先发起select调用（确认内核是否准备好数据），准备好后才调用read，将数据从内核空间读取到用户空间（read这里还是阻塞）。主要是一个select线程可以向内核查多个数据通道的状态
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png) 
+![undefined](/images/oss/1562207798044-84e66820-3cbf-4353-9b5b-1dd1124631df.png) 
 
 **IO多路复用和同步阻塞、非阻塞的区别主要是用户线程发起read的时机不一样，IO多路复用是等数据在内核空间准备好了再通过同步read去读取；而阻塞和非阻塞因为没法预先知道数据是否在内核空间准备好，所以早早触发了read然后等待，只是阻塞会一直等，而非阻塞是指触发read后不用等，反复read直到read到数据。**
 
@@ -200,7 +200,7 @@ NIOAcceptor(一般只有一个，可以有多个)是一个Thread，只负责处�
 
 或者这种代码, 同时处理accept、read、write：
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png) 
+![undefined](/images/oss/1562210988218-8e4dfbae-8947-4bc6-93c7-8e0157637d6c.png) 
 
 Select 触发 read/write 堆栈： 
 
@@ -261,6 +261,42 @@ Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketCha
 
 Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(多)selector形式
 
+### [Channel](https://spongecaptain.cool/SimpleClearFileIO/5.%20Java%20ByteBuffer%E4%B8%8E%20Channel.html)
+
+Channel 类位于 java.nio.channels 包中，但并不是 Channel 仅仅支持 NIO，其分为两种类型：
+
+- FileChannel：完全不支持 NIO；
+- SocketChannel/ServerSocketChannel 等 Channel 默认情况下并不支持 NIO，只有显式地调用配置方法才能够进入非阻塞模式（`ServerSocketChannel.configBlocking(false)`）。
+
+下面主要以 SocketChannel 的角度来介绍 Channel 类。
+
+Channel 我们可以理解为对应于 BIO 中的 Socket，也可以理解为 Scoket.inputStream/SocketOutputStream。如果认为是流，那么我们做一个比较：
+
+- 传统 Socket：我们调用 Socket 的 `getInputStream()` 以及 `getOutputStream()` 进行数据的读和写。
+- Channel：我们不再需要得到输入输出流进行读和写，而是通过 Channel 的 `read()` 以及 `write()` 方法进行读和写。
+
+Channel 如此实现也付出了代价（如下图所示）：
+
+- 读写模式需要调用 `flip()` 方法进行切换，读模式下调用 `write()` 试图进行写操作会报错。
+- 读写不再能够接受一个简单的字节数组，而是必须是封装了字节数组的 Buffer 类型。
+
+![image-20200516195346349](/images/951413iMgBlog/image-20200516195346349.png)
+
+目前已知 Channel 的实现类有：
+
+- FileChannel 一个用来写、读、映射和操作文件的通道。
+
+- DatagramChannel
+
+- SocketChannel
+
+  SocketChannel 可以看做是具有非阻塞模式的 Socket。其可以运行在阻塞模式，也可以运行在非阻塞模式。其只能依靠 ByteBuffer 进行读写，而且是尽力读写，尽力的含义是：
+
+  - ByteBuffer 满了就不能再读了；
+  - 即使此次 Socket 流没有传输完毕，但是一旦 Channel 中的数据读完了，那么就返回了，这就是非阻塞读。所以读的方法有 -1（EOF），0（Channel 中的数据读完了，但是整个数据流本身没有消耗完），其他整数，此次读的数据（因为 ByteBuffer 并不是每次都是空的，原来就有数据时只能够尽力装满）。
+
+- ServerSocketChannel 这个类似于 ServerSocket 起到的作用。
+
 ### 一个比喻比较他们的不同
 
 打个不是极其恰当的比方：假如你去餐馆吃饭，厨师(内核)给你准备饭菜（数据）
@@ -277,7 +313,7 @@ Java的Netty框架和 Corba的NIOProcessor 就是基于java的NIO库，用的(�
 
  NIOEndpoint组件实现了NIO和IO多路复用，IO多路复用指的是Poller通过Selector处理多个Socket（SocketChannel）
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png) 
+![undefined](/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png) 
 
 - LimitLatch 是连接控制器，负责控制最大连接数，NIO模式下默认是10000，达到阈值后新连接被拒绝
 - Acceptor 跑在一个单独的线程里，一旦有新连接进来accept方法返回一个SocketChannel对象，接着把SocketChannel对象封装在一个PollerEvent对象中，并将PollerEvent对象压入Poller的Queue里交给Poller处理。 Acceptor和Poller之间是典型的生产者-消费者模式
@@ -322,13 +358,13 @@ epoll 异步非阻塞多路复用
 
 闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c09f7457cd7914fc26573d9a4625de4.png)
+![image.png](/images/oss/0c09f7457cd7914fc26573d9a4625de4.png)
 
 ### MySQL Thread Pool 带来的问题
 
 MySQL Thread Pool根据参数thread_pool_size被分为若干个group,每个group维护client 发起的 connections,当MySQL建立 connection 时, MySQL 根据connection的id 对thread_pool_size取模,将connection 发起的sql 语句分配到对应的group。每个group的最大worker数量为thread_pool_oversubscribe+1。若worker达到最大数量后还是不足以处理会话请求,则连接在本group上等待（即使其他Group里面的thread完全空闲--类似如上Nginx 边缘触发的问题）,导致sql 语句的rt 增大，这个等待不会计入slow_query时间。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/80c19a50442290e7f79e97d94a585cc3.png)
+![image.png](/images/oss/80c19a50442290e7f79e97d94a585cc3.png)
 
 连接池可以起到避免了连接频繁创建和销毁（一个连接对应一个线程），但是无法起到控制MySQL活动线程数的目标，在高并发场景下，无法起到保护DB的作用。比较好的方式是将连接池和线程池结合起来使用。
 
@@ -340,15 +376,54 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 ## [协程](https://blog.youxu.info/2014/12/04/coroutine/)
 
-协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。
+协程是一种轻量级的，用户态的执行单元。相比线程，它占用的内存非常少，在很多实现中（比如 Go 语言）甚至可以做到按需分配栈空间。
+
+它主要有三个特点：
+
+- 占用的资源更少 ;
+- 所有的切换和调度都发生在用户态;
+- 它的调度是协商式的，而不是抢占式的。
+
+协程的全部精神就在于控制流的主动让出和恢复，工程实现得考虑如何让协程的让出与恢复高效。一般在协程中调用 yield_to 来主动把执行权从本协程让给另外一个协程。yield_to 机器码：
+
+```asm
+000000000040076d <_Z8yield_toP9coroutineS0_>:
+  40076d:       55                      push   %rbp
+  40076e:       48 89 e5                mov    %rsp,%rbp
+  400771:       48 89 7d f8             mov    %rdi,-0x8(%rbp)
+  400775:       48 89 75 f0             mov    %rsi,-0x10(%rbp)
+  400779:       48 8b 45 f0             mov    -0x10(%rbp),%rax
+  40077d:       48 8b 00                mov    (%rax),%rax
+  400780:       48 8b 55 f8             mov    -0x8(%rbp),%rdx
+  400784:       48 89 22                mov    %rsp,(%rdx)
+  400787:       48 89 c4                mov    %rax,%rsp
+  40078a:       5d                      pop    %rbp
+  40078b:       c3                      retq
+```
+
+yield_to 中，参数 old_co 指向老协程，co 则指向新的协程，也就是我们要切换过去执行的目标协程。
+
+这段代码的作用是，首先，把当前 rsp 寄存器的值存储到 old_co 的 stack_pointer 属性（第 9 行），并且把新的协程的 stack_pointer 属性更新到 rsp 寄存器（第 10 行），然后，retq 指令将会从栈上取出调用者的地址，并跳转回调用者继续执行（第 12 行）。
+
+当调用这一次 yield_to 时，rsp 寄存器刚好就会指向新的协程 co 的栈，接着就会执行"pop rbp"和"retq"这两条指令。这里你需要注意一下，栈的切换，并没有改变指令的执行顺序，因为栈指针存储在 rsp 寄存器中，当前执行到的指令存储在 IP 寄存器中，rsp 的切换并不会导致 IP 寄存器发生变化。
+
+这个协程切换过程并没有使用任何操作系统的系统调用，就实现了控制流的转移。也就是说，在同一个线程中，我们真正实现了两个执行单元。这两个执行单元并不像线程那样是抢占式地运行，而是相互主动协作式执行，所以，这样的执行单元就是协程。我们可以看到，协程的切换全靠本执行单元主动调用 yield_to 来把执行权让渡给其他协程。
+
+**每个协程都拥有自己的寄存器上下文和栈**。协程调度切换时，将寄存器上下文和栈保存到其他地方（上述例子中，保存在 coroutine 对象中），在切回来的时候，恢复先前保存的寄存器上下文和栈。
 
 ### 多进程和多线程优劣的比较
+
+把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。
 
 进程间内存难以共享，多线程可以共享内存；多进程内核管理成本高。
 
 每个线程消耗内存过多， 比如，64 位的 Linux 为每个线程的栈分配了 8MB 的内存，还预分配了 64MB 的内存作为堆内存池；切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。
 
-协程把内核态的切换工作交由用户态来完成
+协程把内核态的切换工作交由用户态来完成.
+
+目前主流语言基本上都选择了多线程作为并发设施，与线程相关的概念是抢占式多任务（Preemptive multitasking），而与协程相关的是协作式多任务。不管是进程还是线程，每次阻塞、切换都需要陷入系统调用 (system call)，先让 CPU 执行操作系统的调度程序，然后再由调度程序决定该哪一个进程 (线程) 继续执行。
+
+由于抢占式调度执行顺序无法确定，我们使用线程时需要非常小心地处理同步问题，而协程完全不存在这个问题。因为协作式的任务调度，是要用户自己来负责任务的让出的。如果一个任务不主动让出，其他任务就不会得到调度。这是协程的一个弱点，但是如果使用得当，这其实是一个可以变得很强大的优点。
 
 ### 同步、异步、协程的比较
 
@@ -356,13 +431,13 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 切换请求是内核通过切换线程实现的，什么时候会切换线程呢？不只时间片用尽，当调用阻塞方法时，内核为了让 CPU 充分工作，也会切换到其他线程执行。一次上下文切换的成本在几十纳秒到几微秒间，当线程繁忙且数量众多时，这些切换会消耗绝大部分的 CPU 运算能力。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/090682cb3deeb9a35a9dfad06b88e288.png)
+![image.png](/images/oss/090682cb3deeb9a35a9dfad06b88e288.png)
 
 #### 改成异步化后：
 
 把上图中本来由内核实现的请求切换工作，交由用户态的代码来完成就可以了，异步化编程通过应用层代码实现了请求切换，降低了切换成本和内存占用空间。异步化依赖于 IO 多路复用机制，比如 Linux 的 epoll 或者 Windows 上的 iocp，同时，必须把阻塞方法更改为非阻塞方法，才能避免内核切换带来的巨大消耗。Nginx、Redis 等高性能服务都依赖异步化实现了百万量级的并发。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/167657b454322840ae3a4204781f1bf5.png)
+![image.png](/images/oss/167657b454322840ae3a4204781f1bf5.png)
 
 然而，写异步化代码很容易出错。因为所有阻塞函数，都需要通过非阻塞的系统调用拆分成两个函数。虽然这两个函数共同完成一个功能，但调用方式却不同。第一个函数由你显式调用，第二个函数则由多路复用机制调用。这种方式违反了软件工程的内聚性原则，函数间同步数据也更复杂。特别是条件分支众多、涉及大量系统调用时，异步化的改造工作会非常困难。
 
@@ -380,11 +455,11 @@ group中的队列是用来区分优先级的，事务中的语句会放到高优
 
 协程的切换与此相同，只是把内核的工作转移到协程框架实现而已，下图是协程切换前的状态：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9a90497373211d65186a2a256212e3bf.png)
+![image.png](/images/oss/9a90497373211d65186a2a256212e3bf.png)
 
 从协程 1 切换到协程 2 后的状态如下图所示：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d997ee52fd79d752d1af9636ac6c858.png)
+![image.png](/images/oss/0d997ee52fd79d752d1af9636ac6c858.png)
 
 协程就是用户态的线程。然而，为了保证所有切换都在用户态进行，协程必须重新封装所有的阻塞系统调用，否则，一旦协程触发了线程切换，会导致这个线程进入休眠状态，进而其上的所有协程都得不到执行。比如，普通的 sleep 函数会让当前线程休眠，由内核来唤醒线程，而协程化改造后，sleep 只会让当前协程休眠，由协程框架在指定时间后唤醒协程。再比如，线程间的互斥锁是使用信号量实现的，而信号量也会导致线程休眠，协程化改造互斥锁后，同样由框架来协调、同步各协程的执行。
 
@@ -412,7 +487,7 @@ Erlang解决了协程密集计算的问题，它基于自行开发VM，并不执
 
 多线程调度下的热点火焰图：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7ece6c553c78927c7886f70c09d7e15b.png)
+![image.png](/images/oss/7ece6c553c78927c7886f70c09d7e15b.png)
 
 **多线程下真正的开销来源于线程阻塞唤醒调度**，系统调用和上下文切换伴随着多线程，所以导致大家一直认为系统调用和上下文切换过多导致了多线程慢。
 

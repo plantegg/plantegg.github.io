@@ -696,8 +696,6 @@ helm completion bash > .helmrc && echo "source .helmrc" >> .bashrc && source .ba
 # source /usr/share/bash-completion/bash_completion
 ```
 
-
-
 kubectl -s polarx-test-ackk8s-atp-3826.adbgw.alibabacloud.test exec -it bushu016polarx282bc7216f-5161 bash
 
 ## 启动时间排序
@@ -707,8 +705,44 @@ kubectl -s polarx-test-ackk8s-atp-3826.adbgw.alibabacloud.test exec -it bushu016
   533  [2021-08-24 18:37:41] kubectl get pods --sort-by=.metadata.creationTimestamp -ndrds
 ```
 
+## kubeadm
+
+初始化集群的时候第一看kubelet能否起来（cgroup配置），第二就是看kubelet静态起pod，kubelet参数指定yaml目录，然后kubelet拉起这个目录下的所有yaml。
+
+kubeadm启动集群就是如此。kubeadm生成证书、etcd.yaml等yaml、然后拉起kubelet，kubelet拉起etcd、apiserver等pod，kubeadm init 的时候主要是在轮询等待apiserver的起来。
+
+可以通过kubelet --v 256来看详细日志，kubeadm本身所做的事情并不多，所以日志没有太多的信息，主要是等待轮询apiserver的拉起
+
+### Kubeadm config
+
+Init 可以指定仓库以及版本
+
+```
+kubeadm init --image-repository=registry:5000/registry.aliyuncs.com/google_containers --kubernetes-version=v1.14.6  --pod-network-cidr=10.244.0.0/16
+```
+
+查看并修改配置
+
+```shell
+sudo kubeadm config view > kubeadm-config.yaml
+edit kubeadm-config.yaml and replace k8s.gcr.io with your repo
+sudo kubeadm upgrade apply --config kubeadm-config.yaml
+
+kubeadm config images pull --config="/root/kubeadm-config.yaml"
+
+kubectl get cm -n kube-system kubeadm-config -o yaml
+```
+
+pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像
+
+```shell
+#cat /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS --pod_infra_container_image=registry:5000/registry.aliyuncs.com/google_containers/pause:3.1
+```
+
 
 
 ## 参考资料
 
 https://kubernetes.io/zh/docs/reference/kubectl/cheatsheet/
+

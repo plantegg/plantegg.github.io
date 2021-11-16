@@ -46,7 +46,7 @@ slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面
 
 ## 关于hugetlb
 
-This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a "hugetlb page entry". The 'hugetlb" term is also (and mostly) used synonymously with a HugePage (See Note 261889.1). In this document the term "HugePage" is going to be used but keep in mind that mostly "hugetlb" refers to the same concept.
+This is an entry in the TLB that points to a HugePage (a large/big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a "hugetlb page entry". The 'hugetlb" term is also (and mostly) used synonymously with a HugePage.
 
  hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。
 
@@ -116,7 +116,7 @@ Page太大，更容易造成Page跨Numa/CPU 分布。
 
 从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，`Array A`和`Array B`大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此`Array B`就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/false_sharing.png)
+![img](/images/951413iMgBlog/false_sharing.png)
 
 ### Java进程开启HugePage
 
@@ -203,6 +203,64 @@ HugePages_Total:       1
 HugePages_Free:        1
 ```
 
+## [MySQL 场景下代码大页对性能的影响](https://ata.alibaba-inc.com/articles/217859)
+
+不只是数据可以用HugePage，代码段也可以开启HugePage, 无论在x86还是arm（arm下提升更明显）下，都可以得到大页优于透明大页，透明大页优于正常的4K page
+
+> 收益：代码大页 > anon THP > 4k
+
+arm下，对32core机器用32并发的sysbench来对比，代码大页带来的性能提升大概有11%，iTLB miss下降了10倍左右。
+
+x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右。
+
+## [TLAB miss高的案例](https://ata.alibaba-inc.com/articles/152660)
+
+程序运行久了之后会变慢大概10%
+
+刚开始运行的时候perf各项数据:
+
+![img](/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png)
+
+长时间运行后：
+
+![img](/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png)
+
+内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。
+
+既然无法理解这个结果，那就只有按部就班的查看内核执行路径上各个函数的差别了，祭出ftrace:
+
+```
+echo kerel_func_name1 > /sys/kernel/debug/tracing/set_ftrace_filter
+
+echo kerel_func_name2 > /sys/kernel/debug/tracing/set_ftrace_filter
+
+echo kerel_func_name3 > /sys/kernel/debug/tracing/set_ftrace_filter
+echo 1 > /sys/kernel/debug/tracing/function_profile_enabled
+```
+
+在CPU#20上执行代码:
+
+taskset -c 20 ./b
+
+代码执行完后:
+
+```
+echo 0 > /sys/kernel/debug/tracing/function_profile_enabled
+cat /sys/kernel/debug/tracing/trace_stat/function20
+```
+
+这个时候就会打印出在各个函数上花费的时间，比如:
+
+![img](/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png)
+
+经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).
+
+在阅读代码的过程中，注意到当前内核使能了CONFIG_SPARSEMEM_VMEMMAP=y
+
+原因就是机器运行久了之后内存碎片化严重，导致TLAB Miss严重。
+
+解决：开启THP后，性能稳定
+
 ## 碎片化
 
 内存碎片严重的话会导致系统hang很久(回收、压缩内存）
@@ -211,7 +269,7 @@ HugePages_Free:        1
 
 compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。
 
-![image-20210628144121108](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210628144121108.png)
+![image-20210628144121108](/images/951413iMgBlog/image-20210628144121108.png)
 
 一次THP compact堆栈：
 
@@ -247,6 +305,8 @@ Call Trace:
  [<ffffffff8152d45e>] do_page_fault+0x3e/0xa0                       //page fault
  [<ffffffff8152a815>] page_fault+0x25/0x30
 ```
+
+
 
 ### 查看pagetypeinfo
 

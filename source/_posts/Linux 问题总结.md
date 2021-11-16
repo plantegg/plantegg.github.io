@@ -24,7 +24,7 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
 问题原因：https://access.redhat.com/solutions/30316
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
+![image.png](/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
 
 如上图去掉 admin nproc限制就可以了
 
@@ -100,6 +100,10 @@ ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：
 3. 用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;
 4. 当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了
 
+## 进程和线程
+
+把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。
+
 ## deleted 文件
 
 `lsof +L1` 或者` lsof | grep delete` 发现有被删除的文件，且占用大量磁盘空间
@@ -120,7 +124,7 @@ success
 
 ## pam 权限报错
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png)
+![image.png](/images/oss/b646979272e71e015de4a47c62b89747.png)
 
 从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficientS
 
@@ -237,11 +241,9 @@ session     required      pam_unix.so
 | pam_cracklib.so  | password                         | 这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.     |
 | pam_limits.so    | session                          | 定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定 |
 
-
-
 ## 强制重启系统
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
+![image.png](/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
 
 ## hostname
 
@@ -249,19 +251,19 @@ hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没�
 
 ## tsar Floating point execption
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
+![image.png](/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
 
 因为 /etc/localtime 是deleted状态
 
 ## 奇怪的文件大小 [sparse file](https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
+![img](/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
 如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。实际是写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
+![img](/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
 
 [图片来源](https://www.systutorials.com/handling-sparse-files-on-linux/)
 
@@ -339,3 +341,6 @@ https://www.jianshu.com/p/ac3e7009a764
 B 站哈工大操作系统视频地址：https://www.bilibili.com/video/BV1d4411v7u7?from=search&seid=2361361014547524697
 
 B 站清华大学操作系统视频地址：https://www.bilibili.com/video/BV1js411b7vg?from=search&seid=2361361014547524697
+
+[Linux 工具：点的含义](https://linux.cn/article-10465-1.html) [英文版](https://www.linux.com/training-tutorials/linux-tools-meaning-dot/)
+

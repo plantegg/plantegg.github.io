@@ -44,7 +44,7 @@ Mac 下上网,尤其是在双网卡一起使用的时候, 一个网卡连内网�
 
 mac下DNS解析问题搞起来比较费劲,相应的资料也不多, 经过上面的操作后如果IP能通,域名解析有问题,一般都是DNS解析出了问题
 
-[mac下 /etc/resolv.conf 不再用来解析域名, 只有nslookup能用](https://shockerli.net/post/macos-hostname-scutil/)
+[mac下 /etc/resolv.conf 不再用来解析域名, 只有nslookup能用到resolv.conf](https://shockerli.net/post/macos-hostname-scutil/)
 
 ```shell
 cat /etc/resolv.conf                                                
@@ -77,7 +77,7 @@ scutil --dns 一般会展示一大堆的resolver, 每个resolver又可以有多�
 默认用第一个resolver, 如果第一个resolver没有nameserver那么域名没法解析, 可以修改dns resolver的nameserver: 
 
 ```shell
-#networksetup -listallnetworkservices  //列出网卡service, 比如 wifi ,一下是我的macpro输出
+#networksetup -listallnetworkservices  //列出网卡service, 比如 wifi ,以下是我的 macos 输出
 An asterisk (*) denotes that a network service is disabled.
 USB 10/100/1000 LAN
 Apple USB Ethernet Adapter
@@ -96,4 +96,4 @@ Thunderbolt Bridge
 
 ## 总结
 
-mac同时连wifi(外网)和有线(内网), 如果内网干扰了访问外部ip, 就检查路由表,调整顺序. 如果内网干扰了dns,可以通过scutil --dns查看dns顺序到系统配置里去掉不必要的resolver
+mac同时连wifi(外网或者vpn)和有线(内网), 如果内网干扰了访问外部ip, 就检查路由表,调整顺序. 如果内网干扰了dns,可以通过scutil --dns查看dns顺序到系统配置里去掉不必要的resolver

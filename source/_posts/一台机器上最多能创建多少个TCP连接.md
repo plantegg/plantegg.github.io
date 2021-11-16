@@ -69,7 +69,21 @@ bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，
 
 ## TCP SO_REUSEADDR
 
-SO_REUSEADDR 主要解决的是重用TIME_WAIT状态的port, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
+文档描述：
+
+> ```
+> SO_REUSEADDR      Indicates that the rules used in validating addresses supplied      in a bind(2) call should allow reuse of local addresses.  For      AF_INET sockets this means that a socket may bind, except when      there is an active listening socket bound to the address.      When the listening socket is bound to INADDR_ANY with a spe‐      cific port then it is not possible to bind to this port for      any local address.  Argument is an integer boolean flag.
+> ```
+
+从这段文档中我们可以知道三个事：
+
+1. 使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是说，两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。
+2. 当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。
+3. 当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。
+
+SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用
+
+SO_REUSEADDR 还可以重用TIME_WAIT状态的port, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
 
 > What exactly does SO_REUSEADDR do?
 >

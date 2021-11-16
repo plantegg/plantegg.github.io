@@ -47,7 +47,7 @@ tags:
 
 
 
-![image-20210802161410524](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161410524.png)
+![image-20210802161410524](/Users/ren/src/blog/951413iMgBlog/image-20210802161410524.png)
 
 ## 几个重要概念
 
@@ -67,95 +67,55 @@ node：同一个Die下的多个core以及他们对应的内存，对应着NUMA
 
 购买到的CPU实体外观和大小，一般是40mm X 50mm大小，可以看出一个CPU比一个Die大多了。
 
-![How to Perform a CPU Stress Test and Push It to the Limit | AVG](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg)
+![How to Perform a CPU Stress Test and Push It to the Limit | AVG](/Users/ren/src/blog/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg)
 
-![Coffee Lake-Refresh Desktop CPU List Surfaces: 35W Core i9-9900T & 8-Core  Xeon E-2200 Confirmed](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/images.jpeg)
+![Coffee Lake-Refresh Desktop CPU List Surfaces: 35W Core i9-9900T & 8-Core  Xeon E-2200 Confirmed](/Users/ren/src/blog/951413iMgBlog/images.jpeg)
 
-![enter image description here](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/yp6cf.jpg)
-
-## 宏观认识集成电路半导体行业
-
-先从市场分布和市场占有率等几个行业宏观概念来了解半导体行业
-
-### 半导体产业的产值分布
-
-下图中的处理器就是我们日常所说的CPU，当然还包含了GPU等
-
-我们常说的内存、固态硬盘这些存储器也是数字IC，后面你会看到一个CPU core里面还会有用于存储的cache电路
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png)
-
-### 从一台iPhone来看集成电路和芯片
-
-先看一台iPhone X拆解分析里面的所有芯片：
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg)
-
-### 全球半导体营收分布
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png)
-
-美光：美国；Hynix海力士：韩国现代；美国双通：高通(CDMA)、博通(各种买买买、并购，网络设备芯片)；欧洲双雄(汽车芯片)：恩智浦和英飞凌
-
-半导体行业近 5 年的行业前十的公司列了如下：
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/639990db9d26a8a54d1baaf3d6e513d4.png)
-
-#### 半导体产品的十大买家
-
-BBK是步步高集团，包含vivo、oppo、oneplus、realme等
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/3bb8531b7ab4c503436838ab15434310.png)
-
-### 国内半导体市场情况
-
-中国半导体协会总结过国产芯片的比例，2014 年出台的《国家集成电路产业发展纲要》和 2015 年的《中国制造 2025》文件中有明确提出：到 2020 年，集成电路产业与国际先进水平的差距逐步缩小；2020 年中国芯片自给率要达到 40%，2025 年要达到 50%。
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/a37bd5e13f2920fb2e85a7907cdc852a.jpeg)
-
-国产化国家主导：紫光， 紫光的策略从收购转为自建，2016 年 12 月，合并武汉新芯，成立长江存储，与西数合资成立紫光西数。
-
-长江存储在量产 64 层 NAND Flash 之后，2020 年首发 192 层 3D NAND，被预测 2021 会拿下 8% 的 NAND Flash 份额。同时，在存储芯片领域，中国还有一家公司叫做长鑫存储，长鑫存储以唯一一家中国公司的名号，杀入 DRAM 领域。在世界著名的行业分析公司 Yole 公司的报告上，显示长江存储和长鑫存储与三星、SK 海力士、美光和 Intel 齐头并进。
-
-市场份额上，国产存储芯片市场，也许还有望达到 2025 的目标。
-
-以上是我们对集成电路半导体行业的宏观认识。接下来我们从一颗CPU的生产制造开始讲
+![enter image description here](/Users/ren/src/blog/951413iMgBlog/yp6cf.jpg)
 
 ## 裸片Die 制作
 
 晶圆为什么总是圆的呢？生产过程就是从沙子中提纯硅，硅晶柱生长得到晶圆，生长是以圆柱形式的，所以切割下来的晶圆就是圆的了：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/weixin15664418828781.gif)
+![img](/Users/ren/src/blog/951413iMgBlog/weixin15664418828781.gif)
 
 硅晶柱切片：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e510d61ed3e648a3ae64be7ac1da26e7.png)
+![img](/Users/ren/src/blog/951413iMgBlog/e510d61ed3e648a3ae64be7ac1da26e7.png)
 
 直径为 300 毫米的纯硅晶圆（从硅柱上切割下来的圆片），俗称 12 寸晶圆，大约是 400 美金。但尺寸并不是衡量硅晶圆的最重要指标，纯度才是。日本的信越公司可以生产 13 个 9 纯度的晶圆。
+
+高纯硅的传统霸主依然是德国Wacker和美国Hemlock(美日合资)，中国任重而道远。太阳能级高纯硅要求是99.9999%，低纯度的硅全世界超过一半是中国产的，但是不值钱。而芯片用的电子级高纯硅要求99.999999999%，几乎全赖进口，直到2018年江苏鑫华公司才实现量产，目前年产0.5万吨，而中国一年进口15万吨。核心材料技术这块毫无疑问“外国仍然把中国摁在地上摩擦”。
+
+### 芯片设计
+
+主要依赖EDA， EDA工具是电子设计自动化（Electronic Design Automation）的简称，从计算机辅助设计（CAD）、计算机辅助制造（CAM）、计算机辅助测试（CAT）和计算机辅助工程（CAE）的概念发展而来的，是IC基础设计能力。利用EDA工具，工程师将芯片的电路设计、性能分析、设计出IC版图的整个过程交由计算机自动处理完成。
+
+ EDA软件方面早已形成了三巨头——Synopsys、Cadence、Mentor。Synopsys是EDA三巨头之首，国内从事EDA软件开发的华大九天和这三家比起来不是一个数量级。国内IC设计公司几乎100%采用国外EDA工具，在未来的相当长的一段时间里，我们应该看不到缩小和Synopsys、Cadence、Mentor技术差距的可能性。
 
 ### 光刻
 
 使用特定波长的光，透过光罩（类似印炒里面的母版），照射在涂有光刻胶的晶圆上，光罩上芯片的设计图像，就复制到晶圆上了，这就是光刻，这一步是由光刻机完成的，光刻机是芯片制造中光刻环节的核心设备。你可以把光刻理解为，就是用光罩这个母版，一次次在晶圆上印电路的过程。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg)
 
 光刻是最贵的一个环节，一方面是光罩越来越多，越来越贵，另一方面光刻机也很贵。光刻机是半导体制造设备中价格占比最大，也是最核心的设备。2020 年荷兰公司 ASML 的极紫外光源（EUV）光刻机每台的平均售价是 1.45 亿欧元，而且全世界独家供货，年产量 31 台，有钱也未必能买得到。
 
-![image-20210601160424815](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210601160424815.png)
+![image-20210601160424815](/Users/ren/src/blog/951413iMgBlog/image-20210601160424815.png)
 
 短波长光源是提高光刻机分辨力的有效方，光刻机的发展历史，就从紫外光源（UV）、深紫外光源（DUV），发展到了现在的极紫外光源（EUV）。
 
-回顾光刻机的发展历史，从 1960 年代的接触式光刻机、接近式光刻机，到 1970 年代的投影式光刻机，1980 年代的步进式光刻机，到步进式扫描光刻机、浸入式光刻机和现在的深紫外光源（DUV）和极紫外光源（EUV）光刻机，一边是设备性能的不断提高，另一边是价格逐年上升，且供应商逐渐减少。到了 EUV 光刻机，ASML 就是独家供货了。
+回顾光刻机的发展历史，从 1960 年代的接触式光刻机、接近式光刻机，到 1970 年代的投影式光刻机，1980 年代的步进式光刻机，到步进式扫描光刻机、浸入式光刻机和现在的深紫外光源（DUV）和极紫外光源（EUV）光刻机，一边是设备性能的不断提高，另一边是价格逐年上升，且供应商逐渐减少。到了 EUV 光刻机，ASML(阿斯麦) 就是独家供货了。英特尔有阿斯麦15%的股份，台积电有5%，三星有3%，另外美国弄了一个《瓦森纳协定》，敏感技术不能卖，中国、朝鲜、伊朗、利比亚均是被限制国家。
 
 品质合格的die切割下去后，原来的晶圆成了下图的样子，是挑剩下的Downgrade Flash Wafer。残余的die是品质不合格的晶圆。黑色的部分是合格的die，会被原厂封装制作为成品NAND颗粒，而不合格的部分，也就是图中留下的部分则当做废品处理掉。
 
 从晶圆上切割检测合格的Die（螺片），所以Die跟Wafer不一样不是圆的，而是是方形的，因为方形的在切割封测工艺上最简单
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/weixin15664418828785.gif)
+![img](/Users/ren/src/blog/951413iMgBlog/weixin15664418828785.gif)
 
 一个大晶圆，拿走了合格的Die后剩下的次品：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png)
+![img](/Users/ren/src/blog/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png)
 
 可见次品率不低，后面会谈到怎么降低次品率，次品率决定了CPU的价格。
 
@@ -169,7 +129,7 @@ AMD在工艺落后Intel的前提下，又想要堆核，只能采取一个Packag
 
 可惜连接四个Die的片外总线终归没有片内通信效率高，在好些benchmark中败下阵来，可见没有免费的午餐。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg)
 
 Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后改为Mesh。**AMD多Die封装的目的是省钱和增加灵活性！AMD每个Zeppelin Die都比Intel的小，这对良品率提高很大，节约了生产费用。**
 
@@ -177,33 +137,23 @@ Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后�
 
 一颗芯片的 1/3 的成本，是花在封测阶段的
 
-光刻的粒度越来越细，玩家也越来越少，基本主流都是代工模式：
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png)
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg)
-
-晶体管密度比较
-
-![image-20210728095829384](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210728095829384.png)
-
 ### Die和core
 
 One die with multiple cores，下图是一个Die内部图:
 
-![enter image description here](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/xCqqv.jpg)
+![enter image description here](/Users/ren/src/blog/951413iMgBlog/xCqqv.jpg)
 
 或者Skylake：
 
-![skylake sp mesh core tile zoom with client shown.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000px-skylake_sp_mesh_core_tile_zoom_with_client_shown.png)
+![skylake sp mesh core tile zoom with client shown.png](/Users/ren/src/blog/951413iMgBlog/1000px-skylake_sp_mesh_core_tile_zoom_with_client_shown.png)
 
 将两个Die封装成一块CPU(core多，成本低):
 
-![data f1](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/dataf1-1372099277050.jpg)
+![data f1](/Users/ren/src/blog/951413iMgBlog/dataf1-1372099277050.jpg)
 
 第4代酷睿（Haswell）的die：
 
-![image-20210601162558479](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210601162558479.png)
+![image-20210601162558479](/Users/ren/src/blog/951413iMgBlog/image-20210601162558479.png)
 
 第4代酷睿（Haswell）的die主要分为几个部分：GPU、4个core、System Agent(uncore,类似北桥)、cache和内存控制器和其他小部件。**比如我们发现core 3和4有问题，我们可以直接关闭3和4。坏的关掉就是i5, 都是好的就当i7来卖。**
 
@@ -211,23 +161,23 @@ One die with multiple cores，下图是一个Die内部图:
 
 早期CPU core和内存硬盘的连接方式(FSB 是瓶颈)：
 
-![image-20210602113401202](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602113401202.png)
+![image-20210602113401202](/Users/ren/src/blog/951413iMgBlog/image-20210602113401202.png)
 
 个人PC主板实物图：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/northsouth2.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/northsouth2.jpg)
 
 由于FSB变成了系统性能的瓶颈和对多CPU的制约，在台式机和笔记本电脑中，MCH(Memory Control Hub)被请进CPU中，服务器市场虽然短暂的出现了IOH。
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640.jpeg)
+![Image](/Users/ren/src/blog/951413iMgBlog/640.jpeg)
 
 集成北桥后的内存实物图：
 
-![image-20210602114931825](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602114931825.png)
+![image-20210602114931825](/Users/ren/src/blog/951413iMgBlog/image-20210602114931825.png)
 
 北桥已经集成到CPU中，南桥还没有，主要是因为：集成后Die增大不少，生产良品率下降成本上升；不集成两者采用不同的工艺；另外就是CPU引脚不够了！
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20210601095028465)
+![Image](/Users/ren/src/blog/951413iMgBlog/640-20210601095028465)
 
 SoC（System on Chip）：南桥北桥都集成在CPU中，单芯片解决方案。ATOM就是SoC
 
@@ -235,7 +185,7 @@ SoC（System on Chip）：南桥北桥都集成在CPU中，单芯片解决方案
 
 Intel skylake 架构图
 
-![skylake server block diagram.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
+![skylake server block diagram.svg](/Users/ren/src/blog/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
 
 
 
@@ -245,27 +195,27 @@ dTLB:data TLB
 
 多个core加上L3等组成一个Die：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/cache-ht-hierarchy-2.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/cache-ht-hierarchy-2.jpg)
 
 ## 多核和多个CPU
 
 如果要实现一台48core的计算能力的服务器，可以有如下三个方案
 
-### 方案1：一个大Die集成48core：![Intel Skylake SP Mesh Architecture Conceptual Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
+### 方案1：一个大Die集成48core：![Intel Skylake SP Mesh Architecture Conceptual Diagram](/Users/ren/src/blog/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
 
 ### [方案2](https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/)：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die 6个core
 
-![image-20210602165525641](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602165525641.png)
+![image-20210602165525641](/Users/ren/src/blog/951413iMgBlog/image-20210602165525641.png)
 
 四个Die之间的连接方法：
 
-![image-20210602172555232](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602172555232.png)
+![image-20210602172555232](/Users/ren/src/blog/951413iMgBlog/image-20210602172555232.png)
 
 上图最下面的方案为[Intel采用的EMIB](https://venturebeat.com/2017/03/28/intel-moves-tech-forward-by-putting-two-chips-in-a-single-package/)（Embedded Multi-die Interconnect Bridge）方案，cost 最低。中间的方案是使用“硅中介层”(Interposer，AMD采用的方案)。这意味着你能在两枚主要芯片的下面放置和使用第三枚芯片。这枚芯片的目的是使得多个设备的连接更加容易，但是也带来了更高的成本。
 
 ### 方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：
 
-![image-20210602171352551](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602171352551.png)
+![image-20210602171352551](/Users/ren/src/blog/951413iMgBlog/image-20210602171352551.png)
 
 三者的比较：
 
@@ -273,7 +223,7 @@ dTLB:data TLB
 
 方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和**内存**
 
-![image-20210602170727459](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602170727459.png)
+![image-20210602170727459](/Users/ren/src/blog/951413iMgBlog/image-20210602170727459.png)
 
 ### 面积和性能
 
@@ -301,29 +251,31 @@ dTLB:data TLB
 
 在提升主频之外可以提升性能的有：提升跳转预测率，增加Decoded Cache，增加每周期的并发读个数，增加执行通道，增加ROB， RS，Read & Write buffer等等，这些主要是为了增加IPC，当然增加core数量也是提升整体性能的王道。另外就是优化指令所需要的时钟周期、增加并行度更好的指令等等指令集相关的优化。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/main-qimg-7a34de25ee9d09ba88a1671d22d4b0f1.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/main-qimg-7a34de25ee9d09ba88a1671d22d4b0f1.jpeg)
 
 the industry came up with many different solution to create better computers w/o (or almost without) increasing the clock speed. 
 
+### 比较两代CPU性能变化
+
 Intel 最新的CPU Ice Lake(8380)和其上一代(8280)的性能对比数据：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Ice-Lake-3rd-Gen-Xeon-overview-slide.png)
+![img](/Users/ren/src/blog/951413iMgBlog/Intel-Ice-Lake-3rd-Gen-Xeon-overview-slide.png)
 
 上图最终结果导致了IPC提升了20%
 
 > But tock Intel did with the [Ice Lake](https://www.nextplatform.com/2021/04/19/deep-dive-into-intels-ice-lake-xeon-sp-architecture/) processors and their Sunny Cove cores, and the tock, at 20 percent instructions per clock (IPC) improvement on integer work
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
 
 ICE Lake在网络转发上的延时更小、更稳定了：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-sunny-cove-dpdk-latency.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/intel-ice-lake-sunny-cove-dpdk-latency.jpg)
 
 [两代CPU整体性能差异](https://wccftech.com/intel-unveils-ice-lake-sp-xeon-cpu-family-10nm-sunny-cove-cores-28-core-die/)：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
+![img](/Users/ren/src/blog/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
 
 ### 指令集优化
 
@@ -345,11 +297,13 @@ Linus Torvalds ：
 >
 > 我希望通过常规的整数代码来达到自己能力的极限，而不是通过 AVX512 这样的功率病毒来达到最高频率（因为人们最终还是会拿它来做 memory-to-memory copy），还占据了核心的很大面积。
 
+### 关于性能提升的小结
+
 所以今天的2.6G单核skylake，能秒掉20年前2.6G的酷睿, 尤其是复杂场景。
 
-![image-20210715094527563](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094527563.png)
+![image-20210715094527563](/Users/ren/src/blog/951413iMgBlog/image-20210715094527563.png)
 
-![image-20210715094637227](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715094637227.png)
+![image-20210715094637227](/Users/ren/src/blog/951413iMgBlog/image-20210715094637227.png)
 
 CPU能耗公式：
 
@@ -359,9 +313,15 @@ C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来�
 
 所以最终能耗和f频率是 f^3 的指数关系。
 
+> The successive nodes of CMOS technologies lead to x1.4 decrease of the gate delays. It led to a 25% increase per year of clock frequencies from 740 kHz (Intel 4004) to 3 GHz (Intel Xeons with 45-nm nodes).
+>
+> 每一代光刻工艺的改进可以降低1.4倍的门延迟
+
 即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。光刻机加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。
 
-![image-20210715100609552](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210715100609552.png)
+![image-20210715100609552](/Users/ren/src/blog/951413iMgBlog/image-20210715100609552.png)
+
+## 主频和外频
 
 **主频=外频×倍频系数**
 
@@ -371,7 +331,7 @@ C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来�
 
 睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1000.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/1000.jpeg)
 
 
 
@@ -381,13 +341,13 @@ C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来�
 
 早期core不多统一走北桥总线访问内存，对所有core时延统一
 
-![x86 UMA](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/numa-fsb-3.png)
+![x86 UMA](/Users/ren/src/blog/951413iMgBlog/numa-fsb-3.png)
 
 ### NUMA
 
 如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
+![undefined](/Users/ren/src/blog/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png) 
 
 如上架构是4路CPU，每路之间通过QPI相连，每个CPU内部8core用的是双Ring Bus相连，Memory Control Hub集成到了Die里面。一路CPU能连4个SMB，每个SMB有两个channel，每个channel最多接三个内存条（图中只画了2个）。
 
@@ -403,23 +363,23 @@ Ring Bus设计简单，双环设计可以保证任何两个ring stop之间距离
 
 在至强HCC(High Core Count, 核很多版)版本中，又加入了一个ring bus。两个ring bus各接12个Core，将延迟控制在可控的范围内。俩个Ring Bus直接用两个双向Pipe Line连接，保证通讯顺畅。与此同时由于Ring 0中的模块访问Ring 1中的模块延迟明显高于本Ring，亲缘度不同，所以两个Ring分属于不同的NUMA（Non-Uniform Memory Access Architecture）node。这点在BIOS设计中要特别注意。
 
-![Intel Xeon E5-2600 V4 High Core Count Die](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png)
+![Intel Xeon E5-2600 V4 High Core Count Die](/Users/ren/src/blog/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png)
 
 或者这个更清晰点的图：
 
-![03-05-Broadwell_HCC_Architecture](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
+![03-05-Broadwell_HCC_Architecture](/Users/ren/src/blog/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
 
 #### [Mesh网络](https://www.servethehome.com/the-new-intel-mesh-interconnect-architecture-and-platform-implications/)
 
 Intel在Skylake和Knight Landing中引入了新的片内总线：Mesh。它是一种2D的Mesh网络：
 
-![Intel Skylake SP Mesh Architecture Conceptual Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
+![Intel Skylake SP Mesh Architecture Conceptual Diagram](/Users/ren/src/blog/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png)
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png)
+![undefined](/Users/ren/src/blog/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png)
 
 一个skylake 28core die的实现：
 
-![Skylake SP 28 Core Die Mesh](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Skylake-SP-28-Core-Die-Mesh-800x666.jpg)
+![Skylake SP 28 Core Die Mesh](/Users/ren/src/blog/951413iMgBlog/Skylake-SP-28-Core-Die-Mesh-800x666.jpg)
 
 Mesh网络引入片内总线是一个巨大的进步，它有很多优点：
 
@@ -430,7 +390,7 @@ Mesh网络引入片内总线是一个巨大的进步，它有很多优点：
 
 RAM延迟大大缩短：
 
-![Broadwell Ring V Skylake Mesh DRAM Example](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg)
+![Broadwell Ring V Skylake Mesh DRAM Example](/Users/ren/src/blog/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg)
 
 上图左边的是ring bus，从一个ring里面访问另一个ring里面的内存控制器。最坏情况下是那条绿线，拐了一个大圈才到达内存控制器，需要310个cycle。而在Mesh网络中则路径缩短很多。
 
@@ -438,7 +398,7 @@ Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计�
 
 CPU的总线为铜薄膜，虽然摩尔定律使单位面积晶体管的密度不断增加，但是对于连接导线的电阻却没有明显的下降，导线的RC延迟几乎决定现有CPU性能，因此数据传输在CPU的角度来看是个极为沉重的负担。 虽然2D-mesh为数据提供了更多的迁移路径减少了数据堵塞，但也同样为数据一致性带来更多问题，例如过去ring-bus 结构下对于存在于某个CPU私用缓存的数据争抢请求只有两个方向（左和右）， 但是在2D-mesh环境下会来自于4个方向（上，下，左，右）
 
-![image-20210602104851803](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602104851803.png)
+![image-20210602104851803](/Users/ren/src/blog/951413iMgBlog/image-20210602104851803.png)
 
 ### uncore
 
@@ -601,27 +561,31 @@ Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca 
 
 ### [intel 架构迭代](https://jcf94.com/2018/02/13/2018-02-13-intel/)
 
-![Intel processor roadmap](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png)
+![Intel processor roadmap](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png)
 
-2006年90、65纳米工艺酷睿core Yonah上市，32位架构，仍然算是奔腾Pro系列；
+2006年90、65纳米工艺酷睿core Yonah上市，32位架构，仍然算是奔腾Pro系列；2006推出酷睿处理器是介于NetBurst和Core之间，其实是NetBurst的改版，Core 2是第一个基于Core架构的原生双核处理器，65nm工艺，使得AMD K8架构优势全无，直接投入开发原生四核架构K10去了。
 
 2006年7月[酷睿2](https://zh.wikipedia.org/wiki/酷睿2)处理器代号为“[Conroe](https://zh.wikipedia.org/w/index.php?title=Conroe&action=edit&redlink=1)”，采用[x86-64](https://zh.wikipedia.org/wiki/X86-64)指令集与65纳米双核心架构。该处理器基于全新的酷睿微架构，虽然时脉大大降低，但在效率方面和性能方面有了重大改进。从这一时期开始，在深度流水线和资源混乱的运行引擎上维持每个周期的高指令（IPC）
 
-2008年的 Nehalem （酷睿i7）是采用 45nm 工艺的新架构，主要优势来自重新设计的I/O和存储系统，这些系统具有新的Intel QuickPath Interconnect和集成的内存控制器，可支持三通道的DDR3内存。
+2008年的 Nehalem （酷睿i7）是采用 45nm 工艺的新架构，主要优势来自重新设计的I/O和存储系统，这些系统具有新的Intel QuickPath Interconnect和集成的内存控制器，可支持三通道的DDR3内存。引入片内4-12MB的L3 Cache；重新加入超线程；分支预测分级；取消北桥，IMC(集成内存控制器）从北桥挪到片内
 
-2009年的 Westmere 升级到 32nm；
+2009年的 Westmere 升级到 32nm；退出第一代I5/I3，Xeon 系列也开始推出第一代E命名的E7-x8xx系列。
 
 2010年的 Lynnfield/Clarkdale 基于 45nm/32nm 工艺的新架构，第一代智能酷睿处理器；
 
-2011年的 Sandy Bridge ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；
+2011年的 Sandy Bridge ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；实现了GPU和CPU的融合
 
-2012年的 IVY Bridge，是 Sandy Bridge 的 22nm 升级版，第三代智能酷睿处理器；
+2012年的 IVY Bridge，是 Sandy Bridge 的 22nm 升级版，第三代智能酷睿处理器，Tick级改进；
 
-2013年的 Haswell ，基于 22nm 工艺的新架构，第四代智能酷睿处理器；
+2013年的 Haswell ，基于 22nm 工艺的新架构，第四代智能酷睿处理器，Tock级改进；
 
 2014年的 Broadwell，是 Haswell 的 14nm 升级版，第五代智能酷睿处理器；
 
-2015年则推出 SkyLake，基于 14nm 工艺的新架构；
+2015年则推出 SkyLake，基于 14nm 工艺的新架构， Tock级改进，Ring-Bus改成了Mesh架构，第6代Core i系列，8163就是这款；socket之间UPI互联，内存频率通道增强。不再使用Xeon命名，而是改用Bronze/Silver/Gold/Platinum 4个系列。青铜和白银系列支持双路（原本的 E5-24xx、E7-28xx 系列），黄金系列支持四路（原本的 E5-46xx、E7-48xx 系列），白金系列支持八路（原本的 E7-88xx 系列）；
+
+2019年的Cascade Lake也是Skylake的优化，是Intel首个支持基于3D XPoint的内存模块的微体系结构。同年也正式宣布了十代酷睿处理器，即i9-10900k，还是Skylake微内核不变。
+
+2020年的10nm Ice Lake自家工厂无能，改由台积电加工。
 
 Core 架构代号是 Yonah，把 NetBurst 做深了的流水线级数又砍下来了，主频虽然降下来了（而且即使后来工艺提升到 45nm 之后也没有超过 NetBurst 的水平），但是却提高了整个流水线中的资源利用率，所以性能还是提升了；把奔腾 4 上曾经用过的超线程也砍掉了；对各个部分进行了强化，双核共享 L2 cache 等等。
 
@@ -629,16 +593,20 @@ Core 架构代号是 Yonah，把 NetBurst 做深了的流水线级数又砍下�
 
 Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Nehalem，新架构Nehalem**采用 Intel QPI 来代替原来的前端总线**，**PCIE 和 DMI 控制器直接做到片内了**，不再需要北桥。
 
+2006年Intel也提出了Tick-Tock架构战略。Tick年改进制程工艺，微架构基本不做大改，重点在把晶体管的工艺水平往上提升;Tock年改进微架构设计，保持工艺水平不变，重点在用更复杂、更高级的架构设计。然后就是一代 Tick 再一代 Tock交替演进。
+
+从2006年酷睿架构开始，基本是摁着AMD在地上摩擦，直到2017年的AMD Zen杀回来，性能暴增。![img](/Users/ren/src/blog/951413iMgBlog/f5e72f61ed8b6c2ba163e00491c7db40.png)
+
 **Sandy Bridge 引入核间的ring bus**
 
 感觉Broadwell前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是**Ring bus到Mesh**）
 
-![image-20210602154509596](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602154509596.png)
+![image-20210602154509596](/Users/ren/src/blog/951413iMgBlog/image-20210602154509596.png)
 
 ### 不同的架构下的参数
 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fb522be7aa65158778b7ea825207.png)
+![image.png](https://ata2-img.cn-hangzhou.oss-pub.aliyun-inc.com/e4a2fb522be7aa65158778b7ea825207.png)
 
 
 
@@ -650,11 +618,11 @@ Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Ne
 
 UEFI启动是一种新的主板引导项，它被看做是bios的继任者。UEFI最主要的特点是图形界面，更利于用户对象图形化的操作选择。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/webp)
+![img](/Users/ren/src/blog/951413iMgBlog/webp)
 
 UEFI 图形界面：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/webp-20210601102242967)
+![img](/Users/ren/src/blog/951413iMgBlog/webp-20210601102242967)
 
 简单的来说UEFI启动是新一代的BIOS，功能更加强大，而且它是以图形图像模式显示，让用户更便捷的直观操作。
 
@@ -672,17 +640,17 @@ socket对应主板上的一个插槽，也可以简单理解为一块物理CPU�
 
 GPU只处理有限的计算指令（主要是浮点运算--矩阵操作），不需要分支预测、乱序执行等，所以将Core里面的电路简化（如下图左边），同时通过SIMT（Single Instruction，Multiple Threads， 类似 SIMD）在取指令和指令译码的阶段，取出的指令可以给到后面多个不同的 ALU 并行进行运算。这样，我们的一个 GPU 的核里，就可以放下更多的 ALU，同时进行更多的并行运算了（如下图右边） 。 在 SIMD 里面，CPU 一次性取出了固定长度的多个数据，放到寄存器里面，用一个指令去执行。**而 SIMT，可以把多条数据，交给不同的线程去处理。**
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg)
 
 GPU的core在流水线stall的时候和超线程一样，可以调度别的任务给ALU，既然要调度一个不同的任务过来，我们就需要针对这个任务，提供更多的执行上下文。所以，一个 Core 里面的执行上下文的数量，需要比 ALU 多。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg)
+![img](/Users/ren/src/blog/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg)
 
 在通过芯片瘦身、SIMT 以及更多的执行上下文，我们就有了一个更擅长并行进行暴力运算的 GPU。这样的芯片，也正适合我们今天的深度学习和挖矿的场景。
 
 NVidia 2080 显卡的技术规格，就可以算出，它到底有多大的计算能力。2080 一共有 46 个 SM（Streaming Multiprocessor，流式处理器），这个 SM 相当于 GPU 里面的 GPU Core，所以你可以认为这是一个 46 核的 GPU，有 46 个取指令指令译码的渲染管线。每个 SM 里面有 64 个 Cuda Core。你可以认为，这里的 Cuda Core 就是我们上面说的 ALU 的数量或者 Pixel Shader 的数量，46x64 呢一共就有 2944 个 Shader。然后，还有 184 个 TMU，TMU 就是 Texture Mapping Unit，也就是用来做纹理映射的计算单元，它也可以认为是另一种类型的 Shader。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png)
+![img](/Users/ren/src/blog/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png)
 
 2080 的主频是 1515MHz，如果自动超频（Boost）的话，可以到 1700MHz。而 NVidia 的显卡，根据硬件架构的设计，每个时钟周期可以执行两条指令。所以，能做的浮点数运算的能力，就是：
 
@@ -698,7 +666,7 @@ GPU像是大卡车，每次去内存取数据取得多，但是Latency高（AP�
 
 GPU的每个core拥有更小更快的cache和registry，但是整个GPU的registry累加起来能比CPU大30倍，同时带宽也是后者的16倍
 
-![image-20210615105019238](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210615105019238.png)
+![image-20210615105019238](/Users/ren/src/blog/951413iMgBlog/image-20210615105019238.png)
 
 总之GPU相对于CPU像是一群小学生和一个大学教授一起比赛计算10以内的加减法。
 
@@ -718,7 +686,7 @@ CUDA（Compute Unified Device Architecture，统一计算架构），CUDA 不仅
 
 这个标准有多重要？这么说吧，一流企业定标准，二流企业做品牌，三流企业做产品。在所有的半导体公司中，制定出软件与硬件之间的标准，而且现在还算成功的，只有 3 个，一个是 x86 指令集，一个是 ARM 指令集，还有一个就是 CUDA 了。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/313d469d57e6b92eyy03dee63614a72c.png)
+![img](/Users/ren/src/blog/951413iMgBlog/313d469d57e6b92eyy03dee63614a72c.png)
 
 GPU 相对 CPU 的 TOPS per Watt（花费每瓦特电能可以获得的算力）的差异竞争优势，它的本质就是将晶体管花在计算上，而不是逻辑判断上
 
@@ -773,13 +741,11 @@ FPGA 通过“软件”来控制“硬件”
 
 堆栈溢出：函数调用用压栈来保存地址、变量等相关信息。没有选择直接嵌套扩展代码是避免循环调用下嵌套是个无尽循环，inline函数内联就是一种嵌套代码扩展优化。
 
-
-
 windows下的exe文件之所以没法放到linux上运行（都是intel x86芯片），是因为可执行程序要经过链接，将所依赖的库函数调用合并进来形成可执行文件。这个可执行文件在Linux 下的 ELF（Execuatable and Linkable File Format） 文件格式，而 Windows 的可执行文件格式是一种叫作 PE（Portable Executable Format）的文件格式。Linux 下的装载器只能解析 ELF 格式而不能解析 PE 格式。而且windows和linux的库函数必然不一样，没法做到兼容。
 
 **链接器**: 扫描所有输入的目标文件，然后把所有符号表里的信息收集起来，构成一个全局的符号表。然后再根据重定位表，把所有不确定要跳转地址的代码，根据符号表里面存储的地址，进行一次修正。最后，把所有的目标文件的对应段进行一次合并，变成了最终的可执行代码。这也是为什么，可执行文件里面的函数调用的地址都是正确的。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg)
 
 **虚拟内存地址**：应用代码可执行地址必须是连续，这也就意味着一个应用的内存地址必须连续，实际一个OS上会运行多个应用，没办法保证地址连续，所以可以通过虚拟地址来保证连续，虚拟地址再映射到实际零散的物理地址上（可以解决碎片问题），这个零散地址的最小组织形式就是Page。虚拟地址本来是连续的，使用一阵后数据部分也会变成碎片，代码部分是不可变的，一直连续。另外虚拟地址也方便了OS层面的库共享。
 
@@ -787,11 +753,71 @@ windows下的exe文件之所以没法放到linux上运行（都是intel x86芯�
 
 **共享库**：在 Windows 下，这些共享库文件就是.dll 文件，也就是 Dynamic-Link Libary（DLL，动态链接库）。在 Linux 下，这些共享库文件就是.so 文件，也就是 Shared Object（一般我们也称之为动态链接库). 不同的进程，调用同样的 lib.so，各自 全局偏移表（GOT，Global Offset Table） 里面指向最终加载的动态链接库里面的虚拟内存地址是不同的, 各个程序各自维护好自己的 GOT，能够找到对应的动态库就好了, 有点像函数指针。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg)
+![img](/Users/ren/src/blog/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg)
 
 符号表：/boot/System.map 和 /proc/kallsyms 
 
 **超线程（Hyper-Threading）**: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。
+
+## 宏观认识集成电路半导体行业
+
+先从市场分布和市场占有率等几个行业宏观概念来了解半导体行业
+
+### 半导体产业的产值分布
+
+下图中的处理器就是我们日常所说的CPU，当然还包含了GPU等
+
+我们常说的内存、固态硬盘这些存储器也是数字IC，后面你会看到一个CPU core里面还会有用于存储的cache电路
+
+![img](/Users/ren/src/blog/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png)
+
+### 从一台iPhone来看集成电路和芯片
+
+先看一台iPhone X拆解分析里面的所有芯片：
+
+![img](/Users/ren/src/blog/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg)
+
+### 全球半导体营收分布
+
+![img](/Users/ren/src/blog/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png)
+
+美光：美国；Hynix海力士：韩国现代；美国双通：高通(CDMA)、博通(各种买买买、并购，网络设备芯片)；欧洲双雄(汽车芯片)：恩智浦和英飞凌
+
+半导体行业近 5 年的行业前十的公司列了如下：
+
+![img](/Users/ren/src/blog/951413iMgBlog/639990db9d26a8a54d1baaf3d6e513d4.png)
+
+#### 半导体产品的十大买家
+
+BBK是步步高集团，包含vivo、oppo、oneplus、realme等
+
+![img](/Users/ren/src/blog/951413iMgBlog/3bb8531b7ab4c503436838ab15434310.png)
+
+### 国内半导体市场情况
+
+中国半导体协会总结过国产芯片的比例，2014 年出台的《国家集成电路产业发展纲要》和 2015 年的《中国制造 2025》文件中有明确提出：到 2020 年，集成电路产业与国际先进水平的差距逐步缩小；2020 年中国芯片自给率要达到 40%，2025 年要达到 50%。
+
+![img](/Users/ren/src/blog/951413iMgBlog/a37bd5e13f2920fb2e85a7907cdc852a.jpeg)
+
+国产化国家主导：紫光， 紫光的策略从收购转为自建，2016 年 12 月，合并武汉新芯，成立长江存储，与西数合资成立紫光西数。
+
+长江存储在量产 64 层 NAND Flash 之后，2020 年首发 192 层 3D NAND，被预测 2021 会拿下 8% 的 NAND Flash 份额。同时，在存储芯片领域，中国还有一家公司叫做长鑫存储，长鑫存储以唯一一家中国公司的名号，杀入 DRAM 领域。在世界著名的行业分析公司 Yole 公司的报告上，显示长江存储和长鑫存储与三星、SK 海力士、美光和 Intel 齐头并进。
+
+市场份额上，国产存储芯片市场，也许还有望达到 2025 的目标。
+
+以上是我们对集成电路半导体行业的宏观认识。接下来我们从一颗CPU的生产制造开始讲
+
+### 工艺
+
+光刻的粒度越来越细，玩家也越来越少，基本主流都是代工模式：
+
+![img](/Users/ren/src/blog/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png)
+
+![img](/Users/ren/src/blog/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg)
+
+晶体管密度比较
+
+![image-20210728095829384](/Users/ren/src/blog/951413iMgBlog/image-20210728095829384.png)
 
 
 

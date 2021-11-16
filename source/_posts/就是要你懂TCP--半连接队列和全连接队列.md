@@ -41,7 +41,7 @@ tags:
 
 ### 正常TCP建连接三次握手过程：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -73,7 +73,7 @@ tags:
 
 ## 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
+![image.png](/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
 
@@ -178,7 +178,7 @@ netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话�
 比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 #### netstat看到的listen状态的Recv-Q/Send-Q
 
@@ -200,16 +200,16 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 
 ## 案列：如果TCP连接队列溢出，抓包是什么现象呢？
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
+![image.png](/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
 
 如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传
     
 
 ### 通过ss和netstat所观察到的状态
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
+![image.png](/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
+![image.png](/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
 
 [另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因](/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/)
 
@@ -224,6 +224,8 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
     11         10         *:3306               *:*
 
 按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。
+
+**能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1**，结合内核代码，发现**内核在判断全连接队列是否满的情况下，使用的是 > 而非 >=** 。
 
 ### Tomcat和Nginx中的Accept队列参数
 
@@ -242,7 +244,7 @@ Nginx默认是511
 
 因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
+![image.png](/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
 
 ## 进一步思考 client fooling 问题
 
@@ -250,11 +252,11 @@ Nginx默认是511
 
 先来看一个例子：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
+![image.png](/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
 
 如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
+![image.png](/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
 
 这个问题也叫client fooling，可以看这个patch在4.10后修复了：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。
 
@@ -280,7 +282,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a5616904df3a505572d99d557b534db2.png)
+![image.png](/images/oss/a5616904df3a505572d99d557b534db2.png)
 
 可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。
 
@@ -308,7 +310,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
+![image.png](/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
 
 TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
 
@@ -317,6 +319,43 @@ TCP三次握手第一步的时候如果全连接队列满了会影响第一步dr
     //如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
       if(sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_yong(sk)>1)
           goto drop;
+
+## 半连接队列的长度
+
+**半连接队列的长度由三个参数指定：**
+
+- **调用** **listen** **时，传入的 backlog**
+- **/proc/sys/net/core/somaxconn** **默认值为 128**
+- */proc/sys/net/ipv4/tcp_max_syn_backlog** **默认值为 1024**
+
+假设 listen 传入的 backlog = 128，其他配置采用默认值，来计算下半连接队列的最大长度
+
+```
+backlog = min(somaxconn, backlog) = min(128, 128) = 128
+nr_table_entries = backlog = 128
+nr_table_entries = min(backlog, sysctl_max_syn_backlog) = min(128, 1024) = 128
+nr_table_entries = max(nr_table_entries, 8) = max(128, 8) = 128
+nr_table_entries = roundup_pow_of_two(nr_table_entries + 1) = 256
+max_qlen_log = max(3, log2(nr_table_entries)) = max(3, 8) = 8
+max_queue_length = 2^max_qlen_log = 2^8 = 256
+```
+
+可以得到半队列大小是 256，以上计算方法：
+
+```
+backlog = min(somaxconn, backlog)
+nr_table_entries = backlog
+nr_table_entries = min(backlog, sysctl_max_syn_backlog)
+nr_table_entries = max(nr_table_entries, 8)
+// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1
+nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)
+max_qlen_log = max(3, log2(nr_table_entries))
+max_queue_length = 2^max_qlen_log
+```
+
+![](/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png)
+
+没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了
 
 ## 总结
 

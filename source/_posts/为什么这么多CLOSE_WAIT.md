@@ -10,25 +10,23 @@ tags:
 
 # 为什么这么多CLOSE_WAIT
 
-## 案例1
+## 案例1：服务响应慢，经常连不上
 
 应用发布新版本上线后，业务同学发现业务端口上的TCP连接处于CLOSE_WAIT状态的数量有积压，多的时候能堆积到几万个，有时候应用无法响应了
 
-> 怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。
+> 从这个案例要获取：怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。
 
 ## 检查机器状态
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/418b94ee-18ee-4976-857b-69f3016af2b0.png)
+![img](/images/oss/418b94ee-18ee-4976-857b-69f3016af2b0.png)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/160490c8-56e9-46f2-9c48-713944b94a5c.png)
-
-
+![img](/images/oss/160490c8-56e9-46f2-9c48-713944b94a5c.png)
 
 从上述两个图中可以看到磁盘 sdb压力非常道，util经常会到 100%，这个时候对应地从top中也可以看到cpu wait%很高（这个ECS cpu本来竞争很激烈），st%一直非常高，所以整体留给应用的CPU不多，碰上磁盘缓慢的话，如果业务写日志是同步刷盘那么就会导致程序卡顿严重。
 
 实际看到FGC的时间也是正常状态下的10倍了。
 
-再看看实际上应用写磁盘比较猛，平均20-30M，高的时候能到200M每秒。如果输出的时候磁盘卡住了那么就整个卡死了
+再看看实际上应用同步写日志到磁盘比较猛，平均20-30M，高的时候能到200M每秒。如果输出的时候磁盘卡住了那么就整个卡死了
 
 ```
 #dstat
@@ -59,13 +57,9 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
  11   4  84   1   0   0|6116k   29M|3079k   99k|  28k    0 | 263k 6605
 ```
 
+磁盘util 100%和CLOSE_WAIT强相关，也和理论比较符合，CLOSE_WAIT就是连接被动关闭端的应用没调socket.close
 
-
-磁盘util 100%和CLOSE_WAIT强相关，也和理论比较符合，CLOSE_WAIT就是应用没调socket.close
-
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
-
-
+![img](/images/oss/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
 
 大概的原因推断是：
 
@@ -73,33 +67,29 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 2）机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个业务节点，重启会触发业务节点之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是tcp buffer中的数据也不读走、连接也不close，连接大量堆积在close_wait状态
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
+![img](/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
 
-
-
-原因分析
+CLOSE_WAIT的原因分析
 
 ## 先看TCP连接状态图
 
 这是网络、书本上凡是描述TCP状态一定会出现的状态图，理论上看这个图能解决任何TCP状态问题。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b3d075782450b0c8d2615c5d2b75d923.png)
+![image.png](/images/951413iMgBlog/b3d075782450b0c8d2615c5d2b75d923.png)
 
 反复看这个图的右下部分的CLOSE_WAIT ，从这个图里可以得到如下结论：
 
-**CLOSE_WAIT是被动关闭端在等待应用进程的关闭**
+> **CLOSE_WAIT是被动关闭端在等待应用进程的关闭**
 
 基本上这一结论要能帮助解决所有CLOSE_WAIT相关的问题，如果不能说明对这个知识点理解的不够。
 
-
-
 ## 案例1结论
 
-机器超卖严重、IO卡顿，导致应用线程卡顿
+机器超卖严重、IO卡顿，导致应用线程卡顿，来不及调用socket.close()
 
 
 
-## server端大量close_wait案例2
+## 案例2：server端大量close_wait
 
 用实际案例来检查自己对CLOSE_WAIT 理论（**CLOSE_WAIT是被动关闭端在等待应用进程的关闭**）的掌握 -- 能不能用这个结论来解决实际问题。同时也可以看看自己从知识到问题的推理能力（跟前面的知识效率呼应一下）。
 
@@ -119,7 +109,7 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 
 得检查server 应用为什么没有accept。
 
-![Recv-Q和Send-Q](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/20190706093602331.png)
+![Recv-Q和Send-Q](/images/951413iMgBlog/20190706093602331.png)
 
 
 
@@ -158,6 +148,10 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
 ### CLOSE_WAIT与accept queue为什么刚好一致并且联动了？
 
 答：这里他们的数量刚好一致是因为所有新建连接都没有accept，堵在queue中。同时client发现问题后把所有连接都fin了，也就是所有queue中的连接从来没有被accept过，但是他们都是ESTABLISHED，过一阵子之后client端发了fin所以所有accept queue中的连接又变成了 CLOSE_WAIT, 所以二者刚好一致并且联动了
+
+### CLOSE_WAIT与TIME_WAIT
+
+简单说就是CLOSE_WAIT出现在被动断开连接端，一般过多就不太正常；TIME_WAIT出现在主动断开连接端，是正常现象，多出现在短连接场景下
 
 ### openfiles和accept()的关系是？
 

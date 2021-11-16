@@ -154,6 +154,16 @@ client ------150ms----->>>nginx
 
 nginx buffer 分析参考案例：https://club.perfma.com/article/433792?from=timeline
 
+## 应用层发包逻辑影响了BDP不能跑满
+
+[一行代码解决scp在Internet传输慢的问题（RT高的网络环境）](https://zhuanlan.zhihu.com/p/413732839)
+
+> 遇到一个迟来的case，用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。
+>
+> 这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了
+>
+> **SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。**
+
 ## delay ack拉高实际rt的案例
 
 **这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。**
@@ -171,3 +181,10 @@ nginx buffer 分析参考案例：https://club.perfma.com/article/433792?from=ti
 从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png)
+
+## 参考资料
+
+[SSH Performance](http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf)
+
+[Why when I transfer a file through SFTP, it takes longer than FTP?](https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp)
+

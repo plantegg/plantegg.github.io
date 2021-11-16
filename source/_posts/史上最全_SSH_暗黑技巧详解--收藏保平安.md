@@ -20,7 +20,7 @@ tags:
 - 如何通过ssh命令科学上网
 - docker 镜像、golang仓库总是被墙怎么办
 - 公司跳板机要输入动态token，太麻烦了，如何省略掉这个token；
-- 比如多机房总是要走跳板机，如何绕过跳板机直连； 
+- 比如多机房总是要走跳板机，如何`绕过`跳板机直连； 
 - 我的开发测试机器如何免打通、免密码、直达；
 - 如何访问隔离环境中的Web服务 -- 将隔离环境中的web端口映射到本地
 - 如何让隔离环境的机器用上yum、apt
@@ -30,9 +30,9 @@ tags:
 ## 注意事项
 
 - ssh是指的openSSH 命令工具
-- 本文仅适用于各种Linux、MacOS，Windows的话各种可视化工具都可以复制session、配置tunnel来实现类似功能。
+- 本文适用于各种Linux、MacOS下命令行操作，Windows的话各种可视化工具都可以复制session、配置tunnel来实现类似功能。
 - 如果文章中提到的文件、文件夹不存在可以直接创建出来。
-- 所有配置都是在你的笔记本上（相当于ssh client上，只有日常跳板机免登如要在日常跳板机上配置一下）
+- 所有配置都是在你的笔记本上（相当于ssh client上）
 
 ## 科学上网
 
@@ -46,14 +46,14 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
+![image.png](/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
 
 
 
 原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
+![undefined](/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
 
-### 科学上网之http特殊代理
+### 科学上网之http特殊代理--利用ssh 本地转发是HTTP协议
 
 前面所说的代理是socks5代理，一般浏览器都有插件支持，但是比如你的docker（或者其他程序）需要通过http去拉取镜像就会出现如下错误：
 
@@ -66,9 +66,9 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
     sudo ssh -L 443:108.177.125.82:443 root@1.1.1.1 //在本地监听443，转发给远程108.177.125.82的443端口
 
-然后再在 /etc/hosts 中将域名 k8s.gcr.io 指向 127.0.0.1， 那么本来要访问 k8s.gcr.io:443的，变成了访问本地 127.0.0.1:443 而 127.0.0.1:443 又通过ssh重定向到了 108.177.125.82:443 这样就实现了http代理或者说这种特殊情况下的科学上网。
+然后再在 /etc/hosts 中将域名 k8s.gcr.io 指向 127.0.0.1， 那么本来要访问 k8s.gcr.io:443的，变成了访问本地 127.0.0.1:443 而 127.0.0.1:443 又通过ssh重定向到了 108.177.125.82:443 这样就实现了http代理或者说这种特殊情况下的科学上网。这个方案不需要装任何东西，但是每个访问目标都要这样处理，好在这种情况不多
 
-当然网上也有socks5代理转http代理的，很麻烦，我没有实验成功，上面这个方案不需要装任何东西，但是每个访问目标都要这样处理，好在这种情况不多
+
 
 ## 内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？
 
@@ -120,7 +120,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
  /home/ren/tmp/ssh_mux_10.16.*.*_22_corp 这个就是保存好的socket，下次可以重用，免密码。 in 259200 seconds 对应 72小时
 
 看动画过程，注意过程中都是通过 -vvv 来看到ssh的debug信息
-![ssh-demo.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
+![ssh-demo.gif](/images/oss/43c4e0b4ad0f6aa5cb76a7008e53e4cd.gif)
 
 ## 我有很多不同机房（或者说不同客户）的机器都需要跳板机来登录，能一次直接ssh上去吗？
 
@@ -174,7 +174,7 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ## ssh 免打通、免登陆跳板机、免密码直接访问日常环境机器
 
 先来看效果图：
-![ssh_docker.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
+![ssh_docker.gif](/images/oss/0d6bc0800b3dc8b8988f6cb7ab410010.gif)
 
 ### 实现过程：
 
@@ -193,9 +193,9 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 **第一次需要输入你的域账户密码，只要你的域账户密码不改以后永远不需要再次输入了。另外你需要在kfc上申请过机器的访问权限，kfc帮你打通了免密登陆，不仅仅是Docker，t4也默认打通了账号**
 这个技能基本综合了前面所有技巧，综合性比较强，需要点时间配合-vvv慢慢理解消化
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b4e460a501c21eac1e4104b9324910d3.png)
+![image.png](/images/oss/b4e460a501c21eac1e4104b9324910d3.png)
 
-## 将隔离环境中的web端口映射到本地
+## 将隔离环境中的web端口映射到本地（本地代理）
 
 远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。
 
@@ -218,7 +218,7 @@ ProxyCommand ssh -l xijun.rxj login1.et2sqa.**** exec /usr/bin/nc %h %p
 
 然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
+![image.png](/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
 
 反过来，**也可以让隔离环境机器通过代理上网，比如安装yum**
 
@@ -242,13 +242,13 @@ ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/autho
 
 如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/S9jLW7B.png)
+![](/images/951413iMgBlog/S9jLW7B.png)
 
 这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。
 
 再在外面写一个循环对每个IP执行如下操作：
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4SZcnvc.png)
+![](/images/951413iMgBlog/4SZcnvc.png)
 
 if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。
 
@@ -418,7 +418,7 @@ $(tput sgr0)"
 
 以上脚本运行结果
 
-![image-20210902224011450](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210902224011450.png)
+![image-20210902224011450](/images/951413iMgBlog/image-20210902224011450.png)
 
 
 
@@ -504,22 +504,22 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 
 动态转发需要把本地端口绑定到 SSH 服务器。**至于 SSH 服务器要去访问哪一个网站，完全是动态的，取决于原始通信，所以叫做动态转发**。
 
-目标还不确定，所以叫动态转发
+需要访问的目标、端口还不确定，所以叫动态转发。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。
 
 ```
-$ ssh -D 3000 tunnel-host -N
+$ ssh -D 4444 ssh-server -N
 ```
 
 注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/202466eed33b16c0471016f1c5e574ab.png)
+![image-20210913143129749](/images/951413iMgBlog/image-20210913143129749.png)
 
 下面是 ssh 隧道建立后的一个**使用实例**。
 
 ```
-curl -x socks5://localhost:3000 http://www.example.com
+curl -x socks5://localhost:4444 http://www.example.com
 or
-curl --socks5-hostname localhost:3000 https://www.twitter.com
+curl --socks5-hostname localhost:4444 https://www.twitter.com
 ```
 
 上面命令中，curl 的`-x`参数指定代理服务器，即通过 SOCKS5 协议的本地`3000`端口，访问`http://www.example.com`。
@@ -544,51 +544,29 @@ curl --socks5-hostname localhost:3000 https://www.twitter.com
 
 本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定目标网站之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。
 
-它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（tunnel-host），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。
+它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（ssh-server），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。
 
 ```
-$ ssh -L local-port:target-host:target-port tunnel-host
+$ ssh -L local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host
 ```
 
-上面命令中，`-L`参数表示本地转发，`local-port`是本地端口，`target-host`是你想要访问的目标服务器，`target-port`是目标服务器的端口，`tunnel-host`是 SSH 跳板机。
+上面命令中，`-L`参数表示本地转发，`local-port`是本地端口，`target-host`是你想要访问的目标服务器，`target-port`是目标服务器的端口，`ssh-server`是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port
 
-举例来说，现在有一台 SSH 跳板机`tunnel-host`，我们想要通过这台机器，在本地`2121`端口与目标网站`www.example.com`的80端口之间建立 SSH 隧道，就可以写成下面这样。
+![img](/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG)
 
-```
-$ ssh -L 7001:www.example.com:389 tunnel-host -N
-```
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec20b280dd381b777eb1bfa9f3291e3f.png)
-
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9dbd774c782ba8be1f5c3a5eb4be778d.png)
-
-
-
-然后，访问本机的8080端口，就是访问`www.example.com`的80端口.
+上图对应的命令是：
 
 ```
-$ curl http://localhost:8080
+ssh -L 53682:remote-server:53682 ssh-server
 ```
 
-注意，**本地端口转发采用 HTTP 协议，不用转成 SOCKS5 协议**。
-
-另一个例子是加密访问邮件获取协议 POP3。
+然后，访问本机的8080端口，就是访问`remote-server`的80端口.
 
 ```
-$ ssh -L 1100:mail.example.com:110 mail.example.com
+$ curl http://localhost:53682
 ```
 
-上面命令将本机的1100端口，绑定邮件服务器`mail.example.com`的110端口（POP3 协议的默认端口）。端口转发建立以后，POP3 邮件客户端只需要访问本机的1100端口，请求就会通过 SSH 跳板机（这里是`mail.example.com`），自动转发到`mail.example.com`的110端口。
-
-上面这种情况有一个前提条件，就是`mail.example.com`必须运行 SSH 服务器。否则，就必须通过另一台 SSH 服务器中介，执行的命令要改成下面这样。
-
-```
-$ ssh -L 1100:mail.example.com:110 other.example.com
-```
-
-上面命令中，本机的1100端口还是绑定`mail.example.com`的110端口，但是由于`mail.example.com`没有运行 SSH 服务器，所以必须通过`other.example.com`中介。本机的 POP3 请求通过1100端口，先发给`other.example.com`的22端口（sshd 默认端口），再由后者转给`mail.example.com`，得到数据以后再原路返回。
-
-注意，采用上面的中介方式，只有本机到`other.example.com`的这一段是加密的，`other.example.com`到`mail.example.com`的这一段并不加密。
+注意，**本地端口转发采用 HTTP 协议，不用转成 SOCKS5 协议**。如果需要HTTP的动态代理，可以先起socks5动态代理，然后再起一个本地转发给动态代理的socks5端口，这样就有一个HTTP代理了，能给yum、docker之类的使用。
 
 这个命令最好加上`-N`参数，表示不在 SSH 跳板机执行远程命令，让 SSH 只充当隧道。另外还有一个`-f`参数表示 SSH 连接在后台运行。
 
@@ -601,35 +579,25 @@ LocalForward client-IP:client-port server-IP:server-port
 
 ### 远程转发(-R)
 
-远程端口指的是在远程 SSH 服务器建立的转发规则。
-
-这种场景比较特殊，主要针对内网的情况。本地计算机在外网，SSH 跳板机和目标服务器都在内网，而且本地计算机无法访问内网之中的 SSH 跳板机，但是 SSH 跳板机可以访问本机计算机。
+远程端口指的是在远程 SSH 服务器建立的转发规则。主要是执行ssh转发的机器别人连不上，所以需要一台client能连上的机器当远程转发端口，要不就是本地转发了。
 
 由于本机无法访问内网 SSH 跳板机，就无法从外网发起 SSH 隧道，建立端口转发。必须反过来，从 SSH 跳板机发起隧道，建立端口转发，这时就形成了远程端口转发。
 
 ```
-$ ssh -R local-port:target-host:target-port -N local
+ssh -R 30.1.2.3:30081:166.100.64.1:3128 root@30.1.2.3 -p 2728
 ```
 
-上面的命令，首先需要注意，**不是在本机执行的，而是在 SSH 跳板机执行的**，从跳板机去连接本地计算机。`-R`参数表示远程端口转发，`local-port`是本地计算机的端口，`target-host`和`target-port`是目标服务器及其端口，`local`是本地计算机。
+上面的命令，首先需要注意，**不是在30.1.2.3 或者166.100.64.1 上执行的，而是找一台能联通 30.1.2.3 和166.100.64.1的机器来执行**，在执行前Remote clients能连上 30.1.2.3 但是 30.1.2.3 和 166.100.64.1 不通，所以需要一个中介将 30.1.2.3 和166.100.64.1打通，这个中介就是下图中的MobaXterm所在的机器，命令在MobaXterm机器上执行
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/160e661caa72e3546e01ea8efe5bbe86-20210701095358462-20210701113310769.png)
+![image-20210913163036410](/images/951413iMgBlog/image-20210913163036410.png)
 
-显然，远程端口转发要求本地计算机也安装了 SSH 服务器，这样才能接受 SSH 跳板机的远程登录。
-
-比如，跳板机执行下面的命令，绑定本地计算机的`2121`端口，去访问`www.example.com:80`。
+执行上面的命令以后，跳板机30.1.2.3 到166.100.64.1的隧道已经建立了，这个隧道是依赖两边都能连通的MobaXterm机器。然后，就可以从Remote Client访问目标服务器了，即在Remote Client上执行下面的命令。
 
 ```
-$ ssh -R 2121:www.example.com:80 local -N
+$ curl http://30.1.2.3:30081
 ```
 
-执行上面的命令以后，跳板机到本地计算机的隧道已经建立了。然后，就可以从本机访问目标服务器了，即在本机执行下面的命令。
-
-```
-$ curl http://localhost:2121
-```
-
-执行上面的命令以后，命令就会输出服务器`www.example.com`的80端口返回的内容。
+执行上面的命令以后，命令就会输出服务器 166.100.64.1 的3128端口返回的内容。
 
 如果经常执行远程端口转发，可以将设置写入 SSH 客户端的用户个人配置文件。
 
@@ -638,15 +606,27 @@ Host test.example.com
 RemoteForward local-IP:local-port target-ip:target-port
 ```
 
+注意远程转发需要：
+
+> 1. sshd_config里要打开`AllowTcpForwarding`选项，否则`-R`远程端口转发会失败。
+> 2. 默认转发到远程主机上的端口绑定的是`127.0.0.1`，[如要绑定`0.0.0.0`需要打开sshd_config里的`GatewayPorts`选项(然后ssh -R 后加上*:port )](https://serverfault.com/questions/997124/ssh-r-binds-to-127-0-0-1-only-on-remote)。这个选项如果由于权限没法打开也有办法，可配合`ssh -L`将端口绑定到`0.0.0.0`，聪明的你应该能想到办法，呵呵。
+
+**三个转发模式的比较：**
+
+- 动态转发完全可以代替本地转发，只是动态转发是socks5协议，本地转发是http协议
+- 本地转发完全是把动态转发固定到访问某个固定目标的转发，只是走HTTP协议了
+- 远程转发是启动ssh转发的端口同时连上两端的两个机器，把本来不连通的两端拼接起来，中间显得多了个节点。
+- 三个转发模式可以串联使用
+
 ### scp可以通过命令行参数来设置socks代理
 
 > scp -o "ProxyCommand=nc -X 5 -x **[SOCKS_HOST]**:**[SOCKS_PORT]** %h %p" **[LOCAL/FILE/PATH]** **[REMOTE_USER]**@**[REMOTE_HOST]**:**[REMOTE/FILE/PATH]**
 
 其中[SOCKS_HOST]和[SOCKS_PORT]是socks代理的LOCAL_ADDRESS和LOCAL_PORT。[LOCAL/FILE/PATH]、[REMOTE_USER]、[REMOTE_HOST]和[REMOTE/FILE/PATH]分别是要复制文件的本地路径、要复制到的远端主机的用户名、要复制到的远端主机名、要复制文件的远端路径，这些参数与不使用代理时一样。“ProxyCommand=nc”表示当前运行命令的主机上需要有nc命令。
 
-## 调试 socks5 是否能联通
+### 调试转发、代理是否能联通
 
-### [curl](https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk)
+#### [curl](https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk)
 
 > curl -I --socks5-hostname 127.0.0.1:13659 twitter.com
 >
@@ -668,7 +648,7 @@ curl --socks5-hostname localhost:8001 http://www.google.com/
 
 特别注意，如果ssh -D 要启动的本地port已经被占用了是不会报错的，但是实际socks代理会没启动成功
 
-### wget
+#### wget
 
 **指定命令行参数**,通过命令行指定HTTP代理服务器的方式如下：
 
@@ -677,6 +657,23 @@ curl --socks5-hostname localhost:8001 http://www.google.com/
 -Y表示是否使用代理，on表示使用代理。
 
 -e执行后面跟的命令，相当于在.wgetrc配置文件中添加了一条命令，将http_proxy设置为需要使用的代理服务器。
+
+## PKI (Public Key Infrastructure)证书
+
+X.509 只是一种常用的证书格式，一般以PEM编码，PEM 编码的证书通常以 **`.pem`、`.crt` 或 `.cer`** 为后缀。再次提醒，这只是“通常”情况，实际上某些工具可能并不遵循这些惯例。通过pem证书可以访问需要认证的https服务(比如etcd、apiserver等)
+
+- **ASN.1 用于定义数据类型**，例如证书（certificate）和秘钥（key）——就像用 JSON 定义一个 request body —— X.509 用 ASN.1 定义。
+- DER 是一组将 ASN.1 编码成二进制（比特和字节）的编码规则（encoding rules）。
+- PKCS#7 and PKCS#12 是比 X.509 更大的数据结构（封装格式），也用 ASN.1 定义，其中能包含除了证书之外的其他东西。二者分别在 Java 和 Microsoft 产品中使用较多。
+- DER 编码之后是二进制数据，不方便复制粘贴，因此大部分证书都是用 PEM 编码的，它用 base64 对 DER 进行编码，然后再加上自己的 label。
+- 私钥通常用是 PEM 编码的 PKCS#8 对象，但有时也会用密码来加密。
+
+![image](/images/951413iMgBlog/step-certificate-inspect.png)
+
+### 公钥、私钥常见扩展名
+
+- 公钥：`.pub` or `.pem`，
+- 私钥：`.prv,` `.key`, or `.pem`。
 
 ## 参考资料：
 
@@ -690,3 +687,12 @@ https://robotmoon.com/ssh-tunnels/
 [通过SSH动态转发来建立Socks代以及各种场景应用案例](https://blog.gwlab.page/vpn-over-ssh-the-socks-proxy-8a8d7bdc7028)
 
 https://daniel.haxx.se/blog/2020/05/26/curl-ootw-socks5/
+
+[SSH Performance](http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf)
+
+[Why when I transfer a file through SFTP, it takes longer than FTP?](https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp)
+
+[一行代码解决scp在Internet传输慢的问题](https://zhuanlan.zhihu.com/p/413732839)
+
+[关于证书（certificate）和公钥基础设施（PKI）的一切](https://www.cnxct.com/everything-about-pki-zh/)
+

@@ -52,7 +52,7 @@ tags:
 
 ## CPU基本信息
 
-![image-20210723161314138](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210723161314138.png)
+![image-20210723161314138](/images/951413iMgBlog/image-20210723161314138.png)
 
 ### 海光
 
@@ -121,11 +121,11 @@ physical         core      processor
 1                0~15         48~63
 ```
 
-![image-20210805085715353](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210805085715353.png)
+![image-20210805085715353](/images/951413iMgBlog/image-20210805085715353.png)
 
 ### Intel CPU
 
-![cascade lake naming scheme.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
+![cascade lake naming scheme.svg](/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
 
 Cascade Lake架构相对Broadwell L1没变，L2从256K增加到1M增加了4倍，L3从2.5下降到1.38M每core
 
@@ -268,21 +268,21 @@ node 1                                             node 3
 
 [鲲鹏920架构参考这里](https://fuse.wikichip.org/news/2274/huawei-expands-kunpeng-server-cpus-plans-smt-sve-for-next-gen/)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/taishan-v110-soc-block-diagram.png)
+![img](/images/951413iMgBlog/taishan-v110-soc-block-diagram.png)
 
 Though Huawei has been keeping a tight lip on the chip design itself, the Hi1620 is actually a multi-chip design. Actually, we believe are three dies. The chip itself comprise two compute dies called the **Super CPU cluster** (SCCL), each one packing 32 cores. It’s also possible the SCCL only have 24 cores, in which case there are three such dies with a theoretical maximum core count of 72 cores possible but are not offered for yield reasons. Regardless of this, there are at least two SCCL dies for sure. Additionally, there is also an I/O die called the **Super IO Cluster** (SICL) which contains all the high-speed SerDes and low-speed I/Os.
 
 下图是6426型号，我测试用的是4826型号，也就是一个CPU内是48core，一个CPU封装3个Die，两个Die是 core，还有一个是Super IO Cluster
 
-![taishan v110 soc details.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
+![taishan v110 soc details.svg](/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
 
 鲲鹏命令规范：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-naming-scheme.png)
+![img](/images/951413iMgBlog/kunpeng-naming-scheme.png)
 
 鲲鹏 RoadMap
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-future-roadmap-1024x512.png)
+![img](/images/951413iMgBlog/kunpeng-future-roadmap-1024x512.png)
 
 #### 鲲鹏 Kunpeng 920-4826 跨numa性能比较
 
@@ -517,6 +517,134 @@ Processor Information
 		Power/Performance Control
 ```
 
+### 申威3231
+
+申威系列微处理器的开发主要是被[中华人民共和国](https://zh.wikipedia.org/wiki/中华人民共和国)用于军事方面[[来源请求\]](https://zh.wikipedia.org/wiki/Wikipedia:列明来源)。根据部分公开信息表明，此系列的微体系架构基于[DEC Alpha](https://zh.wikipedia.org/wiki/DEC_Alpha)派生而来。[[1\]](https://zh.wikipedia.org/wiki/申威处理器#cite_note-gen123-1)[[2\]](https://zh.wikipedia.org/wiki/申威处理器#cite_note-linkedin-chengang-2)而SW-3/SW1600处理器则是基于Alpha 21164。[[3\]](https://zh.wikipedia.org/wiki/申威处理器#cite_note-3)
+
+不过申威系列最新的SW26010处理器，目前没有详细的信息表明它是基于DEC Alpha微架构的派生品。[[4\]](https://zh.wikipedia.org/wiki/申威处理器#cite_note-dongarra2016-4)[[5\]](https://zh.wikipedia.org/wiki/申威处理器#cite_note-next-platform-5)不过处理器的处理器核心结构布局，则是类似于基于POWER指令集架构的[Cell微架构](https://zh.wikipedia.org/wiki/Cell_(微處理器))。
+
+申威 3231处理器是基于第三代“申威 64” 二次优化版核心（C3B）的国产高性能多核处理器。3231的内核与1621属于同一代，采用新一代工艺，最高主频2.5Ghz，32核心，3231基本上可以视为1621换工艺后的32核版本，主要面向高性能计算和高端服务器应用。
+
+申威 3231采用“申威64”自主指令系统；
+
+基于第三代“申威 64”二次优化版核心（C3B）的32核64位通用处理器;
+
+采用CC-NUMA多核结构和SoC技术，片内包含8路DDR4存储控制器接口以及40lane的PCI-E 4.0标准I/O接口；
+
+集成3路直连接口，可构建2路或4路服务器系统；
+
+计算性能：双精度浮点性能可达1280GFlops，整数性能可达880Gops；
+
+访存性能：最大传输率为3200Mbps，最大总存储器容量2TB；
+
+I/O性能：双向聚合有效带宽可达到160GB/s，支持I/O虚拟化。
+
+![img](/images/951413iMgBlog/641.png)
+
+3232推出的时间会比3231迟一些，采用新一代CPU核，IPC会非常惊人，保底10/G，争取12/G，考虑倒申威团队一向严谨，以及过去基本没有让大家失望过，因而对3232的IPC，可以采用就高原则。
+
+![img](/images/951413iMgBlog/20170829092439580.png)
+
+ 申威1621处理器是基于第三代“申威64”核心（增强版）的国产高性能多核处理器，主要面向高性能计算和中高端服务器应用。目前，该处理器已经实现量产。
+    申威1621采用对称多核结构和SoC技术，单芯片集成了16个64位RISC结构的申威处理器核心，目标设计主频为2GHz。芯片还集成八路DDR3存储控制器和双路PCI-E3.0标准I/O接口。
+
+```
+#dmidecode -t processor
+# dmidecode 3.0
+Getting SMBIOS data from sysfs.
+SMBIOS 3.2.0 present.
+# SMBIOS implementations newer than version 3.0 are not
+# fully supported by this version of dmidecode.
+
+Handle 0x0022, DMI type 4, 48 bytes
+Processor Information
+        Socket Designation: CPU 0
+        Type: Central Processor
+        Family: Other
+        Manufacturer: SW3231
+        ID: 28 00 C8 80 01 00 00 00
+        Version: Product
+        Voltage: 3.3 V
+        External Clock: 200 MHz
+        Max Speed: 2400 MHz
+        Current Speed: 2400 MHz
+        Status: Unpopulated
+        Upgrade: Other
+        L1 Cache Handle: 0x2000
+        L2 Cache Handle: 0x2002
+        L3 Cache Handle: 0x2003
+        Serial Number: .......
+        Asset Tag: Asset Tag#To Be Filled By O.E.M.
+        Part Number: Part Number#To Be Filled By O.E.M.
+        Core Count: 32
+        Core Enabled: 32
+        Thread Count: 0
+        Characteristics:
+                64-bit capable
+
+Handle 0x0023, DMI type 4, 48 bytes
+Processor Information
+        Socket Designation: CPU 1
+        Type: Central Processor
+        Family: Other
+        Manufacturer: SW3231
+        ID: 28 00 C8 80 01 00 00 00
+        Version: Product
+        Voltage: 3.3 V
+        External Clock: 200 MHz
+        Max Speed: 2400 MHz
+        Current Speed: 2400 MHz
+        Status: Unpopulated
+        Upgrade: Other
+        L1 Cache Handle: 0x2000
+        L2 Cache Handle: 0x2002
+        L3 Cache Handle: 0x2003
+        Serial Number: .......
+        Asset Tag: Asset Tag#To Be Filled By O.E.M.
+        Part Number: Part Number#To Be Filled By O.E.M.
+        Core Count: 32
+        Core Enabled: 32
+        Thread Count: 0
+        Characteristics:
+                64-bit capable
+
+
+[root@d22b04001.cloud.b04.amtest11 /root] 193E_OPS1
+#numactl -H
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+node 0 size: 259482 MB
+node 0 free: 121171 MB
+node 1 cpus: 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63
+node 1 size: 260091 MB
+node 1 free: 88564 MB
+node distances:
+node   0   1
+  0:  10  20
+  1:  20  10
+  
+#lscpu
+Architecture:          sw_64
+CPU op-mode(s):        64-bit
+Byte Order:            Little Endian
+CPU(s):                64
+On-line CPU(s) list:   0-63
+Thread(s) per core:    1
+Core(s) per socket:    32
+Socket(s):             2
+NUMA node(s):          2
+Vendor ID:             sw
+CPU family:            6
+Model:                 6
+Model name:            sw
+CPU MHz:               2400.00
+BogoMIPS:              4800.00
+NUMA node0 CPU(s):     0-31
+NUMA node1 CPU(s):     32-63  
+```
+
+
+
 ## openssl speed aes-256-ige性能比较
 
 测试脚本
@@ -713,13 +841,13 @@ sys	0m0.127s
 
 intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
+![image.png](/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0151c855011b24590efd672398bd9eb.png)
+![image.png](/images/oss/d0151c855011b24590efd672398bd9eb.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/175a1df9274a830d4a7157dfda96c180.png)
+![image.png](/images/oss/175a1df9274a830d4a7157dfda96c180.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
+![image.png](/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
 
 
 
@@ -727,23 +855,23 @@ intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
 如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着兵法增加ipc相应减少，性能再也上不去了。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
+![image.png](/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0f2410165932835a36d8c0611877ae77.png)
+![image.png](/images/oss/0f2410165932835a36d8c0611877ae77.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/67df9ff04209a00bd864ba21b7593477.png)
+![image.png](/images/oss/67df9ff04209a00bd864ba21b7593477.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
+![image.png](/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
+![image.png](/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
 
 ### 鲲鹏920
 
 可以看到**鲲鹏920多核跑openssl是没有什么争抢的，所以还能保证完全线性**
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/39720b5eb41937b462e1772854e2d832.png)
+![image.png](/images/oss/39720b5eb41937b462e1772854e2d832.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
+![image.png](/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
 
 ### 小结
 
@@ -757,7 +885,7 @@ prime计算一般走的fpu，不走cpu
 
 测试代码
 
-```
+```c
 #include <stdlib.h>
 #include <emmintrin.h>
 #include <stdio.h>
@@ -797,7 +925,7 @@ int main() {
 
 如下测试perf数据可以看到IPC的明显差异
 
-```
+```shell
 # sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -a ./memory_bound
 
  Performance counter stats for 'system wide':
@@ -873,7 +1001,7 @@ int main() {
 
 ipc 大概是intel的30%，加上主频也要差一些，
 
-```
+```shell
 #time perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses -a ./cpu_bound
 
  Performance counter stats for 'system wide':
@@ -901,6 +1029,20 @@ real	0m31.284s
 user	0m31.096s
 sys	0m0.165s
 ```
+
+## unixBench 5.1.3 性能对比
+
+测试命令： ./Run -c 1 -c 4
+
+| 芯片        | 架构  | 逻辑核数 | 单核能力 | 4核能力 | 单核比值 | 4核比值 | 整机对比 |
+| ----------- | ----- | -------- | -------- | ------- | -------- | ------- | -------- |
+| Intel 4114  | x86   | 40       | 1150     | 3095    | 100%     | 100%    | 100%     |
+| 海光 7165   | x86   | 48       | 1586     | 2533    | 138%     | 82%     | 98%      |
+| 华为鲲鹏920 | arm   | 96       | 1168     | 2066    | 102%     | 67%     | 160%     |
+| 飞腾2000    | arm   | 64       | 731      | 1902    | 64%      | 61%     | 98%      |
+| 申威1621    | alpha | 16       | 445      | 1065    | 39%      | 34%     | 14%      |
+
+以上CPU除了Intel，其它都没有HT，也就是Intel 4114实际是20个物理核。以上数据来自ata，仅供参考
 
 ## ARM 和 X86的总结
 
@@ -959,3 +1101,4 @@ ARM 优势的来源主要是工艺领先一代(7nm VS 14nm)
 [主流处理器内部单核微架构细节1——AMD ZEN(即海光)微架构](https://topic.atatech.org/articles/178985)
 
 [主流处理器内部单核微架构细节2——Skylake微架构](https://topic.atatech.org/articles/178986)
+

@@ -25,11 +25,169 @@ tags:
 
 
 
+## 虚拟内存和物理内存
+
+进程所操作的内存是一个虚拟内存，由OS来将这块虚拟内存映射到实际的物理内存上，这样做的好处是每个进程可以独占 128T 内存，任意地使用，系统上还运行了哪些进程已经与我们完全没有关系了（不需要考虑和其它进程之间的地址会冲突）。为变量和函数分配地址的活，我们交给链接器去自动安排就可以了。这一切都是因为虚拟内存能够提供内存地址空间的隔离，极大地扩展了可用空间。
+
+操作系统管理着这种映射关系，所以你在写代码的时候，就不用再操心物理内存的使用情况了，你看到的内存就是虚拟内存。无论一个进程占用的内存资源有多大，在任一时刻，它需要的物理内存都是很少的。在这个推论的基础上，CPU 为每个进程只需要保留很少的物理内存就可以保证进程的正常执行了。
+
+当程序中使用 malloc 等分配内存的接口时会将内存从待分配状态变成已分配状态，此时这块分配好的内存还没有真正映射到对应的物理内存上，这块内存就是未映射状态，因为它并没有被映射到相应的物理内存，直到对该块内存进行读写时，操作系统才会真正地为它分配物理内存。然后这个页面才能成为正常页面。
+
+i7 处理器的页表也是存储在内存页里的，每个页表项都是 4 字节。所以，人们就将 1024 个页表项组成一张页表。这样一张页表的大小就刚好是 4K，占据一个内存页，这样就更加方便管理。而且，当前市场上主流的处理器也都选择将页大小定为 4K。
+
+### CPU 如何找到真实地址
+
+![image-20211107175201297](/images/951413iMgBlog/image-20211107175201297.png)
+
+- 第一步是确定页目录基址。每个 CPU 都有一个页目录基址寄存器，最高级页表的基地址就存在这个寄存器里。在 X86 上，这个寄存器是 CR3。每一次计算物理地址时，MMU 都会从 CR3 寄存器中取出页目录所在的物理地址。
+- 第二步是定位页目录项（PDE）。一个 32 位的虚拟地址可以拆成 10 位，10 位和 12 位三段，上一步找到的页目录表基址加上高 10 位的值乘以 4，就是页目录项的位置。这是因为，一个页目录项正好是 4 字节，所以 1024 个页目录项共占据 4096 字节，刚好组成一页，而 1024 个页目录项需要 10 位进行编码。这样，我们就可以通过最高 10 位找到该地址所对应的 PDE 了。
+- 第三步是定位页表项（PTE）。页目录项里记录着页表的位置，CPU 通过页目录项找到页表的位置以后，再用中间 10 位计算页表中的偏移，可以找到该虚拟地址所对应的页表项了。页表项也是 4 字节的，所以一页之内刚好也是 1024 项，用 10 位进行编码。所以计算公式与上一步相似，用页表基址加上中间 10 位乘以 4，可以得到页表项的地址。
+- 最后一步是确定真实的物理地址。上一步 CPU 已经找到页表项了，这里存储着物理地址，这才真正找到该虚拟地址所对应的物理页。虚拟地址的低 12 位，刚好可以对一页内的所有字节进行编码，所以我们用低 12 位来代表页内偏移。计算的公式是物理页的地址直接加上低 12 位。
+
+前面我们分析的是 32 位操作系统，那对于 64 位机器是不是有点不同呢？在 64 位的机器上，使用了 48 位的虚拟地址，所以它需要使用 4 级页表。它的结构与 32 位的 3 级页表是相似的，**只是多了一级页目录，定位的过程也从 32 位的 4 步变成了 5 步。**
+
+![image-20211107182305732](/images/951413iMgBlog/image-20211107182305732.png)
+
+8086最开始是按不同的作用将内存分为代码段、数据段等，386开始按页开始管理内存（混合有按段管理）。 现代的操作系统都是采用段式管理来做基本的权限管理，而对于内存的分配、回收、调度都是依赖页式管理。
+
+## 内存布局
+
+- 代码段：CPU 运行一个程序，实质就是在顺序执行该程序的机器码。一个程序的机器码会被组织到同一个地方。
+- 数据段：程序在运行过程中必然要操作数据。这其中，对于有初值的变量，它的初始值会存放在程序的二进制文件中，而且，这些数据部分也会被装载到内存中，即程序的数据段。数据段存放的是程序中已经初始化且不为 0 的全局变量和静态变量。
+- BSS 段: 对于未初始化的全局变量和静态变量，因为编译器知道它们的初始值都是 0，因此便不需要再在程序的二进制映像中存放这么多 0 了，只需要记录他们的大小即可，这便是BSS段 。BSS 段这个缩写名字是 Block Started by Symbol，但很多人可能更喜欢把它记作 Better Save Space 的缩写。
+- 堆是程序员可以自由申请的空间，当我们在写程序时要保存数据，优先会选择堆；
+- 栈是函数执行时的活跃记录，这将是我们下一节课要重点分析的内容。
+
+数据段和 BSS 段里存放的数据也只能是部分数据，主要是全局变量和静态变量，但程序在运行过程中，仍然需要记录大量的临时变量，以及运行时生成的变量，这里就需要新的内存区域了，即程序的堆空间跟栈空间。与代码段以及数据段不同的是，堆和栈并不是从磁盘中加载，它们都是由程序在运行的过程中申请，在程序运行结束后释放。
+
+总的来说，一个程序想要运行起来所需要的几块基本内存区域：代码段、数据段、BSS 段、堆空间和栈空间。下面就是内存布局的示意图：
+
+![image-20211108115717113](/images/951413iMgBlog/image-20211108115717113.png)
+
+其它内存形态：
+
+- 存放加载的共享库的内存空间：如果一个进程依赖共享库，那对应的，该共享库的代码段、数据段、BSS 段也需要被加载到这个进程的地址空间中。
+- 共享内存段：我们可以通过系统调用映射一块匿名区域作为共享内存，用来进行进程间通信。
+- 内存映射文件：我们也可以将磁盘的文件映射到内存中，用来进行文件编辑或者是类似共享内存的方式进行进程通信。
+
+32位 x86机器下，通过 cat /proc/pid/maps 看到的进程所使用的内存分配空间：
+
+![image-20211108120532370](/images/951413iMgBlog/image-20211108120532370.png)
+
+64位 x86机器下，通过 cat /proc/pid/maps 看到的进程所使用的内存分配空间：
+
+![image-20211108120718732](/images/951413iMgBlog/image-20211108120718732.png)
+
+目前的 64 系统下的寻址空间是 2^48(太多用不完，高16位为Canonical空间），即 256TB。而且根据 canonical address 的划分，地址空间天然地被分割成两个区间，分别是 0x0 - 0x00007fffffffffff 和 0xffff800000000000 - 0xffffffffffffffff。这样就直接将低 128T 的空间划分为用户空间，高 128T 划分为内核空间。
+
+brk:内核维护指向堆的顶部
+
+Java程序对应的maps：
+
+```
+#cat /proc/14011/maps
+00400000-00401000 r-xp 00000000 08:03 3935494                            /opt/taobao/install/ajdk-8.3.6_fp9-b30/bin/java
+00600000-00601000 rw-p 00000000 08:03 3935494                            /opt/taobao/install/ajdk-8.3.6_fp9-b30/bin/java
+ed400000-1001e0000 rw-p 00000000 00:00 0
+1001e0000-140000000 ---p 00000000 00:00 0
+7f86e8000000-7f8a7fc00000 rw-p 00000000 00:00 0
+..
+7f8aaecfa000-7f8aaeff8000 rw-p 00000000 00:00 0
+7f8aaeff8000-7f8aaf000000 r-xp 00000000 08:03 3935973                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libmanagement.so
+7f8aaf000000-7f8aaf1ff000 ---p 00008000 08:03 3935973                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libmanagement.so
+7f8aaf1ff000-7f8aaf200000 rw-p 00007000 08:03 3935973                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libmanagement.so
+..
+7f8ad8cea000-7f8ad8cec000 r--s 00004000 08:05 7078938                    /home/admin/drds-worker/lib/netty-handler-proxy-4.1.17.Final.jar
+7f8ad8cec000-7f8ad8cf5000 r--s 0006f000 08:05 7078952                    /home/admin/drds-worker/lib/log4j-1.2.17.jar
+7f8ad8cf5000-7f8ad8cf7000 r--s 00005000 08:05 7078960                    /home/admin/drds-worker/lib/objenesis-1.0.jar
+7f8ad8cf7000-7f8ad8cff000 r--s 0004b000 08:05 7078929                    /home/admin/drds-worker/lib/spring-aop-3.2.18.RELEASE.jar
+7f8ad8cff000-7f8ad8d00000 ---p 00000000 00:00 0
+7f8ad8d00000-7f8ad9000000 rw-p 00000000 00:00 0
+7f8ad90e3000-7f8ad90ef000 r--s 000b6000 08:05 7079066                    /home/admin/drds-worker/lib/transmittable-thread-local-2.5.1.jar
+7f8ad9dd8000-7f8ad9dfe000 r--s 0026f000 08:05 7078997                    /home/admin/drds-worker/lib/druid-1.1.7-preview_12.jar
+7f8ad9dfe000-7f8ad9dff000 ---p 00000000 00:00 0
+7f8ad9dff000-7f8ad9eff000 rw-p 00000000 00:00 0
+7f8ad9eff000-7f8ad9f00000 ---p 00000000 00:00 0
+7f8ad9f00000-7f8ada200000 rw-p 00000000 00:00 0
+7f8ada200000-7f8ada202000 r--s 00003000 08:05 7078944                    /home/admin/drds-worker/lib/liberate-rest-1.0.2.jar
+7f8ada202000-7f8ada206000 r--s 00036000 08:05 7078912                    /home/admin/drds-worker/lib/jackson-core-lgpl-1.9.6.jar
+7f8ada289000-7f8ada28b000 r--s 00001000 08:05 7078998                    /home/admin/drds-worker/lib/opencensus-contrib-grpc-metrics-0.10.0.jar
+7f8ada2b5000-7f8ada2b9000 r--s 0003a000 08:05 7079099                    /home/admin/drds-worker/lib/tddl-repo-mysql-5.2.7-2-EXTEND-HOTMAPPING-SNAPSHOT.jar
+7f8ada2b9000-7f8ada2c6000 r--s 0007d000 08:05 7078982                    /home/admin/drds-worker/lib/grpc-core-1.9.0.jar
+7f8ada2c6000-7f8ada2d6000 r--s 00149000 08:05 7079000                    /home/admin/drds-worker/lib/protobuf-java-3.5.1.jar
+7f8ada2d6000-7f8ada2db000 r--s 0002b000 08:05 7078927                    /home/admin/drds-worker/lib/tddl-net-5.2.7-2-EXTEND-HOTMAPPING-SNAPSHOT.jar
+7f8ada2db000-7f8ada2e0000 r--s 0002a000 08:05 7078939                    /home/admin/drds-worker/lib/grpc-netty-1.9.0.jar
+7f8ada2e0000-7f8ada2ff000 r--s 00150000 08:05 7078965                    /home/admin/drds-worker/lib/mockito-core-1.9.5.jar
+7f8ada2ff000-7f8ada300000 ---p 00000000 00:00 0
+7f8ada300000-7f8ada600000 rw-p 00000000 00:00 0
+7f8ada600000-7f8ada601000 r--s 00003000 08:05 7079089                    /home/admin/drds-worker/lib/ushura-1.0.jar
+7f8ae9ba2000-7f8ae9baa000 r-xp 00000000 08:03 3935984                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libzip.so
+7f8ae9baa000-7f8ae9da9000 ---p 00008000 08:03 3935984                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libzip.so
+7f8ae9da9000-7f8ae9daa000 rw-p 00007000 08:03 3935984                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libzip.so
+7f8ae9daa000-7f8ae9db6000 r-xp 00000000 08:03 1837851                    /usr/lib64/libnss_files-2.17.so;614d5f07 (deleted)
+7f8ae9db6000-7f8ae9fb5000 ---p 0000c000 08:03 1837851                    /usr/lib64/libnss_files-2.17.so;614d5f07 (deleted)
+7f8ae9fb5000-7f8ae9fb6000 r--p 0000b000 08:03 1837851                    /usr/lib64/libnss_files-2.17.so;614d5f07 (deleted)
+7f8ae9fb6000-7f8ae9fb7000 rw-p 0000c000 08:03 1837851                    /usr/lib64/libnss_files-2.17.so;614d5f07 (deleted)
+7f8ae9fb7000-7f8ae9fbd000 rw-p 00000000 00:00 0
+7f8ae9fbd000-7f8ae9fe7000 r-xp 00000000 08:03 3935961                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/jre/lib/amd64/libjava.so
+7f8aebc03000-7f8aebc05000 r--s 00008000 08:05 7079098                    /home/admin/drds-worker/lib/grpc-stub-1.9.0.jar
+7f8aebc05000-7f8aebc07000 r--s 00020000 08:05 7078930                    /home/admin/drds-worker/lib/tddl-group-5.2.7-2-EXTEND-HOTMAPPING-SNAPSHOT.jar
+7f8aebc07000-7f8aebc1f000 r--s 001af000 08:05 7079085                    /home/admin/drds-worker/lib/aspectjweaver-1.8.5.jar
+7f8aebc1f000-7f8aebc20000 ---p 00000000 00:00 0
+7f8aebc20000-7f8aebd20000 rw-p 00000000 00:00 0
+7f8aebd20000-7f8aebd35000 r-xp 00000000 08:03 1837234                    /usr/lib64/libgcc_s-4.8.5-20150702.so.1
+7f8aebd35000-7f8aebf34000 ---p 00015000 08:03 1837234                    /usr/lib64/libgcc_s-4.8.5-20150702.so.1
+7f8aebf34000-7f8aebf35000 r--p 00014000 08:03 1837234                    /usr/lib64/libgcc_s-4.8.5-20150702.so.1
+7f8aebf35000-7f8aebf36000 rw-p 00015000 08:03 1837234                    /usr/lib64/libgcc_s-4.8.5-20150702.so.1
+7f8aebf36000-7f8aec037000 r-xp 00000000 08:03 1837579                    /usr/lib64/libm-2.17.so;614d5f07 (deleted)
+7f8aec037000-7f8aec236000 ---p 00101000 08:03 1837579                    /usr/lib64/libm-2.17.so;614d5f07 (deleted)
+7f8aeca17000-7f8aeca18000 rw-p 0000d000 08:03 3936057                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/lib/amd64/jli/libjli.so
+7f8aeca18000-7f8aeca2d000 r-xp 00000000 08:03 1836998                    /usr/lib64/libz.so.1.2.7
+7f8aeca2d000-7f8aecc2c000 ---p 00015000 08:03 1836998                    /usr/lib64/libz.so.1.2.7
+7f8aecc2c000-7f8aecc2d000 r--p 00014000 08:03 1836998                    /usr/lib64/libz.so.1.2.7
+7f8aecc2d000-7f8aecc2e000 rw-p 00015000 08:03 1836998                    /usr/lib64/libz.so.1.2.7
+7f8aecc2e000-7f8aecc45000 r-xp 00000000 08:03 1836993                    /usr/lib64/libpthread-2.17.so;614d5f07 (deleted)
+7f8aecc45000-7f8aece44000 ---p 00017000 08:03 1836993                    /usr/lib64/libpthread-2.17.so;614d5f07 (deleted)
+7f8aece44000-7f8aece45000 r--p 00016000 08:03 1836993                    /usr/lib64/libpthread-2.17.so;614d5f07 (deleted)
+7f8aece45000-7f8aece46000 rw-p 00017000 08:03 1836993                    /usr/lib64/libpthread-2.17.so;614d5f07 (deleted)
+7f8aece46000-7f8aece4a000 rw-p 00000000 00:00 0
+7f8aece4a000-7f8aecea1000 r-xp 00000000 08:03 3936059                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/lib/amd64/libjemalloc.so.2
+7f8aecea1000-7f8aed0a0000 ---p 00057000 08:03 3936059                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/lib/amd64/libjemalloc.so.2
+7f8aed0a0000-7f8aed0a3000 rw-p 00056000 08:03 3936059                    /opt/taobao/install/ajdk-8.3.6_fp9-b30/lib/amd64/libjemalloc.so.2
+7f8aed0a3000-7f8aed0b5000 rw-p 00000000 00:00 0
+7f8aed0b5000-7f8aed0d7000 r-xp 00000000 08:03 1837788                    /usr/lib64/ld-2.17.so;614d5f07 (deleted)
+7f8aed0d7000-7f8aed0dc000 r--s 00038000 08:05 7079012                    /home/admin/drds-worker/lib/org.osgi.core-4.2.0.jar
+7f8aed0dc000-7f8aed0e1000 r--s 00038000 08:05 7079018                    /home/admin/drds-worker/lib/commons-beanutils-1.9.3.jar
+7f8aed0e1000-7f8aed0e3000 r--s 00001000 08:05 7079033                    /home/admin/drds-worker/lib/j2objc-annotations-1.1.jar
+7f8aed0e3000-7f8aed0e8000 r--s 00017000 08:05 7079056                    /home/admin/drds-worker/lib/hibernate-jpa-2.1-api-1.0.0.Final.jar
+7f8aed1be000-7f8aed1c6000 rw-s 00000000 08:04 393222                     /tmp/hsperfdata_admin/14011
+7f8aed1c6000-7f8aed1ca000 ---p 00000000 00:00 0
+7f8aed1ca000-7f8aed2cd000 rw-p 00000000 00:00 0
+7f8aed2cd000-7f8aed2ce000 r--s 00005000 08:05 7079029                    /home/admin/drds-worker/lib/jersey-apache-connector-2.26.jar
+7f8aed2ce000-7f8aed2d1000 r--s 0000a000 08:05 7079027                    /home/admin/drds-worker/lib/metrics-jvm-1.7.4.jar
+7f8aed2d1000-7f8aed2d3000 r--s 00006000 08:05 7078961                    /home/admin/drds-worker/lib/tddl-client-5.2.7-2-EXTEND-HOTMAPPING-SNAPSHOT.jar
+7f8aed2d3000-7f8aed2d4000 rw-p 00000000 00:00 0
+7f8aed2d4000-7f8aed2d5000 r--p 00000000 00:00 0
+7f8aed2d5000-7f8aed2d6000 rw-p 00000000 00:00 0
+7f8aed2d6000-7f8aed2d7000 r--p 00021000 08:03 1837788                    /usr/lib64/ld-2.17.so;614d5f07 (deleted)
+7f8aed2d7000-7f8aed2d8000 rw-p 00022000 08:03 1837788                    /usr/lib64/ld-2.17.so;614d5f07 (deleted)
+7f8aed2d8000-7f8aed2d9000 rw-p 00000000 00:00 0
+7fff087e0000-7fff08801000 rw-p 00000000 00:00 0                          [stack]
+7fff089c2000-7fff089c4000 r-xp 00000000 00:00 0                          [vdso]
+ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0                  [vsyscall]
+```
+
+mmap映射内存
+
+<img src="/images/951413iMgBlog/image-20211108122432263.png" alt="image-20211108122432263" style="zoom:20%;" />
+
+私有匿名映射常用于分配内存，也就是申请堆内存
+
 ## 内存管理和使用
 
 ### node->zone->buddy->slab
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
+![img](/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
 
 
 
@@ -111,13 +269,13 @@ Normal那行之后的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列
 
 `cat /proc/pagetypeinfo`, 你可以看到当前系统里伙伴系统里各个尺寸的可用连续内存块数量。unmovable pages是不可以被迁移的，比如slab等kmem都不可以被迁移，因为内核里面对这些内存很多情况下是通过指针来访问的，而不是通过页表，如果迁移的话，就会导致原来的指针访问出错。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
+![img](/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
 
 **当迁移类型为 Unmovable 的页面都聚集在 order < 3 时，说明内核 slab 碎片化严重**
 
 alloc_pages分配内存的时候就到上面对应大小的free_area的链表上寻找可用连续页面。`alloc_pages`是怎么工作的呢？我们举个简单的小例子。假如要申请8K-连续两个页框的内存。为了描述方便，我们先暂时忽略UNMOVEABLE、RELCLAIMABLE等不同类型
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
+![img](/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
 
 基于伙伴系统的内存分配中，有可能需要将大块内存拆分成两个小伙伴。在释放中，可能会将两个小伙伴合并再次组成更大块的连续内存。
 
@@ -139,11 +297,11 @@ slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面
 
 通过查看 `/proc/slabinfo` 我们可以查看到所有的 kmem cache。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
+![img](/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
 
 slabtop 按占用内存从大往小进行排列。用来分析 slab 内存开销。
 
-![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
+![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
 
 无论是 `/proc/slabinfo`，还是 slabtop 命令的输出。里面都包含了每个 cache 中 slab的如下几个关键属性。
 
@@ -165,7 +323,7 @@ TCP                 6090   6144   1984   16    8 : tunables    0    0    0 : sla
 
 TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/tlb_lookup.png)
+![img](/images/951413iMgBlog/tlb_lookup.png)
 
 以intel x86为例，一个cpu也就32到64个tlb, 超出这个范畴，就得去查页表。 每个型号的cpu都不一样，需要查看[spec](https://en.wikichip.org/wiki/WikiChip)
 
@@ -173,7 +331,7 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 [虚拟内存的核心原理](https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA)是：为每个程序设置一段"连续"的虚拟地址空间，把这个地址空间分割成多个具有连续地址范围的页 (page)，并把这些页和物理内存做映射，在程序运行期间动态映射到物理内存。当程序引用到一段在物理内存的地址空间时，由硬件立刻执行必要的映射；而当程序引用到一段不在物理内存中的地址空间时，由操作系统负责将缺失的部分装入物理内存并重新执行失败的指令：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
+![img](/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
 
 在 **内存管理单元（Memory Management Unit，MMU）**进行地址转换时，如果页表项的 "在/不在" 位是 0，则表示该页面并没有映射到真实的物理页框，则会引发一个**缺页中断**，CPU 陷入操作系统内核，接着操作系统就会通过页面置换算法选择一个页面将其换出 (swap)，以便为即将调入的新页面腾出位置，如果要换出的页面的页表项里的修改位已经被设置过，也就是被更新过，则这是一个脏页 (dirty page)，需要写回磁盘更新改页面在磁盘上的副本，如果该页面是"干净"的，也就是没有被修改过，则直接用调入的新页面覆盖掉被换出的旧页面即可。
 
@@ -198,7 +356,7 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
+<img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
 
 可以通过 sar -r 来观察系统中的脏页个数：
 
@@ -240,7 +398,7 @@ full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082
 
 你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
+![image.png](/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
 
 ## 碎片化
 
@@ -322,13 +480,13 @@ sum=802 MB
 
 LVS后面三个RS在同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8bbb5c886dc06196546daec46712ff71.png)
+![image.png](/images/oss/8bbb5c886dc06196546daec46712ff71.png)
 
 原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在ECS中大页场景下会慢很多
 
 通过 **openssl speed aes-256-ige 能稳定重现** 在大块的加密上慢很多
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
+![image.png](/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
 
 小块上性能一致，这也就是为什么算Prime性能没问题。导致慢只涉及到大块内存分配的场景，这里需要映射到宿主机，但是碎片多分配慢导致了问题。
 
@@ -482,3 +640,5 @@ https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html
 [鸟哥 journald 介绍](https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html)
 
 [说出来你可能不信，内核这家伙在内存的使用上给自己开了个小灶！](https://mp.weixin.qq.com/s/OR2XB4J76haGc1THeq7WQg)
+
+[socket 与 slab dentry](https://zhengheng.me/2018/08/27/socket-use-slab-dentry/)

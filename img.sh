@@ -19,4 +19,4 @@ cat img.list | sort | uniq >img_uniq.list
 while read line; do  wget -nc -q $line -P ./ossimg/ ; done <./img_uniq.list
 
 #cp ossimg/* source/images/oss/ 
-rsync -a ossimg/ source/images/oss
+rsync -r -a ossimg/ source/images/oss
