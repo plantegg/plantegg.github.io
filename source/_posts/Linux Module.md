@@ -72,9 +72,9 @@ $(pwd) 需要修改成：$(shell pwd)
 
 make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息看又能够正确找到libc，[debug方法](https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f76b841375bb5ed5c5a946614fe494e1.png)
+![image.png](/images/oss/f76b841375bb5ed5c5a946614fe494e1.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19e493900f7d1ae1937d27366129e8aa.png)
+![image.png](/images/oss/19e493900f7d1ae1937d27366129e8aa.png)
 
 实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static
 
@@ -122,9 +122,19 @@ make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息�
 	//系统crash，然后重启，重启后分析：
 	sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
 
+可以触发dump但是系统没有crash, 以下两个命令都可以
+
+```
+sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore
+sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem
+
+写内存hack内核，那就在crash命令执行前，先执行下面的命令：
+stap -g -e 'probe kernel.function("devmem_is_allowed").return { $return = 1 }'
+```
+
 ## 内核函数替换
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c41363dae054baa6d7f79d03376c57cb.png)
+![image.png](/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png)
 
 	static int __init hotfix_init(void)
 	{
@@ -194,3 +204,6 @@ make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息�
 https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234
 
 https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary
+
+[Linux系统中如何彻底隐藏一个TCP连接](https://blog.csdn.net/dog250/article/details/105394840)
+

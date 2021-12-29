@@ -47,6 +47,26 @@ MySQL选择B+树来当索引的数据结构，是因为B+树的树干只有索�
 
 一个22.1G容量的表， 只需要高度为3的B+树就能存储，如果拓展到4层，可以存放25T的容量。但主要占内存的部分是叶子节点中的整行数据，非叶子节点全部加载到内存只需要18.8M。
 
+### B+树
+
+MySQL的索引结构主要是B+树，也可以选hash
+
+B+树特点：
+
+- 叶子结点才有数据，这些数据形成一个有序链表
+- 非叶子节点只有索引，导致非叶子节点小，查询的时候整体IO更小、更稳定（相对B数）
+- 删除相对B树快，因为数据有大量冗余，大部分时候不需要改非叶子节点，删除只需要从叶子节点中的链表中删除
+- B+树是多叉树，相对二叉树二分查找效率略低，但是树高度大大降低，减少了磁盘IO
+- 因为叶子节点的有序链表存在，支持范围查找
+
+B+树的标准结构：
+
+![Image](/images/951413iMgBlog/640-9735668.)
+
+innodb实现的B+树用了双向链表，节点内容存储的是页号（每页16K）
+
+![Image](/images/951413iMgBlog/640-20211217181055800)
+
 ### 联合索引
 
 对于多个查询条件的复杂查询要正确建立多列的联合索引来尽可能多地命中多个查询条件，过滤性好的列要放在联合索引的前面。
@@ -126,6 +146,18 @@ redo-log和bin-log的比较：
 只有当commit（非两阶段的commit）的时候才会真正把redo-log写到表空间的磁盘上（不一定是commit的时候刷到表空间）。
 
 如果机器性能很好（内存大、innodb_buffer_pool设置也很大，iops高），但是设置了比较小的innodb_logfile_size那么会造成redo-log很快会被写满，这个时候系统会停止所有更新，全力刷盘去推进ib_logfile checkpoint（位点），这个时候磁盘压力很小，但是数据库性能会出现间歇性下跌（select 反而相对更稳定了--更少的merge）。
+
+redo-log要求数据量尽量少，这样写盘IO小；操作幂等（保证重放幂等）。实际逻辑日志(Logical Log, 也就是bin-log)的特点就是数据量小，而幂等则是基于Page的Physical Logging特点。最终redo-log的形式是**Physiological Logging**的方式，来兼得二者的优势。
+
+所谓Physiological Logging，就是以Page为单位，但在Page内以逻辑的方式记录。举个例子，MLOG_REC_UPDATE_IN_PLACE类型的REDO中记录了对Page中一个Record的修改，方法如下：
+
+> （Page ID，Record Offset，(Filed 1, Value 1) ... (Filed i, Value i) ... )
+
+其中，PageID指定要操作的Page页，Record Offset记录了Record在Page内的偏移位置，后面的Field数组，记录了需要修改的Field以及修改后的Value。
+
+Innodb的默认Page大小是16K，OS文件系统默认都是4KB，对16KB的Page的修改保证不了原子性，因此Innodb又引入**Double Write Buffer**的方式来通过写两次的方式保证恢复的时候找到一个正确的Page状态。
+
+InnoDB给每个REDO记录一个全局唯一递增的标号**LSN(Log Sequence Number)**。Page在修改时，会将对应的REDO记录的LSN记录在Page上（FIL_PAGE_LSN字段），这样恢复重放REDO时，就可以来判断跳过已经应用的REDO，从而实现重放的幂等。
 
 ### binlog和redo-log一致性的保证
 
@@ -275,6 +307,10 @@ insert into t(id, k) values(1,1),(2,2);
 事务A开始在事务C之前， 而select是可重复性读，所以事务C提交了但是对A不可见，也就是select要保持可重复性读仍然读到的是1.
 
 如果这个案例改成RC，事务B看到的还是3，事务A看到的就是2了(这个2是事务C提交的)，因为隔离级别是RC。select 执行时间点事务才开始。
+
+#### MySQL和PG事务实现上的差异
+
+这两个数据库对MVCC实现上选择了不同方案，上面讲了MySQL选择的是redo-log去反推多个事务的不同数据，这个方案实现简单。但是PG选择的是保留多个不同的数据版本，优点就是查询不同版本数据效率高，缺点就是对这些数据要做压缩、合并之类的。
 
 ## 总结
 

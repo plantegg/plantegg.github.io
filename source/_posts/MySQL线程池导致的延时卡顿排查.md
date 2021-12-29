@@ -118,7 +118,11 @@ mysql> show variables like '%thread%';
 
 MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。
 
-*这里表现出高 RT 而不是超时，原因是 MySQL 线程池有另一个参数 thread_pool_stall_limit 防止线程卡死．请求如果在分组内等待超过 thread_pool_stall_limit 时间没被处理，则会退回传统模式，创建新线程来处理请求．这个参数的默认值是 500ms。另外这个等待时间是不会被记录到MySQL的慢查询日志中的*
+thread_pool_stall_limit 会控制一个SQL过长时间（默认60ms）占用线程，如果出现stall_limit就放更多的SQL进入到thread pool中直到达到thread_pool_oversubscribe个
+
+> The thread_pool_stall_limit affects executing statements. The value is the amount of time a statement has to finish after starting to execute before it becomes defined as stalled, at which point the thread pool permits the thread group to begin executing another statement. The value is measured in 10 millisecond units, so the default of 6 means 60ms. Short wait values permit threads to start more quickly. Short values are also better for avoiding deadlock situations. Long wait values are useful for workloads that include long-running statements, to avoid starting too many new statements while the current ones execute.
+
+
 
 ## Thread Pool原理
 
@@ -128,17 +132,15 @@ MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connect
 
 no-threads一般用于调试，生产环境一般用one-thread-per-connection方式。one-thread-per-connection 适合于低并发长连接的环境，而在高并发或大量短连接环境下，大量创建和销毁线程，以及线程上下文切换，会严重影响性能。另外 one-thread-per-connection 对于大量连接数扩展也会影响性能。
 
-为了解决上述问题，MariaDB、Percona、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。
+为了解决上述问题，MariaDB、Percona、Aliyun RDS、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。
 
 线程池由一系列 worker 线程组成，这些worker线程被分为`thread_pool_size`个group。用户的连接按 round-robin 的方式映射到相应的group 中，一个连接可以由一个group中的一个或多个worker线程来处理。
 
 thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过`thread_pool_oversubscribe`时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了`thread_pool_max_threads`上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。`thread_pool_oversubscribe`控制group中活跃线程和等待中的线程总数，从而防止了上述情况。
 
-`thread_pool_stall_limit` timer线程检测间隔。此参数设置过小，会导致创建过多的线程，从而产生较多的线程上下文切换，但可以及时处理锁等待的场景，避免死锁。参数设置过大，对长语句有益，但会阻塞短语句的执行。参数设置需视具体情况而定，例如99%的语句10ms内可以完成，那么我们可以将就`thread_pool_stall_limit`设置为10ms。
-
 **MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。**
 
-group中的队列是用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。
+group中又有多个队列，用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。
 
 比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题
 
@@ -187,15 +189,15 @@ public class MySQLPingPacket implements CommandPacket {
 
 也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。
 
-## 案例：show stats导致集群3406监控卡死
+## 线程池卡死案例：show stats导致集群3406监控卡死
 
-## 现象
+### 现象
 
-DRDS 3406端口卡死,无法连接上，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。
+应用用于获取监控信息的端口 3406卡死，监控脚本无法连接上3406，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。
 
 通过jstack看到drds-server进程的manager线程池都是这样: 
 
-```plain
+```java
 "ManagerExecutor-1-thread-1" #47 daemon prio=5 os_prio=0 tid=0x00007fe924004000 nid=0x15c runnable [0x00007fe9034f4000]
    java.lang.Thread.State: RUNNABLE
     at java.net.SocketInputStream.socketRead0(Native Method)
@@ -237,8 +239,8 @@ DRDS 3406端口卡死,无法连接上，监控没有数据（需要从3406采集
 ### 原因
 
 1. 用户监控采集数据通过访问3306端口上的show stats，这个show stats命令要访问集群下所有节点的3406端口来执行show stats，3406端口上是一个大小为8个的Manager 线程池在执行这些show stats命令，导致占满了manager线程池的8个线程，每个3306的show stats线程都在wait 所有节点3406上的子任务的返回
-2. 每个子任务的线程，都在等待向集群所有节点3406端口的manager建立连接，建连接后会先执行testValidatation操作验证连接的有效性，需要执行select 1的query请求，这个query请求又要申请一个manager线程才能执行成功
-3. 默认isValidConnection操作没有超时时间，如果Manager线程池已满后需要等待至socketTimeout后才会返回，导致这里出现卡死，还不如快速返回错误
+2. 每个子任务的线程，都在等待向集群所有节点3406端口的manager建立连接，建连接后会先执行testValidatation操作验证连接的有效性，这个验证操作会执行SQL Query：select 1，这个query请求又要申请一个manager线程才能执行成功
+3. 默认isValidConnection操作没有超时时间，如果Manager线程池已满后需要等待至socketTimeout后才会返回，导致这里出现卡死，还不如快速返回错误，可以增加超时来改进
 
 从线程栈来说，就是出现了活锁
 
@@ -325,11 +327,11 @@ public final static String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =
 >
 > 比如并行执行的SQL MPP线程池也有这个问题，多个查询节点收到SQL，拆分出子任务做并行，互相等待资源
 
-## DRDS对分布式任务打挂整个线程池的优化
+## DRDS对分布式任务打挂线程池的优化
 
 对如下这种案例：
 
-> drds-server线程池，接收一个逻辑SQL，如果需要查询1024分片的sort merge join，相当于派生了一批子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
+> drds-server线程池，接收一个逻辑SQL，如果需要查询1024分片的sort merge join，相当于派生了1024个子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
 
 首先DRDS对执行SQL 的线程池分成了多个bucket，每个SQL只跑在一个bucket里面的线程上，同时通过滑动窗口向线程池提交任务数，来控制并发量，进而避免线程池的死锁、活锁问题。
 
@@ -337,7 +339,6 @@ public final static String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =
     public static final ServerThreadPool create(String name, int poolSize, int deadLockCheckPeriod, int bucketSize) {
         return new ServerThreadPool(name, poolSize, deadLockCheckPeriod, bucketSize); //bucketSize可以设置
     }
-
 
     public ServerThreadPool(String poolName, int poolSize, int deadLockCheckPeriod, int bucketSize) {
         this.poolName = poolName;
@@ -388,7 +389,7 @@ public final static String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =
 
 拆分前锁主要是：
 
-```
+```java
 Started [lock] profiling
 --- Execution profile ---
 Total samples:         496
@@ -466,16 +467,14 @@ com.taobao.tddl.matrix.jdbc.TConnection.optimizeThenExecute调用对应代码逻
 
 ```java
 if (InsertSplitter.needSplit(sql, policy, extraCmd)) {
-                        executionContext.setDoingBatchInsertBySpliter(true);
-                        InsertSplitter insertSplitter = new InsertSplitter(executor);
+             executionContext.setDoingBatchInsertBySpliter(true);
+             InsertSplitter insertSplitter = new InsertSplitter(executor);
                         // In batch insert, update transaction policy in writing
                         // broadcast table is also needed.
-                        resultCursor = insertSplitter.execute(sql,
-                            executionContext,
-                            policy,
-                            (String insertSql) -> optimizeThenExecute(insertSql, executionContext, trxPolicyModified));
+     resultCursor = insertSplitter.execute(sql,executionContext,policy,
+         (String insertSql) -> optimizeThenExecute(insertSql, executionContext,trxPolicyModified));
                     } else {
-                        resultCursor = optimizeThenExecute(sql, executionContext, trxPolicyModified);
+       resultCursor = optimizeThenExecute(sql, executionContext,trxPolicyModified);
                     }
                     
  最终会访问到：
@@ -484,7 +483,7 @@ if (InsertSplitter.needSplit(sql, policy, extraCmd)) {
         String instRole = (String) SystemPropertiesHelper.getPropertyValue(SystemPropertiesHelper.INST_ROLE);
         SqlType sqlType = executionContext.getSqlType();
         
- 相当于执行每个SQL都要加锁访问HashMap，这里排队比较厉害       
+ 相当于执行每个SQL都要加锁访问HashMap(SystemPropertiesHelper.getPropertyValue)，这里排队比较厉害       
 ```
 
 实际以上测试结果显示bucket对性能有提升这么大是不对的，刚好这个版本把对HashMap的访问去掉了，这才是提升的主要原因，当然如果线程池入队出队有等锁的话改成多个肯定是有帮助的，但是从等锁观察是没有这个问题的。

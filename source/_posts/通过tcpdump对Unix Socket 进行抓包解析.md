@@ -153,9 +153,55 @@ $ nc localhost 1000
 	
 	sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/events
 
+## [Unix Domain Socket工作原理](https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A)
+
+接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。
+
+![Image](/images/951413iMgBlog/640-0054201.)
+
+主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。
+
+直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) = sk 和 unix_peer(sk) = newsk 这两句。
+
+```C
+//file: net/unix/af_unix.c
+static int unix_stream_connect(struct socket *sock, struct sockaddr *uaddr,
+          int addr_len, int flags)
+{
+ struct sockaddr_un *sunaddr = (struct sockaddr_un *)uaddr;
+
+ // 1. 为服务器侧申请一个新的 socket 对象
+ newsk = unix_create1(sock_net(sk), NULL);
+
+ // 2. 申请一个 skb，并关联上 newsk
+ skb = sock_wmalloc(newsk, 1, 0, GFP_KERNEL);
+ ...
+
+ // 3. 建立两个 sock 对象之间的连接
+ unix_peer(newsk) = sk;
+ newsk->sk_state  = TCP_ESTABLISHED;
+ newsk->sk_type  = sk->sk_type;
+ ...
+ sk->sk_state = TCP_ESTABLISHED;
+ unix_peer(sk) = newsk;
+
+ // 4. 把连接中的一头（新 socket）放到服务器接收队列中
+ __skb_queue_tail(&other->sk_receive_queue, skb);
+}
+
+//file: net/unix/af_unix.c
+#define unix_peer(sk) (unix_sk(sk)->peer)
+```
+
+收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，**直接把 skb 给放到对端的接收队列里了**
+
+![Image](/images/951413iMgBlog/640-20211221105837677)
+
+Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。
+
 ## tcpdump原理
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/0923eefc85c1bf87f47591222532f1f2.png)
+![image.png](/images/oss/0923eefc85c1bf87f47591222532f1f2.png)
 
 tcpdump 抓包使用的是 libpcap 这种机制。它的大致原理是：在收发包时，如果该包符合 tcpdump 设置的规则（BPF filter），那么该网络包就会被拷贝一份到 tcpdump 的内核缓冲区，然后以 PACKET_MMAP 的方式将这部分内存映射到 tcpdump 用户空间，解析后就会把这些内容给输出了。
 
@@ -173,7 +219,7 @@ Tracepoint 是我分析问题常用的手段之一，在遇到一些疑难问题
 
 对于 TCP 的相关问题，我也习惯使用这些 TCP Tracepoints 来分析问题。要想使用这些 Tracepoints，你的内核版本需要为 **4.16** 及以上。这些常用的 TCP Tracepoints 路径位于 /sys/kernel/debug/tracing/events/tcp/ 和 /sys/kernel/debug/tracing/events/sock/，它们的作用如下表所示：
 
-![image.png](https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/32f29686127beb5a3279e630259903ae.png)
+![image.png](/images/oss/32f29686127beb5a3279e630259903ae.png)
 
 
 

@@ -246,7 +246,7 @@ Intel 最新的CPU Ice Lake和其上一代的性能对比数据：
 
 主要是通过采集 PMU（Performance Monitoring Unit -- CPU内部提供）数据来做性能监控
 
-```
+```asm
 sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）
 perf record -e 'skb:consume_skb' -ag  //记录网络消耗
 perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1
@@ -255,6 +255,99 @@ sudo perf sched latency //查看
 
 perf record --call-graph dwarf
 perf report 
+perf report --call-graph -G //反转调用关系
+
+
+展开汇编结果
+
+  占比   行号  指令
+       │      mov    %r13,%rax
+       │      mov    %r8,%rbx
+  0.56 │      mov    %r9,%rcx
+  0.19 │      lock   cmpxchg16b 0x10(%rsi) //加锁占89.53，下一行
+ 89.53 │      sete   %al
+  1.50 │      mov    %al,%r13b
+  0.19 │      mov    $0x1,%al
+       │      test   %r13b,%r13b
+       │    ↓ je     eb
+       │    ↓ jmpq   ef
+       │47:   mov    %r9,(%rsp)
+       
+
+//如下代码的汇编
+void main() {
+
+	while(1) {
+		 __asm__ ("pause\n\t"
+				 "pause\n\t"
+				 "pause\n\t"
+				 "pause\n\t"
+				 "pause");
+	}
+}       
+
+//每行pause占20%
+       │
+       │    Disassembly of section .text:
+       │
+       │    00000000004004ed <main>:
+       │    main():
+       │      push   %rbp
+       │      mov    %rsp,%rbp
+  0.71 │ 4:   pause
+ 19.35 │      pause
+ 20.20 │      pause
+ 19.81 │      pause
+ 19.88 │      pause
+ 20.04 │    ↑ jmp    4
+ 
+```
+
+网络收包软中断
+
+```asm
+_raw_spin_lock_irqsave  /proc/kcore
+       │    Disassembly of section load2:
+       │
+       │    ffffffff81662b00 <load2+0x662b00>:
+  0.30 │      nop
+       │      push   %rbp
+  0.21 │      mov    %rsp,%rbp
+  0.15 │      push   %rbx
+  0.12 │      pushfq
+  0.57 │      pop    %rax
+  0.45 │      nop
+  0.15 │      mov    %rax,%rbx
+  0.21 │      cli
+  1.20 │      nop
+       │      mov    $0x20000,%edx
+       │      lock   xadd   %edx,(%rdi) //加锁耗时83%
+ 83.42 │      mov    %edx,%ecx
+       │      shr    $0x10,%ecx
+  0.66 │      cmp    %dx,%cx
+       │    ↓ jne    34
+  0.06 │2e:   mov    %rbx,%rax
+       │      pop    %rbx
+       │      pop    %rbp
+  0.57 │    ← retq
+  0.12 │34:   mov    %ecx,%r8d
+  0.03 │      movzwl %cx,%esi
+       │3a:   mov    $0x8000,%eax
+       │    ↓ jmp    4f
+       │      nop
+  0.06 │48:   pause
+  4.67 │      sub    $0x1,%eax
+       │    ↓ je     69
+  0.12 │4f:   movzwl (%rdi),%edx  //慢操作
+  6.73 │      mov    %edx,%ecx
+       │      xor    %r8d,%ecx
+       │      and    $0xfffe,%ecx
+       │    ↑ jne    48
+  0.12 │      movzwl %dx,%esi
+  0.09 │      callq  0xffffffff8165501c
+       │    ↑ jmp    2e
+       │69:   nop
+       │    ↑ jmp    3a
 ```
 
 可以通过perf看到cpu的使用情况：
@@ -421,7 +514,7 @@ Ivy Bridge(2650 v2 enable HT) 2.6GHZ       27K on single core
 
 ## [perf top 和 pause 的案例](https://topic.atatech.org/articles/85549)
 
-在Skylake的架构中，将pause由10个时钟周期增加到了140个时钟周期。主要用在spin lock当中因为spin loop多线程竞争差生的内存乱序而引起的性能下降。pause的时钟周期高过了绝大多数的指令cpu cycles，那么当我们利用perf top统计cpu 性能的时候，pause会有什么影响呢？我们可以利用一段小程序来测试一下.
+在Skylake的架构中，将pause由10个时钟周期增加到了140个时钟周期。主要用在spin lock当中因为spin loop 多线程竞争差生的内存乱序而引起的性能下降。pause的时钟周期高过了绝大多数的指令cpu cycles，那么当我们利用perf top统计cpu 性能的时候，pause会有什么影响呢？我们可以利用一段小程序来测试一下.
 
 测试机器：
 CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程

@@ -17,7 +17,7 @@ tags:
 # epoll的LT和ET
 
 - LT水平触发(翻译为 条件触发 更合适） 
->	如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如事件来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。
+>如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。
 
 - ET边沿触发 
 >
@@ -25,7 +25,7 @@ tags:
 
 LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。
 
-### 水平触发的问题：不必要的唤醒
+### 条件触发的问题：不必要的唤醒
 
 1. 内核：收到一个新建连接的请求
 2. 内核：由于 "惊群效应" ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B
@@ -61,7 +61,7 @@ LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定�
 
 ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：
 
-	nginx读数据（未读完）->Gzip(需要时间，套接字又有数据过来)->读数据（未读完）->Gzip .....
+> nginx读数据（未读完）->Gzip(需要时间，套接字又有数据过来)->读数据（未读完）->Gzip .....
 
 新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。
 
@@ -77,20 +77,22 @@ poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘�
 
 ### epoll LT惊群的发生
 
-	// 否则会阻塞在IO系统调用，导致没有机会再epoll
-	set_socket_nonblocking(sd);
-	epfd = epoll_create(64);
-	event.data.fd = sd;
-	epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &event);
-	while (1) {
-	    epoll_wait(epfd, events, 64, xx);
-	    ... // 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
-	    // 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
-	    // 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
-	    // 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
-	    csd = accept(sd, &in_addr, &in_len); 
-	    ...
-	}
+```c
+// 否则会阻塞在IO系统调用，导致没有机会再epoll
+set_socket_nonblocking(sd);
+epfd = epoll_create(64);
+event.data.fd = sd;
+epoll_ctl(epfd, EPOLL_CTL_ADD, sd, &event);
+while (1) {
+    epoll_wait(epfd, events, 64, xx);
+    ... // 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
+    // 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
+    // 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
+    // 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
+    csd = accept(sd, &in_addr, &in_len); 
+    ...
+}
+```
 
 再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：
 

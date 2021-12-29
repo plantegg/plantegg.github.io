@@ -20,35 +20,6 @@ tags:
 - 用户线程等待内核将数据从网卡拷贝到内核空间
 - 内核将数据从内核空间拷贝到用户空间
 
-### 零拷贝
-
-
-零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝
-
-![](/images/oss/83e2dfbd25d703c58877b2faf71c4944.jpg)
-
-
-
-比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read/write没有导致阻塞是不会发生上下文切换的：
-
-![image.png](/images/oss/b2d0ffb366ef78faca4b7924c2a66cc1.png)
-
-改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制
-
-![image.png](/images/oss/ccdc10037d35349293cba8a63ad72af5.png)
-
-零拷贝就是操作系统提供的新函数(**sendfile**)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。
-
-而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！
-
-应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。
-
-零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB/32KB）上下文切换。
-
-### 直接IO
-
-默认读写文件都会走 PageCache，但是如果是高并发的大文件读写，走PageCache的话效率不高，推荐用直接IO。比如MySQL INNODB自身实现了cache(buffer)来合并写和预读提升性能
-
 ### 同步阻塞IO
 
 用户线程发起read后让出CPU一直阻塞直到内核把网卡数据读到内核空间，然后再拷贝到用户空间，然后唤醒用户线程
@@ -103,90 +74,89 @@ Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中�
 	   Locked ownable synchronizers:
 	        - None
 
+[Acceptor Select Java源代码](https://github.com/ApsaraDB/galaxysql/blob/main/polardbx-net/src/main/java/com/alibaba/polardbx/net/NIOAcceptor.java)：
 
-Acceptor Select Java源代码：
+```java
+ 33     public NIOAcceptor(String name, int port, FrontendConnectionFactory factory, boolean online) throws IOException{
+ 34         super.setName(name);
+ 35         this.port = port;
+ 36         this.factory = factory;
+ 37         if (online) {
+ 38             this.selector = Selector.open();
+ 39             this.serverChannel = ServerSocketChannel.open();
+ 40             this.serverChannel.socket().bind(new InetSocketAddress(port), 65535);
+ 41             this.serverChannel.configureBlocking(false);
+ 42             this.serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+ 43         }
+ 44     }
+ 53
+ 54     public void setProcessors(NIOProcessor[] processors) {
+ 55         this.processors = processors;
+ 56     }
+ 57
+ 58     @Override
+ 59     public void run() {
+ 60         for (;;) {
+ 61             ++acceptCount;
+ 62             try {
+ 63                 selector.select(1000L);
+ 64                 Set<SelectionKey> keys = selector.selectedKeys();
+ 65                 try {
+ 66                     for (SelectionKey key : keys) {
+ 67                         if (key.isValid() && key.isAcceptable()) {
+ 68                             accept();
+ 69                         } else {
+ 70                             key.cancel();
+ 71                         }
+ 72                     }
+ 73                 } finally {
+ 74                     keys.clear();
+ 75                 }
+ 76             } catch (Throwable e) {
+ 77                 
+ 91             }
+ 92         }
+ 93		}
+ 94
+ 95     private void accept() {
+ 96         SocketChannel channel = null;
+ 97         try {
+ 98             channel = serverChannel.accept();
+ 99             channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+100             channel.configureBlocking(false);
+101             FrontendConnection c = factory.make(channel);
+102             c.setAccepted(true);
+103
+104             NIOProcessor processor = nextProcessor();
+105             c.setProcessor(processor);
+106             processor.postRegister(c);
+107         } catch (Throwable e) {
+108             closeChannel(channel);
+109             logger.info(getName(), e);
+110         }
+111     }
 
-	 33     public NIOAcceptor(String name, int port, FrontendConnectionFactory factory, boolean online) throws IOException{
-	 34         super.setName(name);
-	 35         this.port = port;
-	 36         this.factory = factory;
-	 37         if (online) {
-	 38             this.selector = Selector.open();
-	 39             this.serverChannel = ServerSocketChannel.open();
-	 40             this.serverChannel.socket().bind(new InetSocketAddress(port), 65535);
-	 41             this.serverChannel.configureBlocking(false);
-	 42             this.serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-	 43         }
-	 44     }
-	 45
-	 46     public int getPort() {
-	 47         return port;
-	 48     }
-	 49
-	 50     public long getAcceptCount() {
-	 51         return acceptCount;
-	 52     }
-	 53
-	 54     public void setProcessors(NIOProcessor[] processors) {
-	 55         this.processors = processors;
-	 56     }
-	 57
-	 58     @Override
-	 59     public void run() {
-	 60         for (;;) {
-	 61             ++acceptCount;
-	 62             try {
-	 63                 selector.select(1000L);
-	 64                 Set<SelectionKey> keys = selector.selectedKeys();
-	 65                 try {
-	 66                     for (SelectionKey key : keys) {
-	 67                         if (key.isValid() && key.isAcceptable()) {
-	 68                             accept();
-	 69                         } else {
-	 70                             key.cancel();
-	 71                         }
-	 72                     }
-	 73                 } finally {
-	 74                     keys.clear();
-	 75                 }
-	 76             } catch (Throwable e) {
-	 77                 if (this.serverChannel != null && this.serverChannel.isOpen()) {
-	 78                     logger.warn(getName(), e);
-	 79                 } else {
-	 80                     long sleep = 1000;
-	 81                     if (this.serverChannel == null) {
-	 82                         sleep = 100;
-	 83                     }
-	 84
-	 85                     try {
-	 86                         Thread.sleep(sleep);
-	 87                     } catch (InterruptedException e1) {
-	 88                         // ignore
-	 89                     }
-	 90                 }
-	 91             }
-	 92         }
-	 93		}
-	 94
-	 95     private void accept() {
-	 96         SocketChannel channel = null;
-	 97         try {
-	 98             channel = serverChannel.accept();
-	 99             channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-	100             channel.configureBlocking(false);
-	101             FrontendConnection c = factory.make(channel);
-	102             c.setAccepted(true);
-	103
-	104             NIOProcessor processor = nextProcessor();
-	105             c.setProcessor(processor);
-	106             processor.postRegister(c);
-	107         } catch (Throwable e) {
-	108             closeChannel(channel);
-	109             logger.info(getName(), e);
-	110         }
-	111     }
+    synchronized public void online() {
+        if (this.serverChannel != null && this.serverChannel.isOpen()) {
+            return;
+        }
 
- 创建server(Listen端口)就是创建一个NIOAcceptor，监听在特定端口上，NIOAcceptor有多个（一般和core一致） NIOProcessor 线程，一个NIOProcessor 中还可以有一个 NIOReactor
+        try {
+            this.selector = Selector.open();
+            this.serverChannel = ServerSocketChannel.open();
+            this.serverChannel.socket().bind(new InetSocketAddress(port));
+            this.serverChannel.configureBlocking(false);
+            //NIOAccept 只处理accept事件
+            this.serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+            statusLogger.info(this.getName() + " is started and listening on " + this.getPort());
+        } catch (IOException e) {
+            logger.error(this.getName() + " online error", e);
+            throw GeneralUtil.nestedException(e);
+        }
+    }
+```
+
+创建server(Listen端口)就是创建一个NIOAcceptor，监听在特定端口上，NIOAcceptor有多个（一般和core一致） NIOProcessor 线程，一个NIOProcessor 中还可以有一个 NIOReactor
 
 NIOAcceptor(一般只有一个，可以有多个)是一个Thread，只负责处理新建连接（建立新连接会设置这个Socket的Options，比如buffer size、keepalived等），将新建连接绑定到一个NIOProcessor（NIOProcessor数量一般和CPU Core数量一致，一个NIOProcessor对应一个NIOReactor），连接上的收发包由NIOReactor来处理。也就是一个连接（Socket）创建后就绑定到了一个固定的 NIOReactor来处理，每个NIOReactor 有一个 R线程和一个 W线程(写不走epoll的话用这个W线程按queue写出）。这个 R线程一直阻塞在selector,等待新连接或者读写事件的到来。
 
@@ -220,39 +190,41 @@ Select 触发 read/write 堆栈：
 
 NIOReactor.java:
 
-	 82         @Override
-	 83         public void run() {
-	 84             final Selector selector = this.selector;
-	 85             for (;;) {
-	 86                 ++reactCount;
-	 87                 try {
-	 88                     selector.select(1000L);
-	 89                     register(selector);
-	 90                     Set<SelectionKey> keys = selector.selectedKeys();
-	 91                     try {
-	 92                         for (SelectionKey key : keys) {
-	 93                             Object att = key.attachment();
-	 94                             if (att != null && key.isValid()) {
-	 95                                 int readyOps = key.readyOps();
-	 96                                 if ((readyOps & SelectionKey.OP_READ) != 0) {
-	 97                                     read((NIOConnection) att);  //读
-	 98                                 } else if ((readyOps & SelectionKey.OP_WRITE) != 0) {
-	 99                                     write((NIOConnection) att); //写
-	100                                 } else {
-	101                                     key.cancel();
-	102                                 }
-	103                             } else {
-	104                                 key.cancel();
-	105                             }
-	106                         }
-	107                     } finally {
-	108                         keys.clear();
-	109                     }
-	110                 } catch (Throwable e) {
-	111                     logger.warn(name, e);
-	112                 }
-	113             }
-	114         }
+```java
+ 82         @Override
+ 83         public void run() {
+ 84             final Selector selector = this.selector;
+ 85             for (;;) {
+ 86                 ++reactCount;
+ 87                 try {
+ 88                     selector.select(1000L);
+ 89                     register(selector);
+ 90                     Set<SelectionKey> keys = selector.selectedKeys();
+ 91                     try {
+ 92                         for (SelectionKey key : keys) {
+ 93                             Object att = key.attachment();
+ 94                             if (att != null && key.isValid()) {
+ 95                                 int readyOps = key.readyOps();
+ 96                                 if ((readyOps & SelectionKey.OP_READ) != 0) {
+ 97                                     read((NIOConnection) att);  //读
+ 98                                 } else if ((readyOps & SelectionKey.OP_WRITE) != 0) {
+ 99                                     write((NIOConnection) att); //写
+100                                 } else {
+101                                     key.cancel();
+102                                 }
+103                             } else {
+104                                 key.cancel();
+105                             }
+106                         }
+107                     } finally {
+108                         keys.clear();
+109                     }
+110                 } catch (Throwable e) {
+111                     logger.warn(name, e);
+112                 }
+113             }
+114         }
+```
 
 
 Socket是一个阻塞的IO，一个Socket需要一个Thread来读写；SocketChannel对Socket进行封装，是一个NIO的Socket超集，一个Select线程就能处理所有的SocketChannel（也就是所有的Socket）
@@ -313,7 +285,7 @@ Channel 如此实现也付出了代价（如下图所示）：
 
  NIOEndpoint组件实现了NIO和IO多路复用，IO多路复用指的是Poller通过Selector处理多个Socket（SocketChannel）
 
-![undefined](/images/oss/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png) 
+![undefined](/images/951413iMgBlog/1562208003461-4226b646-8ad8-4d86-abac-d6e6601ece88.png) 
 
 - LimitLatch 是连接控制器，负责控制最大连接数，NIO模式下默认是10000，达到阈值后新连接被拒绝
 - Acceptor 跑在一个单独的线程里，一旦有新连接进来accept方法返回一个SocketChannel对象，接着把SocketChannel对象封装在一个PollerEvent对象中，并将PollerEvent对象压入Poller的Queue里交给Poller处理。 Acceptor和Poller之间是典型的生产者-消费者模式
@@ -359,6 +331,17 @@ epoll 异步非阻塞多路复用
 闲置线程或进程不会导致系统上下文切换过高(但是每个线程都会消耗内存)。只有ready状态过多时上下文切换才不堪重负。对于CPU连说调度10M的线程、进程不现实，这个时候适合用协程
 
 ![image.png](/images/oss/0c09f7457cd7914fc26573d9a4625de4.png)
+
+netty自带telnet server的example中，一个boss epoll负责listen新连接，新连接分配给多个worker epoll(worker则使用默认的CPU数*2.)，每个连接之后的读写都由固定的一个worker来处理
+
+![](/images/951413iMgBlog/image_epoll_worker-7648812.png)
+
+以上netty结构中：
+
+- BOSS负责accept连接（通过BOSS监听的channel的read事件），然后实例化新连接的channel
+
+- 将**该channel绑定到worker线程组下的某个eventloop上，后续所有该channel的事件、任务 均有该eventloop执行。这是单个channel无锁的关键**
+- BOSS **提交Channel.regist任务到worker线程组，之后BOSS任务结束，转入继续listen**
 
 ### MySQL Thread Pool 带来的问题
 

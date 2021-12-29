@@ -139,6 +139,10 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 **HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
 
+![img](/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
+
+从上图可以看出如果是随机读写HDD性能极差，但是如果是顺序读写HDD和SDD、内存差异就不那么大了。
+
 ## non-volatile memory (NVM)
 
 NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。

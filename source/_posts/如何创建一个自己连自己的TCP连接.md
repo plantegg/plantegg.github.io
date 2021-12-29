@@ -64,40 +64,6 @@ tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED
 
 bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。
 
-### TCP SO_REUSEADDR
-
-SO_REUSEADDR 主要解决的是重用TIME_WAIT状态的port, 程序崩溃后立即重启失败（Address Already in use），可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
-
-> What exactly does SO_REUSEADDR do?
->
-> This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.
->
-> It has been pointed out that "A socket is a 5 tuple (proto, local addr, local port, remote addr, remote port). SO_REUSEADDR just says that you can reuse local addresses. The 5 tuple still must be unique!" This is true, and this is why it is very unlikely that unexpected data will ever be seen by your server. The danger is that such a 5 tuple is still floating around on the net, and while it is bouncing around, a new connection from the same client, on the same system, happens to get the same remote port. 
-
-By setting `SO_REUSEADDR` user informs the kernel of an intention to share the bound port with anyone else, but only if it doesn't cause a conflict on the protocol layer. There are at least three situations when this flag is useful:
-
-1. Normally after binding to a port and stopping a server it's neccesary to wait for a socket to time out before another server can bind to the same port. With `SO_REUSEADDR` set it's possible to rebind immediately, even if the socket is in a `TIME_WAIT` state.
-2. When one server binds to `INADDR_ANY`, say `0.0.0.0:1234`, it's impossible to have another server binding to a specific address like `192.168.1.21:1234`. With `SO_REUSEADDR` flag this behaviour is allowed.
-3. When using the bind before connect trick only a single connection can use a single outgoing source port. With this flag, it's possible for many connections to reuse the same source port, given that they connect to different destination addresses.
-
-### TCP SO_REUSEPORT
-
-SO_REUSEPORT主要用来解决惊群、性能等问题。
-
-> SO_REUSEPORT is also useful for eliminating the try-10-times-to-bind hack in ftpd's data connection setup routine.  Without SO_REUSEPORT, only one ftpd thread can bind to TCP (lhost, lport, INADDR_ANY, 0) in preparation for connecting back to the client.  Under conditions of heavy load, there are more threads colliding here than the try-10-times hack can accomodate.  With SO_REUSEPORT, things  work nicely and the hack becomes unnecessary.
-
-SO_REUSEPORT使用场景：linux kernel 3.9 引入了最新的SO_REUSEPORT选项，使得多进程或者多线程创建多个绑定同一个ip:port的监听socket，提高服务器的接收链接的并发能力,程序的扩展性更好；此时需要设置SO_REUSEPORT（**注意所有进程都要设置才生效**）。
-
-setsockopt(listenfd, SOL_SOCKET, SO_REUSEPORT,(const void *)&reuse , sizeof(int));
-
-目的：每一个进程有一个独立的监听socket，并且bind相同的ip:port，独立的listen()和accept()；提高接收连接的能力。（例如nginx多进程同时监听同一个ip:port）
-
-> (a) on Linux SO_REUSEPORT is meant to be used *purely* for load balancing multiple incoming UDP packets or incoming TCP connection requests across multiple sockets belonging to the same app.  ie. it's a work around for machines with a lot of cpus, handling heavy load, where a single listening socket becomes a bottleneck because of cross-thread contention on the in-kernel socket lock (and state).
->
-> (b) set IP_BIND_ADDRESS_NO_PORT socket option for tcp sockets before binding to a specific source ip
-> with port 0 if you're going to use the socket for connect() rather then listen() this allows the kernel
-> to delay allocating the source port until connect() time at which point it is much cheaper
-
 ## 自己连自己的连接
 
 我们来看自己连自己发生了什么
@@ -130,9 +96,9 @@ select(4, [0 3], [], [], NULL
 
 抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png)
+![image.png](/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png)
 
-这里算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。
+这个连接算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。
 
 正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。
 
@@ -142,7 +108,7 @@ select(4, [0 3], [], [], NULL
 
 在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b9a0144a3835759c844f697bc45103fa.png)
+![image.png](/images/oss/b9a0144a3835759c844f697bc45103fa.png)
 
 ​							                                           摘自《tcp/ip卷1》
 
@@ -230,8 +196,6 @@ connect成功后会将四元组放入ehash来判定连接的重复性。如果co
 Ncat: Cannot assign requested address.
 ```
 
-
-
 ## bind 和 connect、listen
 
 当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在/proc/sys/net/ipv4/ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。
@@ -246,7 +210,7 @@ setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
 bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
 ```
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5373ecfe0d4496d106c64d3f370c893c.png)
+![image.png](/images/oss/5373ecfe0d4496d106c64d3f370c893c.png)
 
 
 
@@ -256,7 +220,7 @@ bind(3, {sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr("0.0.0.0")
 
 
 
-![image-20200702131215819](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d188cab03e919f055bb9dbe3da0188c.png)
+![image-20200702131215819](/images/oss/4d188cab03e919f055bb9dbe3da0188c.png)
 
 
 

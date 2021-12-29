@@ -99,7 +99,7 @@ By setting `SO_REUSEADDR` user informs the kernel of an intention to share the b
 
 ## TCP SO_REUSEPORT
 
-SO_REUSEPORT主要用来解决惊群、性能等问题。
+SO_REUSEPORT主要用来解决惊群、性能等问题。通过多个进程、线程来监听同一端口，进来的连接通过内核来hash分发做到负载均衡，避免惊群。
 
 > SO_REUSEPORT is also useful for eliminating the try-10-times-to-bind hack in ftpd's data connection setup routine.  Without SO_REUSEPORT, only one ftpd thread can bind to TCP (lhost, lport, INADDR_ANY, 0) in preparation for connecting back to the client.  Under conditions of heavy load, there are more threads colliding here than the try-10-times hack can accomodate.  With SO_REUSEPORT, things  work nicely and the hack becomes unnecessary.
 

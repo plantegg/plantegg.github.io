@@ -45,7 +45,7 @@ yum install -y kubelet kubeadm kubectl ipvsadm
 
 多网卡情况下有必要指定网卡：--apiserver-advertise-address=192.168.0.80
 
-```
+```shell
 # 使用本地 image repository
 kubeadm init --kubernetes-version=1.18.0  --apiserver-advertise-address=192.168.0.110   --image-repository registry:5000/registry.aliyuncs.com/google_containers  --service-cidr=10.10.0.0/16 --pod-network-cidr=10.122.0.0/16 
 
@@ -60,7 +60,6 @@ kubectl get configmap -n kube-system kubeadm-config -o yaml
 将一个node设置为不可调度，隔离出来，比如master 默认是不可调度的
 
 ```
-
 kubectl cordon <node-name>
 kubectl uncordon <node-name>
 ```
@@ -219,6 +218,10 @@ curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml
 在所有node节点都在一个二层网络时候，flannel提供hostgw实现，避免vxlan实现的udp封装开销，估计是目前最高效的；calico也针对L3 Fabric，推出了IPinIP的选项，利用了GRE隧道封装；因此这些插件都能适合很多实际应用场景。
 
 Service cluster IP尽可在集群内部访问，外部请求需要通过NodePort、LoadBalance或者Ingress来访问
+
+网络插件由 containernetworking-plugins rpm包来提供，一般里面会有flannel、vlan等，安装在 /usr/libexec/cni/ 下（老版本没有带calico）
+
+kubelet启动参数会配置 KUBELET_NETWORK_ARGS=--network-plugin=cni --cni-conf-dir=/etc/cni/net.d --cni-bin-dir=/usr/libexec/cni 
 
 ## dashboard
 
@@ -497,7 +500,7 @@ data:
 
 将mysql root密码放入secret并查看 secret密码：
 
-```
+```shell
 # cat mysql-secret.yaml
 apiVersion: v1
 kind: Secret
@@ -711,7 +714,9 @@ kubectl -s polarx-test-ackk8s-atp-3826.adbgw.alibabacloud.test exec -it bushu016
 
 kubeadm启动集群就是如此。kubeadm生成证书、etcd.yaml等yaml、然后拉起kubelet，kubelet拉起etcd、apiserver等pod，kubeadm init 的时候主要是在轮询等待apiserver的起来。
 
-可以通过kubelet --v 256来看详细日志，kubeadm本身所做的事情并不多，所以日志没有太多的信息，主要是等待轮询apiserver的拉起
+可以通过kubelet --v 256来看详细日志，kubeadm本身所做的事情并不多，所以日志没有太多的信息，主要是等待轮询apiserver的拉起。
+
+
 
 ### Kubeadm config
 
@@ -733,7 +738,7 @@ kubeadm config images pull --config="/root/kubeadm-config.yaml"
 kubectl get cm -n kube-system kubeadm-config -o yaml
 ```
 
-pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像
+pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像（pod_infra_container_image）
 
 ```shell
 #cat /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf

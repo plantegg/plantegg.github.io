@@ -32,7 +32,7 @@
 [AMD/海光/鲲鹏/Intel CPU性能大比拼](https://www.atatech.org/articles/212194)
 [十年后数据库还是不敢拥抱NUMA](https://www.atatech.org/articles/205974)
 [一次海光X86物理机资源竞争压测的调优--AMD Zen1架构CPU](https://www.atatech.org/articles/205002)
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://www.atatech.org/articles/157681)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://www.atatech.org/articles/157681) ---- 本篇的黄金搭档，cache_line影响实战篇
 
 CPU为什么要CACHE，请看这篇[CPU性能和CACHE](https://topic.atatech.org/articles/210128)
 

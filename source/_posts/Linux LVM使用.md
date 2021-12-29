@@ -16,7 +16,7 @@ LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/�
 
 ​     **硬盘----分区(fdisk)----PV(pvcreate)----VG(vgcreate)----LV(lvcreate)----格式化(mkfs.ext4 LV为ext文件系统)----挂载**
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
+![img](/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
 
 
 
@@ -153,11 +153,11 @@ function disk_part(){
     lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx
         #lvcreate -A y -I 128K -l 75%VG  -i ${len} -n volume1 vgpolarx
         #lvcreate -A y -I 128K -l 100%FREE  -i ${len} -n volume2 vgpolarx
-        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000
+        mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000
         sed  -i  "/polarx/d" /etc/fstab
         mkdir -p /polarx
     opt="defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0"
-        echo "LABEL=/polarx /polarx     ext4        ${opt}    0 0" >> /etc/fstab
+        echo "LABEL=polarx /polarx     ext4        ${opt}    0 0" >> /etc/fstab
         mount -a
     else
         echo "unkonw action "
@@ -205,6 +205,28 @@ fi
 ```
 
 LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样
+
+## reboot 失败
+
+在麒麟下OS reboot的时候可能因为`mount: /polarx: 找不到 LABEL=/polarx.` 导致OS无法启动，可以进入紧急模式，然后注释掉 /etc/fstab 中的polarx 行，再reboot
+
+这是因为LVM的label、uuid丢失了，导致挂载失败。
+
+查看设备的label
+
+```
+sudo lsblk -o name,mountpoint,label,size,uuid  or lsblk -f
+```
+
+修复：
+
+
+
+比如，下图右边的是启动失败的
+
+![image-20211228185144635](/images/951413iMgBlog/image-20211228185144635.png)
+
+
 
 ## 参考资料
 

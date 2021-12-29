@@ -63,3 +63,18 @@ tags:
 ## 常见错误
 
 ansible 中 scp scp: ambiguous target 错误还是因为ssh 增加了 -t 参数, scp不支持 -t 参数
+
+
+
+## [disable python warning](https://docs.ansible.com/ansible/latest/reference_appendices/interpreter_discovery.html)
+
+To control the discovery behavior:
+
+- for individual hosts and groups, use the `ansible_python_interpreter` inventory variable
+- globally, use the `interpreter_python` key in the `[defaults]` section of `ansible.cfg`
+
+```shell
+[defaults]
+interpreter_python=auto_silent  
+```
+

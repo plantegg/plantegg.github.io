@@ -23,7 +23,7 @@ tags:
 
 then
 
-```
+```shell
 ipvsadm -A -t 172.26.137.117:9376 -s rr //创建了一个rr lvs
 // -m 表示nat模式，不加的话默认是route模式
 ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.195:9376 -m //往lvs中添加一个RS
@@ -99,7 +99,7 @@ TCP  11.197.140.20:18089 wlc
 
 ### 查看连接对应的RS ip和端口
 
-```
+```shell
 # ipvsadm -Lcn |grep "10.68.128.202:1406"
 TCP 15:01  ESTABLISHED 10.68.128.202:1406 10.68.128.202:3306 172.20.188.72:3306
 
@@ -124,7 +124,7 @@ FIN_WAIT的值就是tcp tcpfin udp的超时时间，当NONE的值为0时，如�
 
 ## 通过keepalived来检测RealServer的状态
 
-```
+```shell
 # cat /etc/keepalived/keepalived.conf
 global_defs {
    notification_email {
@@ -177,27 +177,120 @@ virtual_server 172.26.137.117 9376 {
 
 ## timeout
 
-```
+LVS的持续时间有2个
+
+1. 把同一个cip发来请求到同一台RS的持久超时时间。（-p persistent）
+2. 一个链接创建后空闲时的超时时间，这个超时时间分为3种。
+   - tcp的空闲超时时间。
+   - lvs收到客户端tcp fin的超时时间
+   - udp的超时时间
+
+连接空闲超时时间的设置如下:
+
+```shell
 [root@poc117 ~]# ipvsadm -L --timeout
 Timeout (tcp tcpfin udp): 900 120 300
 [root@poc117 ~]# ipvsadm --set 1 2 1
 [root@poc117 ~]# ipvsadm -L --timeout
 Timeout (tcp tcpfin udp): 1 2 1
+
+ipvsadm -Lcn //查看
 ```
 
-## 创建虚拟网卡
+### persistence_timeout
+
+用于保证同一ip client的所有连接在timeout时间以内都发往同一个RS，比如ftp 21port listen认证、20 port传输数据，那么希望同一个client的两个连接都在同一个RS上。
+
+persistence_timeout 会导致负载不均衡，timeout时间越大负载不均衡越严重。大多场景下基本没什么意义
+
+PCC用来实现把某个用户的所有访问在超时时间内定向到同一台REALSERVER，这种方式在实际中不常用
 
 ```
-To make this interface you'd first need to make sure that you have the dummy kernel module loaded. You can do this like so:
-
-$ sudo lsmod | grep dummy
-$ sudo modprobe dummy
-$ sudo lsmod | grep dummy
-dummy                  12960  0 
-With the driver now loaded you can create what ever dummy network interfaces you like:
-
-$ sudo ip link add eth10 type dummy
+ipvsadm -A -t 192.168.0.1:0 -s wlc -p 600(单位是s)     //port为0表示所有端口
+ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.2 -w 4 -g
+ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g
 ```
+
+此时测试一下会发现通过HTTP访问VIP和通过SSH登录VIP的时候都被定向到了同一台REALSERVER上面了
+
+## lvs 管理
+
+```shell
+  257  [2021-09-13 22:11:26] lscpu
+  258  [2021-09-13 22:11:34] dmidecode | grep Ser
+  259  [2021-09-13 22:11:53] dmidecode | grep FT
+  260  [2021-09-13 22:11:58] dmidecode | grep 2500
+  261  [2021-09-13 22:12:03] dmidecode
+  262  [2021-09-13 22:12:27] lscpu
+  263  [2021-09-13 22:12:37] ipvsadm  -ln
+  264  [2021-09-13 22:12:59] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537
+  265  [2021-09-13 22:14:37] base_admin --help
+  266  [2021-09-13 22:14:44] base_admin --cpu-usage
+  267  [2021-09-13 22:14:56] ip link
+  268  [2021-09-13 22:16:04] base_admin --cpu-usage
+  269  [2021-09-13 22:16:28] cat /usr/local/etc/nf-var-config
+  270  [2021-09-13 22:16:43] base_admin --cpu-usage
+  271  [2021-09-13 22:17:35] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537
+  272  [2021-09-13 22:18:17] base_admin --cpu-usage
+  273  [2021-09-13 22:22:02] ls
+  274  [2021-09-13 22:22:06] ps -aux
+  275  [2021-09-13 22:22:17] tsar --help
+  276  [2021-09-13 22:22:24] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537
+  277  [2021-09-13 22:22:31] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stat
+  278  [2021-09-13 22:22:33] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats
+  279  [2021-09-13 22:23:10] tsar --lvs -li1 -D|awk '{print $1,"  ",($6)*8.0}'
+  280  [2021-09-13 22:24:29] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats
+  281  [2021-09-13 22:25:26] tsar --lvs -li1 -D
+  282  [2021-09-13 22:25:46] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537
+  283  [2021-09-13 22:26:37] appctl -cas | grep conns
+  284  [2021-09-13 22:31:16] ipvsadm  -ln
+  286  [2021-09-13 22:31:43] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats
+  292  [2021-09-13 22:38:16] rpm -qa | grep slb
+  293  [2021-09-13 22:42:30] appctl -cas | grep conns
+  294  [2021-09-13 22:43:03] base_admin --cpu-usage
+  295  [2021-09-13 22:45:42] tsar --lvs -li1 -D|awk '{print $1,"  ",($6)*8.0}'
+  296  [2021-09-13 22:57:20] base_admin --cpu-usage
+  297  [2021-09-13 22:58:16] tsar --lvs -li1 -D|awk '{print $1,"  ",($6)*8.0}'
+  298  [2021-09-13 22:59:38] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats
+  299  [2021-09-13 23:00:16] appctl -a | grep conn
+  300  [2021-09-13 23:00:24] base_admin --cpu-usage
+  301  [2021-09-13 23:00:50] appctl -cas | grep conns
+  302  [2021-09-13 23:01:15] base_admin --cpu-usage
+  303  [2021-09-13 23:01:21] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats
+  304  [2021-09-13 23:02:09] appctl -cas | grep conns
+  305  [2021-09-13 23:03:12] base_admin --cpu-usage
+  306  [2021-09-13 23:04:43] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats | head -3
+  307  [2021-09-13 23:05:38] base_admin --cpu-usage
+  308  [2021-09-13 23:06:10] tsar --lvs -li1 -D|awk '{print $1,"  ",($6)*8.0}'
+  309  [2021-09-13 23:06:39] base_admin --cpu-usage
+  310  [2021-09-13 23:15:59] appctl -a | grep conn_limit_enable
+  311  [2021-09-13 23:15:59] appctl -a | grep cps_limit_enable
+  312  [2021-09-13 23:15:59] appctl -a | grep inbps_limit_enable
+  313  [2021-09-13 23:15:59] appctl -a | grep outbps_limit_enable
+  314  [2021-09-13 23:17:13] appctl -w conn_limit_enable=0
+  315  [2021-09-13 23:17:13] appctl -w cps_limit_enable=0
+  316  [2021-09-13 23:17:13] appctl -w inbps_limit_enable=0
+  317  [2021-09-13 23:17:13] appctl -w outbps_limit_enable=0
+  318  [2021-09-13 23:17:43] appctl -cas | grep conn
+  319  [2021-09-13 23:17:44] appctl -cas | grep conns
+  320  [2021-09-13 23:19:30] last=0;while true;do pre=`ipvsadm -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats| grep TCP|awk '{print $4}'`;let cut=pre-last;echo $cut;last=$pre;sleep 1;done
+  321  [2021-09-13 23:19:56] ipvsadm -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats| grep TCP|awk '{print $4}'
+  322  [2021-09-13 23:20:01] last=0;while true;do pre=`ipvsadm -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats| grep TCP|awk '{print $4}'`;let cut=pre-last;echo $cut;last=$pre;sleep 1;done
+  323  [2021-09-13 23:20:55] base_admin --cpu-usage
+  324  [2021-09-13 23:22:05] ipvsadm  -lnvt 166.100.129.249:3306 --in-vid 1560537
+  325  [2021-09-13 23:22:05] ipvsadm  -lnvt 166.100.128.219:3306 --in-vid 1560537
+  326  [2021-09-13 23:22:05] ipvsadm  -lnvt 166.100.129.40:80 --in-vid 1560537
+  327  [2021-09-13 23:24:22] base_admin --cpu-usage
+  328  [2021-09-13 23:24:29] last=0;while true;do pre=`ipvsadm -lnvt 166.100.128.234:3306 --in-vid 1560537 --stats| grep TCP|awk '{print $4}'`;let cut=pre-last;echo $cut;last=$pre;sleep 1;done
+  329  [2021-09-13 23:24:50] ipvsadm  -lnvt 166.100.129.249:3306 --in-vid 1560537
+  332  [2021-09-13 23:25:38] ipvsadm  -lnvt 166.100.128.234:3306 --in-vid 1560537 —stats
+  333  [2021-09-13 23:25:57] ipvsadm  -lnvt 166.100.129.249:3306 --in-vid 1560537 --stats
+  334  [2021-09-13 23:25:58] ipvsadm  -lnvt 166.100.128.219:3306 --in-vid 1560537 --stats
+  335  [2021-09-13 23:25:58] ipvsadm  -lnvt 166.100.129.40:80 --in-vid 1560537 --stats
+  336  [2021-09-13 23:26:45] last=0;while true;do pre=`ipvsadm -lnvt 166.100.129.40:80 --in-vid 1560537 --stats| grep TCP|awk '{print $4}'`;let cut=pre-last;echo $cut;last=$pre;sleep 1;done
+```
+
+
 
 ## LVS 工作原理
 
@@ -211,33 +304,13 @@ $ sudo ip link add eth10 type dummy
 
 5.最后经由POSTROUTING链发往后端服务器。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
+![image.png](/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
 
 ## netfilter 原理
 
 Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：`raw table`, `mangle table`, `nat table`, `filter table`。Netfilter 默认的链有：`INPUT`, `OUTPUT`, `FORWARD`, `PREROUTING`, `POSTROUTING`，根据`表`的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1039cdda7040f20582f36a6a560e4e2e.png)
-
-## persistence_timeout
-
-用于保证同一ip client的所有连接在timeout时间以内都发往同一个RS，比如ftp 21port listen认证、20 port传输数据，那么希望同一个client的两个连接都在同一个RS上。
-
-persistence_timeout 会导致负载不均衡，timeout时间越大负载不均衡越严重。大多场景下基本没什么意义
-
-
-
-PCC用来实现把某个用户的所有访问在超时时间内定向到同一台REALSERVER，这种方式在实际中不常用
-
-```
-ipvsadm -A -t 192.168.0.1:0 -s wlc -p 600(单位是s)     //port为0表示所有端口
-ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.2 -w 4 -g
-ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g
-```
-
-此时测试一下会发现通过HTTP访问VIP和通过SSH登录VIP的时候都被定向到了同一台REALSERVER上面了
-
-
+![image.png](/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png)
 
 ## OSPF + LVS
 

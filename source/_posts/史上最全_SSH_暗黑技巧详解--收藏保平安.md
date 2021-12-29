@@ -15,14 +15,14 @@ tags:
 
 来，让我们一起走一遍，看看会不会让你大开眼界
 
-## 本文试图解决的问题：
+## 本文试图解决的问题
 
 - 如何通过ssh命令科学上网
 - docker 镜像、golang仓库总是被墙怎么办
 - 公司跳板机要输入动态token，太麻烦了，如何省略掉这个token；
 - 比如多机房总是要走跳板机，如何`绕过`跳板机直连； 
 - 我的开发测试机器如何免打通、免密码、直达；
-- 如何访问隔离环境中的Web服务 -- 将隔离环境中的web端口映射到本地
+- 如何访问隔离环境中(k8s)的Web服务 -- 将隔离环境中的web端口映射到本地
 - 如何让隔离环境的机器用上yum、apt
 - 如何将服务器的图形界面映射到本地(类似vnc的作用)
 - ssh如何调试诊断，这才是终极技能……
@@ -73,28 +73,30 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ## 内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？
 
 
-    ren@ren-VirtualBox:~$ cat ~/.ssh/config 
-    #reuse the same connection --关键配置
-    ControlMaster auto
-    ControlPath ~/tmp/ssh_mux_%h_%p_%r
-    
-    #查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持
-    #不支持的话直接把这行删了，不影响功能
-    #keep one connection in 72hour
-    #ControlPersist 72h
-    #复用连接的配置到这里，后面的配置与复用无关
-    
-    #其它也很有用的配置
-    GSSAPIAuthentication=no
-    StrictHostKeyChecking=no
-    TCPKeepAlive=yes
-    CheckHostIP=no
-    # "ServerAliveInterval [seconds]" configuration in the SSH configuration so that your ssh client sends a "dummy packet" on a regular interval so that the router thinks that the connection is active even if it's particularly quiet
-    ServerAliveInterval=15
-    #ServerAliveCountMax=6
-    ForwardAgent=yes
-    
-    UserKnownHostsFile /dev/null
+```shell
+$ cat ~/.ssh/config 
+#reuse the same connection --关键配置
+ControlMaster auto
+ControlPath ~/tmp/ssh_mux_%h_%p_%r
+
+#查了下ControlPersist是在OpenSSH5.6加入的，5.3还不支持
+#不支持的话直接把这行删了，不影响功能
+#keep one connection in 72hour
+#ControlPersist 72h
+#复用连接的配置到这里，后面的配置与复用无关
+
+#其它也很有用的配置
+GSSAPIAuthentication=no
+StrictHostKeyChecking=no
+TCPKeepAlive=yes
+CheckHostIP=no
+# "ServerAliveInterval [seconds]" configuration in the SSH configuration so that your ssh client sends a "dummy packet" on a regular interval so that the router thinks that the connection is active even if it's particularly quiet
+ServerAliveInterval=15
+#ServerAliveCountMax=6
+ForwardAgent=yes
+
+UserKnownHostsFile /dev/null
+```
 
 在你的ssh配置文件增加上述参数，意味着72小时内登录同一台跳板机只有第一次需要输入密码，以后都是重用之前的连接，所以也就不再需要输入密码了。
 
@@ -151,11 +153,12 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 其实我的配置文件里面还有很多规则，懒得一个个隐藏IP了，这些规则是可以重复匹配的
 
 来看一个例子    
+
     ren@ren-VirtualBox:/$ ping -c 1 10.16.1.*
-        PING 10.16.1.* (10.16.1.*) 56(84) bytes of data.^C
-    --- 10.16.1.* ping statistics ---
-    1 packets transmitted, 0 received, 100% packet loss, time 0ms
-    
+            PING 10.16.1.* (10.16.1.*) 56(84) bytes of data.^C
+        --- 10.16.1.* ping statistics ---
+        1 packets transmitted, 0 received, 100% packet loss, time 0ms
+        
     ren@ren-VirtualBox:~$ ssh -l corp 10.16.1.* -vvv
     OpenSSH_6.7p1 Ubuntu-5ubuntu1, OpenSSL 1.0.1f 6 Jan 2014
     debug1: Reading configuration data /home/ren/.ssh/config
@@ -283,17 +286,6 @@ for循环部分一次把生成的密钥对和authorized_keys复制到所有机�
 ----------
 **这里只是帮大家入门了解ssh，掌握好这些配置文件和-vvv后有好多好玩的可以去挖掘，同时也请在留言中说出你的黑技能**
 
-## 调试ssh--终极大招
-
-好多问题我都是debug发现的
-
-- 客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道
-- server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，/root 以及 /root/.ssh 文件夹的权限和owner都要对，更不要说 /root/.ssh/authorized_keys 了
-
-```
-/usr/sbin/sshd -ddd -p 2222 
-```
-
 
 
 ## ~/.ssh/config 参考配置
@@ -368,9 +360,20 @@ ForwardX11Trusted yes
 
 SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password**，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。
 
+### 调试ssh--终极大招
+
+好多问题我都是debug发现的
+
+- 客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道
+- server端还可以：/usr/sbin/sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，/root 以及 /root/.ssh 文件夹的权限和owner都要对，更不要说 /root/.ssh/authorized_keys 了
+
+```
+/usr/sbin/sshd -ddd -p 2222 
+```
+
 ### ssh 提示信息
 
-可以用一下脚本生成一个彩色文件
+可以用一下脚本生成一个彩色文件，放到 /etc/motd 中就行
 
 Basic colors are numbered:
 
@@ -420,7 +423,9 @@ $(tput sgr0)"
 
 ![image-20210902224011450](/images/951413iMgBlog/image-20210902224011450.png)
 
+### sshd Banner
 
+`Banner`指定用户登录后，sshd 向其展示的信息文件（`Banner /usr/local/etc/warning.txt`），默认不展示任何内容。
 
 ### 验证秘钥对
 
@@ -471,7 +476,7 @@ $ ssh-add my-other-key-file
 
 上面的命令中，`my-other-key-file`就是用户指定的私钥文件。
 
-### 安装sshd
+### 安装sshd和debug
 
 sshd 有自己的一对或多对密钥。它使用密钥向客户端证明自己的身份。所有密钥都是公钥和私钥成对出现，公钥的文件名一般是私钥文件名加上后缀`.pub`。
 
@@ -494,9 +499,53 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 >
 > sshd -D -d -p 2222 -p 3333
 
-### sshd Banner
+### scp可以通过命令行参数来设置socks代理
 
-`Banner`指定用户登录后，sshd 向其展示的信息文件（`Banner /usr/local/etc/warning.txt`），默认不展示任何内容。
+> scp -o "ProxyCommand=nc -X 5 -x **[SOCKS_HOST]**:**[SOCKS_PORT]** %h %p" **[LOCAL/FILE/PATH]** **[REMOTE_USER]**@**[REMOTE_HOST]**:**[REMOTE/FILE/PATH]**
+
+其中[SOCKS_HOST]和[SOCKS_PORT]是socks代理的LOCAL_ADDRESS和LOCAL_PORT。[LOCAL/FILE/PATH]、[REMOTE_USER]、[REMOTE_HOST]和[REMOTE/FILE/PATH]分别是要复制文件的本地路径、要复制到的远端主机的用户名、要复制到的远端主机名、要复制文件的远端路径，这些参数与不使用代理时一样。“ProxyCommand=nc”表示当前运行命令的主机上需要有nc命令。
+
+### ProxyCommand
+
+> Specifies the proxy command for the connection. This command is launched prior to making the connection to Hostname. %h is replaced with the host defined in HostName and %p is replaced with 22 or is overridden by a Port directive. 
+
+在ssh连接目标主机前先执行ProxyCommand中的命令，比如 .ssh/config 中有如下配置
+
+```shell
+host remote-host
+ProxyCommand ssh -l root -p 52146 1.2.3.4 exec /usr/bin/nc %h %p
+
+//以上配置等价下面的命令
+ssh -o ProxyCommand="ssh -l root -p 52146 1.2.3.4 exec /usr/bin/nc %h %p" remote-host
+//or 等价
+ssh -o ProxyCommand="ssh -l root -p 52146 -W %h:%p 1.2.3.4 " remote-host
+//or 等价 debug1: Setting implicit ProxyCommand from ProxyJump: ssh -l root -p 52146 -vvv -W '[%h]:%p' 1.2.3.4
+ssh -J root@1.2.3.4:52146 remote-host
+```
+
+如上配置指的是，如果执行ssh remote-host 命中host规则，那么先执行命令 ssh -l root -p 52146 1.2.3.4 exec /usr/bin/nc 同时把remote-host和端口(默认22)传给nc
+
+ProxyCommand和ProxyJump很类似，ProxyJump使用：
+
+```shell
+//ssh到centos8机器上，走的是gf这台跳板机，本地一般和centos8不通
+ssh -J gf:22 centos8
+```
+
+
+
+## SSH三大转发模式
+
+SSH能够做动态转发、本地转发、远程转发。先简要概述下他们的特点和使用场景
+
+**三个转发模式的比较：**
+
+- 动态转发完全可以代替本地转发，只是动态转发是`socks5协议`，本地转发是tcp协议
+- 本地转发完全是把动态转发特例化到访问某个固定目标的转发
+- 远程转发是启动ssh转发的端口同时连上两端的两个机器，把本来不连通的两端拼接起来，中间显得多了个节点。
+- 三个转发模式可以串联使用
+
+动态转发常用来科学上网，本地转发用来打洞，这两种转发启动的端口都是在本地；远程转发也是打洞的一种，只不过启用的端口在远程机器上。
 
 ### 动态转发 (-D)   SOCKS5 协议
 
@@ -504,10 +553,12 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 
 动态转发需要把本地端口绑定到 SSH 服务器。**至于 SSH 服务器要去访问哪一个网站，完全是动态的，取决于原始通信，所以叫做动态转发**。
 
-需要访问的目标、端口还不确定，所以叫动态转发。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。
+动态的意思就是：需要访问的目标、端口还不确定。后面要讲的本地转发、远程转发都是针对具体IP、port的转发。
 
-```
+```shell
 $ ssh -D 4444 ssh-server -N
+//或者如下方式：
+nohup ssh -qTfnN -D 13658 root@jump vmstat 10  >/dev/null 2>&1
 ```
 
 注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
@@ -516,7 +567,7 @@ $ ssh -D 4444 ssh-server -N
 
 下面是 ssh 隧道建立后的一个**使用实例**。
 
-```
+```shell
 curl -x socks5://localhost:4444 http://www.example.com
 or
 curl --socks5-hostname localhost:4444 https://www.twitter.com
@@ -526,28 +577,27 @@ curl --socks5-hostname localhost:4444 https://www.twitter.com
 
 官方文档关于 -D的介绍
 
-     -D [bind_address:]port
-             Specifies a local “dynamic” application-level port forwarding.  This works by allocating a socket to
-             listen to port on the local side, optionally bound to the specified bind_address.  Whenever a connection
-             is made to this port, the connection is forwarded over the secure channel, and the application protocol
-             is then used to determine where to connect to from the remote machine.  Currently the SOCKS4 and SOCKS5
-             protocols are supported, and ssh will act as a SOCKS server.  Only root can forward privileged ports.
-             Dynamic port forwardings can also be specified in the configuration file.
-    
-             IPv6 addresses can be specified by enclosing the address in square brackets.  Only the superuser can
-             forward privileged ports.  By default, the local port is bound in accordance with the GatewayPorts set‐
-             ting.  However, an explicit bind_address may be used to bind the connection to a specific address.  The
-             bind_address of “localhost” indicates that the listening port be bound for local use only, while an
-             empty address or ‘*’ indicates that the port should be available from all interfaces.
+> -D [bind_address:]port
+>          Specifies a local “dynamic” application-level port forwarding.  This works by allocat‐
+>              ing a socket to listen to port on the local side, optionally bound to the specified
+>              bind_address.  Whenever a connection is made to this port, the connection is forwarded
+>              over the secure channel, and the application protocol is then used to determine where
+>              to connect to from the remote machine.  Currently the SOCKS4 and SOCKS5 protocols are
+>              supported, and ssh will act as a SOCKS server.  Only root can forward privileged ports.
+>              Dynamic port forwardings can also be specified in the configuration file.
+
+特别注意，如果ssh -D 要启动的本地port已经被占用了是不会报错的，但是实际socks代理会没启动成功
 
 ### 本地转发 (-L)
 
-本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定目标网站之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。
+本地转发（local forwarding）指的是，SSH 服务器作为中介的跳板机，建立本地计算机与特定`目标网站`之间的加密连接。本地转发是在本地计算机的 SSH 客户端建立的转发规则。
+
+典型使用场景就是，打洞，经过跳板机访问无法直接连通的服务。
 
 它会指定一个本地端口（local-port），所有发向那个端口的请求，都会转发到 SSH 跳板机（ssh-server），然后 SSH 跳板机作为中介，将收到的请求发到目标服务器（target-host）的目标端口（target-port）。
 
-```
-$ ssh -L local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host
+```shell
+$ ssh -L :local-port:target-host:target-port ssh-server  //target-host是ssh-server的target-host, target-host 域名解析、路由都是由ssh-server完成
 ```
 
 上面命令中，`-L`参数表示本地转发，`local-port`是本地端口，`target-host`是你想要访问的目标服务器，`target-port`是目标服务器的端口，`ssh-server`是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port
@@ -560,7 +610,7 @@ $ ssh -L local-port:target-host:target-port ssh-server  //target-host是ssh-serv
 ssh -L 53682:remote-server:53682 ssh-server
 ```
 
-然后，访问本机的8080端口，就是访问`remote-server`的80端口.
+然后，访问本机的53682端口，就是访问`remote-server`的53682端口.
 
 ```
 $ curl http://localhost:53682
@@ -576,6 +626,8 @@ $ curl http://localhost:53682
 Host test.example.com
 LocalForward client-IP:client-port server-IP:server-port
 ```
+
+
 
 ### 远程转发(-R)
 
@@ -609,24 +661,13 @@ RemoteForward local-IP:local-port target-ip:target-port
 注意远程转发需要：
 
 > 1. sshd_config里要打开`AllowTcpForwarding`选项，否则`-R`远程端口转发会失败。
-> 2. 默认转发到远程主机上的端口绑定的是`127.0.0.1`，[如要绑定`0.0.0.0`需要打开sshd_config里的`GatewayPorts`选项(然后ssh -R 后加上*:port )](https://serverfault.com/questions/997124/ssh-r-binds-to-127-0-0-1-only-on-remote)。这个选项如果由于权限没法打开也有办法，可配合`ssh -L`将端口绑定到`0.0.0.0`，聪明的你应该能想到办法，呵呵。
+> 2. 默认转发到远程主机上的端口绑定的是`127.0.0.1`，[如要绑定`0.0.0.0`需要打开sshd_config里的`GatewayPorts`选项(然后ssh -R 后加上*:port )](https://serverfault.com/questions/997124/ssh-r-binds-to-127-0-0-1-only-on-remote)。这个选项如果由于权限没法打开也有办法，可配合`ssh -L`将端口绑定到`0.0.0.0`。
 
-**三个转发模式的比较：**
 
-- 动态转发完全可以代替本地转发，只是动态转发是socks5协议，本地转发是http协议
-- 本地转发完全是把动态转发固定到访问某个固定目标的转发，只是走HTTP协议了
-- 远程转发是启动ssh转发的端口同时连上两端的两个机器，把本来不连通的两端拼接起来，中间显得多了个节点。
-- 三个转发模式可以串联使用
 
-### scp可以通过命令行参数来设置socks代理
+## 调试转发、代理是否能联通
 
-> scp -o "ProxyCommand=nc -X 5 -x **[SOCKS_HOST]**:**[SOCKS_PORT]** %h %p" **[LOCAL/FILE/PATH]** **[REMOTE_USER]**@**[REMOTE_HOST]**:**[REMOTE/FILE/PATH]**
-
-其中[SOCKS_HOST]和[SOCKS_PORT]是socks代理的LOCAL_ADDRESS和LOCAL_PORT。[LOCAL/FILE/PATH]、[REMOTE_USER]、[REMOTE_HOST]和[REMOTE/FILE/PATH]分别是要复制文件的本地路径、要复制到的远端主机的用户名、要复制到的远端主机名、要复制文件的远端路径，这些参数与不使用代理时一样。“ProxyCommand=nc”表示当前运行命令的主机上需要有nc命令。
-
-### 调试转发、代理是否能联通
-
-#### [curl](https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk)
+### [curl](https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk)
 
 > curl -I --socks5-hostname 127.0.0.1:13659 twitter.com
 >
@@ -636,19 +677,17 @@ Suppose you have a socks5 proxy running on localhost:8001.
 
 [In curl >= 7.21.7, you can use](https://blog.emacsos.com/use-socks5-proxy-in-curl.html)
 
-```
+```shell
 curl -x socks5h://localhost:8001 http://www.google.com/
 ```
 
 In curl >= 7.18.0, you can use
 
-```
+```shell
 curl --socks5-hostname localhost:8001 http://www.google.com/
 ```
 
-特别注意，如果ssh -D 要启动的本地port已经被占用了是不会报错的，但是实际socks代理会没启动成功
-
-#### wget
+### wget
 
 **指定命令行参数**,通过命令行指定HTTP代理服务器的方式如下：
 

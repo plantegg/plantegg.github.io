@@ -208,6 +208,22 @@ nsenter --target 17277 --net
 
 nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可
 
+## 创建虚拟网卡
+
+```
+To make this interface you'd first need to make sure that you have the dummy kernel module loaded. You can do this like so:
+
+$ sudo lsmod | grep dummy
+$ sudo modprobe dummy
+$ sudo lsmod | grep dummy
+dummy                  12960  0 
+With the driver now loaded you can create what ever dummy network interfaces you like:
+
+$ sudo ip link add eth10 type dummy
+```
+
+
+
 ## OS版本
 
 **搞Docker就得上el7， 6的性能太差了** Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。
@@ -215,6 +231,16 @@ nsenter相当于在setns的示例程序之上做了一层封装，使我们无�
 ## 清理
 
 删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk '{ print $3 }' |grep overlay2| xargs umount 批量删除
+
+## docker image api
+
+```
+获取所有镜像名字： GET /v2/_catalog
+
+获取某个镜像的tag： GET /v2/<name>/tags/list 
+```
+
+
 
 ## 参考资料
 

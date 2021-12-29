@@ -48,7 +48,7 @@ Google到的帖子大概有如下原因：
 
 看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
+![image.png](/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
 
 ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。
 
@@ -73,7 +73,7 @@ Windows下客户端是默认有dns cache的，但是Linux Client上默认没有d
 - DNS域名解析的时候先根据 /etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(**ping是这个流程，但是nslookup和dig不是**)
 - 如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns 
 - 如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】
-- 如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. [但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位](https://access.redhat.com/solutions/1426263)
+- 如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. [但是因为glibc库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位](https://access.redhat.com/solutions/1426263)
 
 **nslookup和dig程序是bind程序包所带的工具，专门用来检测DNS Server的，实现上更简单，就一个目的，给DNS Server发DNS解析请求，没有调gethostbyname()函数，也就不遵循上述流程，而是直接到 /etc/resolv.conf 取第一个nameserver当dns server进行解析**
 
@@ -88,15 +88,13 @@ glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 
 
 这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
+![image.png](/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
 
 在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
+![image.png](/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
-
-也就是2010年之前的版本都是把第一个默认挪到最后一个（为了保护第一个nameserver），到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大
+![image.png](/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
 
 也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大
 

@@ -15,7 +15,7 @@ tags:
 
 ## 延时
 
-```
+```shell
 1. give packets from eth0 a delay of 2ms
 bash$ tc qdisc add dev eth0 root netem delay 2ms
  
@@ -81,7 +81,7 @@ tc filter add dev eth0 protocol ip parent 1:0 u32 match ip sport 34001 0xffff fl
 
 ## 控制eth0网卡的带宽、延时、乱序、丢包
 
-```
+```shell
 sudo tc qdisc add dev bond0 root handle 1: netem delay 10ms reorder 25% 50% loss 0.2%
 sudo tc qdisc add dev bond0 parent 1: handle 2: tbf rate 1mbit burst 32kbit latency 10ms
 
@@ -155,15 +155,14 @@ QDisc(排队规则)是queueing discipline的简写，它是理解流量控制(tr
 
   
 
-  一个网络接口上如果没有设置QDisc，pfifo_fast就作为缺省的QDisc。
 
-  CLASSFUL QDISC(分类QDisc):
+一个网络接口上如果没有设置QDisc，pfifo_fast就作为缺省的QDisc。
 
-   可分类的qdisc包括： 
+CLASSFUL QDISC(分类QDisc)，可分类的qdisc包括： 
 
-  - CBQ： CBQ是Class Based Queueing(基于类别排队)的缩写。它实现了一个丰富的连接共享类别结构，既有限制(shaping)带宽的能力，也具有带宽优先级管理的能力。带宽限制是通过计算连接的空闲时间完成的。空闲时间的计算标准是数据包离队事件的频率和下层连接(数据链路层)的带宽。
-  - HTB： HTB是Hierarchy Token Bucket的缩写。通过在实践基础上的改进，它实现了一个丰富的连接共享类别体系。使用HTB可以很容易地保证每个类别的带宽，它也允许特定的类可以突破带宽上限，占用别的类的带宽。HTB可以通过TBF(Token Bucket Filter)实现带宽限制，也能够划分类别的优先级。
-  - PRIO： PRIO QDisc不能限制带宽，因为属于不同类别的数据包是顺序离队的。使用PRIO QDisc可以很容易对流量进行优先级管理，只有属于高优先级类别的数据包全部发送完毕，才会发送属于低优先级类别的数据包。为了方便管理，需要使用iptables或者ipchains处理数据包的服务类型(Type Of Service,ToS)。
+- CBQ： CBQ是Class Based Queueing(基于类别排队)的缩写。它实现了一个丰富的连接共享类别结构，既有限制(shaping)带宽的能力，也具有带宽优先级管理的能力。带宽限制是通过计算连接的空闲时间完成的。空闲时间的计算标准是数据包离队事件的频率和下层连接(数据链路层)的带宽。
+- HTB： HTB是Hierarchy Token Bucket的缩写。通过在实践基础上的改进，它实现了一个丰富的连接共享类别体系。使用HTB可以很容易地保证每个类别的带宽，它也允许特定的类可以突破带宽上限，占用别的类的带宽。HTB可以通过TBF(Token Bucket Filter)实现带宽限制，也能够划分类别的优先级。
+- PRIO： PRIO QDisc不能限制带宽，因为属于不同类别的数据包是顺序离队的。使用PRIO QDisc可以很容易对流量进行优先级管理，只有属于高优先级类别的数据包全部发送完毕，才会发送属于低优先级类别的数据包。为了方便管理，需要使用iptables或者ipchains处理数据包的服务类型(Type Of Service,ToS)。
 
 ### htb分类 qdisc
 
@@ -212,48 +211,7 @@ sudo tc filter show dev eth0
 
 限流100MB后的实际监控效果
 
-![image-20211031205539407](/Users/ren/src/blog/951413iMgBlog/image-20211031205539407.png)
-
-## [端口转发](https://www.cnblogs.com/dongzhiquan/p/11427461.html)
-
-### iptables
-
-```
-iptables -t nat -A PREROUTING -d 10.176.7.5 -p tcp --dport 8507 -j DNAT --to-destination 10.176.7.6:3307
-iptables -t nat -D PREROUTING  -p tcp --dport 18080 -j DNAT --to-destination 10.176.7.245:8080
-
-#将访问8022端口的进出流量转发到22端口
-iptables -t nat -A PREROUTING -p tcp --dport 8022 -j REDIRECT --to-ports 22 
-iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307 
-
-#将本机的端口转发到其他机器
-iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80
-iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130
-
-#清空nat表的所有链
-iptables -t nat -F PREROUTING
-
-#禁止访问某个端口
-iptables -A OUTPUT -p tcp --dport 31165 -j DROP
-```
-
-iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5
-
-![Image](/Users/ren/src/blog/951413iMgBlog/640-7027461.)
-
-### Ncat端口转发
-
-```
-监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口
-ncat --sh-exec "ncat 192.168.172.131 80" -l 9876  --keep-open
-```
-
-scat
-
-```
-在本地监听12345端口，并将请求转发至192.168.172.131的22端口。
-socat TCP4-LISTEN:12345,reuseaddr,fork TCP4:192.168.172.131:22
-```
+![image-20211031205539407](/images/951413iMgBlog/image-20211031205539407.png)
 
 
 

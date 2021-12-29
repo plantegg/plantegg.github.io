@@ -259,7 +259,7 @@ hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没�
 
 ![img](/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
-如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。实际是写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
+如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
@@ -328,9 +328,150 @@ http://yum.baseurl.org/wiki/Faq
 
 ## Linux 启动进入紧急模式
 
-可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载
+可能是因为磁盘挂载不上，检查 /etc/fstab 中需要挂载的磁盘，尝试 mount -a 是否能全部挂载，麒麟下容易出现弄丢磁盘的标签和uuid
 
 否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的
+
+## [tty](https://www.cnblogs.com/liqiuhao/p/9031803.html)
+
+tty（teletype--最早的一种终端设备） stty 设置tty的相关参数
+
+tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端
+
+/dev/pty（Pseudo Terminal） 伪终端
+
+/dev/tty 控制终端
+
+远古时代tty是物理形态的存在
+
+![img](/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
+
+PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义
+
+![img](/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
+
+实际像如下图的工作协作:
+
+![Diagram](/images/951413iMgBlog/case3.png)
+
+## [rsync](https://wangdoc.com/ssh/rsync.html)
+
+```
+将本地yum备份到150上的/data/yum/ 下
+rsync -arv ./yum/ root@11.167.60.150:/data/yum/
+
+走ssh的8022端口把目录备份到本地
+rsync -e 'ssh -p 8022' -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./
+```
+
+`-a`、`--archive`参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。
+
+`--delete`参数删除只存在于目标目录、不存在于源目标的文件，即保证目标目录是源目标的镜像。
+
+`-i`参数表示输出源目录与目标目录之间文件差异的详细情况。
+
+`--link-dest`参数指定增量备份的基准目录。
+
+`-n`参数或`--dry-run`参数模拟将要执行的操作，而并不真的执行。配合`-v`参数使用，可以看到哪些内容会被同步过去。
+
+`--partial`参数允许恢复中断的传输。不使用该参数时，`rsync`会删除传输到一半被打断的文件；使用该参数后，传输到一半的文件也会同步到目标目录，下次同步时再恢复中断的传输。一般需要与`--append`或`--append-verify`配合使用。
+
+`--progress`参数表示显示进展。
+
+`-r`参数表示递归，即包含子目录。
+
+`-v`参数表示输出细节。`-vv`表示输出更详细的信息，`-vvv`表示输出最详细的信息。
+
+## Shebang
+
+Shebang 的东西 `#!/bin/bash`
+
+对 Shebang 的处理是内核在进行。当内核加载一个文件时，会首先读取文件的前 128 个字节，根据这 128 个字节判断文件的类型，然后调用相应的加载器来加载。
+
+### ELF（Executable and Linkable Format）
+
+对应windows下的exe
+
+## 修改启动参数
+
+```
+$cat change_kernel_parameter.sh 
+#cat /sys/devices/system/cpu/vulnerabilities/*
+#grep '' /sys/devices/system/cpu/vulnerabilities/*
+#https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC
+
+#cat /sys/kernel/mm/transparent_hugepage/enabled
+#transparent_hugepage=always
+#noibrs noibpb nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off
+#追加nopti nospectre_v2到内核启动参数中
+sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub
+
+//从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+
+#limit the journald log to 500M
+sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf
+#重启系统
+#sudo reboot
+
+## 选择不同的kernel启动
+#sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu
+##grub认的index从0开始数的
+#sudo grub2-reboot 0; sudo reboot
+
+```
+
+```
+$cat /sys/kernel/mm/transparent_hugepage/enabled
+always [madvise] never
+```
+
+## 制作启动盘
+
+Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞
+
+```
+$ diskutil list
+/dev/disk6 (external, physical):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:                                                   *31.5 GB    disk6
+                        
+# 找到 U 盘的那个设备，umount
+$ diskutil unmountDisk /dev/disk3
+
+# 用 dd 把 ISO 文件写进设备，注意这里是 rdisk3 而不是 disk3，在 BSD 中 r(IDENTIFIER)
+# 代表了 raw device，会快很多
+$ sudo dd if=/path/image.iso of=/dev/rdisk3 bs=1m
+
+# 弹出 U 盘
+$ sudo diskutil eject /dev/disk3
+```
+
+[Linux 下制作步骤](https://linuxiac.com/how-to-create-bootable-usb-drive-using-dd-command/)
+
+```
+umount /dev/sdn1
+sudo mkfs.vfat /dev/sdn1
+dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
+```
+
+
+
+## Unix Linux关系
+
+![image-20211210085124387](/images/951413iMgBlog/image-20211210085124387.png)
+
+![img](/images/951413iMgBlog/G2Xri.png)
+
+### [linux 发行版关系](https://blog.51cto.com/wangyafei/1881605)
+
+![细数各家linux之间的区别_软件应用_什么值得买](/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
+
+ Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
+
+不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)
+
+
 
 ## 参考文章
 
@@ -344,3 +485,8 @@ B 站清华大学操作系统视频地址：https://www.bilibili.com/video/BV1js
 
 [Linux 工具：点的含义](https://linux.cn/article-10465-1.html) [英文版](https://www.linux.com/training-tutorials/linux-tools-meaning-dot/)
 
+[linux cp实现强制覆盖](http://coolnull.com/4432.html)
+
+https://wangdoc.com/bash/startup.html
+
+[编写一个最小的 64 位 Hello World](https://cjting.me/2020/12/10/tiny-x64-helloworld/)

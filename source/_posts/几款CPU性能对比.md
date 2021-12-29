@@ -853,7 +853,7 @@ intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
 ### 海光
 
-如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着兵法增加ipc相应减少，性能再也上不去了。
+如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着并发增加ipc相应减少，性能再也上不去了。
 
 ![image.png](/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
 

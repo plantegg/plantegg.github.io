@@ -158,6 +158,29 @@ ee:ff:ff:ff:ff:ff > 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos
 
 总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。
 
+## flannel网络不通
+
+在麒麟系统的物理机上通过kubeadm setup集群，发现有的环境flannel网络不通，在宿主机上ping 其它物理机flannel.0网卡的ip，通过在对端宿主机抓包发现icmp收到后被防火墙扔掉了，抓包中可以看到错误信息：icmp unreachable - admin prohibited
+
+下图中正常的icmp是直接ping 物理机ip
+
+![image-20211228203650921](/images/951413iMgBlog/image-20211228203650921.png)
+
+> The "admin prohibited filter" seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn't want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.
+
+发现有问题的环境中宿主机的防火墙设置报错了：
+
+```
+12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: '/usr/sbin/iptables -w10 -t filter -X DOCKER-ISOLATION-STAGE-1' failed: iptables: No chain/target/match by that name.
+12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: '/usr/sbin/iptables -w10 -t filter -F DOCKER-ISOLATION-STAGE-2' failed: iptables: No chain/target/match by that name.
+```
+
+应该是因为启动docker的时候 firewalld 是运行着的
+
+> Do you have firewalld enabled, and was it (re)started after docker was started? If so, then it's likely that firewalld wiped docker's IPTables rules. Restarting the docker daemon should re-create those rules.
+
+停掉 firewalld 服务可以解决这个问题
+
 ## [清理](https://serverfault.com/questions/247767/cannot-delete-gre-tunnel)
 
 calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）
