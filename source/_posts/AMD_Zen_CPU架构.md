@@ -733,8 +733,6 @@ mapped    :         4548 (  0.02 GB)
 
 如果将业务跑在node0上（全部24core），网卡中断分别在node0和node1上得到的QPS分别是：204000 VS 212000 
 
-
-
 #### tpcc 1000仓
 
 测试结果(测试中Hygon 7280分别跑在CentOS7.9和麒麟上， 鲲鹏/intel CPU 跑在AliOS、麒麟是国产OS)：
