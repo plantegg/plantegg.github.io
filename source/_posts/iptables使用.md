@@ -12,7 +12,7 @@ tags:
 
 ## iptables监控reset的连接信息
 
-如果连接被reset需要记录下reset包是哪边放出来的，并记录reset连接的四元组信息
+如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息
 
 ### iptables规则
 
@@ -110,25 +110,7 @@ Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 
 Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0
 ```
 
-## NetFilter Hooks
 
-下面几个 hook 是内核协议栈中已经定义好的：
-
-- `NF_IP_PRE_ROUTING`: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前
-- `NF_IP_LOCAL_IN`: 接收到的包经过路由判断，如果目的是本机，将触发此 hook
-- `NF_IP_FORWARD`: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook
-- `NF_IP_LOCAL_OUT`: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook
-- `NF_IP_POST_ROUTING`: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook
-
-## IPTables 表和链（Tables and Chains）
-
-下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：
-
-- `PREROUTING`: 由 `NF_IP_PRE_ROUTING` hook 触发
-- `INPUT`: 由 `NF_IP_LOCAL_IN` hook 触发
-- `FORWARD`: 由 `NF_IP_FORWARD` hook 触发
-- `OUTPUT`: 由 `NF_IP_LOCAL_OUT` hook 触发
-- `POSTROUTING`: 由 `NF_IP_POST_ROUTING` hook 触发
 
 ## tracing_point 监控
 
@@ -144,10 +126,10 @@ tcp:tcp_receive_reset
 tcp:tcp_send_reset
 tcp:tcp_retransmit_skb
 
-#开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe
+//开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe
 # echo 1 > /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/enable
 
-#如下是开启重传以及reset的记录，本机ip 10.0.186.140
+//如下是开启重传以及reset的记录，本机ip 10.0.186.140
 # cat trace_pipe
 //重传
           <idle>-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          
@@ -186,14 +168,14 @@ iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16
 
 ## ipset 组合iptables使用
 
-ipset是iptables的扩展,它允许创建匹配整个地址集合的规则。普通的iptables链只能单IP匹配, 进行规则匹配时，是从规则列表中从头到尾一条一条进行匹配，这像是在链表中搜索指定节点费力。ipset 提供了把这个 O(n) 的操作变成 O(1) 的方法：就是把要处理的 IP 放进一个集合，对这个集合设置一条 iptables 规则。像 iptable 一样，IP sets 是 Linux 内核提供，ipset 这个命令是对它进行操作的一个工具。
+ipset是iptables的扩展,它允许创建匹配地址集合的规则。普通的iptables链只能单IP匹配, 进行规则匹配时，是从规则列表中从头到尾一条一条进行匹配，这像是在链表中搜索指定节点费力。ipset 提供了把这个 O(n) 的操作变成 O(1) 的方法：就是把要处理的 IP 放进一个集合，对这个集合设置一条 iptables 规则。像 iptable 一样，IP sets 是 Linux 内核提供，ipset 这个命令是对它进行操作的一个工具。
 另外ipset的一个优势是集合可以动态的修改，即使ipset的iptables规则目前已经启动，新加的入ipset的ip也生效。
 
-[ipset](https://www.cnblogs.com/faberbeta/p/ipset.html)可以以set的形式管理大批ip、IP段，set可以有多个，通过 ipset修改set后可以立即生效。不用再次修改iptables规则。k8s也会用ipset来管理ip集合
+[ipset](https://www.cnblogs.com/faberbeta/p/ipset.html)可以以set的形式管理大批IP以及IP段，set可以有多个，通过 ipset修改set后可以立即生效。不用再次修改iptables规则。k8s也会用ipset来管理ip集合
 
 > ipset is an extension to iptables that allows you to create firewall rules that match entire "sets" of addresses at once. Unlike normal iptables chains, which are stored and traversed linearly, IP sets are stored in indexed data structures, making lookups very efficient, even when dealing with large sets.
 
-接下来用一个iptables白名单案例来展示他们的用法，ipset负责白名单，iptables负责拦截规则：
+接下来用一个ip+port的白名单案例来展示他们的用法，ipset负责白名单，iptables负责拦截规则：
 
 ```shell
   240  [2021-11-30 19:57:10] ipset list drds_whitelist_ips |grep "^127.0."
@@ -207,18 +189,19 @@ ipset create myset hash:net timeout 259200
 ipset list drds_whitelist_ips             //列出set中的所有ip、ip段
 ipset add drds_whitelist_ips 100.1.2.0/24 //从set中增加ip段
 
+iptables -I INPUT 1 -p tcp  -j drds_whitelist //创建新规则链drds_whitelist，所有tcp流入的包都跳转到 drds_whitelist规则
 //有了以上drds_whitelist_ips这个名单, 接下来可以在iptables规则中使用这个set了
 //在第一行增加规则：访问端口1234的tcp请求走规则 drds_whitelist
 iptables -I INPUT 1 -p tcp --dport 1234 -j drds_whitelist 
 
-//规则drds_whitelist如下三条
+//规则drds_whitelist 添加如下三条
 //第一条白名单中的来源ip访问1234就ACCEPT，不再走后面的. 关键的白名单列表就取自ipset中的drds_whitelist_ips
 iptables -A drds_whitelist -m set --match-set drds_whitelist_ips src -p tcp --dport 1234 -j ACCEPT 
 
 //同规则1，记录日志，走到这里说明规则1没生效，那么就是黑名单要拦截的了
-iptables -A drds_whitelist -p tcp --dport 1234 -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options  "
+iptables -A drds_whitelist -p tcp --dport 1234 -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
 //拦截          
-iptables -A drds_whitelist -p tcp --dport 1234 -j REJECT --reject-with icmp-host-prohibited"
+iptables -A drds_whitelist -p tcp --dport 1234 -j REJECT --reject-with icmp-host-prohibited
 ```
 
 经过如上操作后，可以得到iptables规则如下
@@ -240,6 +223,45 @@ target     prot opt source               destination
 
 ```shell
 iptables -D drds_whitelist 3 
+```
+
+### block ip 案例
+
+模拟断网测试的时候可以通过iptables固定屏蔽某几个ip来实现。
+
+创建ipset，存放好需要block的ip列表
+
+```shell
+ipset create block_ips hash:net timeout 259200
+ipset add block_ips 10.176.2.245
+```
+
+添加iptables过滤规则，规则中不需要列出一堆ip，只需要指定上一步创建好的ipset，以后屏蔽、放开某些ip不需要修改iptables规则了，只需要往ipset添加、删除目标ip
+
+```shell
+iptables -N drds_rule //创建新规则链
+
+iptables -I INPUT 1 -m set --match-set block_ips src  -p tcp  -j drds_rule  //命中就跳转到drds_rule
+//这条可有可无，记录日志，方便调试
+iptables -I drds_rule -m set --match-set block_ips src -j LOG --log-prefix '[drds_reject] ' --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
+
+iptables -A drds_rule -m set --match-set block_ips src -p tcp  -j REJECT --reject-with icmp-host-prohibited
+```
+
+## iptables记录日志
+
+记录每个新连接创建的时间，日志在/var/log/kern或者/var/log/dmesg中：
+
+```
+iptables -I INPUT -m state --state NEW -j LOG --log-prefix "Connection In: "
+iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix "Connection Out: "
+```
+
+~~在宿主机上执行，然后再/var/log/syslog中能看到包的传递流程~~
+
+```
+iptables -t raw -A OUTPUT -p icmp -j TRACE
+iptables -t raw -A PREROUTING -p icmp -j TRACE
 ```
 
 
@@ -271,7 +293,7 @@ iptables工作图如下，进来的包走1、2；出去的包走4、5；转发�
 
 ![Image](/images/951413iMgBlog/640-7027461.)
 
-### Ncat端口转发
+### ncat端口转发
 
 ```
 监听本机 9876 端口，将数据转发到 192.168.172.131的 80 端口
@@ -303,7 +325,7 @@ grep "Failed" /var/log/auth.log | \
 
 [Per-IP rate limiting with iptables](https://making.pusher.com/per-ip-rate-limiting-with-iptables/index.html)
 
-## 参数
+## iptables 常用参数
 
 > **-I** : Insert rule at given rule number
 >
@@ -317,8 +339,30 @@ grep "Failed" /var/log/auth.log | \
 >
 > **-v** : Verbose output. This option makes the list command show the interface name, the rule options (if any), and the TOS masks
 
+## NetFilter Hooks
+
+下面几个 hook 是内核协议栈中已经定义好的：
+
+- `NF_IP_PRE_ROUTING`: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前
+- `NF_IP_LOCAL_IN`: 接收到的包经过路由判断，如果目的是本机，将触发此 hook
+- `NF_IP_FORWARD`: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook
+- `NF_IP_LOCAL_OUT`: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook
+- `NF_IP_POST_ROUTING`: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook
+
+## IPTables 表和链（Tables and Chains）
+
+下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：
+
+- `PREROUTING`: 由 `NF_IP_PRE_ROUTING` hook 触发
+- `INPUT`: 由 `NF_IP_LOCAL_IN` hook 触发
+- `FORWARD`: 由 `NF_IP_FORWARD` hook 触发
+- `OUTPUT`: 由 `NF_IP_LOCAL_OUT` hook 触发
+- `POSTROUTING`: 由 `NF_IP_POST_ROUTING` hook 触发
+
 ## 参考资料
 
 [深入理解 iptables 和 netfilter 架构](http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/)
 
 [NAT - 网络地址转换（2016）](http://arthurchiao.art/blog/nat-zh/)
+
+[通过iptables 来控制每个ip的流量](https://making.pusher.com/per-ip-rate-limiting-with-iptables/)

@@ -204,15 +204,62 @@ nsenter --target 17277 --net
 // 宿主机上查看容器ip
  1026  [2021-04-14 15:54:11] ip netns list
  1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig
+ 
+ //nsenter调试网络
+ Get the pause container's sandboxkey: 
+root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey
+            "SandboxKey": "/var/run/docker/netns/82ec9e32d486",
+root@worker01:~#
+Now, using nsenter you can see the container's information.
+root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ip addr show
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+3: eth0@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UP group default
+   link/ether 0a:58:0a:f4:01:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+   inet 10.244.1.2/24 scope global eth0
+       valid_lft forever preferred_lft forever
+Identify the peer_ifindex, and finally you can see the veth pair endpoint in root namespace.
+root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ethtool -S eth0
+NIC statistics:
+     peer_ifindex: 7
+root@worker01:~#
+root@worker01:~# ip -d link show | grep '7: veth'
+7: veth5e43ca47@if3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue master cni0 state UP mode DEFAULT group default
+root@worker01:~#
 ```
 
-nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可
+nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可，[详细case](https://medium.com/@anilkreddyr/kubernetes-with-flannel-understanding-the-networking-part-2-78b53e5364c7)
+
+```
+#docker inspect cb7b05d82153 | grep -i SandboxKey   //根据 pause 容器id找network namespace
+            "SandboxKey": "/var/run/docker/netns/d6b2ef3cf886",
+
+[root@hygon252 19:00 /root]
+#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ip addr show
+3: eth0@if496: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UP group default  //496对应宿主机上的veth编号
+    link/ether 1e:95:dd:d9:88:bd brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 192.168.3.22/24 brd 192.168.3.255 scope global eth0
+       valid_lft forever preferred_lft forever
+#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ethtool -S eth0
+NIC statistics:
+     peer_ifindex: 496
+     
+#ip -d -4 addr show cni0
+475: cni0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UP group default qlen 1000
+    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535
+    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer   43.31 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535
+    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0
+       valid_lft forever preferred_lft forever     
+```
+
+
 
 ## 创建虚拟网卡
 
 ```
 To make this interface you'd first need to make sure that you have the dummy kernel module loaded. You can do this like so:
-
 $ sudo lsmod | grep dummy
 $ sudo modprobe dummy
 $ sudo lsmod | grep dummy
@@ -222,22 +269,95 @@ With the driver now loaded you can create what ever dummy network interfaces you
 $ sudo ip link add eth10 type dummy
 ```
 
+## 修改网卡名字
 
+```
+ip link set ens33 down
+ip link set ens33 name eth0
+ip link set eth0 up
+
+mv /etc/sysconfig/network-scripts/ifcfg-{ens33,eth0}
+sed -ire "s/NAME=\"ens33\"/NAME=\"eth0\"/" /etc/sysconfig/network-scripts/ifcfg-eth0
+sed -ire "s/DEVICE=\"ens33\"/DEVICE=\"eth0\"/" /etc/sysconfig/network-scripts/ifcfg-eth0
+MAC=$(cat /sys/class/net/eth0/address)
+echo -n 'HWADDR="'$MAC\" >> /etc/sysconfig/network-scripts/ifcfg-eth0
+```
 
 ## OS版本
 
 **搞Docker就得上el7， 6的性能太差了** Docker 对 Linux 内核版本的最低要求是3.10，如果内核版本低于 3.10 会缺少一些运行 Docker 容器的功能。这些比较旧的内核，在一定条件下会导致数据丢失和频繁恐慌错误。
 
-## 清理
+## 清理mount文件
 
 删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk '{ print $3 }' |grep overlay2| xargs umount 批量删除
+
+## sock
+
+docker有两个sock，一个是dockershim.sock，一个是docker.sock。dockershim.sock是由实现了CRI接口的一个插件提供的，主要把k8s请求转换成docker请求，最终docker还是要 通过docker.sock来管理容器。
+
+> kubelet ---CRI----> docker-shim(kubelet内置的CRI-plugin) --> docker
 
 ## docker image api
 
 ```
-获取所有镜像名字： GET /v2/_catalog
+获取所有镜像名字： GET /v2/_catalog   
+curl registry:5000/v2/_catalog
 
-获取某个镜像的tag： GET /v2/<name>/tags/list 
+获取某个镜像的tag： GET /v2/<name>/tags/list  
+curl registry:5000/v2/drds/corona-server/tags/list
+```
+
+### 从registry中删除镜像
+
+默认registry仓库不支持删除镜像，修改registry配置来支持删除
+
+```
+#cat config.yml
+version: 0.1
+log:
+  fields:
+    service: registry
+storage:
+  delete: //增加如下两行，默认是false，不能删除
+    enabled: true
+  cache:
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+http:
+  addr: :5000
+  headers:
+    X-Content-Type-Options: [nosniff]
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3
+    
+#docker cp ./config.yml registry:/etc/docker/registry/config.yml    
+#docker restart registry
+```
+
+然后通过API来查询要删除镜像的id：
+
+```
+//查询要删除镜像的tag
+curl registry:5000/v2/drds/corona-server/tags/list
+//根据tag查找Etag
+curl -v registry:5000/v2/drds/corona-server/manifests/2.0.0_3012622_20220214_4ca91d96-arm64 -H 'Accept: application/vnd.docker.distribution.manifest.v2+json'
+//根据前一步返回的Etag来删除对应的tag
+curl -X  DELETE registry:5000/v2/drds/corona-server/manifests/sha256:207ec19c1df6a3fa494d41a1a8b5332b969a010f0d4d980e39f153b1eaca2fe2 -v
+
+//执行垃圾回收
+docker exec -it registry bin/registry garbage-collect /etc/docker/registry/config.yml
+```
+
+## 检查是否restart能支持只重启deamon，容器还能正常运行
+
+```
+$sudo docker info | grep Restore
+Live Restore Enabled: true
+
 ```
 
 

@@ -1,6 +1,6 @@
 ---
-title: kubernetes calico 网络
-date: 2020-08-31 11:30:03
+title: kubernetes calico网络
+date: 2022-01-19 11:30:03
 categories:
     - docker
 tags:
@@ -10,9 +10,60 @@ tags:
     - network
 ---
 
-# kubernetes calico 网络
+# kubernetes calico网络
 
-## kubernetes 集群下安装 calico 网络 
+
+
+## cni 网络
+
+>  **cni0** is a Linux network bridge device, all **veth** devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in **Kubernetes Network Model** and the hotel analogy above.
+
+### cni（Container Network Interface）
+
+CNI 全称为 Container Network Interface，是用来定义容器网络的一个 [规范](https://github.com/containernetworking/cni/blob/master/SPEC.md)。[containernetworking/cni](https://github.com/containernetworking/cni) 是一个 CNCF 的 CNI 实现项目，包括基本额 bridge,macvlan等基本网络插件。
+
+一般将cni各种网络插件的可执行文件二进制放到 `/opt/cni/bin` ，在 `/etc/cni/net.d/` 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。
+
+比如：
+
+```
+#ls -lh /opt/cni/bin/
+总用量 90M
+-rwxr-x--- 1 root root 4.0M 12月 23 09:39 bandwidth
+-rwxr-x--- 1 root root  35M 12月 23 09:39 calico
+-rwxr-x--- 1 root root  35M 12月 23 09:39 calico-ipam
+-rwxr-x--- 1 root root 3.0M 12月 23 09:39 flannel
+-rwxr-x--- 1 root root 3.5M 12月 23 09:39 host-local
+-rwxr-x--- 1 root root 3.1M 12月 23 09:39 loopback
+-rwxr-x--- 1 root root 3.8M 12月 23 09:39 portmap
+-rwxr-x--- 1 root root 3.3M 12月 23 09:39 tuning
+
+[root@hygon3 15:55 /root]
+#ls -lh /etc/cni/net.d/
+总用量 12K
+-rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist
+-rw-r----- 1 root root  292 12月 23 09:47 10-flannel.conflist
+-rw------- 1 root root 2.6K 12月 23 09:39 calico-kubeconfig
+```
+
+CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C/S 方式，所有参数都是通过环境变量、标准输入输出来实现的。
+
+Step-by-step communication from **Pod 1** to **Pod 6**:
+
+1. *Package leaves* ***Pod 1 netns\*** *through the* ***eth1\*** *interface and reaches the* ***root netns\*** *through the virtual interface* ***veth1\****;*
+2. *Package leaves* ***veth1\*** *and reaches* ***cni0\****, looking for* ***Pod 6\****’s* *address;*
+3. *Package leaves* ***cni0\*** *and is redirected to* ***eth0\****;*
+4. *Package leaves* ***eth0\*** *from* ***Master 1\*** *and reaches the* ***gateway\****;*
+5. *Package leaves the* ***gateway\*** *and reaches the* ***root netns\*** *through the* ***eth0\*** *interface on* ***Worker 1\****;*
+6. *Package leaves* ***eth0\*** *and reaches* ***cni0\****, looking for* ***Pod 6\****’s* *address;*
+7. *Package leaves* ***cni0\*** *and is redirected to the* ***veth6\*** *virtual interface;*
+8. *Package leaves the* ***root netns\*** *through* ***veth6\*** *and reaches the* ***Pod 6 netns\*** *though the* ***eth6\*** *interface;*
+
+![image-20220115124747936](/images/951413iMgBlog/image-20220115124747936.png)
+
+
+
+## kubernetes calico 网络
 
 ```
 kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
@@ -43,7 +94,7 @@ Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；
 [root@az3-k8s-13 ~]# ip route |grep tunl0
 10.122.17.64/26 via 10.122.127.128 dev tunl0  //这条路由不通
 [root@az3-k8s-13 ~]# ip route del 10.122.17.64/26 via 10.122.127.128 dev tunl0 ; ip route add 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink
-RTNETLINK answers: File exists
+
 [root@az3-k8s-13 ~]# ip route |grep tunl0
 10.122.17.64/26 via 192.168.3.110 dev tunl0 proto bird onlink //这样就通了 
 ```
@@ -158,38 +209,7 @@ ee:ff:ff:ff:ff:ff > 00:16:3e:02:06:1e, ethertype IPv4 (0x0800), length 118: (tos
 
 总结下来这两个案例都还是对路由不够了解，特别是案例2，因为有了多个网卡后导致路由更复杂。calico ipip的基本原理就是利用内核进行ipip封包，然后修改路由来保证网络的畅通。
 
-## flannel网络不通
-
-在麒麟系统的物理机上通过kubeadm setup集群，发现有的环境flannel网络不通，在宿主机上ping 其它物理机flannel.0网卡的ip，通过在对端宿主机抓包发现icmp收到后被防火墙扔掉了，抓包中可以看到错误信息：icmp unreachable - admin prohibited
-
-下图中正常的icmp是直接ping 物理机ip
-
-![image-20211228203650921](/images/951413iMgBlog/image-20211228203650921.png)
-
-> The "admin prohibited filter" seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn't want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.
-
-发现有问题的环境中宿主机的防火墙设置报错了：
-
-```
-12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: '/usr/sbin/iptables -w10 -t filter -X DOCKER-ISOLATION-STAGE-1' failed: iptables: No chain/target/match by that name.
-12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: '/usr/sbin/iptables -w10 -t filter -F DOCKER-ISOLATION-STAGE-2' failed: iptables: No chain/target/match by that name.
-```
-
-应该是因为启动docker的时候 firewalld 是运行着的
-
-> Do you have firewalld enabled, and was it (re)started after docker was started? If so, then it's likely that firewalld wiped docker's IPTables rules. Restarting the docker daemon should re-create those rules.
-
-停掉 firewalld 服务可以解决这个问题
-
-## [清理](https://serverfault.com/questions/247767/cannot-delete-gre-tunnel)
-
-calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）
-
-```
-ip link set dev tunl0 name tunl0_fallback
-```
-
-## [netns](https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw)
+## [netns 操作](https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw)
 
 以下case创建一个名为 ren 的netns，然后在里面增加一对虚拟网卡veth1 veth1_p,  veth1放置在ren里面，veth1_p 放在物理机上，给他们配置上ip并up就能通了。
 
@@ -243,6 +263,10 @@ ip link set dev tunl0 name tunl0_fallback
  1162  [2021-10-27 12:18:09] ip link set dev veth1_p master docker0
  1163  [2021-10-27 12:18:13] ip link set dev veth2 master docker0
  1164  [2021-10-27 12:18:15] brctl show
+ 
+brctl showmacs br0
+brctl show cni0
+brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡
 ```
 
 Linux 上存在一个默认的网络命名空间，Linux 中的 1 号进程初始使用该默认空间。Linux 上其它所有进程都是由 1 号进程派生出来的，在派生 clone 的时候如果没有额外特别指定，所有的进程都将共享这个默认网络空间。
@@ -279,3 +303,5 @@ https://morven.life/notes/networking-3-ipip/
 https://www.cnblogs.com/bakari/p/10564347.html
 
 https://www.cnblogs.com/goldsunshine/p/10701242.html
+
+[手工拉起flannel网络](https://docker-k8s-lab.readthedocs.io/en/latest/docker/docker-flannel.html)

@@ -303,7 +303,7 @@ L3用的还是SRAM，但是在考虑换成STT-MRAM，这样容量更大。
 
 ### DRAM（Dynamic Random Access Memory，动态随机存取存储器）的芯片
 
-为磁芯存储器画上句号的是集成电路随机存储器件。1966年，IBM Thomas J. Watson研究中心的Dr. Robert H. Dennard(人物照如下)开发出了单个单元的动态随机存储器DRAM，DRAM每个单元包含一个开关晶体管和一个电容，利用电容中的电荷存储数据。因为电容中的电荷会泄露，需要每个周期都进行刷新重新补充电量，所以称其为动态随机存储器。
+为磁芯存储器画上句号的是集成电路随机存储器件。1966年，IBM Thomas J. Watson研究中心的Dr. Robert H. Dennard开发出了单个单元的动态随机存储器DRAM，DRAM每个单元包含一个开关晶体管和一个电容，利用电容中的电荷存储数据。因为电容中的电荷会泄露，需要每个周期都进行刷新重新补充电量，所以称其为动态随机存储器。
 
 内存用的芯片和 Cache 有所不同，它用的是一种叫作 DRAM（Dynamic Random Access Memory，动态随机存取存储器）的芯片，比起 SRAM 来说，它的密度更高，有更大的容量，而且它也比 SRAM 芯片便宜不少。
 
@@ -354,4 +354,8 @@ SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是�
 [与程序员相关的CPU缓存知识](https://coolshell.cn/articles/20793.html)
 
 [45-year CPU evolution: one law and two equations](https://arxiv.org/ftp/arxiv/papers/1803/1803.00254.pdf)
+
+[揭秘 cache 访问延迟背后的计算机原理](https://mp.weixin.qq.com/s/QNgMS0gOXhZml8l_towAbw)
+
+[业务与芯片垂直整合的一点思考](https://mp.weixin.qq.com/s/FC-bPwHUT7EpTydxDk5btQ)
 

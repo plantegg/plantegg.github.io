@@ -277,6 +277,7 @@ kubectl cluster-info dump --output-directory=/path/to/cluster-state   # 将当�
 
 # 如果已存在具有指定键和效果的污点，则替换其值为指定值
 kubectl taint nodes foo dedicated=special-user:NoSchedule
+kubectl taint nodes poc65 node-role.kubernetes.io/master:NoSchedule-
 ```
 
 

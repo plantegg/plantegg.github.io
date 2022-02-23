@@ -30,7 +30,7 @@ ss可以显示跟netstat类似的信息，但是速度却比netstat快很多，n
 ss参数说明[权威参考](https://man7.org/linux/man-pages/man8/ss.8.html)
 
 ```shell
--m, --memory
+-m, --memory  //查看每个连接的buffer使用情况
               Show socket memory usage. The output format is:
 
               skmem:(r<rmem_alloc>,rb<rcv_buf>,t<wmem_alloc>,tb<snd_buf>,
@@ -124,7 +124,7 @@ void sk_get_meminfo(const struct sock *sk, u32 *mem)
 --memory/-m ： 展示buffer窗口的大小
 
 ```
-#ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
+#ss -m | xargs -L 1 | grep "ESTAB" | awk '{ if($3>0 || $4>0) print $0 }'
 tcp ESTAB 0 31 10.97.137.1:7764 10.97.137.2:41019 skmem:(r0,rb7160692,t0,tb87040,f1792,w2304,o0,bl0)
 tcp ESTAB 0 193 ::ffff:10.97.137.1:sdo-tls ::ffff:10.97.137.2:55545 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
 tcp ESTAB 0 65 ::ffff:10.97.137.1:splitlock ::ffff:10.97.137.2:47796 skmem:(r0,rb369280,t0,tb87040,f1792,w2304,o0,bl0)
@@ -145,7 +145,7 @@ example:
 
 ![image.png](/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
 
-对带宽限速50MB后的观察：
+对172.16.210.17和172.16.160.1之间的带宽限速50MB后观察(带宽限制后，发送buffer就很容易被撑满了）：
 
 ```shell
 $ss -m | xargs -L 1 | grep "tcp EST" | awk '{ if($3>0 || $4>0) print $0 }'
@@ -164,7 +164,6 @@ tcp ESTAB 4216156 0 172.16.210.17:30068 172.16.160.1:4847 skmem:(r6091008,rb6291
 tcp ESTAB 87468 0 172.16.210.17:40564 172.16.160.1:4847 skmem:(r127232,rb131072,t0,tb46080,f3840,w0,o0,bl0,d16)
 tcp ESTAB 0 84608 172.16.210.17:3306 10.100.7.27:43114 skmem:(r0,rb65536,t8352,tb131072,f75648,w92288,o0,bl0,d0)
 tcp ESTAB 4141872 0 172.16.210.17:40584 172.16.160.1:4847 skmem:(r6050560,rb6291456,t2,tb46080,f19712,w0,o0,bl0,d14)
-
 
 $ss -itn
 State       Recv-Q Send-Q   Local Address:Port                  Peer Address:Port
@@ -185,8 +184,6 @@ ESTAB       89136  0        172.16.210.17:40480                 172.16.160.1:484
 ESTAB       0      84288    172.16.210.17:3306                   10.100.7.26:51160
          cubic wscale:7,7 rto:216 rtt:15.129/0.314 ato:40 mss:1448 rcvmss:976 advmss:1448 cwnd:157 ssthresh:157 bytes_acked:2954689465 bytes_received:1393 segs_out:2041403 segs_in:237797 data_segs_out:2041402 data_segs_in:8 send 120.2Mbps lastsnd:11 lastrcv:1103462 lastack:10 pacing_rate 144.2Mbps delivery_rate 31.3Mbps busy:1103503ms sndbuf_limited:3398ms(0.3%) unacked:24 retrans:0/7rcv_space:14600 notsent:49536 minrtt:9.551
 ```
-
-
 
 ## ss 查看拥塞窗口、RTO
 

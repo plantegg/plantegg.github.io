@@ -49,7 +49,7 @@ Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来纪录
 ## 数据取自于4.19内核代码中的 include/net/tcp.h
 
 ```
-//rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
+//rto的定义，不让修改，到每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1000
 #define TCP_RTO_MAX     ((unsigned)(120*HZ))
 #define TCP_RTO_MIN     ((unsigned)(HZ/5)) //在rt很小的环境中计算下来RTO基本等于TCP_RTO_MIN
 

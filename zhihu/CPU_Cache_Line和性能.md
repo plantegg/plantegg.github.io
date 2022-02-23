@@ -1,42 +1,36 @@
+
 # CPU 性能和Cache Line
 
-## 终于到了这个系列的终结篇，先说点题外话
+为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。
 
-大约是半年前我们有个政府部门的项目用的是国产化的CPU， 海光和飞腾， 在这之前我只接触过Intel，看CPU性能只会top，NUMA耳闻过，以为OS打开就有NUMA了。
+这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。
 
-这个项目在上线前的POC发现性能达不到目标，先是海光环境没达标，被拉去现场发现是SLB到了瓶颈。不过我这次我知道还有个叫海光的CPU，开始还以为海光是ARM，后来才知道人家是x86.
+大的方面主要是从这几个疑问来写这些文章：
 
-接着换成飞腾来POC，也是性能不达标，自然而然又被押送到现场来解决问题，这次没有这么容易了，我看到了一个奇怪的现象：CPU使用率不断升高性能没增加？！ 
-
-这太不符合逻辑了，CPU居然出工不出力，这让我想起来之前看到有文章提到stall/IPC之类的东西，于是试着绑了一下核性能一下子就上去了。这个不断调试的过程中我发现联系客户跑压力然后看QPS太慢了，事实上我后来只需要看IPC就能推出QPS了。当然到这里现场的PM就鼓掌让大家可以撤了，但是这个环境我还是可以访问的，于是借着这个机会找了大佬请教。
-
-如下图，这个时候我对流水线、Die、胶水核是懵逼的，感觉专业词汇甩过来完全听不懂啊，借着这些POC环境提供的多种CPU不断实践和学习，于是有了这个CPU系列。写到这里是要感谢钉钉上给我答疑的大佬，问到最后我也实在不好意思再问了，因为我听不懂了，只能找资料多学习，然后再提问。最好的感谢就是把大佬的指点好好掌握下来，不要一直做伸手党。
-
-<img src="https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/CPU_Cache_Line和性能/image-20210907180322426.png" alt="image-20210907180322426" style="zoom:50%;" />
-
-<img src="https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/CPU_Cache_Line和性能/image-20210907180102112.png" alt="image-20210907180102112" style="zoom:50%;" />
-
-也感谢现场PM提供环境给我反复测试
-
-<img src="https://ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor/cd23fa64-a4f5-459a-9ab4-896c91295748.png" alt="test_env" style="zoom:50%;" />
-
-
-
-啰嗦完毕，开始正文
+-   同样程序为什么CPU跑到800%还不如CPU跑到200%快？
+-   IPC背后的原理和和程序效率的关系？
+-   为什么数据库领域都爱把NUMA关了，这对吗？
+-   几个国产芯片的性能到底怎么样？
 
 ## 系列文章
 
-[CPU的生产和概念](https://www.atatech.org/articles/211563)
-[CPU性能和CACHE](https://topic.atatech.org/articles/210128)
-[Perf IPC以及CPU性能](https://www.atatech.org/articles/213694)
-[AMD/海光/鲲鹏/Intel CPU性能大比拼](https://www.atatech.org/articles/212194)
-[十年后数据库还是不敢拥抱NUMA](https://www.atatech.org/articles/205974)
-[一次海光X86物理机资源竞争压测的调优--AMD Zen1架构CPU](https://www.atatech.org/articles/205002)
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://www.atatech.org/articles/157681) ---- 本篇的黄金搭档，cache_line影响实战篇
+[CPU的制造和概念](/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/)
 
-CPU为什么要CACHE，请看这篇[CPU性能和CACHE](https://topic.atatech.org/articles/210128)
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
 
-![image-20210802161455950](https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/image-20210802161455950.png)
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
+
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/)
+
+[一次海光物理机资源竞争压测的记录](/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/)
+
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/)
+
+CPU为什么要CACHE，请看这篇
 
 ## 什么是 cache_line
 
@@ -77,9 +71,11 @@ LEVEL4_CACHE_ASSOC                 0
 LEVEL4_CACHE_LINESIZE              0
 ```
 
-## cache_line 影响性能的案例
+比如，对于下面的FT2500 ARM芯片下，L1D是32K，是因为32K=256*2*64（64就是cache_line大小，16个int）, 这32K是256个组，每组2行（x86一般是每组8行），每行就是一个cache_line
 
-cache line的原理告诉我们要顺序访问内存，这样cache命中率高，所以接下来用实验对比看看
+![image-20210914175307651](https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/CPU_Cache_Line和性能/image-20210914175307651.png)
+
+## cache_line 影响性能的案例
 
 如下两个循环执行次数循环2是循环1的十六分之一。但是在x86和arm下执行时间都是循环2是循环1的四分之一左右。
 
@@ -216,11 +212,11 @@ for(int _c=0; _c<col; _c++) {
 
 ## [Disruptor](https://lmax-exchange.github.io/disruptor/disruptor.html)
 
-Disruptor 是英国外汇交易公司 LMAX 开发的一个高性能队列，研发的初衷是解决内部的内存队列的延迟问题，而不是分布式队列。基于 Disruptor 开发的系统单线程能支撑每秒 600 万订单，2010 年在 QCon 演讲后，获得了业界关注。
+Disruptor论文中讲述了我们所做的一个实验。这个测试程序调用了一个函数，该函数会对一个64位的计数器循环自增5亿次。当单线程无锁时，程序耗时300ms。如果增加一个锁（仍是单线程、没有竞争、仅仅增加锁），程序需要耗时10000ms，慢了两个数量级。更令人吃惊的是，如果增加一个线程（简单从逻辑上想，应该比单线程加锁快一倍），耗时224000ms。使用两个线程对计数器自增5亿次比使用无锁单线程慢1000倍。**并发很难而锁的性能糟糕。**单线程使用CAS耗时5700ms。所以它比使用锁耗时少，但比不需要考虑竞争的单线程耗时多。
 
-Disruptor 简直是cache line的最佳实践，所以接下来用Disruptor中的一些做法来帮我们理解下cache line
+We will illustrate the cost of locks with a simple demonstration. The focus of this experiment is to call a function which increments a 64-bit counter in a loop 500 million times. This can be executed by a single thread on a 2.4Ghz Intel Westmere EP in just 300ms if written in Java. The language is unimportant to this experiment and results will be similar across all languages with the same basic primitives.
 
-Disruptor论文中讲了一个实验：实验中测试程序调用了一个函数，该函数会对一个64位的计数器循环自增5亿次。当单线程无锁时，程序耗时300ms。如果增加一个锁（仍是单线程、没有竞争、仅仅增加锁），程序需要耗时10000ms，慢了两个数量级。更令人吃惊的是，如果增加一个线程（简单从逻辑上想，应该比单线程加锁快一倍），耗时224000ms。使用两个线程对计数器自增5亿次比使用无锁单线程慢1000倍。**并发很难而锁的性能糟糕。**单线程使用CAS耗时5700ms。所以它比使用锁耗时少，但比不需要考虑竞争的单线程耗时多。
+Once a lock is introduced to provide mutual exclusion, even when the lock is as yet un-contended, the cost goes up significantly. The cost increases again, by orders of magnitude, when two or more threads begin to contend. The results of this simple experiment are shown in the table below:
 
 *Table 1. Comparative costs of contention*
 
@@ -595,9 +591,56 @@ public final class RingBuffer<E> extends RingBufferFields<E> implements Cursored
 
 数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache
 
+## Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的
 
+MySQL利用Intel 的Pause指令在spinlock(自旋锁)的时候尽量避免cache line ping-pong，但是不同的Intel芯片每个Pause指令背后实际执行的circle是不一样的，从而导致MySQL性能差异很大
 
-最后附一个分支预测的案例，没法单独成文
+详细请看：
+
+[《Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的》 从一个参数引起的rt抖动定位到OS锁等待再到CPU Pause指令，以及不同CPU型号对Pause使用cycles不同的影响，最终反馈到应用层面的rt全过程。在MySQL内核开发的时候考虑了Pause，但是没有考虑不同的CPU型号，所以换了CPU型号后性能差异比较大](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
+
+### pause 和 spinlock
+
+[spinlock(自旋锁)](http://linuxperf.com/?p=138)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，**spinlock适合用来保护快进快出的临界区**。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠
+
+### pause 和 cpu_relax
+
+内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：
+
+-   主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；
+-   释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；
+
+对于顺序锁而言，cpu_relax 尤为关键：
+
+-   锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。
+-   cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。
+
+由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。
+
+当然在ARM芯片下这个问题就不一样了：[ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield来代替pause，yield 指令的实现退化为 nop 指令，执行时间非常非常短，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片).
+
+在ARM芯片里因为yield很快，那么上层软件的spinlock就要用不一样的方式来优化了。
+
+## ECS cache_line miss导致整个物理机响应慢
+
+[如果一台ECS运行大量的cache_line miss逻辑](https://topic.atatech.org/articles/100065)，也就是利用spinlock所保护的区域没有按照cacheline对齐的时候，CPU为了保证数据一致性，会触发Super Queue lock splits，将总线锁住，哪怕是其他socket，而这个时候，其他CPU CORE访问L2cache、L3cahe、以及内存就会阻塞，直到Super Queue lock splits释放。
+
+这个影响不是socket、node内部，而是整个物理机总线被锁，所以影响的是整个物理机。
+
+### [从地址不对齐访问到split lock](https://kernel.taobao.org/2019/07/Detecting-and-handling-split-locks/)
+
+Intel CPU微架构允许不对齐的内存访问，但ARM、RISC-V等架构却不允许。在众多的不对齐中，一个特殊的场景是：[原子操作的操作数（由于地址不对齐）跨越两个cache lines，Intel将之叫做split lock。](https://lwn.net/Articles/790464/)它有两个特征：
+
+1.  原子操作，即汇编指令包含Lock前缀；
+1.  操作数地址不对齐，还跨越两个cache lines；
+
+其实大部分吃瓜群众都不知道这个特性，但是它却对应用性能影响极大。Intel工程师Fenghua Yu同学正在开发一组内核补丁，用于检测和处理split lock，现在已经发出了第8版[code review](https://lwn.net/ml/linux-kernel/1556134382-58814-1-git-send-email-fenghua.yu%40intel.com/)。阿里巴巴在多年前就意识到split lock的危害，在线上实施了大规模监控，并采取必要隔离措施。
+
+学过体系结构的同学都应该知道，缓存一制性协议MESI只能保证cache line粒度的一致性。同时访问两个cache lines不是常见操作，为保证split lock的原子性，设计硬件时使用特殊逻辑（冷路径）来处理：**锁住整个访存总线，阻止其它逻辑cpu访存**。
+
+从原理出发，我们很容易想到，锁住总线将导致其它core上访存操作受阻，宏观表现为平均访存延时显著上升。为不让各位看官白走一趟，小编在自己的skylake机器上测了一组数据，随着split lock速率的增加，访存延迟呈指数恶化。
+
+![img](https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/CPU_Cache_Line和性能/1.png)
 
 ## 分支预测案例
 
@@ -668,7 +711,23 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 
 ![image-20210512132121856](https://cdn.jsdelivr.net/gh/shareImage/image@_md2zhihu_blog_cee8f3b4/CPU_Cache_Line和性能/image-20210512132121856.png)
 
+## 系列文章
 
+[CPU的制造和概念](/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/)
+
+[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)
+
+[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)
+
+[Intel、海光、鲲鹏920、飞腾2500 CPU性能对比](/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/)
+
+[飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/)
+
+[十年后数据库还是不敢拥抱NUMA？](/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/)
+
+[一次海光物理机资源竞争压测的记录](/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/)
+
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)
 
 ## 参考资料
 
@@ -681,4 +740,10 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 [7个示例科普CPU CACHE](https://coolshell.cn/articles/10249.html)
 
 [与程序员相关的CPU缓存知识](https://coolshell.cn/articles/20793.html)
+
+[Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?](http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj) 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share
+
+
+
+Reference:
 

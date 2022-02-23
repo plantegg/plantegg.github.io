@@ -20,6 +20,34 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
  crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个**修改不包含权限的修改**。可以简单地理解这个修改是指文件的change time。
 
+## xargs传参数例如
+
+> ls /xx | xargs -t -I{}  cp {} /tmp/{}
+
+-t ： 打印内容，去掉\n之后的字符串
+
+-I :  后面定义占位符，上例子是{}  ，后面命令行中可以多次使用占位符
+
+挂载多台苹果的例子
+
+>  idevice_id -l|xargs -t -I{} mkdir {};idevice_id -l |xargs -t -I{} ifuse {} {}
+
+
+
+批量执行docker exec
+
+```
+ansible -i host.ini all -m shell -a "docker ps -a | grep pxd-tpcc | grep dn | cut -d ' ' -f 1 | xargs  -I{} docker exec {} bash -c \"myc -e 'shutdown'\""
+```
+
+批量推送镜像
+
+```
+docker images |grep "registry:5000" | awk '{ print $1":"$2 }' | xargs -I {} docker push {}
+```
+
+
+
 ## 容器中root用户执行 su - admin 切换失败
 
 问题原因：https://access.redhat.com/solutions/30316
@@ -248,6 +276,8 @@ session     required      pam_unix.so
 ## hostname
 
 hostname -i 是根据机器的hostname去解析ip，如果 /etc/hosts里面没有指定hostname对应的ip就会走dns 流程然后libnss_myhostname 返回所有ip
+
+getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这个ip，否则就需要通过getHostByName获取所有网卡选择一个
 
 ## tsar Floating point execption
 

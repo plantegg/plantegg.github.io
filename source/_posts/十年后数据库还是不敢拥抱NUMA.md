@@ -332,6 +332,7 @@ Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收�
 这也就是为什么之前大佬们碰到NUMA问题后尝试修改 zone_reclaim_mode 没有效果，**也就是2014年前只要开启了NUMA就强制线回收PageCache，即使设置zone_reclaim_mode也没有意义，真是个可怕的Bug。**
 
 ### 验证一下zone_reclaim_mode 0是生效的
+
 内核版本：3.10.0-327.ali2017.alios7.x86_64
 
 #### [测试方法](https://github.com/torvalds/linux/commit/e02dc017c3032dcdce1b993af0db135462e1b4b7)

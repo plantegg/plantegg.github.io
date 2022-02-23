@@ -48,7 +48,7 @@ keepalive 是指在连接闲置状态发送心跳包来检测连接是否还有�
 
 keepalive 状态下的连接：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png)
+![image.png](/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png)
 
 The 2nd field has THREE subfields:
 
@@ -104,7 +104,7 @@ The `tcp_retries2` sysctl can be **tuned** via `/proc/sys/net/ipv4/tcp_retries2`
 
 重传状态的连接：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png)
+![image.png](/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png)
 
 前两个 syn_sent 状态明显是 9031端口不work了，握手不上。
 
@@ -153,7 +153,7 @@ tcp_retries2 - INTEGER
     which corresponds to a value of at least 8.
 ```
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png)
+![img](/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png)
 
 ### retries限制的重传次数吗
 
@@ -262,11 +262,11 @@ static bool retransmits_timed_out(struct sock *sk,
 
 我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png)
+![image.png](/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png)
 
 上图中垂直方向基本都是发出3-5个包，然后休息120秒，继续发3-5个 包，速度肯定慢，下图可以看到具体的包：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png)
+![image.png](/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png)
 
 来看下到9627的RTT，基本稳定在245秒或者122秒，这RTT也实在太大了。可以看到：
 
@@ -278,7 +278,7 @@ static bool retransmits_timed_out(struct sock *sk,
 
 下图是RTT图
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/932b5124b7d445ee82c82a5f65a98321.png)
+![image.png](/images/oss/932b5124b7d445ee82c82a5f65a98321.png)
 
 两个原因一叠加，就出现了奇慢无比.
 
@@ -298,7 +298,9 @@ netstat -st | grep stamp | grep reject
 
 > netstat -s |egrep -i "drop|route|overflow|filter|retran|fails|listen"
 >
-> nstat -z -t 1 | egrep -i "drop|route|overflow|filter|retran|fails|listen"
+> nstat -z -t 1 | egrep -i "drop|route|overflow|filter|retran|fails|listen”
+
+netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/proc/net/netstat，该文件对TCP记录了更多的统计。sysstat包也会采集/proc/net/snmp
 
 ## nc 测试
 
@@ -342,7 +344,7 @@ ping.ts(){
 
 [dstat 监控](https://www.huaweicloud.com/articles/9fc282e450af6f9b2878008a9e938d4d.html)
 
-![image-20210425082343156](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425082343156.png)
+![image-20210425082343156](/images/951413iMgBlog/image-20210425082343156.png)
 
 dstat -cdgilmnrsy --aio --fs --lock --raw
 

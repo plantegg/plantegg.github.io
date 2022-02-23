@@ -36,13 +36,13 @@ tags:
 
 ## 科学上网
 
-有时候风声比较紧的话公司的网络加速会关闭，这个时候科学上网还得靠自己，一行ssh命令来科学上网:
+有时候科学上网还得靠自己，一行ssh命令来科学上网:
 
 ```
 nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 ```
 
-上面的 1.1.1.1 是你在境外的一台服务器，已经做好了免密登陆（免密见后面，要不你每次还得输一下密码），这句话的意思就是在本地启动一个38080的端口，上面收到的任何东西都会转发给 1.1.1.1:22（做了ssh加密），1.1.1.1:22 会解密收到的东西，然后把他们转发给google之类的网站（比如你要访问的是google），结果依然通过原路返回
+上面的 1.1.1.1 是你在境外的一台服务器，已经做好了免密登陆（免密见后面，要不你还得输一下密码），这句话的意思就是在本地启动一个38080的端口，上面收到的任何东西都会转发给 1.1.1.1:22（做了ssh加密），1.1.1.1:22 会解密收到的东西，然后把他们转发给google之类的网站（比如你要访问的是google），结果依然通过原路返回
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
@@ -627,8 +627,6 @@ Host test.example.com
 LocalForward client-IP:client-port server-IP:server-port
 ```
 
-
-
 ### 远程转发(-R)
 
 远程端口指的是在远程 SSH 服务器建立的转发规则。主要是执行ssh转发的机器别人连不上，所以需要一台client能连上的机器当远程转发端口，要不就是本地转发了。
@@ -711,8 +709,46 @@ X.509 只是一种常用的证书格式，一般以PEM编码，PEM 编码的证�
 
 ### 公钥、私钥常见扩展名
 
-- 公钥：`.pub` or `.pem`，
-- 私钥：`.prv,` `.key`, or `.pem`。
+- 公钥：`.pub` or `.pem`，`ca.crt`
+- 私钥：`.prv,` `.key`, or `.pem` , `ca.key`。
+
+### 证书生成过程演示
+
+并不是所有的场景都需要向这些大型的 CA 机构申请公钥证书，在任何一个企业，组织或是团体内都可以自己形这样的“小王国”，也就是说，你可以自行生成这样的证书，只需要你自己保证自己的生成证书的私钥的安全，以及不需要扩散到整个互联网。下面，我们用 `openssl`命令来演示这个过程。
+
+1）生成 CA 的证书（公钥） `ca.crt` 和私钥 `ca.key`
+
+```
+openssl req -newkey rsa:2048 \
+    -new -nodes -x509 \
+    -days 365 \
+    -out ca.crt \
+    -keyout ca.key \
+    -subj "/C=SO/ST=Earth/L=Mountain/O=CoolShell/OU=HQ/CN=localhost"
+```
+
+2) 生成 alice 的私钥
+
+```
+openssl genrsa -out alice.key 2048
+```
+
+3）生成 Alice 的 CSR – Certificate Signing Request
+
+```
+openssl req -new -key alice.key -days 365 -out alice.csr \
+    -subj "/C=CN/ST=Beijing/L=Haidian/O=CoolShell/OU=Test/CN=localhost.alice"
+```
+
+4）使用 CA 给 Alice 签名证书
+
+```
+openssl x509  -req -in alice.csr \
+    -extfile <(printf "subjectAltName=DNS:localhost.alice") \ 
+    -CA ca.crt -CAkey ca.key  \
+    -days 365 -sha256 -CAcreateserial \
+    -out alice.crt
+```
 
 ## 参考资料：
 
@@ -734,4 +770,6 @@ https://daniel.haxx.se/blog/2020/05/26/curl-ootw-socks5/
 [一行代码解决scp在Internet传输慢的问题](https://zhuanlan.zhihu.com/p/413732839)
 
 [关于证书（certificate）和公钥基础设施（PKI）的一切](https://www.cnxct.com/everything-about-pki-zh/)
+
+[网络数字身份认证术](https://coolshell.cn/articles/21708.html)
 

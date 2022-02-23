@@ -10,7 +10,7 @@ tags:
 
 # Linux LVM使用
 
-LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/卷管理)）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。软RAID配置方法[参考这里](https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/)
+LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/卷管理)）的简写, 用来解决磁盘分区大小动态分配。LVM不是软RAID（Redundant Array of Independent Disks）。
 
 **从一块硬盘到能使用LV文件系统的步骤：**
 
@@ -22,7 +22,7 @@ LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/�
 
 **lvreduce 缩小LV**
 
-**先卸载--->然后减小逻辑边界---->最后减小物理边界--->在检测文件系统  ====谨慎用===**
+**先卸载--->然后减小逻辑边界---->最后减小物理边界--->在检测文件系统  ==谨慎用==**
 
 ```
 [aliyun@uos15 15:07 /dev/disk/by-label]
@@ -87,7 +87,7 @@ df -lh
 
 ## 创建LVM
 
-```
+```shell
 function create_polarx_lvm_V62(){
     vgremove vgpolarx
 
@@ -104,10 +104,10 @@ function create_polarx_lvm_V62(){
     #lvmdiskscan
     vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1
     lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx
-    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L /polarx -J size=4000
+    mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000
     sed  -i  "/polarx/d" /etc/fstab
     mkdir -p /polarx
-    echo "LABEL=/polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0" >> /etc/fstab
+    echo "LABEL=polarx /polarx     ext4        defaults,noatime,data=writeback,nodiratime,nodelalloc,barrier=0    0 0" >> /etc/fstab
     mount -a
 }
 
@@ -116,7 +116,7 @@ create_polarx_lvm_V62
 
 ## 复杂版创建LVM
 
-```
+```shell
 function disk_part(){
     set -e
     if [ $# -le 1 ]
@@ -206,6 +206,17 @@ fi
 
 LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样
 
+## dmsetup查看LVM
+
+管理工具dmsetup是 Device mapper in the kernel 中的一个
+
+```
+dmsetup ls
+dmsetup info /dev/dm-0
+```
+
+
+
 ## reboot 失败
 
 在麒麟下OS reboot的时候可能因为`mount: /polarx: 找不到 LABEL=/polarx.` 导致OS无法启动，可以进入紧急模式，然后注释掉 /etc/fstab 中的polarx 行，再reboot
@@ -220,17 +231,103 @@ sudo lsblk -o name,mountpoint,label,size,uuid  or lsblk -f
 
 修复：
 
+紧急模式下修改 /etc/fstab 去掉有问题的挂载; 修改标签
 
+```
+#blkid   //查询uuid、label
+/dev/mapper/klas-root: UUID="c4793d67-867e-4f14-be87-f6713aa7fa36" BLOCK_SIZE="512" TYPE="xfs"
+/dev/sda2: UUID="8DCEc5-b4P7-fW0y-mYwR-5YTH-Yf81-rH1CO8" TYPE="LVM2_member" PARTUUID="4ffd9bfa-02"
+/dev/nvme0n1: UUID="nJAHxP-d15V-Fvmq-rxa3-GKJg-TCqe-gD1A2Z" TYPE="LVM2_member"
+/dev/sda1: UUID="29f59517-91c6-4b3c-bd22-0a47c800d7f4" BLOCK_SIZE="512" TYPE="xfs" PARTUUID="4ffd9bfa-01"
+/dev/mapper/vgpolarx-polarx: LABEL="polarx" UUID="025a3ac5-d38a-42f1-80b6-563a55cba12a" BLOCK_SIZE="4096" TYPE="ext4"
+
+e2label /dev/mapper/vgpolarx-polarx polarx
+```
 
 比如，下图右边的是启动失败的
 
 ![image-20211228185144635](/images/951413iMgBlog/image-20211228185144635.png)
 
+## [软RAID](https://xiaoz.co/2020/04/28/array-with-mdadm/)
 
+> mdadm(multiple devices admin)是一个非常有用的管理软raid的工具，可以用它来创建、管理、监控raid设备，当用mdadm来创建磁盘阵列时，可以使用整块独立的磁盘(如/dev/sdb,/dev/sdc)，也可以使用特定的分区(/dev/sdb1,/dev/sdc1)
+
+mdadm使用手册
+
+> mdadm --create device --level=Y --raid-devices=Z devices
+> 	-C | --create /dev/mdn
+> 	-l | --level  0|1|4|5
+> 	-n | --raid-devices device [..]
+> 	-x | --spare-devices device [..]
+
+
+
+[创建](https://www.cxyzjd.com/article/weixin_51486343/113114906) -l 0表示raid0， -l 10表示raid10
+
+```shell
+mdadm -C /dev/md0 -a yes -l 0 -n2 /dev/nvme{6,7}n1  //raid0
+mdadm -D /dev/md0
+mkfs.ext4 /dev/md0
+mkdir /md0
+mount /dev/md0 /md0
+
+//条带
+mdadm --create --verbose /dev/md0 --level=linear --raid-devices=2 /dev/sdb /dev/sdc
+检查
+mdadm -E /dev/nvme[0-5]n1
+```
+
+删除
+
+```
+umount /md0 
+mdadm -S /dev/md0
+```
+
+监控raid
+
+```
+#cat /proc/mdstat
+Personalities : [raid0] [raid6] [raid5] [raid4]
+md6 : active raid6 nvme3n1[3] nvme2n1[2] nvme1n1[1] nvme0n1[0]
+      7501211648 blocks super 1.2 level 6, 512k chunk, algorithm 2 [4/4] [UUUU]
+      [=>...................]  resync =  7.4% (280712064/3750605824) finish=388.4min speed=148887K/sec
+      bitmap: 28/28 pages [112KB], 65536KB chunk //raid6一直在异步刷数据
+
+md0 : active raid0 nvme7n1[3] nvme6n1[2] nvme4n1[0] nvme5n1[1]
+      15002423296 blocks super 1.2 512k chunks
+```
+
+控制刷盘速度
+
+```
+#sysctl -a |grep raid
+dev.raid.speed_limit_max = 0
+dev.raid.speed_limit_min = 0
+```
+
+## nvme-cli
+
+```
+nvme id-ns /dev/nvme1n1 -H
+for i in `seq 0 1 2`; do nvme format --lbaf=3 /dev/nvme${i}n1 ; done  //格式化，选择不同的扇区大小，默认512，可选4K
+
+fuser -km /data/
+```
+
+
+
+## raid硬件卡
+
+[raid卡外观](http://aijishu.com/a/1060000000225602)
+
+![image.png](/images/951413iMgBlog/bV6Ra.png)
 
 ## 参考资料
 
 https://www.tecmint.com/manage-and-create-lvm-parition-using-vgcreate-lvcreate-and-lvextend/
 
 [pvcreate error : Can’t open /dev/sdx exclusively. Mounted filesystem?](https://www.thegeekdiary.com/lvm-error-cant-open-devsdx-exclusively-mounted-filesystem/)
+
+软RAID配置方法[参考这里](https://halysl.github.io/2020/06/09/%E8%BD%AFraid%E9%85%8D%E7%BD%AE/)
 

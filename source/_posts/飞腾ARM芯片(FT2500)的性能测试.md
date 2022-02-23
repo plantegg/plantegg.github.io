@@ -21,23 +21,21 @@ tags:
 
 ![img](/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
 
-
-
 ### ARM 芯片厂家
 
 查看厂家
 
 > #cat /proc/cpuinfo |grep implementer
->
-> CPU implementer	: 0x70
->
+> 
+> CPU implementer    : 0x70
+> 
 > #cat /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
 > 0x00000000701f6633  // 70 表示厂家
 
 vendor id对应厂家
 
 | Vendor Name      | Vendor ID |
-| :--------------- | :-------- |
+|:---------------- |:--------- |
 | ARM              | 0x41      |
 | Broadcom         | 0x42      |
 | Cavium           | 0x43      |
@@ -50,7 +48,7 @@ vendor id对应厂家
 | Qualcomm         | 0x51      |
 | Marvell          | 0x56      |
 | Intel            | 0x69      |
-| 飞腾             | 0x70      |
+| 飞腾               | 0x70      |
 
 ## 飞腾ARM芯片介绍
 
@@ -80,35 +78,35 @@ SMBIOS 3.2.0 present.
 
 Handle 0x0004, DMI type 4, 48 bytes
 Processor Information
-	Socket Designation: BGA3576
-	Type: Central Processor
-	Family: <OUT OF SPEC>
-	Manufacturer: PHYTIUM
-	ID: 00 00 00 00 70 1F 66 22
-	Version: FT2500
-	Voltage: 0.8 V
-	External Clock: 50 MHz
-	Max Speed: 2100 MHz
-	Current Speed: 2100 MHz
-	Status: Populated, Enabled
-	Upgrade: Other
-	L1 Cache Handle: 0x0005
-	L2 Cache Handle: 0x0007
-	L3 Cache Handle: 0x0008
-	Serial Number: 1234567
-	Asset Tag: No Asset Tag
-	Part Number: NULL
-	Core Count: 64
-	Core Enabled: 64
-	Thread Count: 64
-	Characteristics:
-		64-bit capable
-		Multi-Core
-		Hardware Thread
-		Execute Protection
-		Enhanced Virtualization
-		Power/Performance Control
-			
+    Socket Designation: BGA3576
+    Type: Central Processor
+    Family: <OUT OF SPEC>
+    Manufacturer: PHYTIUM
+    ID: 00 00 00 00 70 1F 66 22
+    Version: FT2500
+    Voltage: 0.8 V
+    External Clock: 50 MHz
+    Max Speed: 2100 MHz
+    Current Speed: 2100 MHz
+    Status: Populated, Enabled
+    Upgrade: Other
+    L1 Cache Handle: 0x0005
+    L2 Cache Handle: 0x0007
+    L3 Cache Handle: 0x0008
+    Serial Number: 1234567
+    Asset Tag: No Asset Tag
+    Part Number: NULL
+    Core Count: 64
+    Core Enabled: 64
+    Thread Count: 64
+    Characteristics:
+        64-bit capable
+        Multi-Core
+        Hardware Thread
+        Execute Protection
+        Enhanced Virtualization
+        Power/Performance Control
+
 #lscpu
 Architecture:          aarch64
 Byte Order:            Little Endian
@@ -192,29 +190,29 @@ FT2500芯片集成的 64 个处理器核心，划分为 8 个 Panel，每个 Pan
 
 下表是FT2000和FT2500产品规格对比表，和芯片的单核内部结构变化较少，多了L3，主频提高了，其他基本没有变化。
 
-| **特征**     | **FT-2000+/64**                                              | **FT-2500**                                                  |
-| ------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| 指令         | 兼容 ARM V8 指令集 FTC662 内核                               | 兼容 ARM V8 指令集FTC663 内核                                |
-| Core数       | 64个                                                         | 64个                                                         |
-| 频率         | 2.2GHZ/2.0GHZ/1.8GHZ                                         | **2.0~2.3GHz**                                               |
+| **特征**   | **FT-2000+/64**                                              | **FT-2500**                                                  |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| 指令       | 兼容 ARM V8 指令集 FTC662 内核                                      | 兼容 ARM V8 指令集FTC663 内核                                       |
+| Core数    | 64个                                                          | 64个                                                          |
+| 频率       | 2.2GHZ/2.0GHZ/1.8GHZ                                         | **2.0~2.3GHz**                                               |
 | 体系架构     | NUMA                                                         | NUMA                                                         |
-| RAS          | 无                                                           | 支持                                                         |
-| 加解密       | 无                                                           | **ASE128、SHA1、SHA2-256、PMULL**                            |
-| L1 Cache     | 每个核独占32KB指令Cache与32KB数据Cache                       | 每个核独占32K指令Cache与32K数据Cache                         |
-| L2 Cache     | 共32MB，每4个核共享2MB                                       | 共32MB，每4个核共享2MB                                       |
-| L3 Cache     | 无                                                           | **64MB**                                                     |
-| LMU数量      | 8个                                                          | 8个                                                          |
-| 支持最大容量 | 1TB                                                          | 1TB*socket数量                                               |
-| 支持最大频率 | 3200MHZ                                                      | 支持3200MHZ                                                  |
-| 外接设备     | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、 LR-DIMM，电压 1.2V | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、LR-DIMM，电压 1.2V |
-| 镜像存储     | 无                                                           | 每两个MCU互为备份                                            |
-| PCIe         | PCIE3.02 个 x16 和 1 个 x1每个 x16 可拆分成 2 个 x8，支持翻转 | PCIE3.01 个 x16 和 1 个 x1x16 可拆分成 2 个 x8，支持翻转     |
-| SPI          | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V           | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V           |
-| UART         | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口    | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口    |
-| GPIO         | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] |
-| LPC          | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V      | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V      |
-| I2C          | 2 个 I2C master 控制器                                       | 2 个 I2C master /Slave控制器,2个slave控制器                  |
-| 直连         | 无                                                           | 四个直连通路，每路X4个lane，每条lane速率为25Gbps，支持2路、4路、8路 |
+| RAS      | 无                                                            | 支持                                                           |
+| 加解密      | 无                                                            | **ASE128、SHA1、SHA2-256、PMULL**                               |
+| L1 Cache | 每个核独占32KB指令Cache与32KB数据Cache                                 | 每个核独占32K指令Cache与32K数据Cache                                   |
+| L2 Cache | 共32MB，每4个核共享2MB                                              | 共32MB，每4个核共享2MB                                              |
+| L3 Cache | 无                                                            | **64MB**                                                     |
+| LMU数量    | 8个                                                           | 8个                                                           |
+| 支持最大容量   | 1TB                                                          | 1TB*socket数量                                                 |
+| 支持最大频率   | 3200MHZ                                                      | 支持3200MHZ                                                    |
+| 外接设备     | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、 LR-DIMM，电压 1.2V   | 支持带 ECC 的 DDR4 DIMM，支持 RDIMM、UDIMM、SODIMM、LR-DIMM，电压 1.2V    |
+| 镜像存储     | 无                                                            | 每两个MCU互为备份                                                   |
+| PCIe     | PCIE3.02 个 x16 和 1 个 x1每个 x16 可拆分成 2 个 x8，支持翻转               | PCIE3.01 个 x16 和 1 个 x1x16 可拆分成 2 个 x8，支持翻转                  |
+| SPI      | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V                             | 支持 4 个片选，单片最大支持容量为 512MB，电压 1.8V                             |
+| UART     | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口                        | 4个 UART，其中 1 个为 9 线全功能串口，3 个为 3 线调试串口                        |
+| GPIO     | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] | 4 个 8 位 GPIO 接口，GPIOA[0:7]，GPIOB[0:7]，GPIOC[0:7]， GPIOD[0:7] |
+| LPC      | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V                | 1 个 LPC 接口，兼容 Intel Low Pin Count 协议, 电压 1.8V                |
+| I2C      | 2 个 I2C master 控制器                                           | 2 个 I2C master /Slave控制器,2个slave控制器                          |
+| 直连       | 无                                                            | 四个直连通路，每路X4个lane，每条lane速率为25Gbps，支持2路、4路、8路                  |
 
 ## 飞腾ARM芯片性能测试数据
 
@@ -293,7 +291,7 @@ mapped    :         4742 (  0.02 GB)
          542426693      iTLB-load-misses                                              (34.98%)
 
       10.489297296 seconds time elapsed
-      
+
 [  29s] threads: 160, tps: 0.00, reads/s: 15292.01, writes/s: 0.00, response time: 25.82ms (95%)
 [  30s] threads: 160, tps: 0.00, reads/s: 16399.99, writes/s: 0.00, response time: 23.58ms (95%)
 [  31s] threads: 160, tps: 0.00, reads/s: 17025.00, writes/s: 0.00, response time: 20.73ms (95%)
@@ -314,8 +312,6 @@ mapped    :         4742 (  0.02 GB)
 [  46s] threads: 160, tps: 0.00, reads/s: 18130.03, writes/s: 0.00, response time: 22.13ms (95%)      
 ```
 
-
-
 ### 点查场景压测8个core的节点
 
 因为每个NUMA才8个core，所以测试一下8core的节点绑核前后性能对比。实际结果看起来和16core节点绑核性能提升差不多。
@@ -324,7 +320,7 @@ mapped    :         4742 (  0.02 GB)
 
 ![image-20210427093424116](/images/951413iMgBlog/image-20210427093424116.png)
 
-```
+```shell
 #perl numa-maps-summary.pl </proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了
 N0        :          551 (  0.00 GB)
 N1        :      1023418 (  3.90 GB)
@@ -480,8 +476,6 @@ mapped    :         5920 (  0.02 GB)
 
 结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)
 
-
-
 ### MySQL 数据库场景绑核
 
 通过同一台物理上6个Tomcat节点，总共96个core，压6台MySQL，MySQL基本快打挂了。sysbench 点查，32个分表，增加Tomcat节点进来物理rt就增加，从最初的的1.2ms加到6个Tomcat节点后变成8ms。
@@ -496,7 +490,7 @@ MySQL每个实例32core，管控默认已经做了绑核，但是如果两个MyS
 
 ![image-20210425180518926](/images/951413iMgBlog/image-20210425180518926.png)
 
-```
+```shell
 #第二个MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
 perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 61238
 ^C
@@ -568,8 +562,6 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --defaults-file=/polarx/xcluster3308/my.cnf  --basedir=/u01/xcluster80_current  --datadir=/polarx/xcluster3308/data  --plugin-dir=/u01/xcluster80/lib/plugin  --user=mysql  --log-error=/polarx/xcluster3308/log/alert.log  --open-files-limit=615350  --pid-file=/polarx/xcluster3308/run/mysql.pid  --socket=/polarx/xcluster3308/run/mysql.sock  --cluster-info=11.158.239.200:11308@1  --mysqlx-port=13308  --port=3308
 ```
 
-
-
 ### 网卡队列调整
 
 这批机器默认都是双网卡做bond，但是两块网卡是HA，默认网卡队列是60，基本都跑在前面60个core上
@@ -609,13 +601,11 @@ FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT250
 用如下代码能将IPC跑到2.49，也是我能跑出来的最高IPC了，去掉nop那行，IPC是1.99
 
 ```
-				register unsigned i=0;
+                register unsigned i=0;
         for (i=0;i<(1u<<31);i++) {
                 __asm__ ("nop"); 
         }
 ```
-
-
 
 ## 系列文章
 
@@ -638,4 +628,3 @@ FT2500比同主频Intel x86芯片差了快一个数量级的性能，在对FT250
 ## 参考资料
 
 [CPU Utilization is Wrong](http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html)
-

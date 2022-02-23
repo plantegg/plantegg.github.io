@@ -17,8 +17,6 @@ tags:
 
 这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。
 
-
-
 大的方面主要是从这几个疑问来写这些文章：
 
 - 同样程序为什么CPU跑到800%还不如CPU跑到200%快？
@@ -45,8 +43,6 @@ tags:
 [一次海光物理机资源竞争压测的记录](/2021/03/07/一次海光物理机资源竞争压测的记录/)
 
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
-
-
 
 本篇是收尾篇，横向对比一下x86和ARM芯片，以及不同方案权衡下的性能比较
 
@@ -111,7 +107,7 @@ node   0   1   2   3
 
 这CPU据说是胶水核，也就是把两个die拼一块封装成一块CPU，所以一块CPU内跨die之间延迟还是很高的。
 
-####  64 个 core 的分配策略
+#### 64 个 core 的分配策略
 
 ```
 physical         core      processor
@@ -165,7 +161,7 @@ node 0 free: 108373 MB
 node distances:
 node   0
   0:  10  
-  
+
 //志强E5
   #lscpu
 Architecture:          x86_64
@@ -256,13 +252,13 @@ node   0   1   2   3
   3:  22  24  12  10
 
 #dmidecode -t processor | grep Version
-	Version: Kunpeng 920-4826
-	Version: Kunpeng 920-4826  
+    Version: Kunpeng 920-4826
+    Version: Kunpeng 920-4826  
 
 以上四个鲲鹏920的四个NUMA node之间的距离描述如下：
 node 0 <------------ socket distance ------------> node 2
     | (die distance)                                  | (die distance)
-node 1                                             node 3	
+node 1                                             node 3    
 要注意node1到node3比node0到node3要大，猜测Socket之间的UPI只接上了node1和node2
 ```
 
@@ -397,7 +393,7 @@ mapped    :         5754 (  0.02 GB)
        825,388,210      iTLB-load-misses          #    1.75% of all iTLB cache hits   (59.99%)
     47,092,738,092      iTLB-loads                                                    (59.95%)
                 49      cpu-migrations
-               
+
 #/root/numa-maps-summary.pl </proc/49512/numa_maps
 N0        :         5765 (  0.02 GB)
 N1        :        41599 (  0.16 GB)
@@ -416,12 +412,12 @@ IPC从0.42到0.44再到0.46，tpmC也不断增加，整体压力都不大只压�
 如果跨4core绑定core的话最好和最差绑法性能会下降25-30%，四个core绑不同numa的性能比较
 
 | 被压进程绑定的core id | tpmC  |
-| --------------------- | ----- |
-| 72,73,74,75           | 14460 |
-| 48,49,72,73           | 13800 |
-| 24,25,72,73           | 11760 |
-| 0,1,72,73             | 11940 |
-| 0,24,48,72            | 10800 |
+| -------------- | ----- |
+| 72,73,74,75    | 14460 |
+| 48,49,72,73    | 13800 |
+| 24,25,72,73    | 11760 |
+| 0,1,72,73      | 11940 |
+| 0,24,48,72     | 10800 |
 
 ### 飞腾2500
 
@@ -487,34 +483,34 @@ SMBIOS 3.2.0 present.
 
 Handle 0x0004, DMI type 4, 48 bytes
 Processor Information
-	Socket Designation: BGA3576
-	Type: Central Processor
-	Family: <OUT OF SPEC>
-	Manufacturer: PHYTIUM
-	ID: 00 00 00 00 70 1F 66 22
-	Version: FT2500
-	Voltage: 0.8 V
-	External Clock: 50 MHz
-	Max Speed: 2100 MHz
-	Current Speed: 2100 MHz
-	Status: Populated, Enabled
-	Upgrade: Other
-	L1 Cache Handle: 0x0005
-	L2 Cache Handle: 0x0007
-	L3 Cache Handle: 0x0008
-	Serial Number: 1234567
-	Asset Tag: No Asset Tag
-	Part Number: NULL
-	Core Count: 64
-	Core Enabled: 64
-	Thread Count: 64
-	Characteristics:
-		64-bit capable
-		Multi-Core
-		Hardware Thread
-		Execute Protection
-		Enhanced Virtualization
-		Power/Performance Control
+    Socket Designation: BGA3576
+    Type: Central Processor
+    Family: <OUT OF SPEC>
+    Manufacturer: PHYTIUM
+    ID: 00 00 00 00 70 1F 66 22
+    Version: FT2500
+    Voltage: 0.8 V
+    External Clock: 50 MHz
+    Max Speed: 2100 MHz
+    Current Speed: 2100 MHz
+    Status: Populated, Enabled
+    Upgrade: Other
+    L1 Cache Handle: 0x0005
+    L2 Cache Handle: 0x0007
+    L3 Cache Handle: 0x0008
+    Serial Number: 1234567
+    Asset Tag: No Asset Tag
+    Part Number: NULL
+    Core Count: 64
+    Core Enabled: 64
+    Thread Count: 64
+    Characteristics:
+        64-bit capable
+        Multi-Core
+        Hardware Thread
+        Execute Protection
+        Enhanced Virtualization
+        Power/Performance Control
 ```
 
 ### 申威3231
@@ -622,7 +618,7 @@ node distances:
 node   0   1
   0:  10  20
   1:  20  10
-  
+
 #lscpu
 Architecture:          sw_64
 CPU op-mode(s):        64-bit
@@ -643,8 +639,6 @@ NUMA node0 CPU(s):     0-31
 NUMA node1 CPU(s):     32-63  
 ```
 
-
-
 ## openssl speed aes-256-ige性能比较
 
 测试脚本
@@ -653,35 +647,35 @@ NUMA node1 CPU(s):     32-63
 
 单核能力
 
-| Intel (52物理core)   | aes-256 ige      89602.86k    97498.37k    98271.49k    98399.91k    89101.65k |
-| -------------------- | ------------------------------------------------------------ |
-| 海光（32物理core）   | aes-256 ige      76919.66k    77935.81k    79201.88k    79529.30k    79555.24k |
-| 鲲鹏920（96物理core) | aes-256 ige     133174.89k   140578.99k   142156.46k   142663.34k   143196.16k |
+| Intel (52物理core) | aes-256 ige      89602.86k    97498.37k    98271.49k    98399.91k    89101.65k |
+| ---------------- | ------------------------------------------------------------------------------ |
+| 海光（32物理core）     | aes-256 ige      76919.66k    77935.81k    79201.88k    79529.30k    79555.24k |
+| 鲲鹏920（96物理core)  | aes-256 ige     133174.89k   140578.99k   142156.46k   142663.34k   143196.16k |
 
 测试32个线程并行
 
-| Intel (52物理core)   | aes-256 ige    2642742.25k  2690638.98k  2703860.74k  2734114.82k  2680422.40 |
-| -------------------- | ------------------------------------------------------------ |
-| 海光（32物理core）   | aes-256 ige    2464568.75k  2499381.80k  2528665.34k  2544845.14k  2550723.93k |
-| 鲲鹏920（96物理core) | aes-256 ige    4261589.92k  4501245.55k  4552731.56k  4570456.75k  4584330.58k |
+| Intel (52物理core) | aes-256 ige    2642742.25k  2690638.98k  2703860.74k  2734114.82k  2680422.40  |
+| ---------------- | ------------------------------------------------------------------------------ |
+| 海光（32物理core）     | aes-256 ige    2464568.75k  2499381.80k  2528665.34k  2544845.14k  2550723.93k |
+| 鲲鹏920（96物理core)  | aes-256 ige    4261589.92k  4501245.55k  4552731.56k  4570456.75k  4584330.58k |
 
 将所有核跑满包括HT
 
-| Intel (52物理core)   | aes-256 ige    4869950.82k  5179884.71k  5135412.14k  5211367.08k  5247858.60k |
-| -------------------- | ------------------------------------------------------------ |
-| 海光（32物理core）   | aes-256 ige    2730195.74k  2836759.53k  2865252.35k  2857900.71k  2884302.17k |
-| 鲲鹏920（96物理core) | aes-256 ige   12788358.79k 13502288.53k 13657385.98k 13710908.76k 13751432.53k |
+| Intel (52物理core) | aes-256 ige    4869950.82k  5179884.71k  5135412.14k  5211367.08k  5247858.60k |
+| ---------------- | ------------------------------------------------------------------------------ |
+| 海光（32物理core）     | aes-256 ige    2730195.74k  2836759.53k  2865252.35k  2857900.71k  2884302.17k |
+| 鲲鹏920（96物理core)  | aes-256 ige   12788358.79k 13502288.53k 13657385.98k 13710908.76k 13751432.53k |
 
 ## 单核计算 7^999999" 的性能对比
 
 测试命令：bash -c 'echo "7^999999" | bc > /dev/null'
 
-|          | 执行时间(秒) | IPC  | 主频 |
-| -------- | ------------ | ---- | ---- |
+|        | 执行时间(秒)      | IPC  | 主频   |
+| ------ | ------------ | ---- | ---- |
 | 海光     | 26.729972414 | 0.92 | 2.5G |
 | 鲲鹏920  | 24.604603640 | 1.84 | 2.6G |
 | 飞腾2500 | 39.654819568 | 0.43 | 2.1G |
-| Intel    | 18.603323495 | 2.19 | 2.5G |
+| Intel  | 18.603323495 | 2.19 | 2.5G |
 
 当然也可以通过计算pi值来测试
 
@@ -690,7 +684,7 @@ NUMA node1 CPU(s):     32-63
 多核一起跑的话可以这样:
 
 > for i in {0..95}; do time echo "scale=5000; 4*a(1)" | bc -l -q >/dev/null & done
->
+> 
 > perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads -- 
 
 ### intel
@@ -735,7 +729,6 @@ NUMA node1 CPU(s):     32-63
 
       18.525904000 seconds user
        0.015197000 seconds sys
-
 ```
 
 ### 鲲鹏920
@@ -830,9 +823,9 @@ time perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cyc
 
       39.654819568 seconds time elapsed
 
-real	0m39.763s
-user	0m39.635s
-sys	0m0.127s
+real    0m39.763s
+user    0m39.635s
+sys    0m0.127s
 ```
 
 ## perf 数据对比
@@ -848,8 +841,6 @@ intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 ![image.png](/images/oss/175a1df9274a830d4a7157dfda96c180.png)
 
 ![image.png](/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
-
-
 
 ### 海光
 
@@ -911,10 +902,10 @@ void cpu_bound() {
 }
 int main() {
         int i=0;
-	      for(i=0;i<10; ++i){
-	             //cpu_bound();
-        	     memory_bound();
-	      }
+          for(i=0;i<10; ++i){
+                 //cpu_bound();
+                 memory_bound();
+          }
         return 0;
 }
 ```
@@ -960,7 +951,7 @@ int main() {
         11,563,328      node-stores                                                   (9.45%)
 
       16.700731355 seconds time elapsed
-      
+
 # sudo perf stat -e branch-instructions,branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,ref-cycles,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-stores,L1-icache-load-misses,LLC-load-misses,LLC-loads,LLC-store-misses,LLC-stores,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,dTLB-store-misses,dTLB-stores,iTLB-load-misses,iTLB-loads,node-load-misses,node-loads,node-store-misses,node-stores -a ./cpu_bound
 
  Performance counter stats for 'system wide':
@@ -1025,22 +1016,22 @@ ipc 大概是intel的30%，加上主频也要差一些，
 
       31.172754504 seconds time elapsed
 
-real	0m31.284s
-user	0m31.096s
-sys	0m0.165s
+real    0m31.284s
+user    0m31.096s
+sys    0m0.165s
 ```
 
 ## unixBench 5.1.3 性能对比
 
 测试命令： ./Run -c 1 -c 4
 
-| 芯片        | 架构  | 逻辑核数 | 单核能力 | 4核能力 | 单核比值 | 4核比值 | 整机对比 |
-| ----------- | ----- | -------- | -------- | ------- | -------- | ------- | -------- |
-| Intel 4114  | x86   | 40       | 1150     | 3095    | 100%     | 100%    | 100%     |
-| 海光 7165   | x86   | 48       | 1586     | 2533    | 138%     | 82%     | 98%      |
-| 华为鲲鹏920 | arm   | 96       | 1168     | 2066    | 102%     | 67%     | 160%     |
-| 飞腾2000    | arm   | 64       | 731      | 1902    | 64%      | 61%     | 98%      |
-| 申威1621    | alpha | 16       | 445      | 1065    | 39%      | 34%     | 14%      |
+| 芯片         | 架构    | 逻辑核数 | 单核能力 | 4核能力 | 单核比值 | 4核比值 | 整机对比 |
+| ---------- | ----- | ---- | ---- | ---- | ---- | ---- | ---- |
+| Intel 4114 | x86   | 40   | 1150 | 3095 | 100% | 100% | 100% |
+| 海光 7165    | x86   | 48   | 1586 | 2533 | 138% | 82%  | 98%  |
+| 华为鲲鹏920    | arm   | 96   | 1168 | 2066 | 102% | 67%  | 160% |
+| 飞腾2000     | arm   | 64   | 731  | 1902 | 64%  | 61%  | 98%  |
+| 申威1621     | alpha | 16   | 445  | 1065 | 39%  | 34%  | 14%  |
 
 以上CPU除了Intel，其它都没有HT，也就是Intel 4114实际是20个物理核。以上数据来自ata，仅供参考
 
@@ -1101,4 +1092,3 @@ ARM 优势的来源主要是工艺领先一代(7nm VS 14nm)
 [主流处理器内部单核微架构细节1——AMD ZEN(即海光)微架构](https://topic.atatech.org/articles/178985)
 
 [主流处理器内部单核微架构细节2——Skylake微架构](https://topic.atatech.org/articles/178986)
-

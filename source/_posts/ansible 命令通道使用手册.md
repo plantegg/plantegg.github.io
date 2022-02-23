@@ -561,17 +561,17 @@ ansible -i ~/ali/ansible-edas/kfc.ini hadoop -m  copy -a " src=./authorized_keys
 
 或者循环fetch：
 
-```
+```yaml
 $cat fetch.yaml 
 - hosts: all   
   tasks:
     - name: list the files in the folder
-      command: ls /u01/nmon/tpcc/ 
-      #shell: (cd /remote; find . -maxdepth 1 -type f) | cut -d'/' -f2
+      #command: ls /u01/nmon/tpcc/ 
+      shell: (cd /remote; find . -maxdepth 1 -type f) | cut -d'/' -f2
       register: dir_out
 
     - name: do the action
-      fetch: src=/u01/nmon/tpcc/{{item}} dest=/home/aliyun/nmon_tpcc/ flat=yes
+      fetch: src=/u01/nmon/tpcc/{{item}} dest=/home/aliyun/nmon_tpcc/ flat=no
       with_items: "{{dir_out.stdout_lines}}"
 
 ```
@@ -616,8 +616,6 @@ PLAY RECAP *********************************************************************
 10.88.88.19                : ok=3    changed=2    unreachable=0    failed=0   
 10.88.88.20                : ok=3    changed=2    unreachable=0    failed=0   
 ```
-
-
 
 ### setup:获取机器配置、参数信息
 
@@ -1407,6 +1405,15 @@ PLAY RECAP *********************************************************************
     "changed": false
 }
 ```
+
+## ansible + xargs 占位符
+
+```
+//批量执行docker exec
+ansible -i host.ini all -m shell -a "docker ps -a | grep pxd-tpcc | grep dn | cut -d ' ' -f 1 | xargs  -I{} docker exec {} bash -c \"myc -e 'shutdown'\""
+```
+
+
 
 ## 指定ip执行playbook
 
