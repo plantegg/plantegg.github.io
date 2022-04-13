@@ -17,14 +17,3 @@ find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "cdn.nlark.com
 /usr/local/Cellar/dos2unix/7.4.2/bin/dos2unix img.list
 cat img.list | sort | uniq >img_uniq.list
 while read line; do  wget -nc -q $line -P ./ossimg/ ; done <./img_uniq.list
-
-#cp ossimg/* source/images/oss/ 
-rsync -r -a ossimg/ ossimg_small
-rsync -r -a 951413iMgBlog/ 951413iMgBlog_small
-
-#压缩图片大小
-find ossimg_small -size +1024k -type f -exec sips -Z 1024 {} \;
-find 951413iMgBlog_small -size +1024k -type f -exec sips -Z 1024 {} \;
-
-rsync -r -a 951413iMgBlog_small/ source/images/951413iMgBlog 
-rsync -r -a ossimg_small/ source/images/oss
