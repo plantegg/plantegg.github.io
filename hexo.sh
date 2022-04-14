@@ -13,7 +13,7 @@ hexo g -d
 #only sync images
 #ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./source/images/ oss://plantegg/images/ -u
 
-#cp ossimg/* source/images/oss/
+#cp ossimg/ to small 忽略已存在，准备压缩图片，保留原图
 rsync -v --ignore-existing -r -a ossimg/ ossimg_small
 rsync -v --ignore-existing -r -a 951413iMgBlog/ 951413iMgBlog_small
 
@@ -21,7 +21,8 @@ rsync -v --ignore-existing -r -a 951413iMgBlog/ 951413iMgBlog_small
 find ossimg_small -size +1024k -type f -exec sips -Z 1024 {} \;
 find 951413iMgBlog_small -size +1024k -type f -exec sips -Z 1024 {} \;
 
-#上传整个静态网站（含图片）到 oss
+#用压缩后的图片覆盖原图
 rsync -v --existing -r -a 951413iMgBlog_small/ public/images/951413iMgBlog
 rsync -v --existing -r -a ossimg_small/ public/images/oss
+#上传整个静态网站（含图片）到 oss
 ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/

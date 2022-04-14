@@ -124,11 +124,13 @@ client通过公网到server有几十跳，偶尔会出现连接被reset。反复
 
 可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip
 
-## 被忽略的reset
+## [被忽略的reset](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ)
 
 不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。
 
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20220224102640374.png)
 
+但是对于SLB来说，收到reset就会clean 连接的session（SLB没做合法性验证），一般等session失效后（10秒）
 
 ## SLB主动reset的话
 

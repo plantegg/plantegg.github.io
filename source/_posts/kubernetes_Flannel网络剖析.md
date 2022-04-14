@@ -42,6 +42,8 @@ CNI 全称为 Container Network Interface，是用来定义容器网络的一个
 
 CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C/S 方式，所有参数都是通过环境变量、标准输入输出来实现的。
 
+## 跨主机通信流程
+
 Step-by-step communication from **Pod 1** to **Pod 6**:
 
 1. *Package leaves* ***Pod 1 netns\*** *through the* ***eth1\*** *interface and reaches the* ***root netns\*** *through the virtual interface* ***veth1\****;*
@@ -53,7 +55,7 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 7. *Package leaves* ***cni0\*** *and is redirected to the* ***veth6\*** *virtual interface;*
 8. *Package leaves the* ***root netns\*** *through* ***veth6\*** *and reaches the* ***Pod 6 netns\*** *though the* ***eth6\*** *interface;*
 
-![image-20220115124747936](/images/951413iMgBlog/image-20220115124747936.png)
+![image-20220115124747936](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220115124747936.png)
 
 > **cni0** is a Linux network bridge device, all **veth** devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in **Kubernetes Network Model** and the hotel analogy above.
 
@@ -69,12 +71,12 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 
 1. 从POD1中出来的包先到Bridge cni0上（因为POD1对应的veth挂在了cni0上），目标mac地址是cni0的Mac
 2. 然后进入到宿主机网络，宿主机有路由 10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink ，也就是目标ip 10.244.2.3的包交由 flannel.1 来处理，目标mac地址是POD4所在机器的flannel.1的Mac
-3. flanneld 进程将包封装成vxlan 丢到eth0从宿主机1离开（封装后的目标ip是192.168.2.91）
+3. flanneld 进程将包封装成vxlan 丢到eth0从宿主机1离开（封装后的目标ip是192.168.2.91，现在都是由内核来完成flanneld这个封包过程，性能好）
 4. 这个封装后的vxlan udp包正确路由到宿主机2
 5. 然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（**这里会过宿主机iptables**）
 6. cni0将包送给POD4
 
-![image-20220115132938290](/images/951413iMgBlog/image-20220115132938290.png)
+![image-20220115132938290](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220115132938290.png)
 
 flannel容器启动的时候会给自己所在的node注入一些信息：
 
@@ -139,7 +141,7 @@ a2:06:5e:83:44:78 > 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 917: (tos
 
 ---------跨机分割线--------
 
-[root@hygon4 11:15 /root] //udp ttl为61，经过了3跳，不过这些都和vxlan内容无关了
+[root@hygon4 11:15 /root] //udp ttl为61，经过了3跳(icmp ttl为63)，不过这些都和vxlan内容无关了
 #tcpdump -i p1p1 udp and port 8472 -nnetvv
 88:66:39:2b:3f:ec > 0c:42:a1:e9:77:2c, ethertype IPv4 (0x0800), length 736: (tos 0x0, ttl 61, id 49748, offset 0, flags [none], proto UDP (17), length 722)
     10.176.3.245.45173 > 10.176.4.245.8472: [udp sum ok] OTV, flags [I] (0x08), overlay 0, instance 1
@@ -217,7 +219,7 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"f
 
 包流转[示意图](https://blog.laputa.io/kubernetes-flannel-networking-6a1cb1f8ec7c)
 
-![image-20220119114929034](/images/951413iMgBlog/image-20220119114929034.png)
+![image-20220119114929034](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220119114929034.png)
 
 
 
@@ -231,7 +233,7 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"f
 
 下图中正常的icmp是直接ping 物理机ip
 
-![image-20211228203650921](/images/951413iMgBlog/image-20211228203650921.png)
+![image-20211228203650921](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228203650921.png)
 
 > The "admin prohibited filter" seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn't want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.
 
@@ -256,10 +258,10 @@ flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机
 
 ```
 It seems docker version >=1.13 will add iptables rule like below,and it make this issue happen:
-iptables -P FORWARD DROP
+iptables -P FORWARD DROP 
 
 All you need to do is add a rule below:
-iptables -P FORWARD ACCEPT
+iptables -P FORWARD ACCEPT //将FORWARD 默认规则(没有匹配到其它规则的话）改成ACCEPT
 ```
 
 ## 抓包和调试 -- nsenter
@@ -481,7 +483,7 @@ void sock_net_set(struct sock *sk, struct net *net)
 
 内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。
 
-![Image](/images/951413iMgBlog/640-5304524.)
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5304524.)
 
 每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等
 

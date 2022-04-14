@@ -8,6 +8,7 @@ tags:
     - 磁盘性能
     - san
     - 光纤
+    - CPU
 ---
 
 # ssd/san/sas/磁盘/光纤/RAID性能比较
@@ -18,7 +19,7 @@ tags:
 
 正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
 
-![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png)
 
 所使用的测试命令：
 
@@ -40,13 +41,13 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 ## NVMe SSD 和 HDD的性能比较
 
-![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
 
 表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
 
 **HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
 
-![img](/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
 
 从上图可以看出如果是随机读写HDD性能极差，但是如果是顺序读写HDD和SDD、内存差异就不那么大了。
 
@@ -642,9 +643,282 @@ Disk stats (read/write):
   vda: ios=147097/147865, merge=0/241, ticks=1916703/1915836, in_queue=3791443, util=98.68%
 ```
 
+各类型云盘的性能比较如下表所示。
+
+| 性能类别                                | ESSD AutoPL云盘（邀测）    | ESSD PL-X云盘（邀测） | ESSD云盘 PL3                  | ESSD云盘 PL0                | ESSD云盘 PL1               | ESSD云盘 PL0                 | SSD云盘                    | 高效云盘                 | 普通云盘 |
+| :-------------------------------------- | :------------------------- | :-------------------- | :---------------------------- | :-------------------------- | :------------------------- | :--------------------------- | -------------------------- | ------------------------ | -------- |
+| 单盘容量范围（GiB）                     | 40~32,768                  | 40~32,768             | 1261~32,768                   | 461~32,768                  | 20~32,768                  | 40~32,768                    | 20~32,768                  | 20~32,768                | 5~2,000  |
+| 最大IOPS                                | 100,000                    | 3,000,000             | 1,000,000                     | 100,000                     | 50,000                     | 10,000                       | 25,000                     | 5,000                    | 数百     |
+| 最大吞吐量（MB/s）                      | 1,131                      | 12,288                | 4,000                         | 750                         | 350                        | 180                          | 300                        | 140                      | 30~40    |
+| 单盘IOPS性能计算公式                    | min{1,800+50*容量, 50,000} | 预配置IOPS            | min{1,800+50*容量, 1,000,000} | min{1,800+50*容量, 100,000} | min{1,800+50*容量, 50,000} | min{ 1,800+12*容量, 10,000 } | min{1,800+30*容量, 25,000} | min{1,800+8*容量, 5,000} | 无       |
+| 单盘吞吐量性能计算公式（MB/s）          | min{120+0.5*容量, 350}     | 4 KB*预配置IOPS/1024  | min{120+0.5*容量, 4,000}      | min{120+0.5*容量, 750}      | min{120+0.5*容量, 350}     | min{100+0.25*容量, 180}      | min{120+0.5*容量, 300}     | min{100+0.15*容量, 140}  | 无       |
+| 单路随机写平均时延（ms），Block Size=4K | 0.2                        | 0.03                  | 0.2                           | 0.2                         | 0.2                        | 0.3~0.5                      | 0.5~2                      | 1~3                      | 5~10     |
+| API参数取值                             | cloud_auto                 | cloud_plx             | cloud_essd                    | cloud_essd                  | cloud_essd                 | cloud_essd                   | cloud_ssd                  | cloud_efficiency         | cloud    |
+
+#### ESSD PL3测试
+
+测试命令
+
+```
+fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+```
+
+ESSD 是PL3，LVM是海光物理机下两块本地NVMe SSD做的LVM，测试基于ext4文件系统，阿里云官方提供ESSD的IOPS是裸盘（不含文件系统的）
+
+|                                                              | 本地LVM                                                      | ESSD                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| fio -ioengine=libaio -bs=4k -buffered=1 read                 | bw=36636KB/s, iops=9159<br/>nvme0n1:util=42.31%<br/>nvme1n1: util=41.63% | IOPS=3647, BW=14.2MiB/s<br/>util=88.08%                      |
+| fio -ioengine=libaio -bs=4k -buffered=1 write                | bw=383626KB/s, iops=95906<br/>nvme0n1:util=37.16%<br/>nvme1n1: util=33.58% | IOPS=104k, BW=406MiB/s<br/>util=39.06%                       |
+| fio -ioengine=libaio -bs=4k -buffered=1 randrw rwmixread=70  | write: bw=12765KB/s, iops=3191<br/>read : bw=29766KB/s, iops=7441<br/>nvme0n1:util=35.18%<br/>nvme1n1: util=35.04% | write:IOPS=1701, BW=6808KiB/s<br/>read: IOPS=3962, BW=15.5MiB/s<br/> nvme7n1: util=99.35% |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 read       | bw=67938KB/s, iops=16984<br/>nvme0n1:util=43.17%<br/>nvme1n1: util=39.18% | IOPS=4687, BW=18.3MiB/s<br/>util=99.75%                      |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 write      | bw=160775KB/s, iops=40193<br/>nvme0n1:util=28.66%<br/>nvme1n1: util=21.67% | IOPS=7153, BW=27.9MiB/s<br/>util=99.85%                      |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 randrw rwmixread=70 | write: bw=23087KB/s, iops=5771<br/>read : bw=53849KB/s, iops=13462 | write:IOPS=1511, BW=6045KiB/s<br/>read: IOPS=3534, BW=13.8MiB/s |
+
+结论：
+
+- ESSD只要有随机读性能就很差,纯读是本地盘（LVM）的40%，纯写和本地盘差不多
+- direct 读是本地盘的四分之一
+- direct 写是本地盘的六分之一，写16K Page差距缩小到五分之一（5749/25817）
+- intel direct 写本地intel SSDPE2KX040T8 iops=55826（比海光好40%，海光是memblaze）
+- ESSD带buffer读写抖动很大
+- ESSD出现过多次ESSD卡死，表现就是磁盘不响应任何操作，大概N分钟后恢复，原因未知
+
+PL3单盘IOPS性能计算公式  min{1800+50*容量, 1000000}
+
+
+
+```
+[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+EBS 4K randwrite test: (g=0): rw=randwrite, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64
+fio-3.7
+Starting 1 thread
+Jobs: 1 (f=1): [w(1)][100.0%][r=0KiB/s,w=566MiB/s][r=0,w=145k IOPS][eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2416234: Thu Apr  7 17:03:07 2022
+  write: IOPS=96.2k, BW=376MiB/s (394MB/s)(22.0GiB/60000msec)
+    slat (usec): min=2, max=530984, avg= 8.27, stdev=1104.96
+    clat (usec): min=2, max=944103, avg=599.25, stdev=9230.93
+     lat (usec): min=7, max=944111, avg=607.60, stdev=9308.81
+    clat percentiles (usec):
+     |  1.00th=[   392],  5.00th=[   400], 10.00th=[   404], 20.00th=[   408],
+     | 30.00th=[   412], 40.00th=[   416], 50.00th=[   420], 60.00th=[   424],
+     | 70.00th=[   433], 80.00th=[   441], 90.00th=[   457], 95.00th=[   482],
+     | 99.00th=[   627], 99.50th=[   766], 99.90th=[  1795], 99.95th=[  4228],
+     | 99.99th=[488637]
+   bw (  KiB/s): min=  168, max=609232, per=100.00%, avg=422254.17, stdev=257181.75, samples=108
+   iops        : min=   42, max=152308, avg=105563.63, stdev=64295.48, samples=108
+  lat (usec)   : 4=0.01%, 10=0.01%, 50=0.01%, 100=0.01%, 250=0.01%
+  lat (usec)   : 500=96.35%, 750=3.11%, 1000=0.26%
+  lat (msec)   : 2=0.19%, 4=0.03%, 10=0.02%, 250=0.01%, 500=0.03%
+  lat (msec)   : 750=0.01%, 1000=0.01%
+  cpu          : usr=13.56%, sys=60.78%, ctx=1455, majf=0, minf=9743
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued rwts: total=0,5771972,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+  WRITE: bw=376MiB/s (394MB/s), 376MiB/s-376MiB/s (394MB/s-394MB/s), io=22.0GiB (23.6GB), run=60000-60000msec
+
+Disk stats (read/write):
+  vdb: ios=0/1463799, merge=0/7373, ticks=0/2011879, in_queue=2011879, util=27.85%
+  
+[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randread -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+EBS 4K randwrite test: (g=0): rw=randread, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64
+fio-3.7
+Starting 1 thread
+Jobs: 1 (f=1): [r(1)][100.0%][r=15.9MiB/s,w=0KiB/s][r=4058,w=0 IOPS][eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2441598: Thu Apr  7 17:05:10 2022
+   read: IOPS=3647, BW=14.2MiB/s (14.9MB/s)(855MiB/60001msec)
+    slat (usec): min=183, max=10119, avg=239.01, stdev=110.20
+    clat (usec): min=2, max=54577, avg=15170.17, stdev=1324.10
+     lat (usec): min=237, max=55110, avg=15409.34, stdev=1338.09
+    clat percentiles (usec):
+     |  1.00th=[13960],  5.00th=[14091], 10.00th=[14222], 20.00th=[14484],
+     | 30.00th=[14615], 40.00th=[14746], 50.00th=[14877], 60.00th=[15139],
+     | 70.00th=[15270], 80.00th=[15533], 90.00th=[16057], 95.00th=[16712],
+     | 99.00th=[20317], 99.50th=[22152], 99.90th=[26346], 99.95th=[30802],
+     | 99.99th=[52691]
+   bw (  KiB/s): min= 6000, max=17272, per=100.00%, avg=16511.28, stdev=1140.64, samples=105
+   iops        : min= 1500, max= 4318, avg=4127.81, stdev=285.16, samples=105
+  lat (usec)   : 4=0.01%, 250=0.01%, 500=0.01%, 750=0.01%, 1000=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=98.91%, 50=1.05%
+  lat (msec)   : 100=0.02%
+  cpu          : usr=0.18%, sys=17.18%, ctx=219041, majf=0, minf=4215
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued rwts: total=218835,0,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+   READ: bw=14.2MiB/s (14.9MB/s), 14.2MiB/s-14.2MiB/s (14.9MB/s-14.9MB/s), io=855MiB (896MB), run=60001-60001msec
+
+Disk stats (read/write):
+  vdb: ios=218343/7992, merge=0/8876, ticks=50566/3749, in_queue=54315, util=88.08%  
+ 
+[essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randrw -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64
+fio-3.7
+Starting 1 thread
+Jobs: 1 (f=1): [m(1)][100.0%][r=15.7MiB/s,w=7031KiB/s][r=4007,w=1757 IOPS][eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2641414: Thu Apr  7 17:21:10 2022
+   read: IOPS=3962, BW=15.5MiB/s (16.2MB/s)(929MiB/60001msec)
+    slat (usec): min=182, max=7194, avg=243.23, stdev=116.87
+    clat (usec): min=2, max=235715, avg=11020.01, stdev=3366.61
+     lat (usec): min=253, max=235991, avg=11263.40, stdev=3375.49
+    clat percentiles (msec):
+     |  1.00th=[    9],  5.00th=[   10], 10.00th=[   10], 20.00th=[   11],
+     | 30.00th=[   11], 40.00th=[   11], 50.00th=[   11], 60.00th=[   12],
+     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],
+     | 99.00th=[   16], 99.50th=[   18], 99.90th=[   31], 99.95th=[   36],
+     | 99.99th=[  234]
+   bw (  KiB/s): min=10808, max=17016, per=100.00%, avg=15977.89, stdev=895.35, samples=118
+   iops        : min= 2702, max= 4254, avg=3994.47, stdev=223.85, samples=118
+  write: IOPS=1701, BW=6808KiB/s (6971kB/s)(399MiB/60001msec)
+    slat (usec): min=3, max=221631, avg=10.16, stdev=693.59
+    clat (usec): min=486, max=235772, avg=11029.42, stdev=3590.93
+     lat (usec): min=493, max=235780, avg=11039.67, stdev=3659.04
+    clat percentiles (msec):
+     |  1.00th=[    9],  5.00th=[   10], 10.00th=[   10], 20.00th=[   11],
+     | 30.00th=[   11], 40.00th=[   11], 50.00th=[   11], 60.00th=[   12],
+     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],
+     | 99.00th=[   16], 99.50th=[   18], 99.90th=[   31], 99.95th=[   37],
+     | 99.99th=[  234]
+   bw (  KiB/s): min= 4480, max= 7728, per=100.00%, avg=6862.60, stdev=475.79, samples=118
+   iops        : min= 1120, max= 1932, avg=1715.64, stdev=118.97, samples=118
+  lat (usec)   : 4=0.01%, 500=0.01%, 750=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=20.77%, 20=78.89%, 50=0.31%
+  lat (msec)   : 100=0.01%, 250=0.02%
+  cpu          : usr=0.65%, sys=7.20%, ctx=239089, majf=0, minf=8292
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, >=64=100.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued rwts: total=237743,102115,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+   READ: bw=15.5MiB/s (16.2MB/s), 15.5MiB/s-15.5MiB/s (16.2MB/s-16.2MB/s), io=929MiB (974MB), run=60001-60001msec
+  WRITE: bw=6808KiB/s (6971kB/s), 6808KiB/s-6808KiB/s (6971kB/s-6971kB/s), io=399MiB (418MB), run=60001-60001msec
+
+Disk stats (read/write):
+  vdb: ios=237216/118960, merge=0/8118, ticks=55191/148225, in_queue=203416, util=99.35%
+  
+[essd_pl3]# fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=30
+EBS 4K randwrite test: (g=0): rw=randwrite, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=psync, iodepth=64
+fio-3.7
+Starting 1 thread
+Jobs: 1 (f=1): [w(1)][100.0%][r=0KiB/s,w=28.3MiB/s][r=0,w=7249 IOPS][eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=2470117: Fri Apr  8 15:35:20 2022
+  write: IOPS=7222, BW=28.2MiB/s (29.6MB/s)(846MiB/30001msec)
+    clat (usec): min=115, max=7155, avg=137.29, stdev=68.48
+     lat (usec): min=115, max=7156, avg=137.36, stdev=68.49
+    clat percentiles (usec):
+     |  1.00th=[  121],  5.00th=[  123], 10.00th=[  125], 20.00th=[  126],
+     | 30.00th=[  127], 40.00th=[  129], 50.00th=[  130], 60.00th=[  133],
+     | 70.00th=[  135], 80.00th=[  139], 90.00th=[  149], 95.00th=[  163],
+     | 99.00th=[  255], 99.50th=[  347], 99.90th=[  668], 99.95th=[  947],
+     | 99.99th=[ 3589]
+   bw (  KiB/s): min=23592, max=30104, per=99.95%, avg=28873.29, stdev=1084.49, samples=59
+   iops        : min= 5898, max= 7526, avg=7218.32, stdev=271.12, samples=59
+  lat (usec)   : 250=98.95%, 500=0.81%, 750=0.17%, 1000=0.03%
+  lat (msec)   : 2=0.02%, 4=0.02%, 10=0.01%
+  cpu          : usr=0.72%, sys=5.08%, ctx=216767, majf=0, minf=148
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,216677,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+  WRITE: bw=28.2MiB/s (29.6MB/s), 28.2MiB/s-28.2MiB/s (29.6MB/s-29.6MB/s), io=846MiB (888MB), run=30001-30001msec
+
+Disk stats (read/write):
+  vdb: ios=0/219122, merge=0/3907, ticks=0/29812, in_queue=29812, util=99.52% 
+  
+[root@hygon8 14:44 /polarx/lvm]
+#fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=30
+EBS 4K randwrite test: (g=0): rw=randwrite, bs=4K-4K/4K-4K/4K-4K, ioengine=sync, iodepth=64
+fio-2.2.8
+Starting 1 thread
+Jobs: 1 (f=1): [w(1)] [100.0% done] [0KB/157.2MB/0KB /s] [0/40.3K/0 iops] [eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=3486352: Fri Apr  8 14:45:43 2022
+  write: io=4710.4MB, bw=160775KB/s, iops=40193, runt= 30001msec
+    clat (usec): min=18, max=4164, avg=22.05, stdev= 7.33
+     lat (usec): min=19, max=4165, avg=22.59, stdev= 7.36
+    clat percentiles (usec):
+     |  1.00th=[   20],  5.00th=[   20], 10.00th=[   21], 20.00th=[   21],
+     | 30.00th=[   21], 40.00th=[   21], 50.00th=[   21], 60.00th=[   22],
+     | 70.00th=[   22], 80.00th=[   22], 90.00th=[   23], 95.00th=[   25],
+     | 99.00th=[   36], 99.50th=[   40], 99.90th=[   62], 99.95th=[   99],
+     | 99.99th=[  157]
+    bw (KB  /s): min=147568, max=165400, per=100.00%, avg=160803.12, stdev=2704.22
+    lat (usec) : 20=0.08%, 50=99.70%, 100=0.17%, 250=0.04%, 500=0.01%
+    lat (usec) : 750=0.01%, 1000=0.01%
+    lat (msec) : 2=0.01%, 10=0.01%
+  cpu          : usr=6.95%, sys=31.18%, ctx=1205994, majf=0, minf=1573
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued    : total=r=0/w=1205849/d=0, short=r=0/w=0/d=0, drop=r=0/w=0/d=0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+  WRITE: io=4710.4MB, aggrb=160774KB/s, minb=160774KB/s, maxb=160774KB/s, mint=30001msec, maxt=30001msec
+
+Disk stats (read/write):
+    dm-2: ios=0/1204503, merge=0/0, ticks=0/15340, in_queue=15340, util=50.78%, aggrios=0/603282, aggrmerge=0/463, aggrticks=0/8822, aggrin_queue=0, aggrutil=28.66%
+  nvme0n1: ios=0/683021, merge=0/474, ticks=0/9992, in_queue=0, util=28.66%
+  nvme1n1: ios=0/523543, merge=0/452, ticks=0/7652, in_queue=0, util=21.67%
+  
+[root@x86.170 /polarx/lvm]
+#/usr/sbin/nvme list
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1     BTLJ932205P44P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131
+/dev/nvme1n1     BTLJ932207H04P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131
+/dev/nvme2n1     BTLJ932205AS4P0DGN   INTEL SSDPE2KX040T8                      1           3.84  TB /   3.84  TB    512   B +  0 B   VDV10131
+[root@x86.170 /polarx/lvm]
+#fio  -bs=4k  -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=30
+EBS 4K randwrite test: (g=0): rw=randwrite, bs=4K-4K/4K-4K/4K-4K, ioengine=sync, iodepth=64
+fio-2.2.8
+Starting 1 thread
+Jobs: 1 (f=1): [w(1)] [100.0% done] [0KB/240.2MB/0KB /s] [0/61.5K/0 iops] [eta 00m:00s]
+EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=11516: Fri Apr  8 15:44:36 2022
+  write: io=7143.3MB, bw=243813KB/s, iops=60953, runt= 30001msec
+    clat (usec): min=10, max=818, avg=14.96, stdev= 4.14
+     lat (usec): min=10, max=818, avg=15.14, stdev= 4.15
+    clat percentiles (usec):
+     |  1.00th=[   11],  5.00th=[   12], 10.00th=[   12], 20.00th=[   14],
+     | 30.00th=[   15], 40.00th=[   15], 50.00th=[   15], 60.00th=[   15],
+     | 70.00th=[   15], 80.00th=[   16], 90.00th=[   16], 95.00th=[   16],
+     | 99.00th=[   20], 99.50th=[   32], 99.90th=[   78], 99.95th=[   84],
+     | 99.99th=[  105]
+    bw (KB  /s): min=236768, max=246424, per=99.99%, avg=243794.17, stdev=1736.82
+    lat (usec) : 20=98.96%, 50=0.73%, 100=0.29%, 250=0.01%, 500=0.01%
+    lat (usec) : 750=0.01%, 1000=0.01%
+  cpu          : usr=10.65%, sys=42.66%, ctx=1828699, majf=0, minf=7
+  IO depths    : 1=100.0%, 2=0.0%, 4=0.0%, 8=0.0%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued    : total=r=0/w=1828662/d=0, short=r=0/w=0/d=0, drop=r=0/w=0/d=0
+     latency   : target=0, window=0, percentile=100.00%, depth=64
+
+Run status group 0 (all jobs):
+  WRITE: io=7143.3MB, aggrb=243813KB/s, minb=243813KB/s, maxb=243813KB/s, mint=30001msec, maxt=30001msec
+
+Disk stats (read/write):
+    dm-0: ios=0/1823575, merge=0/0, ticks=0/13666, in_queue=13667, util=45.56%, aggrios=0/609558, aggrmerge=0/2, aggrticks=0/4280, aggrin_queue=4198, aggrutil=14.47%
+  nvme0n1: ios=0/609144, merge=0/6, ticks=0/4438, in_queue=4353, util=14.47%
+  nvme1n1: ios=0/609470, merge=0/0, ticks=0/4186, in_queue=4109, util=13.65%
+  nvme2n1: ios=0/610060, merge=0/0, ticks=0/4216, in_queue=4134, util=13.74% 
+```
+
+
+
 ### HDD性能测试数据
 
-![img](/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -662,11 +936,11 @@ SATA硬盘，10K转
 
 ## 测试数据总结
 
-|          | -direct=1 -buffered=1 | -direct=1 -buffered=0 | -direct=0 -buffered=0 | -direct=0 -buffered=1 |
+|          | -direct=1 -buffered=1 | -direct=0 -buffered=1 | -direct=1 -buffered=0 | -direct=0 -buffered=0 |
 | -------- | --------------------- | --------------------- | --------------------- | --------------------- |
-| NVMe SSD | R=10.6k W=4544        | R=99.8K W=42.8K       | R=38.6k W=16.5k       | R=10.8K W=4642        |
-| SATA SSD | R=4312 W=1852         | R=16.9k W=7254        | R=15.8k W=6803        | R=5389 W=2314         |
-| ESSD     | R=2149 W=2150         | R=2462 W=2465         | R=2455 W=2458         | R=1987 W=1984         |
+| NVMe SSD | R=10.6k W=4544        | R=10.8K W=4642        | R=99.8K W=42.8K       | R=38.6k W=16.5k       |
+| SATA SSD | R=4312 W=1852         | R=5389 W=2314         | R=16.9k W=7254        | R=15.8k W=6803        |
+| ESSD     | R=2149 W=2150         | R=1987 W=1984         | R=2462 W=2465         | R=2455 W=2458         |
 
 看起来，**对于SSD如果buffered为1的话direct没啥用，如果buffered为0那么direct为1性能要好很多**
 
@@ -684,20 +958,20 @@ ESSD的latency基本是13-16us。
 
 我们来一起看一下具体的数据。首先来看NVＭe如何减小了协议栈本身的时间消耗，我们用*blktrace*工具来分析一组传输在应用程序层、操作系统层、驱动层和硬件层消耗的时间和占比，来了解AHCI和NVMe协议的性能区别：
 
-![img](https://pic4.zhimg.com/80/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
 
 硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
 
-## 对比LVM 、RAID0和 一块nvme
+## 对比LVM 、RAID0和 一块NVMe SSD
 
 曙光H620-G30A机型下测试
 
 各拿两块nvme，分别作LVM和RAID0，另外单独拿一块nvme直接读写，条带用的是4块nvme做的，然后比较顺序、随机读写，测试结果如下：
 
-|                                                   | RAID0（2块盘）                                               | NVME                                               | LVM                                                          | RAID0（4块盘）                                               | 条带（4块 linear）                                           |
+|                                                   | RAID0（2块盘）                                               | NVMe                                               | LVM                                                          | RAID0（4块盘）                                               | 条带（4块 linear）                                           |
 | ------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | dd write bs=1M count=10240 conv=fsync             | 10.9秒                                                       | 23秒                                               | 24.6秒                                                       | 10.9秒                                                       | 11.9秒                                                       |
-| fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 | bw=346744KB/s, iops=86686 <br/> nvme6n1: util=38.43%<br/> nvme7n1: util=38.96% | bw=380816KB/s, iops=95203<br/>nvme2n1: util=68.31% | bw=175704KB/s, iops=43925<br/>nvme0n1:util=29.60%<br/>nvme1n1: util=25.64% | bw=337495KB/s, iops=84373<br/> nvme6n1: util=20.93%<br/> nvme5n1: util=21.30%<br/> nvme4n1: util=21.12%<br/> nvme7n1: util=20.95% | bw=329721KB/s, iops=82430<br/> nvme0n1: util=67.22%<br/> nvme3n1: util=0%<br/>条带每次只写一块盘 |
+| fio -ioengine=libaio -bs=4k  -buffered=1          | bw=346744KB/s, iops=86686 <br/> nvme6n1: util=38.43%<br/> nvme7n1: util=38.96% | bw=380816KB/s, iops=95203<br/>nvme2n1: util=68.31% | bw=175704KB/s, iops=43925<br/>nvme0n1:util=29.60%<br/>nvme1n1: util=25.64% | bw=337495KB/s, iops=84373<br/> nvme6n1: util=20.93%<br/> nvme5n1: util=21.30%<br/> nvme4n1: util=21.12%<br/> nvme7n1: util=20.95% | bw=329721KB/s, iops=82430<br/> nvme0n1: util=67.22%<br/> nvme3n1: util=0%<br/>条带每次只写一块盘 |
 | fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 | bw=121556KB/s, iops=30389 <br/> nvme6n1: util=18.70%<br/> nvme7n1: util=18.91% | bw=126215KB/s, iops=31553<br/>nvme2n1: util=37.27% | bw=117192KB/s, iops=29297<br/>nvme0n1:util=21.16%<br/>nvme1n1: util=13.35% | bw=119145KB/s, iops=29786<br/> nvme6n1: util=9.19%<br/> nvme5n1: util=9.45%<br/> nvme4n1: util=9.45%<br/> nvme7n1: util=9.30% | bw=116688KB/s, iops=29171<br/> nvme0n1: util=37.87%<br/> nvme3n1: util=0%<br/>条带每次只写一块盘 |
 | fio -bs=4k -direct=1 -buffered=0                  | bw=104107KB/s, iops=26026 <br/> nvme6n1: util=15.55%<br/> nvme7n1: util=15.00% | bw=105115KB/s, iops=26278<br/>nvme2n1: util=31.25% | bw=101936KB/s, iops=25484<br/>nvme0n1:util=17.76%<br/>nvme1n1: util=12.07% | bw=102517KB/s, iops=25629<br/> nvme6n1: util=8.13%<br/> nvme5n1: util=7.65%<br/> nvme4n1: util=7.57%<br/> nvme7n1: util=7.75% | bw=87280KB/s, iops=21820<br/> nvme0n1: util=31.27%<br/> nvme3n1: util=0%<br/>条带每次只写一块盘 |
 
@@ -720,11 +994,11 @@ time taskset -c 0 dd if=/dev/zero of=./tempfile2 bs=1M count=40240 &
 
 下图上面两块nvme做的LVM，下面两块nvme做成RAID0，同时开始测试，可以看到RAID0的两块盘写入速度更快
 
-![image-20211231205730735](/images/951413iMgBlog/image-20211231205730735.png)
+![image-20211231205730735](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211231205730735.png)
 
 测试结果
 
-![image-20211231205842753](/images/951413iMgBlog/image-20211231205842753.png)
+![image-20211231205842753](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211231205842753.png)
 
 实际单独写一块nvme也比写两块nvme做的LVM要快一倍，对dd这样的顺序读写，软RAID0还是能提升一倍速度的
 
@@ -768,21 +1042,23 @@ sys	0m24.557s
 
 ### 随机读写
 
+SSD单独的随机读IOPS大概是随机写IOPS的10%, 应该是因为write有cache
+
 RAID0是使用mdadm做的软raid，系统层面还是有消耗，没法和RAID卡硬件比较
 
 左边是一块nvme，中间是两块nvme做了LVM，右边是两块nvme做RAID0，看起来速度差不多，一块nvme似乎要好一点点
 
 ```
-fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
+fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101104145331](/images/951413iMgBlog/image-20220101104145331.png)
+![image-20220101104145331](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101104145331.png)
 
 从观察来看，RAID0的两块盘读写、iops都非常均衡，LVM的两块盘
 
 三个测试分开跑，独立nvme性能最好，LVM最差并且不均衡
 
-![image-20220101110016074](/images/951413iMgBlog/image-20220101110016074.png)
+![image-20220101110016074](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101110016074.png)
 
 三个测试分开跑，去掉 aio，性能都只有原来的一半
 
@@ -790,7 +1066,7 @@ fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randwrite -rwmixre
 fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101110708888](/images/951413iMgBlog/image-20220101110708888.png)
+![image-20220101110708888](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101110708888.png)
 
 修改fio参数，用最快的 direct=0 buffered=1 aio 结论是raid0最快，直接写nvme略慢，LVM只有raid0的一半
 
@@ -954,7 +1230,7 @@ Disk stats (read/write):
 
 raid6开buffer性能比raid0还要好10-20%，实际是将刷盘延迟异步在做，如果用-buffer=0 raid6的性能只有raid0的一半
 
-![image-20220105173206915](/images/951413iMgBlog/image-20220105173206915.png)
+![image-20220105173206915](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220105173206915.png)
 
 ```
 [root@hygon33 17:19 /md6]
@@ -1077,7 +1353,7 @@ cpu          : usr=9.11%, sys=57.07%, ctx=762410, majf=0, minf=1769  //用户和
 
 
 
-SSD的direct和buffered似乎很奇怪，应该是direct=0性能更好，实际不是这样，这里还需要找资料求证下
+direct和buffered参数是冲突的，用一个就行，应该是direct=0性能更好，实际不是这样，这里还需要找资料求证下
 
 > - `direct``=bool`
 >
@@ -1117,9 +1393,9 @@ avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表
 
 国产SSD指的是AliFlash
 
-![img](/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
 
-![img](/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
 
 ## rq_affinity
 
@@ -1159,9 +1435,28 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png)
 
+## 磁盘挂载参数
 
+内核一般配置的脏页回写超时时间是30s，理论上page cache能buffer住所有的脏页，但是ext4文件系统的默认挂载参数开始支持日志（journal），文件的inode被修改后，需要刷到journal里，这样系统crash了文件系统能恢复过来，内核配置默认5s刷一次journal，ext4还有一个配置项叫挂载方式，有ordered和writeback两个选项，区别是ordered在把inode刷到journal里之前，会把inode的所有脏页先回写到磁盘里，如果不希望inode这么快写回到磁盘则可以用writeback参数。当SSD开始写盘的时候会严重影响SSD读能力
+
+```
+# 编辑/etc/fstab，挂载参数设置为defaults,noatime,nodiratime,delalloc,nobarrier,data=writeback
+/dev/lvm1 /data    ext4    defaults,noatime,nodiratime,delalloc,nobarrier,data=writeback 0 0
+```
+
+`noatime` 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新
+
+### 优化case
+
+10个GB的原始文件里面都是随机数，如何快速建索引支持分页查询top(k,n)场景，机器配置是24核，JVM堆内存限制2.5G，磁盘读写为490-500MB/s左右。
+
+最后成绩在22.9s，去掉评测方法引入的1.1s，5次查询含建索引总时间21.8s，因为读10GB文件就需要21.5s时间。当向SSD开始写索引文件后SSD读取性能下降厉害，实际期望的是写出索引到SSD的时候会被PageCache，没触发刷脏。但是这里的刷盘就是ext4挂载参数 ordered 导致了刷盘。
+
+整个方案是：原始文件切割成小分片，喂给24个worker；每个worker读数据，处理数据，定期批量写索引出去；最后查询会去读每个worker生成的所有索引文件，通过跳表快速seek。
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png)
 
 ## LVM性能对比
 

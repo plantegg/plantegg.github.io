@@ -48,7 +48,7 @@ Google到的帖子大概有如下原因：
 
 看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：
 
-![image.png](/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
 
 ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。
 
@@ -88,13 +88,13 @@ glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 
 
 这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：
 
-![image.png](/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
 
 在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了
 
-![image.png](/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
 
-![image.png](/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
 
 也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大
 

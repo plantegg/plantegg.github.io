@@ -717,8 +717,6 @@ kubeadm启动集群就是如此。kubeadm生成证书、etcd.yaml等yaml、然�
 
 可以通过kubelet --v 256来看详细日志，kubeadm本身所做的事情并不多，所以日志没有太多的信息，主要是等待轮询apiserver的拉起。
 
-
-
 ### Kubeadm config
 
 Init 可以指定仓库以及版本
@@ -746,7 +744,87 @@ pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像（pod_
 ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS --pod_infra_container_image=registry:5000/registry.aliyuncs.com/google_containers/pause:3.1
 ```
 
+## [kubernetes API 案例](https://mp.weixin.qq.com/s/1ouLZbw-Z7G-fKz53uJZag)
 
+用kubeadm部署kubernetes集群，会生成如下证书：
+
+```
+#ls /etc/kubernetes/pki/
+apiserver-etcd-client.crt  apiserver-kubelet-client.crt  apiserver.crt  ca.crt  etcd  front-proxy-ca.key      front-proxy-client.key  sa.pub
+apiserver-etcd-client.key  apiserver-kubelet-client.key  apiserver.key  ca.key  front-proxy-ca.crt  front-proxy-client.crt  sa.key
+```
+
+curl访问api必须提供证书
+
+```
+curl --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt --key /etc/kubernetes/pki/apiserver-kubelet-client.key https://ip:6443/apis/apps/v1/deployments
+```
+
+/etc/kubernetes/pki/ca.crt ---- CA机构
+
+由CA机构签发：/etc/kubernetes/pki/apiserver-kubelet-client.crt 
+
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5609125.jpeg)
+
+[获取default namespace下的deployment](https://kubernetes.io/docs/reference/using-api/api-concepts/)
+
+```
+# JWT_TOKEN_DEFAULT_DEFAULT=$(kubectl get secrets \
+    $(kubectl get serviceaccounts/default -o jsonpath='{.secrets[0].name}') \
+    -o jsonpath='{.data.token}' | base64 --decode)
+
+#curl --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt --key /etc/kubernetes/pki/apiserver-kubelet-client.key https://11.158.239.200:6443/apis/apps/v1/namespaces/default/deployments --header "Authorization: Bearer $JWT_TOKEN_DEFAULT_DEFAULT"
+{
+  "kind": "DeploymentList",
+  "apiVersion": "apps/v1",
+  "metadata": {
+    "resourceVersion": "1233307"
+  },
+  "items": [
+    {
+      "metadata": {
+        "name": "nginx-deployment",
+ 
+//列出default namespace下所有的pod 
+#curl  --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt --key /etc/kubernetes/pki/apiserver-kubelet-client.key https://11.158.239.200:6443/api/v1/namespaces/default/pods --header "Authorization: Bearer $JWT_TOKEN_DEFAULT_DEFAULT"       
+
+//对应的kubectl生成的curl命令
+curl  --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt --key /etc/kubernetes/pki/apiserver-kubelet-client.key -v -XGET  -H "Accept: application/json;as=Table;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json" -H "User-Agent: kubectl/v1.23.3 (linux/arm64) kubernetes/816c97a" 'https://11.158.239.200:6443/api/v1/namespaces/default/pods?limit=500'
+```
+
+对应地可以通过 kubectl -v 256 get pods 来看kubectl的处理过程，以及具体访问的api、参数、返回结果等。实际kubectl最终也是通过libcurl来访问的这些api。这样也不用对api-server抓包分析了。
+
+或者将kube api-server 代理成普通http服务
+
+> *# Make Kubernetes API available on localhost:8080*
+> *# to bypass the auth step in subsequent queries:*
+> $ kubectl proxy --port=8080 
+>
+> 然后
+>
+> curl http://localhost:8080/api/v1/namespaces
+
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5609622.png)
+
+## 抓包
+
+用curl调用kubernetes api-server来调试，需要抓包，现在执行curl的服务器上配置环境变量
+
+```
+export SSLKEYLOGFILE=/root/ssllog/apiserver-ssl.log
+```
+
+然后执行tcpdump对api-server的6443端口抓包，然后将/root/ssllog/apiserver-ssl.log和抓包文件下载到本地，wireshark打开抓包文件，同时配置tls。
+
+以下是个完整case（技巧指定curl的本地端口为12345，然后tcpdump只抓12345，所得的请求、response结果都会解密--如果抓api-server的6443则只能看到请求被解密）
+
+```
+curl --local-port 12345 --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt --key /etc/kubernetes/pki/apiserver-kubelet-client.key https://11.158.239.200:6443/apis/apps/v1/namespaces/default/deployments --header "Authorization: Bearer $JWT_TOKEN_DEFAULT_DEFAULT"
+
+#cat $JWT_TOKEN_DEFAULT_DEFAULT eyJhbGciOiJSUzI1NiIsImtpZCI6ImlNVVFVNmxUM2t4c3Y2Q3IyT1BzV2hDZGRVSmVxTHc5RV8wUXZ4RVM5REEifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZWZhdWx0Iiwia3ViZXJ: File name too long
+```
+
+![image-20220223170008311](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220223170008311.png)
 
 ## 参考资料
 

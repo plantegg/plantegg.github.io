@@ -185,11 +185,11 @@ Memory Device
 
 左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大
 
-![image-20220123094155595](/images/951413iMgBlog/image-20220123094155595.png)
+![image-20220123094155595](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123094155595.png)
 
-![image-20220123094928794](/images/951413iMgBlog/image-20220123094928794.png)
+![image-20220123094928794](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123094928794.png)
 
-![image-20220123100052242](/images/951413iMgBlog/image-20220123100052242.png)
+![image-20220123100052242](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123100052242.png)
 
 对比一下V62，intel8269 机型
 

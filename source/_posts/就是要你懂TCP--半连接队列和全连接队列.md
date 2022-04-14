@@ -41,7 +41,7 @@ tags:
 
 ### 正常TCP建连接三次握手过程：
 
-![image.png](/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -73,7 +73,7 @@ tags:
 
 ## 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
 
@@ -122,6 +122,28 @@ tags:
 >
 > There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it "defines the maximum length the queue of pending connections may grow to." Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.
 
+关于 [somaxconn 终于在2019年将默认值从128调整到了2048](https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4), 这个调整合并到了kernel 5.17中
+
+> SOMAXCONN is /proc/sys/net/core/somaxconn default value.
+>
+> It has been defined as 128 more than 20 years ago.
+>
+> Since it caps the listen() backlog values, the very small value has
+> caused numerous problems over the years, and many people had
+> to raise it on their hosts after beeing hit by problems.
+>
+> Google has been using 1024 for at least 15 years, and we increased
+> this to 4096 after TCP listener rework has been completed, more than
+> 4 years ago. We got no complain of this change breaking any
+> legacy application.
+>
+> Many applications indeed setup a TCP listener with listen(fd, -1);
+> meaning they let the system select the backlog.
+>
+> Raising SOMAXCONN lowers chance of the port being unavailable under
+> even small SYNFLOOD attack, and reduces possibilities of side channel
+> vulnerabilities.
+
 这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：
 
     ServerSocket()
@@ -136,7 +158,7 @@ tags:
 
 （来自JDK帮助文档：https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）
 
-**半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 不同版本的os会有些差异**
+**半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 [不同版本的os会有些差异](https://developer.aliyun.com/article/804896)**
 
 > 我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手
 
@@ -178,7 +200,7 @@ netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话�
 比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
 
-![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 #### netstat看到的listen状态的Recv-Q/Send-Q
 
@@ -200,16 +222,16 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 
 ## 案列：如果TCP连接队列溢出，抓包是什么现象呢？
 
-![image.png](/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
 
 如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传
     
 
 ### 通过ss和netstat所观察到的状态
 
-![image.png](/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
 
-![image.png](/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
 
 [另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因](/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/)
 
@@ -226,6 +248,22 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。
 
 **能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1**，结合内核代码，发现**内核在判断全连接队列是否满的情况下，使用的是 > 而非 >=** 。
+
+
+
+> Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果
+>
+> kill -19 pid 即可； kill -18 pid 恢复暂停进程
+>
+> ```
+> #define SIGKILL     9    /* Kill, unblockable (POSIX). */
+> #define SIGCONT     18   /* Continue (POSIX).  */
+> #define SIGSTOP     19   /* Stop, unblockable (POSIX). */
+> ```
+
+tsar监控accept队列的溢出
+
+> tsar --tcpx -s=lisove -li 1
 
 ### Tomcat和Nginx中的Accept队列参数
 
@@ -244,7 +282,7 @@ Nginx默认是511
 
 因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   
 
-![image.png](/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
 
 ## 进一步思考 client fooling 问题
 
@@ -252,11 +290,11 @@ Nginx默认是511
 
 先来看一个例子：
 
-![image.png](/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
 
 如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）
 
-![image.png](/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
 
 这个问题也叫client fooling，可以看这个patch在4.10后修复了：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。
 
@@ -282,7 +320,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：
 
-![image.png](/images/oss/a5616904df3a505572d99d557b534db2.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a5616904df3a505572d99d557b534db2.png)
 
 可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。
 
@@ -310,7 +348,7 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
 
 来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：
 
-![image.png](/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
 
 TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
 
@@ -353,11 +391,13 @@ max_qlen_log = max(3, log2(nr_table_entries))
 max_queue_length = 2^max_qlen_log
 ```
 
-![](/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png)
 
 没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了
 
 ## 总结
+
+Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是**应用层代码还没有完成 accept() 的连接**）两个概念，用于存放在握手中的连接。
 
 全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。
 
@@ -392,31 +432,35 @@ https://blog.cloudflare.com/syn-packet-handling-in-the-wild/
 
 https://www.cnblogs.com/xiaolincoding/p/12995358.html
 
-[案例三：诡异的幽灵连接，全连接队列满后4.9内核不再回复syn+ack, 但是3.10会回syn+ack](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ)
+[从一次线上问题说起，详解 TCP 半连接队列、全连接队列--详细的实验验证各种溢出](https://developer.aliyun.com/article/804896)
 
-> commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071
-> Author: Eric Dumazet <edumazet@google.com>
-> Date:   Thu Oct 27 00:27:57 2016
->
->     tcp/dccp: drop SYN packets if accept queue is full
->     
->     Per listen(fd, backlog) rules, there is really no point accepting a SYN,
->     sending a SYNACK, and dropping the following ACK packet if accept queue
->     is full, because application is not draining accept queue fast enough.
->     
->     This behavior is fooling TCP clients that believe they established a
->     flow, while there is nothing at server side. They might then send about
->     10 MSS (if using IW10) that will be dropped anyway while server is under
->     stress.
->     
->     -
->     -       /* Accept backlog is full. If we have already queued enough
->     -        * of warm entries in syn queue, drop request. It is better than
->     -        * clogging syn queue with openreqs with exponentially increasing
->     -        * timeout.
->     -        */
->     -       if (sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_young(sk) > 1) {
->     +       if (sk_acceptq_is_full(sk)) {
->                     NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
->                     goto drop;
->             }
+[案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ)
+
+```c
+commit 5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071
+Author: Eric Dumazet <edumazet@google.com>
+Date:   Thu Oct 27 00:27:57 2016
+
+ tcp/dccp: drop SYN packets if accept queue is full
+
+ Per listen(fd, backlog) rules, there is really no point accepting a SYN,
+ sending a SYNACK, and dropping the following ACK packet if accept queue
+ is full, because application is not draining accept queue fast enough.
+
+ This behavior is fooling TCP clients that believe they established a
+ flow, while there is nothing at server side. They might then send about
+ 10 MSS (if using IW10) that will be dropped anyway while server is under
+ stress.
+
+   -       /* Accept backlog is full. If we have already queued enough
+   -        * of warm entries in syn queue, drop request. It is better than
+   -        * clogging syn queue with openreqs with exponentially increasing
+   -        * timeout.
+   -        */
+   -       if (sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_young(sk) > 1) {
+   +       if (sk_acceptq_is_full(sk)) {
+                   NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
+                   goto drop;
+           }
+```
+

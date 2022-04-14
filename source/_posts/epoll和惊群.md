@@ -22,6 +22,8 @@ tags:
 
 为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。
 
+linux 内核通过睡眠队列来组织所有等待某个事件的 task，而 wakeup 机制则可以异步唤醒整个睡眠队列上的 task，wakeup 逻辑在唤醒睡眠队列时，会遍历该队列链表上的每一个节点，调用每一个节点的 callback，从而唤醒睡眠队列上的每个 task，为什么要欢行所有的task，关键在于内核不知道这个消息是一个task处理就够了还是从逻辑上这些wakeup的所有task都要处理，所以只能全部唤醒。这样，在一个 connect 到达这个 lisent socket 的时候，内核会唤醒所有睡眠在 accept 队列上的 task。N 个 task 进程(线程)同时从 accept 返回，但是，只有一个 task 返回这个 connect 的 fd，其他 task 都返回-1(EAGAIN)。这是典型的 accept"惊群"现象。
+
 如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。
 
 连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）
@@ -37,8 +39,6 @@ tags:
 只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read/write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。
 
 epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。
-
-
 
 ## 无IO复用时Accept
 
@@ -147,37 +147,41 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 - 修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口
 - 修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。
 
-![image.png](/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png)
 
 - Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差
 - Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。
 - 内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，**内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。**
 
+以nginx为例，一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。
 
+- 每个 Worker 都会有一个属于自己的 epoll 对象
+- 每个 Worker 会关注所有的 listen 状态上的新连接事件（可以通过accept_mutex或者reuseport来解决惊群）
+- 对于用户连接，只有一个 Worker 会处理，其它 Worker 不会持有该用户连接的 socket（不会惊群）
+
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-9645142.png)
 
 当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据**SO_REUSEPORT**匹配到对应的监听port的多个线程中的一个
 
-![](https://mmbiz.qpic.cn/mmbiz_png/yiaiaFLiaflYRTRy6F9YcnuFfYn7ESbWldtibYIVFRL84nRwtZuOgWYdOTI4BuRodRdR7LvWLlDXZl5cZ23l3AUgOQ/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-9645236.)
 
-对于Established socket的读写事件一般是只有**一个worker在监听一个的epoll**，所以不存在惊群。
+因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有**一个worker在监听一个的epoll**，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。
 
 #### Nginx下SO_REUSEPORT 带来的小问题
 
 从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept
 
-![image.png](/images/oss/912854ed07613bbef1feaede37508548.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png)
 
 SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
-![image.png](/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png)
 
-再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩），但是内核通过hash分配过来的时候是不知道的（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例
+再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例
 
 [因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果](https://www.atatech.org/articles/89653) 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。
 
 如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）
-
-一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。
 
 开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。
 
@@ -185,7 +189,7 @@ SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
 用图形展示大概如下：
 
-![image.png](/images/oss/49d19ef1eaf13638b488ad126beb58ef.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png)
 
 比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲
 
@@ -229,11 +233,11 @@ ep_ptable_queue_proc
 
 EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。
 
-![](https://blog.cloudflare.com/content/images/2017/10/worker2.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/worker2.png)
 
 连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）
 
-![image.png](/images/oss/9bbf15909be8d1bffd3ee1958463c041.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png)
 
 图中的电话机相当于一个worker，只是**实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复**。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。
 
@@ -241,7 +245,7 @@ EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡�
 
 下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：
 
-![image.png](/images/oss/6551777f24be3da9d2b41ceb20a2b040.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png)
 
 这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐
 
@@ -251,7 +255,7 @@ epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场�
 
 比如这个case，压力低的worker进程和压力高的worker进程差异比较大：
 
-![](https://blog.cloudflare.com/content/images/2017/10/sharedqueue.png)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/sharedqueue.png)
 
 ### 比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT
 

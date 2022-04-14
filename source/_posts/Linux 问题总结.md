@@ -52,7 +52,7 @@ docker images |grep "registry:5000" | awk '{ print $1":"$2 }' | xargs -I {} dock
 
 问题原因：https://access.redhat.com/solutions/30316
 
-![image.png](/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
 
 如上图去掉 admin nproc限制就可以了
 
@@ -63,8 +63,6 @@ docker images |grep "registry:5000" | awk '{ print $1":"$2 }' | xargs -I {} dock
 #ulimit -u
 unlimited
 ```
-
-
 
 ## 容器中ulimit限制了sudo的执行
 
@@ -84,22 +82,6 @@ sudo: policy plugin failed session initialization
 grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景
 ```
 
-## debug crond
-
-先停掉 crond service，然后开启debug参数
-
-```
- systemctl stop crond
- crond -x proc //不想真正执行的话：test
-```
-
-或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：
-
-```
-Debug sudo /var/log/sudo_debug all@warn
-Debug sudoers.so /var/log/sudoers_debug all@debug
-```
-
 ## systemd limits
 
 
@@ -107,8 +89,7 @@ Debug sudoers.so /var/log/sudoers_debug all@debug
 
 因此登录用户的限制，通过/etc/security/limits.conf 与/etc/security/limits.d 下的文件设置即可。
 
-对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf
-和/etc/systemd/user.conf.d/.conf。
+对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf 和/etc/systemd/user.conf.d/.conf。
 
 ### 关于ulimit的一些知识点
 
@@ -119,42 +100,26 @@ Debug sudoers.so /var/log/sudoers_debug all@debug
 - 要改变 hard limit, 则需要进程有 CAP_SYS_RESOURCE 权限
 - 进程 fork() 出来的子进程，会继承父进程的 limits 设定
 - `ulimit` 是 shell 的内置命令。在执行`ulimit`命令时，其实是 shell 自身调用 getrlimit()/setrlimit() 来获取/改变自身的 limits. 当我们在 shell 中执行应用程序时，相应的进程就会继承当前 shell 的 limits 设定
-- shell 的初始 limits 是谁设定的: 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值
+- shell 的初始 limits 通常是 pam_limits 设定的。顾名思义，pam_limits 是一个 PAM 模块，用户登录后，pam_limits 会给用户的 shell 设定在 limits.conf 定义的值
 
-ulimit, limits.conf 和 pam_limits 的关系，大致是这样的：
+ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：
 
 1. 用户进行登录，触发 pam_limits;
 2. pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；
 3. 用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;
 4. 当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了
 
-## 进程和线程
-
-把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。
-
-## deleted 文件
-
-`lsof +L1` 或者` lsof | grep delete` 发现有被删除的文件，且占用大量磁盘空间
-
-## No route to host
-
-如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题
-
-可以停掉防火墙验证,或者添加端口到防火墙:
-
-```
-#firewall-cmd --permanent --add-port=8090/tcp
-success
-#firewall-cmd --reload
-```
 
 
+判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数
+结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。
+结论2：fs.file-max: 整个系统上可打开的最大文件数，但不限制 root 用户
 
 ## pam 权限报错
 
-![image.png](/images/oss/b646979272e71e015de4a47c62b89747.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png)
 
-从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficientS
+从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient
 
 ```
 $cat /etc/pam.d/crond 
@@ -168,7 +133,6 @@ account    include    system-auth
 session    required   pam_loginuid.so //required 改成 sufficient
 session    include    system-auth
 auth       include    system-auth
-
 ```
 
 PAM 提供四个安全领域的特性，但是应用程序不太可能同时需要所有这些方面。例如，`passwd` 命令只需要下面列表中的第三组：
@@ -269,9 +233,45 @@ session     required      pam_unix.so
 | pam_cracklib.so  | password                         | 这个模块可以插入到一个程序的密码栈中,用于检查密码的强度.     |
 | pam_limits.so    | session                          | 定义使用系统资源的上限，root用户也会受此限制，可以通过/etc/security/limits.conf或/etc/security/limits.d/*.conf来设定 |
 
+## debug crond
+
+先停掉 crond service，然后开启debug参数
+
+```
+ systemctl stop crond
+ crond -x proc //不想真正执行的话：test
+```
+
+或者增加更多的debug信息， debug sudo/sudoers , 在 /etc/sudo.conf 中增加了：
+
+```
+Debug sudo /var/log/sudo_debug all@warn
+Debug sudoers.so /var/log/sudoers_debug all@debug
+```
+
+## 进程和线程
+
+把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。
+
+## deleted 文件
+
+`lsof +L1` 或者` lsof | grep delete` 发现有被删除的文件，且占用大量磁盘空间
+
+## No route to host
+
+如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题
+
+可以停掉防火墙验证,或者添加端口到防火墙:
+
+```
+#firewall-cmd --permanent --add-port=8090/tcp
+success
+#firewall-cmd --reload
+```
+
 ## 强制重启系统
 
-![image.png](/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
 
 ## hostname
 
@@ -281,19 +281,19 @@ getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这�
 
 ## tsar Floating point execption
 
-![image.png](/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
 
 因为 /etc/localtime 是deleted状态
 
 ## 奇怪的文件大小 [sparse file](https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls)
 
-![img](/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
 如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
-![img](/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
 
 [图片来源](https://www.systutorials.com/handling-sparse-files-on-linux/)
 
@@ -374,15 +374,15 @@ tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以�
 
 远古时代tty是物理形态的存在
 
-![img](/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
 
 PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义
 
-![img](/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
 
 实际像如下图的工作协作:
 
-![Diagram](/images/951413iMgBlog/case3.png)
+![Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/case3.png)
 
 ## [rsync](https://wangdoc.com/ssh/rsync.html)
 
@@ -485,17 +485,49 @@ sudo mkfs.vfat /dev/sdn1
 dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 ```
 
+## 性能
 
+为保证服务性能应选用 performance 模式，将 CPU 频率固定工作在其支持的最高运行频率上，不进行动态调节，操作命令为 `cpupower frequency-set --governor performance`。
+
+###
+
+常用命令
+
+- dmesg | tail
+- vmstat 1
+- mpstat -P ALL 1
+- pidstat 1
+- iostat -xz 1
+- free -m
+- sar -n DEV 1
+- sar -n TCP,ETCP 1
+
+### 内存——虚拟内存参数
+
+- `dirty_ratio` 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统将开始使用 pdflush 操作将脏的 page cache 写入磁盘。默认值为 20％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，降低其值有利于提高内存回收时的效率。
+- `dirty_background_ratio` 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统开始在后台将脏的 page cache 写入磁盘。默认值为 10％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，设置较低的值有利于提高内存回收时的效率。
+
+### I/O 调度器
+
+I/O 调度程序确定 I/O 操作何时在存储设备上运行以及持续多长时间。也称为 I/O 升降机。对于 SSD 设备，宜设置为 noop。
+
+```sh
+echo noop > /sys/block/${SSD_DEV_NAME}/queue/scheduler
+```
+
+### 磁盘挂载参数
+
+`noatime` 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新。
 
 ## Unix Linux关系
 
-![image-20211210085124387](/images/951413iMgBlog/image-20211210085124387.png)
+![image-20211210085124387](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211210085124387.png)
 
-![img](/images/951413iMgBlog/G2Xri.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/G2Xri.png)
 
 ### [linux 发行版关系](https://blog.51cto.com/wangyafei/1881605)
 
-![细数各家linux之间的区别_软件应用_什么值得买](/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
+![细数各家linux之间的区别_软件应用_什么值得买](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
 
  Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
 

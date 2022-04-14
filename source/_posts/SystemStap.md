@@ -210,7 +210,7 @@ probe kernel.trace("kfree_skb")
 }
 ```
 
-![img](/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
 
 以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：
 
@@ -221,19 +221,19 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 }
 ```
 
-![img](/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
 
 以上输出对应的代码如下：
 
-![img](/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
 
 ## 网络重传
 
-![image.png](/images/oss/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](/images/oss/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](/images/oss/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 网络包大小分布
 
@@ -248,12 +248,81 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 	    @rxstat=stats(args->len);
 	}'
 
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png)
 
-![image.png](/images/oss/297eb625b1e157d85a29754108871c08.png)
+或者，采集10秒中的网络包大小直方图
+
+```
+#bpftrace -e 'k:tcp_sendmsg { @size = hist(arg2); } interval:s:10 { exit(); }'
+Attaching 2 probes...
+
+@size:
+[16, 32)              63 |@@@@@@@                                             |
+[32, 64)             431 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+[64, 128)            247 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                       |
+[128, 256)            26 |@@@                                                 |
+[256, 512)            80 |@@@@@@@@@                                           |
+[512, 1K)             52 |@@@@@@                                              |
+[1K, 2K)              70 |@@@@@@@@                                            |
+[2K, 4K)               9 |@                                                   |
+[4K, 8K)              36 |@@@@                                                |
+[8K, 16K)              1 |                                                    |
+
+```
+
+## [其它单行命令](https://lwn.net/Articles/793749/)
+
+这里有一些其他的单行命令来展示 `bpftrace` 的能力，你可以把这些换成其他的内核函数：
+
+获取 tcp_sendmsg() szie 大于 8192 字节的所有事件:
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg /arg2 > 8192/ { printf("PID %d: %d bytes\n", pid, arg2); }'
+```
+
+获取每个进程(PID 和 comm)的请求大小的直方图：
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg { @size[pid, comm] = hist(arg2); }'
+```
+
+返回值出现频率统计：
+
+```bash
+    bpftrace -e 'kr:tcp_sendmsg { @return[retval] = count(); }'
+```
+
+获取每秒的统计：事件数，平均大小，和总字节数：
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg { @size = stats(arg2); }
+        interval:s:1 { print(@size); clear(@size); }'
+```
+
+统计调用栈：
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg { @[kstack] = count(); }'
+```
+
+统计调用栈，深度为3：
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg { @[kstack(3)] = count(); }'
+```
+
+获取函数调用延时的直方图，纳秒级：
+
+```bash
+    bpftrace -e 'k:tcp_sendmsg { @ts[tid] = nsecs; }
+        kr:tcp_sendmsg /@ts[tid]/ { @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); }'
+```
+
+最后一个例子在探测点（线程 ID 作为主键）保存时间戳，并在另外一个探测点获得这个时间戳。这个模式可以用来计算各种延时。
 
 ## 产看网络流量由哪个进程发出，或者说哪个进程在发包
 
-![image.png](/images/oss/74b0a393a6334421957a032f1f141a9c.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png)
 
 ## 网络连接创建rt？
 
@@ -367,7 +436,7 @@ bpftrace工具包
 ​	This tool only traces successful TCP accept()s. Connection attempts to closed
 ​	ports will not be shown (those can be traced via other functions).
 ​	
-	There is another version of this tool in bcc: https://github.com/iovisor/bcc
+​	There is another version of this tool in bcc: https://github.com/iovisor/bcc
 
 最后一列就是backlog最大大小和已经多少
 
@@ -638,3 +707,5 @@ Demo集锦：[openresty systemtap demo](https://github.com/openresty/openresty-s
 [eBPF 内核探测：如何将任意系统调用转换成事件（2016）](http://arthurchiao.art/blog/ebpf-turn-syscall-to-event-zh/)
 
 [使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)](http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/)
+
+[使用ftrace分析函数性能](https://mp.weixin.qq.com/s/yEMp70FmFYn6qL8kCZgS8A)

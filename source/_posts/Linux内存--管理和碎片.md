@@ -31,7 +31,7 @@ Chip就是DRAM芯片，一个chip里面会有很多bank。每个bank就是数据
 
 具体可以看如下图，一个通道Channel可以是一个DIMM也可以是两个DIMM，甚至3个DIMM，图中是2个DIMM。
 
-![image-20211222135852796](/images/951413iMgBlog/image-20211222135852796.png)
+![image-20211222135852796](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211222135852796.png)
 
 ## 虚拟内存和物理内存
 
@@ -43,9 +43,11 @@ Chip就是DRAM芯片，一个chip里面会有很多bank。每个bank就是数据
 
 i7 处理器的页表也是存储在内存页里的，每个页表项都是 4 字节。所以，人们就将 1024 个页表项组成一张页表。这样一张页表的大小就刚好是 4K，占据一个内存页，这样就更加方便管理。而且，当前市场上主流的处理器也都选择将页大小定为 4K。
 
+> 虚拟地址在计算机体系结构里可以评为特优的一项技术；超线程、流水线、多发射只是优；cache则只是良好（成本高）
+
 ### CPU 如何找到真实地址
 
-![image-20211107175201297](/images/951413iMgBlog/image-20211107175201297.png)
+![image-20211107175201297](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211107175201297.png)
 
 - 第一步是确定页目录基址。每个 CPU 都有一个页目录基址寄存器，最高级页表的基地址就存在这个寄存器里。在 X86 上，这个寄存器是 CR3。每一次计算物理地址时，MMU 都会从 CR3 寄存器中取出页目录所在的物理地址。
 - 第二步是定位页目录项（PDE）。一个 32 位的虚拟地址可以拆成 10 位，10 位和 12 位三段，上一步找到的页目录表基址加上高 10 位的值乘以 4，就是页目录项的位置。这是因为，一个页目录项正好是 4 字节，所以 1024 个页目录项共占据 4096 字节，刚好组成一页，而 1024 个页目录项需要 10 位进行编码。这样，我们就可以通过最高 10 位找到该地址所对应的 PDE 了。
@@ -54,36 +56,47 @@ i7 处理器的页表也是存储在内存页里的，每个页表项都是 4 �
 
 前面我们分析的是 32 位操作系统，那对于 64 位机器是不是有点不同呢？在 64 位的机器上，使用了 48 位的虚拟地址，所以它需要使用 4 级页表。它的结构与 32 位的 3 级页表是相似的，**只是多了一级页目录，定位的过程也从 32 位的 4 步变成了 5 步。**
 
-![image-20211107182305732](/images/951413iMgBlog/image-20211107182305732.png)
+![image-20211107182305732](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211107182305732.png)
 
 8086最开始是按不同的作用将内存分为代码段、数据段等，386开始按页开始管理内存（混合有按段管理）。 现代的操作系统都是采用段式管理来做基本的权限管理，而对于内存的分配、回收、调度都是依赖页式管理。
 
 ### tlab miss
 
-TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
+TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。TLB和L1一样每个core独享，由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
 
-![img](/images/951413iMgBlog/tlb_lookup.png)
+[These are typical performance levels of a TLB](https://en.wikipedia.org/wiki/Translation_lookaside_buffer):
+
+- Size: 12 bits – 4,096 entries
+- Hit time: 0.5 – 1 clock cycle
+- Miss penalty: 10 – 100 clock cycles
+- Miss rate: 0.01 – 1% (20–40% for sparse/graph applications)
+
+TLB也分为iTLB和dTLB, 分别顶在L1i和L1d前面（比L1更小更快，每个core独享tlb）
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/tlb_lookup.png)
 
 以intel x86为例，一个cpu也就32到64个tlb, 超出这个范畴，就得去查页表。 每个型号的cpu都不一样，需要查看[spec](https://en.wikichip.org/wiki/WikiChip)
 
-进程分配到的不是内存的实际物理地址，而是一个经过映射后的虚拟地址，这么做的原因是为了用更少的内存消耗来管理庞大的内存，Linux通过四级表项来做虚拟地址到物理地址的映射，这样4Kb就能管理256T内存。
+进程分配到的不是内存的实际物理地址，而是一个经过映射后的虚拟地址，这么做的原因是为了让每个应用可以独享完整的虚拟地址，而不需要每个进程互相考虑使用内存的协调。
+
+但是虚拟地址到物理地址的映射需要巨大的映射空间，如何用更少的内存消耗来管理庞大的内存（如果没有分级，4G内存对应着4MB的索引空间，一级比如使用4K就够了，多个二级使总共用4M，但是这4M大部分时候不用提前分配），Linux通过四级表项来做虚拟地址到物理地址的映射，这样4Kb就能管理256T内存，4级映射是时间换空间的典型案例。不过一般而言一个进程是远远用不了256T内存的，那么这四级映射大部分时候都是没必要的，所以实际用不了那么大的PageTable。
 
 [虚拟内存的核心原理](https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA)是：为每个程序设置一段"连续"的虚拟地址空间，把这个地址空间分割成多个具有连续地址范围的页 (page)，并把这些页和物理内存做映射，在程序运行期间动态映射到物理内存。当程序引用到一段在物理内存的地址空间时，由硬件立刻执行必要的映射；而当程序引用到一段不在物理内存中的地址空间时，由操作系统负责将缺失的部分装入物理内存并重新执行失败的指令：
 
-![img](/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1610941678194-bb42451f-b59a-475d-9b8d-b1085c18766d.png)
 
 在 **内存管理单元（Memory Management Unit，MMU）**进行地址转换时，如果页表项的 "在/不在" 位是 0，则表示该页面并没有映射到真实的物理页框，则会引发一个**缺页中断**，CPU 陷入操作系统内核，接着操作系统就会通过页面置换算法选择一个页面将其换出 (swap)，以便为即将调入的新页面腾出位置，如果要换出的页面的页表项里的修改位已经被设置过，也就是被更新过，则这是一个脏页 (dirty page)，需要写回磁盘更新改页面在磁盘上的副本，如果该页面是"干净"的，也就是没有被修改过，则直接用调入的新页面覆盖掉被换出的旧页面即可。
 
-还需要了解的一个概念是**转换检测缓冲器（Translation Lookaside Buffer，TLB）**，也叫快表，是用来加速虚拟地址映射的，因为虚拟内存的分页机制，页表一般是保存内存中的一块固定的存储区，导致进程通过 MMU 访问内存比直接访问内存多了一次内存访问，性能至少下降一半，因此需要引入加速机制，即 TLB 快表，TLB 可以简单地理解成页表的高速缓存，保存了最高频被访问的页表项，由于一般是硬件实现的，因此速度极快，MMU 收到虚拟地址时一般会先通过硬件 TLB 查询对应的页表号，若命中且该页表项的访问操作合法，则直接从 TLB 取出对应的物理页框号返回，若不命中则穿透到内存页表里查询，并且会用这个从内存页表里查询到最新页表项替换到现有 TLB 里的其中一个，以备下次缓存命中。
+还需要了解的一个概念是**转换检测缓冲器（Translation Lookaside Buffer，TLB，每个core一个TLB，类似L1 cache）**，也叫快表，是用来加速虚拟地址映射的，因为虚拟内存的分页机制，页表一般是保存内存中的一块固定的存储区，导致进程通过 MMU 访问内存比直接访问内存多了一次内存访问，性能至少下降一半，因此需要引入加速机制，即 TLB 快表，TLB 可以简单地理解成页表的高速缓存，保存了最高频被访问的页表项，由于一般是硬件实现的，因此速度极快，MMU 收到虚拟地址时一般会先通过硬件 TLB 查询对应的页表号，若命中且该页表项的访问操作合法，则直接从 TLB 取出对应的物理页框号返回，若不命中则穿透到内存页表里查询，并且会用这个从内存页表里查询到最新页表项替换到现有 TLB 里的其中一个，以备下次缓存命中。
 
 如果没有TLB那么每一次内存映射都需要查表四次然后才是一次真正的内存访问，代价比较高。
 
 有了TLB之后，CPU访问某个虚拟内存地址的过程如下
 
-- 1.CPU产生一个虚拟地址
-- 2.MMU从TLB中获取页表，翻译成物理地址
-- 3.MMU把物理地址发送给L1/L2/L3/内存
-- 4.L1/L2/L3/内存将地址对应数据返回给CPU
+1. CPU产生一个虚拟地址
+2. MMU从TLB中获取页表，翻译成物理地址
+3. MMU把物理地址发送给L1/L2/L3/内存
+4. L1/L2/L3/内存将地址对应数据返回给CPU
 
 由于第2步是类似于寄存器的访问速度，所以**如果TLB能命中，则虚拟地址到物理地址的时间开销几乎可以忽**略。tlab miss比较高的话开启内存大页对性能是有提升的，但是会有一定的内存浪费。
 
@@ -100,7 +113,7 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 总的来说，一个程序想要运行起来所需要的几块基本内存区域：代码段、数据段、BSS 段、堆空间和栈空间。下面就是内存布局的示意图：
 
-<img src="/images/951413iMgBlog/image-20211108115717113.png" alt="image-20211108115717113" style="zoom:35%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211108115717113.png" alt="image-20211108115717113" style="zoom:35%;" />
 
 其它内存形态：
 
@@ -110,11 +123,11 @@ TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的ma
 
 32位 x86机器下，通过 cat /proc/pid/maps 看到的进程所使用的内存分配空间：
 
-<img src="/images/951413iMgBlog/image-20211108120532370.png" alt="image-20211108120532370" style="zoom:33%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211108120532370.png" alt="image-20211108120532370" style="zoom:33%;" />
 
 64位 x86机器下，通过 cat /proc/pid/maps 看到的进程所使用的内存分配空间：
 
-<img src="/images/951413iMgBlog/image-20211108120718732.png" alt="image-20211108120718732" style="zoom:40%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211108120718732.png" alt="image-20211108120718732" style="zoom:40%;" />
 
 目前的 64 系统下的寻址空间是 2^48(太多用不完，高16位为Canonical空间），即 256TB。而且根据 canonical address 的划分，地址空间天然地被分割成两个区间，分别是 0x0 - 0x00007fffffffffff 和 0xffff800000000000 - 0xffffffffffffffff。这样就直接将低 128T 的空间划分为用户空间，高 128T 划分为内核空间。
 
@@ -215,17 +228,37 @@ ed400000-1001e0000 rw-p 00000000 00:00 0
 ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0                  [vsyscall]
 ```
 
-mmap映射内存
-
-<img src="/images/951413iMgBlog/image-20211108122432263.png" alt="image-20211108122432263" style="zoom:20%;" />
-
-私有匿名映射常用于分配内存，也就是申请堆内存
-
 ## 内存管理和使用
+
+### malloc
+
+malloc()分配内存时：
+
+- 如果用户分配的内存小于 128 KB，则通过 brk() 申请内存--在堆顶分配；
+- 如果用户分配的内存大于 128 KB，则通过 mmap()  申请内存--从文件映射区域分配；
+
+![图片](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20220323120420806.png)
+
+![图片](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20220323120443853.png)
+
+对于 「malloc 申请的内存，free 释放内存会归还给操作系统吗？」：
+
+- malloc 通过 **brk()** 方式申请的内存，free 释放内存的时候，**并不会把内存归还给操作系统，而是缓存在 malloc 的内存池中，待下次使用**--小内存分配避免反复调用系统操作导致上下文切换，缺点是没回收容易导致内存碎片进而浪费内存。brk分配出来的内存在maps中显示有heap字样；
+- malloc 通过 **mmap()** 方式申请的内存，free 释放内存的时候，**会把内存归还给操作系统，内存得到真正的释放**。并且mmap分配的虚拟内存都是缺页状态的。
+
+### malloc和mmap
 
 glibc中的malloc/free 负责向内核批发内存（不需要每次分配都真正地去调用内核态来分配），分配好的内存按大小分成不同的桶，每次malloc的时候实际到对应的桶上摘取对应的块(slab)就好，用完free的时候挂回去。
 
-![image-20211118121500859](/images/951413iMgBlog/image-20211118121500859.png)
+![image-20211118121500859](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211118121500859.png)
+
+mmap映射内存
+
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211108122432263.png" alt="image-20211108122432263" style="zoom:20%;" />
+
+私有匿名映射常用于分配内存，也就是申请堆内存
+
+
 
 分桶式内存管理比简单算法无论是在算法效率方面，还是在碎片控制方面都有很大的提升。但它的缺陷也很明显：区域内部的使用率不够高和动态扩展能力不够好。例如，4 字节的区域提前消耗完了，但 8 字节的空闲区域还有很多，此时就会面临两难选择，如果直接分配 8 字节的区域，则区域内部浪费就比较多，如果不分配，则明明还有空闲区域，却无法成功分配。
 
@@ -233,15 +266,15 @@ glibc中的malloc/free 负责向内核批发内存（不需要每次分配都真
 
 ### node->zone->buddy->slab
 
-![img](/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/debfe12e-d1b9-49cd-988d-3f7fcba6ecd2.png)
 
 假如需要分配一块 4 字节大小的空间，但是在 4 字节的 free list 上找不到空闲区域，系统就会往上找，假如 8 字节和 16 字节的 free list 中也没有空闲区域，就会一直向上找到 32 字节的 free list。
 
-![image-20211118120823595](/images/951413iMgBlog/image-20211118120823595.png)
+![image-20211118120823595](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211118120823595.png)
 
 伙伴系统不会直接把 32 的空闲区域分配出去，因为这样做的话，会带来巨大的浪费。它会先把 32 字节分成两个 16 字节，把后边一个挂入到 16 字节的 free list 中。然后继续拆分前一半。前一半继续拆成两个 8 字节，再把后一半挂入到 8 字节的 free list，最后，把前一半 8 字节拿去分配，当然这里也要继续拆分成两个 4 字节的空闲区域，其中一个用于本次 malloc 分配，另一个则挂入到 4 字节的 free list。分配后的内存的状态如下所示：
 
-![image-20211118120851731](/images/951413iMgBlog/image-20211118120851731.png)
+![image-20211118120851731](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211118120851731.png)
 
 ### 查看zone
 
@@ -321,13 +354,13 @@ Normal那行之后的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列
 
 `cat /proc/pagetypeinfo`, 你可以看到当前系统里伙伴系统里各个尺寸的可用连续内存块数量。unmovable pages是不可以被迁移的，比如slab等kmem都不可以被迁移，因为内核里面对这些内存很多情况下是通过指针来访问的，而不是通过页表，如果迁移的话，就会导致原来的指针访问出错。
 
-![img](/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2e73247c-8a10-43e6-bb0e-49ecfff14268.png)
 
 **当迁移类型为 Unmovable 的页面都聚集在 order < 3 时，说明内核 slab 碎片化严重**
 
 alloc_pages分配内存的时候就到上面对应大小的free_area的链表上寻找可用连续页面。`alloc_pages`是怎么工作的呢？我们举个简单的小例子。假如要申请8K-连续两个页框的内存。为了描述方便，我们先暂时忽略UNMOVEABLE、RELCLAIMABLE等不同类型
 
-![img](/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16ebe996-0e3a-4d67-810f-3121b457271e.png)
 
 基于伙伴系统的内存分配中，有可能需要将大块内存拆分成两个小伙伴。在释放中，可能会将两个小伙伴合并再次组成更大块的连续内存。
 
@@ -349,11 +382,11 @@ slabtop和/proc/slabinfo 查看cached使用情况 主要是：pagecache（页面
 
 通过查看 `/proc/slabinfo` 我们可以查看到所有的 kmem cache。
 
-![img](/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5135d81f-6985-4d6a-8896-e451c0ba20f5.png)
 
 slabtop 按占用内存从大往小进行排列。用来分析 slab 内存开销。
 
-![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
+![0d8a26db-3663-40af-b215-f8601ef23676.png (1388×1506)](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0d8a26db-3663-40af-b215-f8601ef23676.png)
 
 无论是 `/proc/slabinfo`，还是 slabtop 命令的输出。里面都包含了每个 cache 中 slab的如下几个关键属性。
 
@@ -380,7 +413,7 @@ TCP                 6090   6144   1984   16    8 : tunables    0    0    0 : sla
 
 直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。
 
-<img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 50%;" />
 
 可以通过 sar -r 来观察系统中的脏页个数：
 
@@ -422,7 +455,7 @@ full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082
 
 你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
 
-![image.png](/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
 
 ## 碎片化
 
@@ -504,13 +537,13 @@ sum=802 MB
 
 LVS后面三个RS在同样压力流量下，其中一个节点CPU非常高，通过top看起来是所有操作都很慢，像是CPU被降频了一样，但是直接跑CPU Prime性能又没有问题
 
-![image.png](/images/oss/8bbb5c886dc06196546daec46712ff71.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8bbb5c886dc06196546daec46712ff71.png)
 
 原因：ECS所在的宿主机内存碎片比较严重，导致分配到的内存主要是4K Page，在ECS中大页场景下会慢很多
 
 通过 **openssl speed aes-256-ige 能稳定重现** 在大块的加密上慢很多
 
-![image.png](/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8e15e91d4dcc61bbd329e7283c7c7500.png)
 
 小块上性能一致，这也就是为什么算Prime性能没问题。导致慢只涉及到大块内存分配的场景，这里需要映射到宿主机，但是碎片多分配慢导致了问题。
 

@@ -159,6 +159,28 @@ OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(l
 
 当然systemd-journald 重启也不一定意味着OOM Killer，只是肯定是内存比较紧张了。
 
+
+
+## [What is the difference between syslog, rsyslog and syslog-ng? ](https://serverfault.com/questions/692309/what-is-the-difference-between-syslog-rsyslog-and-syslog-ng)
+
+Basically, they are all the same, in the way they all permit the logging of data from different types of systems in a central repository.
+
+But they are three different project, each project trying to improve the previous one with more reliability and functionalities.
+
+The `Syslog` project was the very first project. It started in 1980. It is the root project to `Syslog` protocol. At this time Syslog is a very simple protocol. At the beginning it only supports UDP for transport, so that it does not guarantee the delivery of the messages.
+
+Next came `syslog-ng` in 1998. It extends basic `syslog` protocol with new features like:
+
+- content-based filtering
+- Logging directly into a database
+- TCP for transport
+- TLS encryption
+
+Next came `Rsyslog` in 2004. It extends `syslog` protocol with new features like:
+
+- RELP Protocol support
+- Buffered operation support
+
 ## rsyslog和journald的基础知识
 
 `systemd-journald`是用来协助`rsyslog`记录系统启动服务和服务启动失败的情况等等. `systemd-journald`使用内存保存记录, 系统重启记录会丢失. 所有还要用`rsyslog`来记录分类信息, 如上面`/etc/rsyslog.d/listen.conf`中的`syslog`分类.

@@ -271,19 +271,38 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 
 这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。
 
+但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加
+
+所以推出NGLB来解决这个问题
+
 ## 阿里云的NGLB
 
-下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景
+下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。
+
+![NGLB_pic.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png)
+
+### SLB模块简介
+
+1. toa模块主要用在Classic网络SLB/ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见/lib/modules/`uname -r`/kernel/net/toa/toa.ko）。
+2. vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB/ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB/ALB发送给后端RS的报文中源IP已经被替换为SLB/ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。
+3. ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport<->rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport<->vip:vport）
+4. vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。
+
+!！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:
+
+> vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。
+> 当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。
+> 如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。
 
 ## 阿里云 SLB 的双机房高可用
 
 主备模式，备用机房没有流量。
 
-SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。
+SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。
 
-案例:
+### 案例
 
-主机房通过bgp协议发送/27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。
+主机房通过bgp协议发送 /27 的路由到lsw，csr，备机房发布 /26 路由到lsw, csr。
 
 正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。
 当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。
@@ -301,8 +320,6 @@ SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态�
 #### LVS Group
 
 每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；
-
-
 
 ## 一些数据
 

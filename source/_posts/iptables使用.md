@@ -257,7 +257,7 @@ iptables -I INPUT -m state --state NEW -j LOG --log-prefix "Connection In: "
 iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix "Connection Out: "
 ```
 
-~~在宿主机上执行，然后再/var/log/syslog中能看到包的传递流程~~
+在宿主机上执行，然后在dmesg中能看到包的传递流程。只有raw有TRACE能力，nat、filter、mangle都没有。这个方式对性能影响非常大，时延高（增加1秒左右）
 
 ```
 iptables -t raw -A OUTPUT -p icmp -j TRACE
@@ -291,7 +291,7 @@ iptables -A OUTPUT -p tcp --dport 31165 -j DROP
 
 iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5
 
-![Image](/images/951413iMgBlog/640-7027461.)
+![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-7027461.)
 
 ### ncat端口转发
 
@@ -358,6 +358,25 @@ grep "Failed" /var/log/auth.log | \
 - `FORWARD`: 由 `NF_IP_FORWARD` hook 触发
 - `OUTPUT`: 由 `NF_IP_LOCAL_OUT` hook 触发
 - `POSTROUTING`: 由 `NF_IP_POST_ROUTING` hook 触发
+
+
+
+如果没有匹配到任何规则那么执行默认规则。下面括号中的policy
+
+```
+#iptables -L | grep policy
+Chain INPUT (policy ACCEPT)
+Chain FORWARD (policy ACCEPT)
+Chain OUTPUT (policy ACCEPT)
+```
+
+If you would rather deny all connections and manually specify which ones you want to allow to connect, you should change the default policy of your chains to drop. Doing this would probably only be useful for servers that contain sensitive information and only ever have the same IP addresses connect to them.
+
+> ```
+> iptables --policy INPUT DROP`
+> `iptables --policy OUTPUT DROP`
+> `iptables --policy FORWARD DROP
+> ```
 
 ## 参考资料
 

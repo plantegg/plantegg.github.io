@@ -12,9 +12,13 @@ tags:
 
 ## 精华文章推荐
 
+#### [国产CPU和Intel、AMD性能PK](/2022/01/13/%E4%B8%8D%E5%90%8CCPU%E6%80%A7%E8%83%BD%E5%A4%A7PK/) 从Intel、AMD、海光、鲲鹏920、飞腾2500 等CPU在TPCC、sysbench下的性能对比来分析他们的性能差距，同时分析内存延迟对性能的影响
+
+![image-20220319115644219](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220319115644219.png)
+
 #### [CPU的制造和概念](/2021/06/01/CPU的制造和概念/) 从最底层的沙子开始用8篇文章来回答关于CPU的各种疑问以及大量的实验对比案例和测试数据来展示了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）。
 
-![image-20210802161410524](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161410524.png)
+![image-20210802161410524](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161410524-1011377.png) 
 
 #### [在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/ 文章描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在2014年修复了https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。](2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/)
 
@@ -24,7 +28,7 @@ tags:
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d567449fe52725a9d0b9d4ec9baa372c.png)
 
-#### [10倍性能提升全过程](2018/01/23/10+%E5%80%8D%E6%80%A7%E8%83%BD%E6%8F%90%E5%8D%87%E5%85%A8%E8%BF%87%E7%A8%8B/) 在双11的紧张流程下，将系统tps从500优化到5500，从网络到snat、再到Spring和StackTrace，一个性能全栈工程师如何发现各种问题的。
+#### [10倍性能提升全过程](2018/01/23/10+%E5%80%8D%E6%80%A7%E8%83%BD%E6%8F%90%E5%8D%87%E5%85%A8%E8%BF%87%E7%A8%8B/) 在双11的紧张流程下，将系统tps从500优化到5500，从网络到snat、再到Spring和StackTrace，一次全栈性能优化过程的详细记录和分析。
 
 ![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/05703c168e63e96821ea9f921d83712b.png)
 

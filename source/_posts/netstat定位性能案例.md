@@ -42,13 +42,13 @@ netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过�
 
 #### 自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
-![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 
 
 #### 下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)
 
-<img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
 
 send-q表示回复从9108发走了，没收到对方的ack，**基本可以推断client端到9108之间有瓶颈**
 

@@ -129,3 +129,23 @@ A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候�
 Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？
 A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。
 
+Q: 到哪里可以设置MSS
+
+A: 网卡配置--ifconfig；ip route在路由上指定；iptables中限制
+
+> \# Add rules
+> $ sudo iptables -I OUTPUT -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 48
+> \# delete rules
+> $ sudo iptables -D OUTPUT -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 48
+>
+> 
+>
+> \# show router information
+> $ route -ne
+> $ ip route show
+> 192.168.11.0/24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100
+> \# modify route table
+> $ sudo ip route change 192.168.11.0/24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100 advmss 48
+
+
+

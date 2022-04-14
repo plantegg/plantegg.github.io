@@ -108,13 +108,13 @@ tags:
 
 挺奇怪和挺有意思吧，作者还给出了传输数据的图表：
 
-![](http://www.stuartcheshire.org/papers/nagledelayedack/Fail.jpg)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Fail.jpg)
 
 这是有问题的传输图，明显有个平台层，这个平台层就是两边在互相等，整个速度肯定就上不去。
 
 如果传输的都是99,900，那么整个图形就很平整：
 
-![](http://www.stuartcheshire.org/papers/nagledelayedack/Pass.jpg)
+![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Pass.jpg)
 
 
 ## 回到前面的问题

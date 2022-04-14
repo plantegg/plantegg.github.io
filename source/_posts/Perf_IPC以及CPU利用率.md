@@ -44,7 +44,7 @@ tags:
 
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
-![image-20210802161455950](/images/951413iMgBlog/image-20210802161455950.png)
+![image-20210802161455950](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210802161455950.png)
 
 ## 程序性能
 
@@ -66,15 +66,15 @@ cycles：CPU时钟周期。CPU从它的指令集(instruction set)中选择指令
 - 	内存访问(memory access，MEM)
 - 	寄存器回写(register write-back， WB)
 
-![skylake server block diagram.svg](/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
+![skylake server block diagram.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png)
 
 以上结构简化成流水线就是：
 
-![image-20210511154816751](/images/951413iMgBlog/image-20210511154816751.png)
+![image-20210511154816751](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511154816751.png)
 
 IF/ID 就是我们常说的前端，他负责不停地取指和译指，然后为后端提供译指之后的指令，最核心的优化就是要做好**分支预测**，终归取指是要比执行慢，只有提前做好预测才能尽量匹配上后端。后端核心优化是要做好执行单元的并发量，以及乱序执行能力，最终要将乱序执行结果正确组合并输出。
 
-在流水线指令之前是单周期处理器：也就是一个始终周期完成一条指令。每个时钟周期必须完成取指、译码、读寄存器、 执行、访存等很多组合逻辑工作，为了保证在下一个时钟上升沿到来之前准备好寄存器堆的写数 据，需要将每个时钟周期的间隔拉长，导致处理器的主频无法提高。
+在流水线指令之前是单周期处理器：也就是一个周期完成一条指令。每个时钟周期必须完成取指、译码、读寄存器、 执行、访存等很多组合逻辑工作，为了保证在下一个时钟上升沿到来之前准备好寄存器堆的写数 据，需要将每个时钟周期的间隔拉长，导致处理器的主频无法提高。
 
 使用流水线技术可以提高处 理器的主频。五个步骤只能串行，**但是可以做成pipeline提升效率**，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。
 
@@ -106,7 +106,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 - 非流水线：
 
-![image-20210511154859711](/images/951413iMgBlog/image-20210511154859711.png)
+![image-20210511154859711](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511154859711.png)
 
 
 
@@ -116,23 +116,23 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 - 标量流水线, 标量（Scalar）流水计算机是**只有一条指令流水线**的计算机:
 
-![image-20210511155530477](/images/951413iMgBlog/image-20210511155530477.png)
+![image-20210511155530477](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511155530477.png)
 
  
 
 进一步优化，如果我们加大流水线的条数，让多个指令并行执行，就能得到更高的IPC了，但是这种并行必然会有指令之间的依赖，比如第二个指令依赖第一个的结果，所以多个指令并行更容易出现互相等待(stall).
 
-![img](/images/951413iMgBlog/58c7dc9084fa648f204a6468209ca788.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/58c7dc9084fa648f204a6468209ca788.png)
 
 在每个时钟周期的开始，指令的部分数据和控制信息都保存在流水线锁存器中，并且该信息形成了下一个流水线的逻辑电路输入。在时钟周期内，信号通过组合逻辑传播，从而在时钟周期结束时及时产生输出，以供下一个pipeline锁存器捕获。
 
-​    早期的RISC处理器，例如IBM的801原型，MIPS R2000（基于斯坦福MIPS机器）和原始的SPARC（来自Berkeley RISC项目），都实现了一个简单的5阶段流水线，与上面所示的流水线不同（ 额外的阶段是内存访问，在执行后存放结果）。在那个时代，主流的CISC架构80386、68030和VAX处理器使用微码顺序工作（通过RISC进行流水作业比较容易，因为指令都是简单的寄存器到寄存器操作，与x86、68k或VAX不同）。导致的结果，以20 MHz运行的SPARC比以33 MHz运行的386快得多。从那以后，每个处理器都至少在某种程度上进行了流水线处理。
+早期的RISC处理器，例如IBM的801原型，MIPS R2000（基于斯坦福MIPS机器）和原始的SPARC（来自Berkeley RISC项目），都实现了一个简单的5阶段流水线，与上面所示的流水线不同（ 额外的阶段是内存访问，在执行后存放结果）。在那个时代，主流的CISC架构80386、68030和VAX处理器使用微码顺序工作（通过RISC进行流水作业比较容易，因为指令都是简单的寄存器到寄存器操作，与x86、68k或VAX不同）。导致的结果，以20 MHz运行的SPARC比以33 MHz运行的386快得多。从那以后，每个处理器都至少在某种程度上进行了流水线处理。
 
-![img](/images/951413iMgBlog/e6d5e70e0cbdc4ba662d79f2306758b6.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e6d5e70e0cbdc4ba662d79f2306758b6.png)
 
 - 超标量流水线：所谓超标量（Superscalar）流 水计算机，是指它**具有两条以上的指令流水线**, 超标流水线数量也就是ALU执行单元的并行度
 
-![image-20210511155708234](/images/951413iMgBlog/image-20210511155708234.png)
+![image-20210511155708234](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210511155708234.png)
 
 一般而言流水线的超标量不能超过单条流水线的深度
 
@@ -140,7 +140,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 下图中，处理器可能每个周期执行3条不同的指令，例如，一个整数，一个浮点和一个存储器操作。 甚至可以添加更多的功能单元，以便处理器能够在每个周期执行两个整数指令，或两个浮点指令，或使用任何其他方式。
 
-![img](/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png)
 
 流水线的设计可以实现不间断取指、解码、执行、写回，也可以同时做几条流水线一起取指、解码、执行、写回，也就引出了超标量设计。
 
@@ -152,11 +152,19 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 多发射分发逻辑的复杂性随着发射数量呈现平方和指数的变化。也就是说，5发射处理器的调度逻辑几乎是4发射设计的两倍，其中6发射是4倍，而7发射是8倍，依此类推。
 
+### 流水线的实际效果
+
+假如一个15级的流水线，如果处理器要将做无用功的时间限制在 10%，那么它必须在正确预测每个分支的准确率达到 99.3%（因为错误一次，15级流水线都要重置，所以错误会放大15倍，0.7*15=10） 。很少有通用程序能够如此准确地预测分支。
+
+下图是不同场景在英特尔酷睿 i7 基准测试，可以看到有19% 的指令都被浪费了，但能耗的浪费情况更加严重，因为处理器必须利用额外的能量才能在推测失误时恢复原来的状态。这样的度量导致许多人得出结论，架构师需要一种不同的方法来实现性能改进。于是多级流水线不能疯狂增加，这样只能往多核发展。
+
+![f4.jpg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/f4.jpg)
+
 ### Deeper Pipelines深度流水线
 
 ​    由于时钟速度受流水线中最长阶段的长度的限制，因此每个级的逻辑门可以再细分，尤其是较长的逻辑门，从而将流水线转换为更深的深度流水线,各阶段的数量长度变小而阶段总数量变多，如下图。
 
-![img](/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png)
 
 ​    这样整个处理器可以更高的时钟速度运行。当然，每个指令将需要更多的周期来完成（等待时间），但是处理器仍将在每个周期中完成1条指令，这样每秒将有更多的周期，处理器每秒将完成更多的指令。
 
@@ -212,7 +220,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 每一个功能单元的流水线的长度是不同的。事实上，不同的功能单元的流水线长度本来就不一样。我们平时所说的 14 级流水线，指的通常是进行整数计算指令的流水线长度。如果是浮点数运算，实际的流水线长度则会更长一些。
 
-![img](/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg)
 
 
 
@@ -220,11 +228,11 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 在第 1 条指令执行到访存（MEM）阶段的时候，流水线里的第 4 条指令，在执行取指令（Fetch）的操作。访存和取指令，都要进行内存数据的读取。我们的内存，只有一个地址译码器的作为地址输入，那就只能在一个时钟周期里面读取一条数据，没办法同时执行第 1 条指令的读取内存数据和第 4 条指令的读取指令代码。
 
-![img](/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg)
 
 把内存拆成两部分的解决方案，在计算机体系结构里叫作哈佛架构（Harvard Architecture），来自哈佛大学设计Mark I 型计算机时候的设计。我们今天使用的 CPU，仍然是冯·诺依曼体系结构的，并没有把内存拆成程序内存和数据内存这两部分。因为如果那样拆的话，对程序指令和数据需要的内存空间，我们就没有办法根据实际的应用去动态分配了。虽然解决了资源冲突的问题，但是也失去了灵活性。
 
-![img](/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg)
 
 在流水线产生依赖的时候必须pipeline stall，也就是让依赖的指令执行NOP。
 
@@ -232,23 +240,57 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 Intel xeon
 
-![img](/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg)
 
 不同架构带来IPC变化：
 
-![img](/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg)
 
 Intel 最新的CPU Ice Lake和其上一代的性能对比数据：
 
-![img](/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg)
 
 上图最终结果导致了IPC提升了20%，以及整体效率的提升：
 
-![img](/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png)
 
 ## perf 使用
 
 主要是通过采集 PMU（Performance Monitoring Unit -- CPU内部提供）数据来做性能监控
+
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5edebc74-f8ac-483c-8bcd-24e09abfd06b.png)
+
+Perf 是一个包含 22 种子工具的工具集，每个工具分别作为一个子命令。
+
+annotate 命令读取 perf.data 并显示注释过的代码;diff 命令读取两个 perf.data 文件并显示两份剖析信息之间的差异; 
+
+evlist 命令列出一个 perf.data 文件的事件名称;
+
+inject 命令过滤以加强事件流，在其中加入额外的信 息;
+
+kmem 命令为跟踪和测量内核中 slab 子系统属性的工具;
+
+kvm 命令为跟踪和测量 kvm 客户机操 作系统的工具;
+
+list 命令列出所有符号事件类型;
+
+lock 命令分析锁事件;
+
+probe 命令定义新的动态跟 踪点;
+
+record 命令运行一个程序，并把剖析信息记录在 perf.data 中;
+
+report 命令读取 perf.data 并显 示剖析信息;
+
+sched 命令为跟踪和测量内核调度器属性的工具;
+
+script 命令读取 perf.data 并显示跟踪 输出;
+
+stat 命令运行一个程序并收集性能计数器统计信息;
+
+timechart 命令为可视化某个负载在某时 间段的系统总体性能的工具;
+
+top 命令为系统剖析工具。
 
 ```asm
 sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）
@@ -373,7 +415,7 @@ _raw_spin_lock_irqsave  /proc/kcore
 	     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)
 
 
-![image.png](/images/oss/f96e50b5f3d0825b68be5b654624f839.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f96e50b5f3d0825b68be5b654624f839.png)
 
 
 
@@ -460,7 +502,7 @@ CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验
 
 如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT。
 
-![image.png](/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png)
 
 physical id对应socket，也就是物理上购买到的一块CPU； core id对应着每个物理CPU里面的一个物理core，同一个phyiscal id下core id一样说明开了HT
 
@@ -468,11 +510,11 @@ physical id对应socket，也就是物理上购买到的一块CPU； core id对�
 
 IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是从core里面取到的，不针对具体进程。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍
 
-![image-20210513123233344](/images/951413iMgBlog/image-20210513123233344.png)
+![image-20210513123233344](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210513123233344.png)
 
 对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64=3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%
 
-![image-20210513130252565](/images/951413iMgBlog/image-20210513130252565.png)
+![image-20210513130252565](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210513130252565.png)
 
 以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)
 
@@ -525,11 +567,11 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 案例：
 
-![image.png](/images/oss/864427c491497acb02d37c02cb35eeb2.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/864427c491497acb02d37c02cb35eeb2.png)
 
 对如上两个pause指令以及一个 count++（addq），进行perf top：
 
-![image.png](/images/oss/40945b005eb9f716e429fd30be55b6d1.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/40945b005eb9f716e429fd30be55b6d1.png)
 
 可以看到第一个pasue在perf top中cycles为0，第二个为46.85%，另外一个addq也有48.83%，基本可以猜测perf top在这里数据都往后挪了一个。
 
@@ -572,7 +614,7 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 在ECS会采集不到 cycles等，cpu-clock、page-faults都是内核中的软事件，cycles/instructions得采集cpu的PMU数据，ECS采集不到这些PMU数据。
 
-![image.png](/images/oss/a120388ff72d712a4fd176e7cea005cf.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a120388ff72d712a4fd176e7cea005cf.png)
 
 ## Perf 和 false share cache_line
 

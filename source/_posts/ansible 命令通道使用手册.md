@@ -1,5 +1,5 @@
 ---
-title: ansible 命令通道使用手册
+title: ansible 命令使用手册
 date: 2016-03-24 17:30:03
 categories: Ansible
 tags:
@@ -7,18 +7,20 @@ tags:
     - Linux
 ---
 
-# ansible 命令通道使用手册
+# ansible 命令使用手册
 
 ## 什么是命令通道？
 
-> 当我们需要批量操作、查看一组机器，或者在这些机器上批量执行某个命令、修改某个文件，都可以通过命令通道在一台机器上批量并发完成对所有机器的操作
+有时候一些简单任务，没必要写复杂的playbook，所以大多时候我们可以通过ansible命令行来批量操控目标机器
 
+> 当我们需要批量操作、查看一组机器，或者在这些机器上批量执行某个命令、修改某个文件，都可以通过命令通道在一台机器上批量并发完成对所有机器的操作
+>
 > 命令通道只是一个帮你将命令发送到多个目标机器，并将执行结果返回来给你的一个执行通道
 
 ## 使用场景
 
-- [执行一行命令就能看到几十台机器的负载情况](http://gitlab.alibaba-inc.com/middleware-ansible/ansible-doc/wikis/UDP_Command_channel#hosts-ini-uptime)
-- [批量执行远程服务器上已经写好的Shell脚本](http://gitlab.alibaba-inc.com/middleware-ansible/ansible-doc/wikis/UDP_Command_channel/#shell)
+- 执行一行命令就能看到几十台机器的负载情况
+- 批量执行远程服务器上已经写好的Shell脚本
 - 查看所有Web服务器最近10000行Log中有没有ERROR
 - 查看所有DB服务器的内存使用情况
 - 批量将所有Diamond服务器的某个端口从7000改成9000
@@ -43,9 +45,10 @@ tags:
 10.125.7.151
 192.168.2.[101:107]
 ```
-> server/worker/target表示将7台机器分成了三组，可以到所有7台机器执行同一个命令，也可以只在server/worker/target中的一组机器上执行某个命令.all代表所有7台机器
+server/worker/target表示将7台机器分成了三组，可以到所有7台机器执行同一个命令，也可以只在server/worker/target中的一组机器上执行某个命令.all代表所有7台机器
 
-## 运行命令通道
+## 运行命令行
+
 ### 查看 hosts.ini 里面所有服务器的 uptime
 
 	```
@@ -54,15 +57,10 @@ tags:
 	
 	success => 10.125.12.174 => rc=0 =>
 	 11:10:50 up 27 days, 15:40,  1 user,  load average: 0.05, 0.03, 0.05
+	success => 120.26.116.193 => rc=0 =>
+	 11:10:50 up 13 days, 21:07,  1 user,  load average: 0.00, 0.00, 0.00
 
-
-​	
-​	success => 120.26.116.193 => rc=0 =>
-​	 11:10:50 up 13 days, 21:07,  1 user,  load average: 0.00, 0.00, 0.00
-​	
-​	```
-
-> 命令参数说明
+命令参数说明
 
 >    __all:__  表示对hosts.ini里面的所有服务器执行后面的命令 
 
@@ -85,16 +83,13 @@ tags:
 	drwxr-xr-x  2 root  root  4.0K Nov 13 12:34 files
 	drwxr-xr-x 11 admin admin 4.0K Oct 20 10:49 tomcat
 	drwxr-xr-x  3 test  games 4.0K Nov 18 15:40 ansible-engine
-
-​	success => 10.125.3.33 => rc=0 =>
-​	total 20K
-​	-rw-------  1 admin admin 1.4K Nov 12 13:39 authorized_keys
-​	drwxr-xr-x  2 root  root  4.0K Nov 12 16:24 engine
-​	drwxr-xr-x  2 root  root  4.0K Nov 13 12:22 files
-​	drwxr-xr-x 11 admin admin 4.0K Nov 18 15:43 tomcat
-​	drwxr-xr-x  3 test  games 4.0K Nov 18 15:40 ansible-engine
-
-
+	success => 10.125.3.33 => rc=0 =>
+	total 20K
+	-rw-------  1 admin admin 1.4K Nov 12 13:39 authorized_keys
+	drwxr-xr-x  2 root  root  4.0K Nov 12 16:24 engine
+	drwxr-xr-x  2 root  root  4.0K Nov 13 12:22 files
+	drwxr-xr-x 11 admin admin 4.0K Nov 18 15:43 tomcat
+	drwxr-xr-x  3 test  games 4.0K Nov 18 15:40 ansible-engine
 
 ### 查看部分机器 hostname
 
@@ -329,13 +324,11 @@ FAILED => 120.26.116.193 => rc=1 =>
 which: no nc in (/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin)
 find: /opt/aliUDP: No such file or directory
 
-
 success => 10.125.3.33 => rc=0 =>
 /usr/bin/nc
 /opt/aliUDP/logs/
 /opt/aliUDP/logs/ansible.log.bak
 /opt/aliUDP/logs/ansible.log
-
 
 success => 10.125.0.169 => rc=0 =>
 /usr/bin/nc
@@ -345,7 +338,7 @@ success => 10.125.0.169 => rc=0 =>
 
 ```
 
->结果说明
+结果说明
 
 >   其中  120.26.116.193 上没有命令 nc 和 /opt/aliUDP 文件夹所有执行失败，但是其他两台机器都正常返回了结果
 
@@ -398,10 +391,10 @@ SUCCESS => 10.125.3.33 => {
     "uid": 500
 }
 ```
->参数说明
+参数说明
 
 >    __-m copy -a:__ 指定这是 **copy** 的命令
-
+>
 >    __"  src='~/.ssh/id_rsa.pub' dest='/tmp/' "__ src表示本地文件 dest表示远程目标位置
 
 ### 验证一下刚刚copy上去的文件的MD5值
@@ -434,8 +427,9 @@ date
 
 df -lh
 ```
+执行结果
 
-```
+```shell
 $ ansible  -i hosts.ini server  -m command -a " sh /tmp/test.sh " -u admin
 
 /usr/bin/ansible -i hosts.ini server -m command -a  sh /tmp/test.sh  -u admin
@@ -443,36 +437,6 @@ $ ansible  -i hosts.ini server  -m command -a " sh /tmp/test.sh " -u admin
 success => 10.125.3.33 => rc=0 =>
           inet addr:10.125.3.33  Bcast:10.125.15.255  Mask:255.255.240.0
           inet addr:127.0.0.1  Mask:255.0.0.0
--------------
- 10:50:51 up 28 days, 15:20,  2 users,  load average: 0.01, 0.05, 0.06
--------------
-Thu Dec  3 10:50:51 CST 2015
-Filesystem            Size  Used Avail Use% Mounted on
-/dev/xvda1            250G  7.8G  230G   4% /
-tmpfs                 2.0G  148K  2.0G   1% /dev/shm
-
-success => 10.125.0.169 => rc=0 =>
-          inet addr:10.125.0.169  Bcast:10.125.15.255  Mask:255.255.240.0
-          inet addr:127.0.0.1  Mask:255.0.0.0
--------------
- 10:50:51 up 29 days, 44 min,  3 users,  load average: 0.00, 0.01, 0.05
--------------
-Thu Dec  3 10:50:51 CST 2015
-Filesystem            Size  Used Avail Use% Mounted on
-/dev/xvda1            250G  8.2G  230G   4% /
-tmpfs                 2.0G   72K  2.0G   1% /dev/shm
-
-success => 120.26.116.193 => rc=0 =>
-          inet addr:10.51.38.122  Bcast:10.51.39.255  Mask:255.255.248.0
-          inet addr:120.26.116.193  Bcast:120.26.119.255  Mask:255.255.252.0
-          inet addr:127.0.0.1  Mask:255.0.0.0
--------------
- 10:50:51 up 14 days, 20:47,  0 users,  load average: 0.00, 0.00, 0.00
--------------
-2015年 12月 03日 星期四 10:50:51 CST
-Filesystem            Size  Used Avail Use% Mounted on
-/dev/hda1              20G  1.5G   19G   8% /
-tmpfs                 249M     0  249M   0% /dev/shm
 
 ```
 
@@ -480,7 +444,6 @@ tmpfs                 249M     0  249M   0% /dev/shm
 
 ```
 $ ansible -i ansible-hosts.ini all -m authorized_key -a " user=xijun.rxj key=\"{{ lookup('file', '/tmp/id_rsa.pub') }} \"  " -u xijun.rxj -k
-
 ```
 
 ### Copying files between different folders on the same remote machine
@@ -505,15 +468,11 @@ or:
 ansible blocks -m copy -a "src=/tmp/hello6 dest=/tmp/hello7etc remote_src=yes" -s -i inventory.ini
 ```
 
-
-
 ### 效率更高的 copy：synchronize
 
 ```
 ansible -i xty_172.ini all -m synchronize -a " src=/home/ren/docker.service dest=/usr/lib/systemd/system/docker.socket " -u root
 ```
-
-
 
 ### 不使用 hosts.ini文件，从命令行中传入目标机的 ip 列表
 
@@ -620,7 +579,7 @@ PLAY RECAP *********************************************************************
 ### setup:获取机器配置、参数信息
 
 ```
-# ansible -i 192.168.1.91, all -m setup -u admin/usr/lib/python2.7/site-
+# ansible -i 192.168.1.91, all -m setup -u admin
 192.168.1.91 | SUCCESS => {
     "ansible_facts": {
         "ansible_all_ipv4_addresses": [
@@ -1413,8 +1372,6 @@ PLAY RECAP *********************************************************************
 ansible -i host.ini all -m shell -a "docker ps -a | grep pxd-tpcc | grep dn | cut -d ' ' -f 1 | xargs  -I{} docker exec {} bash -c \"myc -e 'shutdown'\""
 ```
 
-
-
 ## 指定ip执行playbook
 
 > ansible-playbook  -i "10.168.101.179," all test.yml
@@ -1487,7 +1444,7 @@ $cat create_user.yml
 
 playbook task规范：
 
-![image.png](/images/oss/d502a11765273304abd673fb358b482a.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d502a11765273304abd673fb358b482a.png)
 
 **对齐的时候不能用tab和空格混合**
 

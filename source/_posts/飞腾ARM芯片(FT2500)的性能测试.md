@@ -19,7 +19,7 @@ tags:
 
  ARM公司最早是由赫尔曼·豪泽（Hermann Hauser）和工程师Chris Curry在1978年创立（早期全称是 Acorn RISC Machine），后来改名为现在的ARM公司（Advanced RISC Machine）
 
-![img](/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/ac0bac75ae745316e0c011ffdc5a78a5.png)
 
 ### ARM 芯片厂家
 
@@ -58,7 +58,7 @@ vendor id对应厂家
 
 2012年ARM正式推出了自己的第一个64位指令集处理器架构ARMv8，进入服务器等新的领域。此后飞腾放弃了SPARC，拿了ARMv8指令集架构的授权，全面转向了ARM阵营，芯片roadmap如下：
 
-![img](/images/951413iMgBlog/3407604faa7ca9a87fa26610606081ab.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/3407604faa7ca9a87fa26610606081ab.png)
 
 ### [测试芯片详细信息](https://pdf.dfcfw.com/pdf/H3_AP202010201422468889_1.pdf?1603181661000.pdf)
 
@@ -160,31 +160,31 @@ node   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
  15:  100  100  100  100  100  100  100  100  40  50  30  50  20  40  30  10
 ```
 
-![image-20210422121346490](/images/951413iMgBlog/image-20210422121346490.png)
+![image-20210422121346490](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422121346490.png)
 
 cpu详细信息：
 
-![img](/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e177902c-73b2-4535-9c1f-2726451820db.png)
 
 飞腾芯片，按如下distance绑核基本没区别！展示出来的distance是假的一样
 
-![img](/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5a19ff61-68db-4c65-be4c-6b6c155a8a29.png)
 
 FT2500芯片集成的 64 个处理器核心，划分为 8 个 Panel，每个 Panel 中有两个 Cluster (每个 Cluster 包含 4 个处理器核心及共享的 2M 二级 cache)、两个本地目录控 制部件(DCU)、一个片上网络路由器节点(Cell)和一个紧密耦合的访存控制 器(MCU)。Panel 之间通过片上网络接口连接，一致性维护报文、数据报文、 调测试报文、中断报文等统一从同一套网络接口进行路由和通信
 
 一个Panel的实现是FTC663版本，采用四发射乱序超标量流水线结构，兼容 ARMv8 指令集，支持 EL0~EL3 多个特权级。流水线分为取指、译码、分派、执 行和写回五个阶段，采用顺序取指、乱序执行、顺序提交的多发射执行机制，取 值宽度、译码宽度、分派宽度均是 4 条指令，共有 9 个执行部件(或者称为 9 条功能流水线)，分别是 4 个整数部件、2 个浮点部件、1 个 load 部件、1 个 load/store 部件和 1 个系统管理指令执行部件。浮点流水线能够合并执行双路浮点 SIMD 指 令，实现每拍可以执行 4 条双精度浮点操作的峰值性能。
 
-![image-20210910120438276](/images/951413iMgBlog/image-20210910120438276.png)
+![image-20210910120438276](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910120438276.png)
 
 猜测FT2500 64core用的是一个Die, 但是core之间的连接是Ring Bus，而Ring Bus下core太多后延迟会快速增加，所以一个Die 内部做了8个小的Ring Bus，每个Ring Bus下8个core。
 
 ### 飞腾官方提供的测试结果
 
-![image-20210909175954574](/images/951413iMgBlog/image-20210909175954574.png)
+![image-20210909175954574](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210909175954574.png)
 
 ### 飞腾2500 和 鲲鹏9200 参数对比
 
-![image-20210422095217195](/images/951413iMgBlog/image-20210422095217195.png)
+![image-20210422095217195](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210422095217195.png)
 
 ### FT2000与FT2500差异
 
@@ -218,23 +218,23 @@ FT2500芯片集成的 64 个处理器核心，划分为 8 个 Panel，每个 Pan
 
 以下测试场景基本都是运行CPU和网络瓶颈的业务逻辑，绑核前IPC只有0.08
 
-![img](/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 绑核后对性能提升非常明显：
 
-![img](/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 点查场景：
 
-![image-20210425092158127](/images/951413iMgBlog/image-20210425092158127.png)
+![image-20210425092158127](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425092158127.png)
 
 如上是绑48-63号核
 
-![image-20210425091727122](/images/951413iMgBlog/image-20210425091727122.png)
+![image-20210425091727122](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091727122.png)
 
-![image-20210425091557750](/images/951413iMgBlog/image-20210425091557750.png)
+![image-20210425091557750](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425091557750.png)
 
-![image-20210425093630438](/images/951413iMgBlog/image-20210425093630438.png)
+![image-20210425093630438](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425093630438.png)
 
 绑不同的核性能差异比较大，比如同样绑第一个socket最后16core和绑第二个socket最后16core，第二个socket的最后16core性能要好25-30%---**这是因为网卡软中断，如果将软中断绑定到0-4号cpu后差异基本消失**,因为网卡队列设置的是60，基本跑在前60core上，也就是第一个socket上。
 
@@ -318,7 +318,7 @@ mapped    :         4742 (  0.02 GB)
 
 绑核前后对比：绑核后QPS翻倍，绑核后的服务rt从7.5降低到了2.2，rt下降非常明显，可以看出主要是绑核前跨numa访问慢。**实际这个测试是先跑的不绑核，内存分布在所有NUMA上，没有重启再绑核就直接测试了，所以性能提升不明显，因为内存已经跨NUMA分配完毕了**。
 
-![image-20210427093424116](/images/951413iMgBlog/image-20210427093424116.png)
+![image-20210427093424116](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093424116.png)
 
 ```shell
 #perl numa-maps-summary.pl </proc/33727/numa_maps //绑定8core后，在如下内存分配下QPS能到11000，但是抖动略大，应该是一个numa内存不够了
@@ -456,23 +456,23 @@ mapmax    :         1564 (  0.01 GB)
 mapped    :         5920 (  0.02 GB)
 ```
 
-![image-20210427164953340](/images/951413iMgBlog/image-20210427164953340.png)
+![image-20210427164953340](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427164953340.png)
 
 绑核前的IPC：
 
-![image-20210427093625575](/images/951413iMgBlog/image-20210427093625575.png)
+![image-20210427093625575](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427093625575.png)
 
 绑核后的IPC：
 
-![image-20210427095130343](/images/951413iMgBlog/image-20210427095130343.png)
+![image-20210427095130343](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427095130343.png)
 
 **如果是两个8core对一个16core在都最优绑核场景下从上面的数据来看能有40-50%的性能提升，并且RT抖动更小**，这两个8core绑定在同一个Socket下，验证是否争抢，同时可以看到**绑核后性能可以随着加节点线性增加**
 
-![image-20210427172612685](/images/951413iMgBlog/image-20210427172612685.png)
+![image-20210427172612685](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427172612685.png)
 
-![image-20210427173047815](/images/951413iMgBlog/image-20210427173047815.png)
+![image-20210427173047815](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173047815.png)
 
-![image-20210427173417673](/images/951413iMgBlog/image-20210427173417673.png)
+![image-20210427173417673](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210427173417673.png)
 
 结论：不绑核一个FT2500的core点查只有500 QPS，绑核后能到1500QPS, 在Intel 8263下一个core能到6000以上(开日志、没开协程)
 
@@ -480,7 +480,7 @@ mapped    :         5920 (  0.02 GB)
 
 通过同一台物理上6个Tomcat节点，总共96个core，压6台MySQL，MySQL基本快打挂了。sysbench 点查，32个分表，增加Tomcat节点进来物理rt就增加，从最初的的1.2ms加到6个Tomcat节点后变成8ms。
 
-![image-20210425180535225](/images/951413iMgBlog/image-20210425180535225.png)
+![image-20210425180535225](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180535225.png)
 
 MySQL没绑好核，BIOS默认关闭了NUMA，外加12个MySQL分布在物理机上不均匀，3个节点3个MySQL，剩下的物理机上只有一个MySQL实例。
 
@@ -488,7 +488,7 @@ MySQL每个实例32core，管控默认已经做了绑核，但是如果两个MyS
 
 比如这三个MySQL，qps基本均匀，上面两个cpu高，但是没效率，每个MySQL绑了32core，上面两个绑在一个socket上，下面的MySQL绑在另一个socket上，第一个socket还有网络软中断在争抢cpu，飞腾环境下性能真要冲高还有很大空间。
 
-![image-20210425180518926](/images/951413iMgBlog/image-20210425180518926.png)
+![image-20210425180518926](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425180518926.png)
 
 ```shell
 #第二个MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多
@@ -542,17 +542,17 @@ perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,i
 
 12个MySQL流量基本均匀：
 
-![image-20210426083033989](/images/951413iMgBlog/image-20210426083033989.png)
+![image-20210426083033989](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426083033989.png)
 
 ### numa太多，每个numa下core比较少
 
 导致跨numa高概率发生，如下是在正常部署下的测试perf 数据，可以看到IPC极低，才0.08，同样的场景在其他家芯片都能打到0.6
 
-![img](/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/16b271c8-5132-4273-a26a-4b35e8f92882.png)
 
 执行绑核，将一个进程限制在2个numa内，因为进程需要16core，理论上用8core的进程性能会更好
 
-![img](/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
+![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4d4fdebb-6146-407e-881d-19170fbfd82b.png)
 
 可以看到IPC从0.08提升到了0.22，实际能到0.27，对应的业务测试QPS也是原来的4倍。 
 
@@ -568,7 +568,7 @@ numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --def
 
 将MySQL网卡队列从60个改成6个后MySQL性能提升大概10%
 
-![image-20210426085534983](/images/951413iMgBlog/image-20210426085534983.png)
+![image-20210426085534983](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210426085534983.png)
 
 默认第一个MySQL都绑在0-31号核上,其实改少队列加大了0-5号core的压力，但是实际数据表现要好。
 
@@ -580,15 +580,15 @@ numactl --cpunodebind 0,1 --preferred 0,1 /u01/xcluster80/bin/mysqld_safe  --def
 
 右边这个刚好是跨socket访问磁盘，不知道是不是巧合log_flush排位比较高
 
-![image-20210910180305752](/images/951413iMgBlog/image-20210910180305752.png)
+![image-20210910180305752](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910180305752.png)
 
 此时对应的IPC：
 
-![image-20210910181820803](/images/951413iMgBlog/image-20210910181820803.png)
+![image-20210910181820803](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910181820803.png)
 
 如果上面两个进程在没有刷日志的场景下时候对应的IPC两者基本一样：
 
-![image-20210910181909962](/images/951413iMgBlog/image-20210910181909962.png)
+![image-20210910181909962](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210910181909962.png)
 
 ## 结论
 

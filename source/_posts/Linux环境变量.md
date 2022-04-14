@@ -104,7 +104,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 
@@ -297,8 +297,6 @@ http://kodango.com/bash-one-liners-explained-part-three
 所以创建出来文件最终是664，文件夹是775，如果umask 是027的话最终文件是 640 文件夹是750
 『尽量不要以数字相加减啦！』你应该要这样想(-rw-rw- rw-) – (——–wx)=-rw-rw-r–这样就对啦！不要用十进制的数字喔！够能力的话，用二进制来算，不晓得的话，用 rwx 来算喔！
 
-
-
 ### 其它
 
 	echo $-   // himBH 
@@ -319,7 +317,7 @@ set -euxo pipefail //-u unset -e 异常退出  http://www.ruanyifeng.com/blog/20
 
 ### 引号
 
-shell 中：单引号的处理是比较简单的，被单引号包括的所有字符都保留原有的意思，例如'$a'不会被展开, '`cmd`'也不会执行命令；而双引号，则相对比较松，在双引号中，以下几个字符$, `, \依然有其特殊的含义，比如$可以用于变量展开, 反引号`可以执行命令，反斜杠\可以用于转义。但是，在双引号包围的字符串里，反斜杠的转义也是有限的，它只能转义$, `, ", \或者newline（回车）这几个字符，后面如果跟着的不是这几个字符，只不会被黑底，反斜杠会被保留  http://kodango.com/simple-bash-programming-skills-2
+shell 中：单引号的处理是比较简单的，被单引号包括的所有字符都保留原有的意思，例如'$a'不会被展开, '`cmd`'也不会执行命令；而双引号，则相对比较松，在双引号中，以下几个字符 $, \`, \ 依然有其特殊的含义，比如$可以用于变量展开, 反引号\`可以执行命令，反斜杠\可以用于转义。但是，在双引号包围的字符串里，反斜杠的转义也是有限的，它只能转义$, `, ", \或者newline（回车）这几个字符，后面如果跟着的不是这几个字符，只不会被黑底，反斜杠会被保留  http://kodango.com/simple-bash-programming-skills-2
 
 ### su 和 su - 的区别
 
@@ -335,11 +333,9 @@ The su command is used to become another user during a login session. Invoked wi
 ### 后台任务执行
 
 将任务放到后台，断开ssh后还能运行：
-"ctrl-Z"将当前任务挂起；
+"ctrl-Z"将当前任务挂起（实际是发送 SIGTSTP 信号），父进程ssh退出时会给所有子进程发送 SIGHUP；
 "disown -h"让该任务忽略SIGHUP信号（不会因为掉线而终止执行）；
 "bg"让该任务在后台恢复运行。
-
-
 
 ## shell 调试与参数
 
@@ -363,7 +359,15 @@ bash中数值运算要这样 $(( $a+$b )) // declare -i 才是定义一个整型
 - 在中括号内的变量，最好都以双引号括号起来；
 - 在中括号内的常数，最好都以单或双引号括号起来。
 
+在bash中为变量赋值的语法是`foo=bar`，访问变量中存储的数值，其语法为 `$foo`。 需要注意的是，`foo = bar` （使用空格隔开）是不能正确工作的，因为解释器会调用程序`foo` 并将 `=` 和 `bar`作为参数。 总的来说，在shell脚本中使用空格会起到分割参数的作用，有时候可能会造成混淆，请务必多加检查。
 
+## 其它
+
+在bash中进行比较时，尽量使用双方括号 `[[ ]]` 而不是单方括号 `[ ]`，[这样会降低犯错的几率](http://mywiki.wooledge.org/BashFAQ/031)，尽管这样并不能兼容 `sh`
+
+
+
+[tldr 可以用来查询命令的常用语法](https://tldr.sh/)，比man简短些，偏case型
 
 ## 参考文章：
 
@@ -383,3 +387,4 @@ https://wangdoc.com/bash/startup.html
 
 [编写一个最小的 64 位 Hello World](https://cjting.me/2020/12/10/tiny-x64-helloworld/)
 
+[计算机教育中缺失的一课](https://missing-semester-cn.github.io/)
