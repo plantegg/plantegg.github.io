@@ -2,14 +2,12 @@
 title: TCP传输速度案例分析
 date: 2021-01-15 17:30:03
 categories:
-    - Linux
     - TCP
-    - network
 tags:
     - Linux
     - TCP
     - network
-    - Performance
+    - performance
 ---
 
 # TCP传输速度案例分析
@@ -32,7 +30,7 @@ TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥�
 
 如下三个链路，有一个不正常了
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2422ae219d3b27cfe8c799642662d5b2.png)
+![image.png](/images/oss/2422ae219d3b27cfe8c799642662d5b2.png)
 
 首先通过 ss -it dst "ip:port" 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢
 
@@ -44,7 +42,7 @@ TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥�
 
 握手完毕后第七号包很快重传了
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2867daa600363af61f8f971479246858.png)
+![image.png](/images/oss/2867daa600363af61f8f971479246858.png)
 
 ### 观察：
 
@@ -97,13 +95,13 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 
 ### Nginx上抓包
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png)
+![image.png](/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png)
 
 从这里可以看到Nginx大概在60ms内就将4M的数据都发完了
 
 ### client上抓包
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png)
+![image.png](/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png)
 
 从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。
 
@@ -115,23 +113,23 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 
 速度可以到420K，但是还没有跑满带宽：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png)
+![image.png](/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0a8c68a58da6f169573b57cde0ffba93.png)
+![image.png](/images/oss/0a8c68a58da6f169573b57cde0ffba93.png)
 
 接着看一下client上的抓包
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png)
+![image.png](/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png)
 
 可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor
 
 那么继续分析一下握手包，syn：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/004886698ddbaa1cbc8342a9cd667c76.png)
+![image.png](/images/oss/004886698ddbaa1cbc8342a9cd667c76.png)
 
 说明client是支持的，再看 syn+ack：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/70155e021390cb1ee07091c306c375f4.png)
+![image.png](/images/oss/70155e021390cb1ee07091c306c375f4.png)
 
 可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。
 
@@ -139,7 +137,7 @@ client ------150ms----->>>LVS---1ms-->>>美国的统一接入server-----1ms-----
 
 比如这是这个应用的开发人员的反馈：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a08a204ec7ad4bba7867dacea1668322.png)
+![image.png](/images/oss/a08a204ec7ad4bba7867dacea1668322.png)
 
 长肥网络就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。
 在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。
@@ -170,17 +168,17 @@ nginx buffer 分析参考案例：https://club.perfma.com/article/433792?from=ti
 
 如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png)
+![image.png](/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png)
 
 抓包来分析原因：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d5e2e358dd1a24e104f54815c84875c9.png)
+![image.png](/images/oss/d5e2e358dd1a24e104f54815c84875c9.png)
 
 实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了
 
 从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png)
+![image.png](/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png)
 
 ## 参考资料
 

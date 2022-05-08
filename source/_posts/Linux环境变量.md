@@ -32,7 +32,7 @@ sudo有一个参数 -E （--preserver-env）就是为了解决这个问题的。
 
 本文后面的回复中有同学提到了：
 
-> 第一个问题，sudo -E在阿里的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source "/etc/profile.d/dockerenv.sh"才行
+> 第一个问题，sudo -E在集团的容器中貌似是不行的，没有特别好的解，我们最后是通过在要执行的脚本中手动source "/etc/profile.d/dockerenv.sh"才行
 
 我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里
 
@@ -79,7 +79,7 @@ ssh user@ip " ip a "  报错： bash: ip: command not found
 
 下面是一个 .bashrc 的内容：
 
-    [ ~]$ cat .bashrc 
+    $ cat .bashrc 
     # .bashrc
     
     # Source global definitions
@@ -91,8 +91,7 @@ ssh user@ip " ip a "  报错： bash: ip: command not found
 
 那我们再看non-login少的两步： ① /etc/profile ② ~/.bash_profile 
 
-cat /etc/profile :
-    
+cat /etc/profile : 
     if [ "$EUID" = "0" ]; then
         pathmunge /usr/sbin
         pathmunge /usr/local/sbin
@@ -104,7 +103,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 

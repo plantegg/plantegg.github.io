@@ -210,7 +210,7 @@ probe kernel.trace("kfree_skb")
 }
 ```
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
+![img](/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
 
 以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：
 
@@ -221,19 +221,19 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 }
 ```
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
+![img](/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
 
 以上输出对应的代码如下：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
+![img](/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
 
 ## 网络重传
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 网络包大小分布
 
@@ -248,7 +248,7 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 	    @rxstat=stats(args->len);
 	}'
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png)
+![image.png](/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png)
 
 或者，采集10秒中的网络包大小直方图
 
@@ -322,7 +322,7 @@ Attaching 2 probes...
 
 ## 产看网络流量由哪个进程发出，或者说哪个进程在发包
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/74b0a393a6334421957a032f1f141a9c.png)
+![image.png](/images/oss/74b0a393a6334421957a032f1f141a9c.png)
 
 ## 网络连接创建rt？
 

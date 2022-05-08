@@ -27,15 +27,15 @@ AMD 从Zen2开始架构有了比较大的变化，Zen2架构改动比较大，�
 
 网上Intel CPU架构、技术参数等各种资料还是很丰富的，但是AMD EPYC就比较少了，所以先来学习一下EPYC的架构特点。
 
-![image-20220331120118117](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220331120118117.png)
+![image-20220331120118117](/images/951413iMgBlog/image-20220331120118117.png)
 
 ## AMD EPYC CPU演进路线
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/amd-rome-naples-chiplets.jpg)
+![img](/images/951413iMgBlog/amd-rome-naples-chiplets.jpg)
 
 后面会针对 第二代的 EPYC来做一个对比测试。
 
-![AMD Accelerated Computing FAD 2020](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/AMD-Packaging-to-X3D-FAD-2020.jpg)
+![AMD Accelerated Computing FAD 2020](/images/951413iMgBlog/AMD-Packaging-to-X3D-FAD-2020.jpg)
 
  AMD EPYC CPU Families:
 
@@ -60,23 +60,23 @@ AMD 从Zen2开始架构有了比较大的变化，Zen2架构改动比较大，�
 
 hygon 5280封装后类似下图(一块CPU封装了2个Die，还有封装4个Die的，core更多更贵而已)
 
-![image-20210812204437220](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210812204437220.png)
+![image-20210812204437220](/images/951413iMgBlog/image-20210812204437220.png)
 
 或者4个Die封装在一起
 
-![image-20210813085044786](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210813085044786.png)
+![image-20210813085044786](/images/951413iMgBlog/image-20210813085044786.png)
 
 ### Zen1 Die
 
 下面这块Die集成了两个CCX（每个CCX四个物理core), 同时还有IO接口
 
-![Блоки CCX](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/zeppelin_face_down2.png)
+![Блоки CCX](/images/951413iMgBlog/zeppelin_face_down2.png)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/515px-zen-1zep.svg.png)
+![img](/images/951413iMgBlog/515px-zen-1zep.svg.png)
 
 Quad-Zeppelin Configuration, as found in [EPYC](https://en.wikichip.org/wiki/amd/epyc). 
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/512px-zen-4zep.svg.png)
+![img](/images/951413iMgBlog/512px-zen-4zep.svg.png)
 
 ### Zen CPU Complex(CCX)
 
@@ -86,33 +86,33 @@ hygon 5280使用这个结构， There are 4 cores per CCX and 2 CCXs per die for
 - L3 8 MiB; 16 mm²
 - 1,400,000,000 transistors
 
-![amd zen ccx.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/450px-amd_zen_ccx.png)
+![amd zen ccx.png](/images/951413iMgBlog/450px-amd_zen_ccx.png)
 
-![amd zen ccx 2](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/700px-amd_zen_ccx_2_annotated.png)
+![amd zen ccx 2](/images/951413iMgBlog/700px-amd_zen_ccx_2_annotated.png)
 
 
 
 ### 封装后的Zen1（4Die）
 
-![image-20210813085044786](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210813085044786.png)
+![image-20210813085044786](/images/951413iMgBlog/image-20210813085044786.png)
 
 4个Die的内部关系
 
-![AMD Naples SoC.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/800px-AMD_Naples_SoC.svg.png)
+![AMD Naples SoC.svg](/images/951413iMgBlog/800px-AMD_Naples_SoC.svg.png)
 
 详实数据和结构
 
-![Топология процессора](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/AMD-EPYC-Infinity-Fabric-Topology-Mapping.webp)
+![Топология процессора](/images/951413iMgBlog/AMD-EPYC-Infinity-Fabric-Topology-Mapping.webp)
 
 ## [Zen2 Rome](https://en.wikichip.org/wiki/amd/microarchitectures/zen_2)
 
 Zen2开始最大的变化就是将IO从Core Die中抽离出来，形成一个专门的IO Die。封装后如下图：
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602165525641.png" alt="AMD Rome package with card" style="zoom:50%;" />
+<img src="/images/951413iMgBlog/image-20210602165525641.png" alt="AMD Rome package with card" style="zoom:50%;" />
 
 以上结构的CPU在2路服务器下的内部结构：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1624282522149-35de1452-3e8d-4632-a53a-b99f1ed39a21.png)
+![img](/images/951413iMgBlog/1624282522149-35de1452-3e8d-4632-a53a-b99f1ed39a21.png)
 
 跨socket的内存访问的数据流跟互联有关，如上图标示，比如从左边的CCD0到右边的CCD0的内存，大概需要经过10跳。
 
@@ -140,9 +140,9 @@ Zen2开始最大的变化就是将IO从Core Die中抽离出来，形成一个专
 
 另外发现启用透明大页后测试内存时延能降低20%（通过perf发现没开THP的tlb miss很高）
 
-![AMD Rome layout](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/AMD_Rome_layout-617x486.jpg)
+![AMD Rome layout](/images/951413iMgBlog/AMD_Rome_layout-617x486.jpg)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/amd-rome-feature-chart.jpg)
+![img](/images/951413iMgBlog/amd-rome-feature-chart.jpg)
 
 ### Zen2 Core Complex Die
 
@@ -153,9 +153,9 @@ Zen2开始最大的变化就是将IO从Core Die中抽离出来，形成一个专
 - CCX size: 31.3 mm²， 4core per CCX // 16M L3 perf CCX
 - 2 × 16 MiB L3 cache: 2 × 16.8 mm² (estimated) // 中间蓝色部分是L3 16M，一个Die封装两个CCX的情况下
 
-![AMD Zen 2 CCD.jpg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/500px-AMD_Zen_2_CCD.jpg)
+![AMD Zen 2 CCD.jpg](/images/951413iMgBlog/500px-AMD_Zen_2_CCD.jpg)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/4f71c923-4601-4d98-a311-91da8996c526.png)
+![img](/images/951413iMgBlog/4f71c923-4601-4d98-a311-91da8996c526.png)
 
 在Zen2/Rome架构中，一个CCD由两个CCX构成，一个CCX包含4个物理核，共享16MB的L3 cache。
 
@@ -165,15 +165,15 @@ Zen2开始最大的变化就是将IO从Core Die中抽离出来，形成一个专
 
 Here is what the Naples and Rome packages look like from the outside:
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/amd-rome-epyc-zen1-zen2.jpg)
+![img](/images/951413iMgBlog/amd-rome-epyc-zen1-zen2.jpg)
 
 numa
 
-![image-20210813091455662](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210813091455662.png)
+![image-20210813091455662](/images/951413iMgBlog/image-20210813091455662.png)
 
 zen1 numa distance:
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/OctalNUMA_575px.png)
+![img](/images/951413iMgBlog/OctalNUMA_575px.png)
 
 hygon numa distance:
 
@@ -360,7 +360,7 @@ Cleaning up
 
 ## Apple M1
 
-<img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220402101632476.png" alt="M1, M1 Pro, and M1 Max chips are shown next to each other." style="zoom:50%;" />
+<img src="/images/951413iMgBlog/image-20220402101632476.png" alt="M1, M1 Pro, and M1 Max chips are shown next to each other." style="zoom:50%;" />
 
 ### **The M1**
 
@@ -384,7 +384,7 @@ The M1 Pro takes this higher, with:
 
 对比下 i9-12000，i9也有GPU只是没有说多少个，它的GPU频率在0.3到1.55GHz之间
 
-![alder lake die 2.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/400px-alder_lake_die_2.png)
+![alder lake die 2.png](/images/951413iMgBlog/400px-alder_lake_die_2.png)
 
 | ISA               | x86-64 (x86)                                                 |
 | ----------------- | ------------------------------------------------------------ |
@@ -427,11 +427,11 @@ The M1 Ultra brings you:
 一个die大小是314平方毫米，600亿晶体管
 
 
-![image-20211205130348832](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211205130348832.png)
+![image-20211205130348832](/images/951413iMgBlog/image-20211205130348832.png)
 
 平头哥的几款芯片：
 
-![preview](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-4a587237e30986b36c5657761c31ae21_r.jpg)
+![preview](/images/951413iMgBlog/v2-4a587237e30986b36c5657761c31ae21_r.jpg)
 
 ## 总结
 

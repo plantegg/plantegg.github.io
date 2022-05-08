@@ -48,7 +48,7 @@ keepalive 是指在连接闲置状态发送心跳包来检测连接是否还有�
 
 keepalive 状态下的连接：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png)
+![image.png](/images/oss/f1a219a2bd99690fd3ed391bf5ab65cb.png)
 
 The 2nd field has THREE subfields:
 
@@ -104,7 +104,7 @@ The `tcp_retries2` sysctl can be **tuned** via `/proc/sys/net/ipv4/tcp_retries2`
 
 重传状态的连接：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png)
+![image.png](/images/oss/88c5df7d5709e5c8b264ee0deacda0a2.png)
 
 前两个 syn_sent 状态明显是 9031端口不work了，握手不上。
 
@@ -153,7 +153,7 @@ tcp_retries2 - INTEGER
     which corresponds to a value of at least 8.
 ```
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png)
+![img](/images/oss/1571230725657-b2b7ea40-06bc-41fb-a374-daa8de1f857d.png)
 
 ### retries限制的重传次数吗
 
@@ -262,11 +262,11 @@ static bool retransmits_timed_out(struct sock *sk,
 
 我们来看如下这个51432端口向9627端口上传过程，十分缓慢，重传包间隔基本是122秒，速度肯定没法快
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png)
+![image.png](/images/oss/4f1e9afd7ccd8ac6d69cf08c60ce8b84.png)
 
 上图中垂直方向基本都是发出3-5个包，然后休息120秒，继续发3-5个 包，速度肯定慢，下图可以看到具体的包：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png)
+![image.png](/images/oss/79ea2c2c5473d61cd1e780944ab0d0c5.png)
 
 来看下到9627的RTT，基本稳定在245秒或者122秒，这RTT也实在太大了。可以看到：
 
@@ -278,7 +278,7 @@ static bool retransmits_timed_out(struct sock *sk,
 
 下图是RTT图
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/932b5124b7d445ee82c82a5f65a98321.png)
+![image.png](/images/oss/932b5124b7d445ee82c82a5f65a98321.png)
 
 两个原因一叠加，就出现了奇慢无比.
 
@@ -305,6 +305,28 @@ netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/p
 ## nc 测试
 
 nc -v -u -z -w 3 10.101.0.1 53 //测试server 的53端口上的udp服务能否通
+
+### nc 6.5 快速fin
+
+![img](/images/951413iMgBlog/1607660605575-1305739f-1621-4a01-89ad-0f81eef94922.png)
+
+ nc -i 3 10.97.170.11 3306 -w 4 -p 1234
+
+-i 3 表示握手成功后 等三秒钟nc退出（发fin）
+
+
+
+nc 6.5 握手后立即发fin断开连接，导致可能收不到Greeting，换成7.5或者mysql client就OK了
+
+也就是用nc 6.5来验证mysql 服务是否正常可能会碰到nc自己断的太快，实际mysql还是正常的，从而像是mysql没有回复Greeting，从而产生误判。
+
+
+
+nc 7.5的抓包，明显可以看到nc在发fin前会先等3秒钟：
+
+![img](/images/951413iMgBlog/1607660937618-d66c4074-9aa2-44cb-8054-f7d3680d1181.png)
+
+
 
 ## ping
 
@@ -344,7 +366,7 @@ ping.ts(){
 
 [dstat 监控](https://www.huaweicloud.com/articles/9fc282e450af6f9b2878008a9e938d4d.html)
 
-![image-20210425082343156](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210425082343156.png)
+![image-20210425082343156](/images/951413iMgBlog/image-20210425082343156.png)
 
 dstat -cdgilmnrsy --aio --fs --lock --raw
 

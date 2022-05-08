@@ -116,7 +116,7 @@ Page太大，更容易造成Page跨Numa/CPU 分布。
 
 从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，`Array A`和`Array B`大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此`Array B`就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/false_sharing.png)
+![img](/images/951413iMgBlog/false_sharing.png)
 
 ### Java进程开启HugePage
 
@@ -219,11 +219,11 @@ x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右�
 
 刚开始运行的时候perf各项数据:
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png)
+![img](/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png)
 
 长时间运行后：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png)
+![img](/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png)
 
 内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。
 
@@ -251,7 +251,7 @@ cat /sys/kernel/debug/tracing/trace_stat/function20
 
 这个时候就会打印出在各个函数上花费的时间，比如:
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png)
+![img](/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png)
 
 经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).
 
@@ -269,7 +269,7 @@ cat /sys/kernel/debug/tracing/trace_stat/function20
 
 compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。
 
-![image-20210628144121108](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210628144121108.png)
+![image-20210628144121108](/images/951413iMgBlog/image-20210628144121108.png)
 
 一次THP compact堆栈：
 

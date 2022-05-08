@@ -54,7 +54,6 @@ tags:
 然后 git clone git@github.com:torvalds/linux.git 也能飞起来了
 
 需要注意你的代理服务器2.2.2.2上nc有没有安装，没有的话yum装上，装上后再检查一下安装的位置，对应配置中的 /usr/bin/nc
-    
 写这些主要是从Google上搜索到的一些文章，http的倒还是靠谱，但是ssh的就有点乱，还要在本地安装东西，对nc版本有要求之类的，于是就折腾了一下，上面的方式都是靠谱的。
 
 整个原理还是穿墙术。 可以参考 ：[SSH 高级用法和技巧大全](https://www.atatech.org/articles/76026)  
@@ -70,3 +69,59 @@ ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口
 #ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump
 ```
 
+nc代理参数-X proxy_version 指定 nc 请求时使用代理服务的协议
+
+- `proxy_version` 为 `4` : 表示使用的代理为 SOCKS4 代理
+- `proxy_version` 为 `5` : 表示使用的代理为 SOCKS5 代理
+- `proxy_version` 为 `connect` : 表示使用的代理为 HTTPS 代理
+- 如果不指定协议, 则默认使用的代理为 SOCKS5 代理
+
+> **-X** *proxy_version*
+> Requests that **nc** should use the specified protocol when talking to the proxy server. Supported protocols are ''4'' (SOCKS v.4), ''5'' (SOCKS v.5) and ''connect'' (HTTPS proxy). If the protocol is not specified, SOCKS version 5 is used.
+
+
+
+## 自动启动阿里郎网络加速
+有时候网络加速会关掉，还得手工打开阿里郎开始网络加速，很不流畅
+可以用如下命令拉起：
+> Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2
+
+上面的参数1、参数2可以先手工拉起网络加速，然后 ps | grep 得到，写到脚本里面就好了
+
+## 我的拉起代理自动脚本
+
+下面的脚本总共拉起了三个socks5代理，端口13657-13659，其中13659是阿里郎网络加速的代理
+最后还启动了一个8123的http 代理（有些场景只支持http代理）
+
+macos：
+```
+listPort=`/usr/sbin/netstat -ant |grep "127.0.0.1.13658" |grep LISTEN`
+if [[ "$listPort" != tcp4* ]]; then
+    #sh ~/ssh-jump.sh
+    nohup ssh -qTfnN -D 13658 root@jump vmstat 10  >/dev/null 2>&1
+    echo "start socks5 on port 13658"
+fi
+
+listPort=`/usr/sbin/netstat -ant |grep "127.0.0.1.13657" |grep LISTEN`
+if [[ "$listPort" != tcp4* ]]; then
+    nohup ssh -qTfnN -D 13657 azureuser@yu2 vmstat 10  >/dev/null 2>&1
+    echo "start socks5 on port 13657"
+fi
+
+listPort=`/usr/sbin/netstat -ant |grep "127.0.0.1.13659" |grep LISTEN`
+#if [ "$listPort" != "tcp4       0      0  127.0.0.1.13659        *.*                    LISTEN     " ]; then
+if [[ "$listPort" != tcp4* ]]; then
+    Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2 >~/jump.log 2>&1
+    echo "start listPort $listPort"
+fi
+
+listPort=`/usr/sbin/netstat -ant |grep "127.0.0.1.8123 " |grep LISTEN`
+if [[ "$listPort" != tcp4* ]]; then
+    polipo socksParentProxy=127.0.0.1:13659 1>~/jump.log 2>1&
+    echo "start polipo http proxy at 8123"
+fi
+
+#分别测试http和socks5代理能工作
+#curl --proxy http://127.0.0.1:8123 https://www.google.com
+#curl -x socks5h://localhost:13657 http://www.google.com/
+```

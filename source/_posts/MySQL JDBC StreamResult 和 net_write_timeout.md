@@ -29,7 +29,7 @@ MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 
 ## net_write_timeout
 
-先看下 [`net_write_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout)的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 
+先看下 [`net_write_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout)的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。
 
 | Property            | Value                   |
 | ------------------- | ----------------------- |
@@ -41,11 +41,11 @@ MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 | Default Value       | `60`                    |
 | Minimum Value       | `1`                     |
 
-> **案例**：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，知道MySQL  Server 触发 net_write_timeout，报异常
+> **案例**：DRDS 到 MySQL 多个分片拉取数据生成了许多 cursor 并发执行,但拉数据的时候是串行拉取的,如果用户端拉取数据过慢会导致最后一个 cursor 执行完成之后要等待很久.会超过 MySQL 的 net_write_timeout 配置从而引发报错. 也就是最后一个cursor打开后一直没有去读取数据，直到MySQL  Server 触发 net_write_timeout 异常
 >
 > 首先可以尝试在 DRDS jdbcurl 配置 netTimeoutForStreamingResults 参数,设置为 0 可以使其一直等待,或设置一个合理的值(秒).
 
-从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery（）方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：
+从JDBC驱动中可以看到，当调用PreparedStatement的executeQuery() 方法的时候，如果我们是去获取流式resultset的话，就会默认执行SET net_write_timeout= ？ 这个命令去重新设置timeout时间。源代码如下：
 
 ```
 if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {  
@@ -65,7 +65,7 @@ if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {
 
 一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
+![](/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
 
 或者：
 
@@ -104,7 +104,7 @@ connectTimeout：表示等待和MySQL数据库建立socket链接的超时时间�
 
 socketTimeout：JDBC参数，表示客户端发送请求给MySQL数据库后block在read的等待数据的超时时间，linux系统默认的socketTimeout为30分钟，可以不设置。要特别注意socketTimeout仅仅是指等待socket数据时间，如果在传输数据那么这个值就没有用了。[socketTimeout通过mysql-connector中的NativeProtocol最终设置在socketOptions上](https://docs.oracle.com/javase/7/docs/api/java/net/SocketOptions.html#SO_TIMEOUT)
 
-![image-20211024171459127](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211024171459127.png)
+![image-20211024171459127](/images/951413iMgBlog/image-20211024171459127.png)
 
 > static final int SO_TIMEOUT。 **Set a timeout on blocking Socket operations**:
 >

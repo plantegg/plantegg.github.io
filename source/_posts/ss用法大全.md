@@ -119,7 +119,7 @@ void sk_get_meminfo(const struct sock *sk, u32 *mem)
 }
 ```
 
-![image-20210604120011898](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210604120011898.png)
+![image-20210604120011898](/images/951413iMgBlog/image-20210604120011898.png)
 
 --memory/-m ： 展示buffer窗口的大小
 
@@ -135,7 +135,7 @@ tcp ESTAB 0 11 ::ffff:10.97.137.1:acp-policy ::ffff:10.97.137.2:41607 skmem:(r0,
 tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304,tb87552,f1792,w2304,o0,bl0)
 ```
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
+![image.png](/images/oss/4a09503e6c6e84c25e026248a1b3ebb6.png)
 
 如上图，tb指可分配的发送buffer大小，不够还可以动态调整（应用没有写死的话），w[The memory allocated for sending packet (which has not been sent to layer 3)]已经预分配好了的size，t[the memory used for sending packet (which has been sent to layer 3)] , 似乎 w总是等于大于t？
 
@@ -143,7 +143,7 @@ tcp ESTAB 0 281 10.97.169.173:32866 10.97.170.220:3306 skmem:(r0,rb4619516,t2304
 
 example:
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
+![image.png](/images/oss/4ed3d8aab6ef3ee45decda75e534baab.png)
 
 对172.16.210.17和172.16.160.1之间的带宽限速50MB后观察(带宽限制后，发送buffer就很容易被撑满了）：
 

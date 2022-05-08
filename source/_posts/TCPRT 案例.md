@@ -7,7 +7,7 @@ tags:
     - Linux
     - TCP
     - network
-    - Performance
+    - performance
     - tcprt
 ---
 
@@ -23,7 +23,7 @@ TCPRT是从网络层面把整个服务的响应时间分成：网络传输时间
 
 可以在任何节点上部署tcprt，下面案例都只是在tomcat节点上部署了tcprt服务，来监控client到tomcat以及tomcat到后面RDS的响应时间：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/6f6862dec810933f34b7793018cfb0da.png)
+![image.png](/images/oss/6f6862dec810933f34b7793018cfb0da.png)
 
 ## 图形化监控数据
 
@@ -40,25 +40,25 @@ TCPRT是从网络层面把整个服务的响应时间分成：网络传输时间
 
 QPS随着上述6个阶段的变化图（以下所有图形都是在同一时间段所取得）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/166e466bb43215556ccdf73e8f1476e3.png)
+![image.png](/images/oss/166e466bb43215556ccdf73e8f1476e3.png)
 
 响应时间和丢包率在上述6个阶段的变化图：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/865355ab81bc4c1804ff26c2ab2ecf23.png)
+![image.png](/images/oss/865355ab81bc4c1804ff26c2ab2ecf23.png)
 
 应用到tomcat之间的网络消耗展示（逻辑响应时间-逻辑服务时间=网络传输时间）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7b755c9d2f19701d1409abfd91dce4c1.png)
+![image.png](/images/oss/7b755c9d2f19701d1409abfd91dce4c1.png)
 
 tomcat到RDS之间的时间消耗：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f18f5c467cc21ead4c15a5e28bf3b8fd.png)
+![image.png](/images/oss/f18f5c467cc21ead4c15a5e28bf3b8fd.png)
 
 物理响应时间（RDS响应时间）上升部分是因为RDS的丢包率为1%，tomcat的TCPRT监控上能看到的只是RDS总的响应时间上升了。
 
 通过wireshark看到对应的tomcat和RDS之间的RTT数据：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/949ab8a34c9bece160e8fcff8e76a2d4.png)
+![image.png](/images/oss/949ab8a34c9bece160e8fcff8e76a2d4.png)
 
 上面都是对所有数据做平均后分析所得，接下来会通过具体的一个请求来分析，同时通过tcpdump抓包来分析对应的数据（对比验证tcprt的可靠性）
 
@@ -73,15 +73,15 @@ $tail -10 slow.log
 
  慢查询对应的tcprt记录，rtt高达35ms（正常都是2ms，而且重传了3次才把response传完），所以最终SQL执行花了差不多1.3秒（慢查询中有记录，1秒多，查询结果390行数据）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/15731f74f91099774996302da1571a51.png)
+![image.png](/images/oss/15731f74f91099774996302da1571a51.png)
 
 从60秒汇总统计日只看，慢查询发生的时间点 丢包率确实到了 0.1%：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/85a75f19422a838f64ec6dffb4a3837f.png)
+![image.png](/images/oss/85a75f19422a838f64ec6dffb4a3837f.png)
 
 总的平均时间统计，绿框是DRDS处理时间，红框是DRDS处理时间+网络传输时间，这个gap有点大（网络消耗比较高）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/7c45a9ab360986c7e743de9a687c9549.png)
+![image.png](/images/oss/7c45a9ab360986c7e743de9a687c9549.png)
 
 ## 丢包造成rt过高
 
@@ -102,11 +102,11 @@ $tail -10 slow.log
 
 对应这个时间点的抓包，可以看到这两个慢的查询都是因为第一个response发给client后没有收到ack（网络丢包？网络延时高？） 200ms后再发一次response就收到ack。所以总的rt都超过了200ms，其它没丢包的rt都很快。另外抓包的请求和和上面tcprt记录都是全对应的，时间精度都在微秒级。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63da5e221c8d2d26bc25f9e50ef35779.png)
+![image.png](/images/oss/63da5e221c8d2d26bc25f9e50ef35779.png)
 
 丢包重传的分析
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/88849848f07ca74e000db971e3246def.png)
+![image.png](/images/oss/88849848f07ca74e000db971e3246def.png)
 
 ## 丢包率对性能影响
 
@@ -188,7 +188,7 @@ $tail -40 tcp-rt/rt-network-stats
 
 ### Delay ACK 原理解析
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/5265f9caf013baf662e400cd99ef2663.png)
+![image.png](/images/oss/5265f9caf013baf662e400cd99ef2663.png)
 
 
 
@@ -196,9 +196,9 @@ $tail -40 tcp-rt/rt-network-stats
 
 从实际抓包来看，32811等于：14358+18454 （红框+绿框），因为server只有收到ack后才会认为这个SQL执行完毕，但是可能由于delay ack导致client发下一个请求才将ack带回server，而client明显此时卡住了，发请求慢
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/aec0d182702772384748a4d31cc6e795.png)
+![image.png](/images/oss/aec0d182702772384748a4d31cc6e795.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/3d8c092cfee6686708973760b710cd1a.png)
+![image.png](/images/oss/3d8c092cfee6686708973760b710cd1a.png)
 
 同一时间点一批SQL都是ack慢了，跑了几个小时才抓到这么一点点ack慢导致SQL总rt偏高，统计曲线被平均掉了：
 
@@ -238,17 +238,17 @@ $grep " R " tcp-rt/rt-network-log | awk '{ if(($8-$12)>10000) print $0 }' | sort
 
 如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png)
+![image.png](/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png)
 
 抓包来分析原因：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d5e2e358dd1a24e104f54815c84875c9.png)
+![image.png](/images/oss/d5e2e358dd1a24e104f54815c84875c9.png)
 
 实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了
 
 从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png)
+![image.png](/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png)
 
 ## 最后一个数据发送慢导致计时显示网络rt偏高
 
@@ -256,9 +256,9 @@ server 收到请求到查到结果后开始发送成为server-rt，从开始发�
 
 如果 limit 164567, 1 的时候只有一个response，得到所有分片都返回来才开始发数据给client；但是当 limit 164567,5 的时候因为这个SQL下推到多个分片，第一个response很快发出来，但是最后一个response需要等很久。在tcprt眼中，这里传输花了很久（一旦开始response，所有时间都是传输时间），但实际这里response卡顿了。
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/07d3ca12864a69b622a6f69b933d9a82.png)
+![](/images/oss/07d3ca12864a69b622a6f69b933d9a82.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/78d2cc459976ef868fa85359b33bda5a.png)
+![image.png](/images/oss/78d2cc459976ef868fa85359b33bda5a.png)
 
 从 jstack 抓的堆栈看到返回最后一个包之前，应用 在做 result.close()，因为关闭流模式结果集太耗时所以卡了。可以做的一个优化是提前发出 sendPacketEnd，然后异步去做物理连接的 result.close() 和 conn.close() 。
 
@@ -270,7 +270,7 @@ server 收到请求到查到结果后开始发送成为server-rt，从开始发�
 
 TCP 重传率是通过解析 /proc/net/snmp 这个文件里的指标计算出来的，这个文件里面和 TCP 有关的关键指标如下：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d137e3e615cac8ba927f960a8c9a616e.png)
+![image.png](/images/oss/d137e3e615cac8ba927f960a8c9a616e.png)
 
 为了让 Linux 用户更方便地观察 TCP 重传事件，4.16 内核版本中专门添加了TCP tracepoint来解析 TCP 重传事件。如果你使用的操作系统是 CentOS-7 以及更老的版本，就无法使用该 Tracepoint 来观察了；如果你的版本是 CentOS-8 以及后续更新的版本，那你可以直接使用这个 Tracepoint 来追踪 TCP 重传，可以使用如下命令：
 
@@ -297,3 +297,4 @@ $ echo 0 > events/tcp/tcp_retransmit_skb/enable
 ## 参考资料
 
 https://zhuanlan.zhihu.com/p/37112986
+

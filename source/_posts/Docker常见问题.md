@@ -92,11 +92,11 @@ After starting once, you can kill the docker and start as usual. AFAIK, docker h
 
 alios上跑docker，然后启动容器，发现容器里面ping不通docker0, 手工重新brctl addbr docker0 , 然后把虚拟网卡加进去就可以了。应该是系统哪里bug了. 
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png)
+![image.png](/images/oss/2ba8bc014d93ad4b6e77c889a024772f.png)
 
 非常神奇的是不通的时候如果在宿主机上对docker0抓包就瞬间通了，停掉抓包就不通
 
-![docker0-tcpdump.gif](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif)
+![docker0-tcpdump.gif](/images/oss/dbc4dac5a9a0289b58952375c5759b15.gif)
 
 猜测是 alios 的bug
 

@@ -118,7 +118,13 @@ GRUB_DISABLE_RECOVERY="true"
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 ```
 
+比如在一个4node的机器上，总共768G内存（32G*24），每个node使用64G内存
 
+```
+linux16 /vmlinuz-0-rescue-e91413f0be2c4c239b4aa0451489ae01 root=/dev/mapper/centos-root ro crashkernel=auto rd.lvm.lv=centos/root rd.lvm.lv=centos/swap rhgb quiet memmap=128G\$64G memmap=128G\$256G memmap=128G\$448G memmap=128G\$640G
+```
+
+128G表示相对地址，$64G是绝对地址，128G\\$64G 的意思是屏蔽64G到（64+128）G的地址对应的内存
 
 ## 内存信息
 
@@ -185,11 +191,11 @@ Memory Device
 
 左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大
 
-![image-20220123094155595](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123094155595.png)
+![image-20220123094155595](/images/951413iMgBlog/image-20220123094155595.png)
 
-![image-20220123094928794](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123094928794.png)
+![image-20220123094928794](/images/951413iMgBlog/image-20220123094928794.png)
 
-![image-20220123100052242](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220123100052242.png)
+![image-20220123100052242](/images/951413iMgBlog/image-20220123100052242.png)
 
 对比一下V62，intel8269 机型
 

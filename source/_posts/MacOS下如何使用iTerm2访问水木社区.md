@@ -29,7 +29,7 @@ ssh 访问 bbs.newsmth.net 是没问题的，但是**要解决配色和字符编
 
 在iTerm2的配置中增加一个profile，如下图 smth，主要是改字符编码集为 GB 18030，然后修改配色方案，我喜欢的Dracula不适合SMTH，十大完全看不了。
 
-![image-20210602133111201](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210602133111201.png)
+![image-20210602133111201](/images/951413iMgBlog/image-20210602133111201.png)
 
 
 
@@ -56,19 +56,19 @@ SetProfile=smth用来解决profile切换，连smth term前切换成GB 18030，�
 
 目录（右边是工作窗口）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0265ed7a728bfdd6be940d838fc1feaf.png)
+![image.png](/images/oss/0265ed7a728bfdd6be940d838fc1feaf.png)
 
 
 
 十大，这个十大颜色和右边工作模式的配色方案不一样
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/252b9295375f6e6078278a6e64e1d68c.png)
+![image.png](/images/oss/252b9295375f6e6078278a6e64e1d68c.png)
 
 
 
 断开后恢复成 Dracula 配色和UTF-8编码，不影响工作，别的工作tab也还是正常使用utf8
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/cf8912c0634182b44fa92eeb9f854362.png)
+![image.png](/images/oss/cf8912c0634182b44fa92eeb9f854362.png)
 
 
 

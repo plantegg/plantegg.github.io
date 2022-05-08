@@ -55,7 +55,7 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 7. *Package leaves* ***cni0\*** *and is redirected to the* ***veth6\*** *virtual interface;*
 8. *Package leaves the* ***root netns\*** *through* ***veth6\*** *and reaches the* ***Pod 6 netns\*** *though the* ***eth6\*** *interface;*
 
-![image-20220115124747936](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220115124747936.png)
+![image-20220115124747936](/images/951413iMgBlog/image-20220115124747936.png)
 
 > **cni0** is a Linux network bridge device, all **veth** devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in **Kubernetes Network Model** and the hotel analogy above.
 
@@ -76,7 +76,7 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 5. 然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（**这里会过宿主机iptables**）
 6. cni0将包送给POD4
 
-![image-20220115132938290](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220115132938290.png)
+![image-20220115132938290](/images/951413iMgBlog/image-20220115132938290.png)
 
 flannel容器启动的时候会给自己所在的node注入一些信息：
 
@@ -219,7 +219,7 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"f
 
 包流转[示意图](https://blog.laputa.io/kubernetes-flannel-networking-6a1cb1f8ec7c)
 
-![image-20220119114929034](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220119114929034.png)
+![image-20220119114929034](/images/951413iMgBlog/image-20220119114929034.png)
 
 
 
@@ -233,7 +233,7 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"f
 
 下图中正常的icmp是直接ping 物理机ip
 
-![image-20211228203650921](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228203650921.png)
+![image-20211228203650921](/images/951413iMgBlog/image-20211228203650921.png)
 
 > The "admin prohibited filter" seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn't want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.
 
@@ -483,7 +483,7 @@ void sock_net_set(struct sock *sk, struct net *net)
 
 内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5304524.)
+![Image](/images/951413iMgBlog/640-5304524.)
 
 每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等
 

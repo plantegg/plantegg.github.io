@@ -304,13 +304,13 @@ ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g
 
 5.最后经由POSTROUTING链发往后端服务器。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
+![image.png](/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
 
 ## netfilter 原理
 
 Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：`raw table`, `mangle table`, `nat table`, `filter table`。Netfilter 默认的链有：`INPUT`, `OUTPUT`, `FORWARD`, `PREROUTING`, `POSTROUTING`，根据`表`的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png)
+![image.png](/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png)
 
 ## OSPF + LVS
 

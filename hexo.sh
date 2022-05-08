@@ -3,9 +3,9 @@ echo "download images"
 sh download_img.sh
 echo "replace to local"
 #替换图片地址到oss地址，快，爽的一逼
-sh replace_img.sh
+#sh replace_img.sh
 #替换markdown中img到相对地址, 比如蹭github存储图片
-#sh replace_to_local_url.sh
+sh replace_to_local_url.sh
 
 #hexo 一个静态博客发布系统，将markdown生成静态页面并上传
 hexo g -d
@@ -24,5 +24,7 @@ find 951413iMgBlog_small -size +1024k -type f -exec sips -Z 1024 {} \;
 #用压缩后的图片覆盖原图
 rsync -v --existing -r -a 951413iMgBlog_small/ public/images/951413iMgBlog
 rsync -v --existing -r -a ossimg_small/ public/images/oss
+#上传图片到 oss
+ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/images/ oss://plantegg/images/ -u --output-dir=/tmp/
 #上传整个静态网站（含图片）到 oss
-ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/
+#ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/

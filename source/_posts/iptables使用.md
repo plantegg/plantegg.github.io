@@ -291,7 +291,7 @@ iptables -A OUTPUT -p tcp --dport 31165 -j DROP
 
 iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-7027461.)
+![Image](/images/951413iMgBlog/640-7027461.)
 
 ### ncat端口转发
 

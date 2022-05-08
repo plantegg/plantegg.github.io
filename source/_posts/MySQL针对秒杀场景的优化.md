@@ -47,7 +47,7 @@ tags:
 
 （5）commit
 
-![Snip20161116_88.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/TB1yvFqOpXXX.png)
+![Snip20161116_88.png](/images/951413iMgBlog/TB1yvFqOpXXX.png)
 
 SQL case：
 
@@ -67,7 +67,7 @@ SQL case：
 
 通过内存合并库存减操作，干到100000（每个减库存操作生成一条独立的update binlog，不影响其他业务2016年双11），实际这里还可以调整批提交时间间隔来进一步提升扣减QPS
 
-![Snip20161116_87.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png)
+![Snip20161116_87.png](/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png)
 
 超卖：付款减库存会超卖，拍减库存要防止恶意拍不付款。拍减的话可以通过增加SQL新语法来进一步优化DB响应(select update)
 

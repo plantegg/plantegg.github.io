@@ -85,7 +85,7 @@ iptables+clusterIP工作流程：
 3. KUBE-SEP-F4QDAAVSZYZMFXZQ 指示 DNAT到 宿主机：192.168.0.83:10379（在内核中将包改写了ip port）
 4. 从svc description中可以看到这个endpoint的地址 192.168.0.83:10379（pod使用Host network）
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png)
+![image.png](/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png)
 
 iptables规则解析如下（case不一样，所以看到的端口、ip都不一样）：
 
@@ -124,7 +124,7 @@ iptables规则解析如下（case不一样，所以看到的端口、ip都不一
 -A KUBE-SEP-NGINX2 -p tcp -m tcp -j DNAT --to-destination 1.1.1.2:80
 ```
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/dc0aa14d0eedf9f8f6f8bca1eee34cf8.png)
+![image.png](/images/951413iMgBlog/dc0aa14d0eedf9f8f6f8bca1eee34cf8.png)
 
 在对应的宿主机上可以清楚地看到容器中的mysqld进程正好监听着 10379端口
 
@@ -294,7 +294,7 @@ TCP  10.68.114.131:3306 rr
 6. 目标node进行ipip解包后给pod对应的网卡
 7. pod接收到请求之后，构建响应报文，改变源地址和目的地址，返回给客户端。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/51695ebb1c6b30d95f8ac8d5dcb8dd7f.png)
+![image.png](/images/oss/51695ebb1c6b30d95f8ac8d5dcb8dd7f.png)
 
 #### ipvs实际案例
 
@@ -314,7 +314,7 @@ local 10.68.70.130 dev lo src 10.68.70.130  //这条规则指示了clusterIP是�
 
 于是cip变成了tunl0的IP，这个tunl0是ipip模式，于是将这个包打包成ipip，也就是外层sip、dip都是宿主机ip，再将这个包丢入到物理网络
 
-![](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/84bbd3f10de9e7ec2266a82520876c8c.png)
+![](/images/oss/84bbd3f10de9e7ec2266a82520876c8c.png)
 
 网络收包到达内核后的处理流程如下，核心都是查路由表，出包也会查路由表（判断是否本机内部通信，或者外部通信的话需要选用哪个网卡）
 
@@ -364,11 +364,11 @@ PING 10.96.229.40 (10.96.229.40) 56(84) bytes of data.
 
 ipvs实现的clusterIP，在本地有添加路由到lo网卡
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1f5539eb4c5fa16b2f66f44056d80d7a.png)
+![image.png](/images/oss/1f5539eb4c5fa16b2f66f44056d80d7a.png)
 
 然后在本机抓包（到ipvs后端的pod上抓不到icmp包）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1caea5b0eb23a47241191d1b5d8c5001.png)
+![image.png](/images/oss/1caea5b0eb23a47241191d1b5d8c5001.png)
 
 从上面可以看出显然ipvs只会转发tcp包到后端pod，所以icmp包不会通过ipvs转发到pod上，同时在本地回环网卡lo上抓到了进去的icmp包。因为本地添加了一条路由规则，目标clusterIP被指示发到lo网卡上，lo网卡回复了这个ping包，所以通了。
 
@@ -443,7 +443,7 @@ kube-proxy相当于service的管理方，业务流量不会走到kube-proxy，�
 
 kube-proxy的三种模式：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/075e2955c5fbd08986bd34afaa5034ba.png)
+![image.png](/images/oss/075e2955c5fbd08986bd34afaa5034ba.png)
 
 
 
@@ -465,7 +465,7 @@ Kubernetes 中已经使用 ipvs 作为 kube-proxy 的默认代理模式。
 /opt/kube/bin/kube-proxy --bind-address=172.26.137.117 --cluster-cidr=172.20.0.0/16 --hostname-override=172.26.137.117 --kubeconfig=/etc/kubernetes/kube-proxy.kubeconfig --logtostderr=true --proxy-mode=ipvs
 ```
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/c44c8b3fbb1b2e0910872a6aecef790c.png)
+![image.png](/images/oss/c44c8b3fbb1b2e0910872a6aecef790c.png)
 
 
 
@@ -568,7 +568,7 @@ Ingress 不会公开任意端口或协议。 将 HTTP 和 HTTPS 以外的服务�
 
 Ingress 其实不是Service的一个类型，但是它可以作用于多个Service，作为集群内部服务的入口。Ingress 能做许多不同的事，比如根据不同的路由，将请求转发到不同的Service上等等。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0e100056910df8cfc45403a05838dd34.png)
+![image.png](/images/oss/0e100056910df8cfc45403a05838dd34.png)
 
  Ingress 对象，其实就是 Kubernetes 项目对“反向代理”的一种抽象。
 
@@ -640,7 +640,7 @@ Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
 传统的 kube-proxy 处理 Kubernetes Service 时，包在内核中的 转发路径是怎样的？如下图所示：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/67851ecb88fca18b9745dae4948947a5.png)
+![image.png](/images/oss/67851ecb88fca18b9745dae4948947a5.png)
 
 
 
@@ -665,7 +665,7 @@ Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
 ### Cilium 如何处理POD之间的流量（东西向流量）
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png)
+![image.png](/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png)
 
 如上图所示，Socket 层的 BPF 程序主要处理 Cilium 节点的东西向流量（E-W）。
 
@@ -679,7 +679,7 @@ Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
 ### Cilium处理外部流量（南北向流量）
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png)
+![image.png](/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png)
 
 集群外来的流量到达 node 时，由 XDP 和 tc 层的 BPF 程序进行处理， 它们做的事情与 socket 层的差不多，将 Service 的 IP:Port 映射到后端的 PodIP:Port，如果 backend pod 不在本 node，就通过网络再发出去。发出去的流程我们 在前面 Cilium eBPF 包转发路径 讲过了。
 
@@ -698,7 +698,7 @@ Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS & LB）
 
 测试环境：两台物理节点，一个发包，一个收包，收到的包做 Service loadbalancing 转发给后端 Pods。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1b69dfd206a91dc4007781163fd55f41.png)
+![image.png](/images/oss/1b69dfd206a91dc4007781163fd55f41.png)
 
 可以看出：
 
@@ -716,7 +716,7 @@ cpu：
 
 通过bpf监听socket来拦截所有sendmsg事件，如果是发送到本地另一个socket那么bpf就绕过TCP/IP协议栈，直接将msg送给对方socket。依赖用cgroups来指定监听的sockets事件
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/sock-redir.png)
+![img](/images/951413iMgBlog/sock-redir.png)
 
 实现这个功能依赖两个东西：
 

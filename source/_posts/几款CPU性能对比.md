@@ -48,7 +48,7 @@ tags:
 
 ## CPU基本信息
 
-![image-20210723161314138](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210723161314138.png)
+![image-20210723161314138](/images/951413iMgBlog/image-20210723161314138.png)
 
 ### 海光
 
@@ -117,11 +117,11 @@ physical         core      processor
 1                0~15         48~63
 ```
 
-![image-20210805085715353](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210805085715353.png)
+![image-20210805085715353](/images/951413iMgBlog/image-20210805085715353.png)
 
 ### Intel CPU
 
-![cascade lake naming scheme.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
+![cascade lake naming scheme.svg](/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
 
 Cascade Lake架构相对Broadwell L1没变，L2从256K增加到1M增加了4倍，L3从2.5下降到1.38M每core
 
@@ -264,21 +264,21 @@ node 1                                             node 3
 
 [鲲鹏920架构参考这里](https://fuse.wikichip.org/news/2274/huawei-expands-kunpeng-server-cpus-plans-smt-sve-for-next-gen/)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/taishan-v110-soc-block-diagram.png)
+![img](/images/951413iMgBlog/taishan-v110-soc-block-diagram.png)
 
 Though Huawei has been keeping a tight lip on the chip design itself, the Hi1620 is actually a multi-chip design. Actually, we believe are three dies. The chip itself comprise two compute dies called the **Super CPU cluster** (SCCL), each one packing 32 cores. It’s also possible the SCCL only have 24 cores, in which case there are three such dies with a theoretical maximum core count of 72 cores possible but are not offered for yield reasons. Regardless of this, there are at least two SCCL dies for sure. Additionally, there is also an I/O die called the **Super IO Cluster** (SICL) which contains all the high-speed SerDes and low-speed I/Os.
 
 下图是6426型号，我测试用的是4826型号，也就是一个CPU内是48core，一个CPU封装3个Die，两个Die是 core，还有一个是Super IO Cluster
 
-![taishan v110 soc details.svg](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
+![taishan v110 soc details.svg](/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
 
 鲲鹏命令规范：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-naming-scheme.png)
+![img](/images/951413iMgBlog/kunpeng-naming-scheme.png)
 
 鲲鹏 RoadMap
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/kunpeng-future-roadmap-1024x512.png)
+![img](/images/951413iMgBlog/kunpeng-future-roadmap-1024x512.png)
 
 #### 鲲鹏 Kunpeng 920-4826 跨numa性能比较
 
@@ -535,13 +535,13 @@ Processor Information
 
 I/O性能：双向聚合有效带宽可达到160GB/s，支持I/O虚拟化。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/641.png)
+![img](/images/951413iMgBlog/641.png)
 
 3232推出的时间会比3231迟一些，采用新一代CPU核，IPC会非常惊人，保底10/G，争取12/G，考虑倒申威团队一向严谨，以及过去基本没有让大家失望过，因而对3232的IPC，可以采用就高原则。
 
 申威 3231架构
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1604285554727-f6a30266-c4be-42b4-ad77-2fabbf066070.png)
+![image.png](/images/951413iMgBlog/1604285554727-f6a30266-c4be-42b4-ad77-2fabbf066070.png)
 
 申威 6B 芯片结构的主要特点如下：
 
@@ -561,7 +561,7 @@ I/O性能：双向聚合有效带宽可达到160GB/s，支持I/O虚拟化。
 
  申威1621处理器是基于第三代“申威64”核心（增强版）的国产高性能多核处理器，主要面向高性能计算和中高端服务器应用。目前，该处理器已经实现量产。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/20170829092439580.png)    申威1621采用对称多核结构和SoC技术，单芯片集成了16个64位RISC结构的申威处理器核心，目标设计主频为2GHz。芯片还集成八路DDR3存储控制器和双路PCI-E3.0标准I/O接口。
+![img](/images/951413iMgBlog/20170829092439580.png)    申威1621采用对称多核结构和SoC技术，单芯片集成了16个64位RISC结构的申威处理器核心，目标设计主频为2GHz。芯片还集成八路DDR3存储控制器和双路PCI-E3.0标准I/O接口。
 
 ```
 #dmidecode -t processor
@@ -853,35 +853,35 @@ sys    0m0.127s
 
 intel的cpu随着线程的增加，ipc稳定减少，但不是线性的
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
+![image.png](/images/oss/dcb68dff74ace2cf6f9c30378acdb377.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d0151c855011b24590efd672398bd9eb.png)
+![image.png](/images/oss/d0151c855011b24590efd672398bd9eb.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/175a1df9274a830d4a7157dfda96c180.png)
+![image.png](/images/oss/175a1df9274a830d4a7157dfda96c180.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
+![image.png](/images/oss/e63a992fcd1df547568eb93f515a5c99.png)
 
 ### 海光
 
 如下数据可以看到在用满32个物理core之前，ipc保持稳定，超过32core后随着并发增加ipc相应减少，性能再也上不去了。
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
+![image.png](/images/oss/ded1ee0ed8d5d2fa3822e6fdfa4335f1.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0f2410165932835a36d8c0611877ae77.png)
+![image.png](/images/oss/0f2410165932835a36d8c0611877ae77.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/67df9ff04209a00bd864ba21b7593477.png)
+![image.png](/images/oss/67df9ff04209a00bd864ba21b7593477.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
+![image.png](/images/oss/1bc01f6e880c7e49672170f940ff40a0.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
+![image.png](/images/oss/307d30c2b3507d5561d774f96b13e67a.png)
 
 ### 鲲鹏920
 
 可以看到**鲲鹏920多核跑openssl是没有什么争抢的，所以还能保证完全线性**
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/39720b5eb41937b462e1772854e2d832.png)
+![image.png](/images/oss/39720b5eb41937b462e1772854e2d832.png)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
+![image.png](/images/oss/a98a482a10f09bccd4a6ac49fd2850b9.png)
 
 ### 小结
 

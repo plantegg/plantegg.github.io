@@ -63,7 +63,7 @@ bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端�
 
 bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-20220224103024676.png)
+![Image](/images/951413iMgBlog/640-20220224103024676.png)
 
 **是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？**
 

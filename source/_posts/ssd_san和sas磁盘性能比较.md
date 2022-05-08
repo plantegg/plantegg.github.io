@@ -19,7 +19,7 @@ tags:
 
 正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d57a004c846e193126ca01398e394319.png)
+![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
 
 所使用的测试命令：
 
@@ -41,13 +41,13 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 ## NVMe SSD 和 HDD的性能比较
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
 
 表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
 
 **HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
+![img](/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
 
 从上图可以看出如果是随机读写HDD性能极差，但是如果是顺序读写HDD和SDD、内存差异就不那么大了。
 
@@ -918,7 +918,7 @@ Disk stats (read/write):
 
 ### HDD性能测试数据
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -958,7 +958,7 @@ ESSD的latency基本是13-16us。
 
 我们来一起看一下具体的数据。首先来看NVＭe如何减小了协议栈本身的时间消耗，我们用*blktrace*工具来分析一组传输在应用程序层、操作系统层、驱动层和硬件层消耗的时间和占比，来了解AHCI和NVMe协议的性能区别：
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
+![img](/images/951413iMgBlog/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
 
 硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
 
@@ -994,11 +994,11 @@ time taskset -c 0 dd if=/dev/zero of=./tempfile2 bs=1M count=40240 &
 
 下图上面两块nvme做的LVM，下面两块nvme做成RAID0，同时开始测试，可以看到RAID0的两块盘写入速度更快
 
-![image-20211231205730735](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211231205730735.png)
+![image-20211231205730735](/images/951413iMgBlog/image-20211231205730735.png)
 
 测试结果
 
-![image-20211231205842753](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211231205842753.png)
+![image-20211231205842753](/images/951413iMgBlog/image-20211231205842753.png)
 
 实际单独写一块nvme也比写两块nvme做的LVM要快一倍，对dd这样的顺序读写，软RAID0还是能提升一倍速度的
 
@@ -1052,13 +1052,13 @@ RAID0是使用mdadm做的软raid，系统层面还是有消耗，没法和RAID�
 fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101104145331](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101104145331.png)
+![image-20220101104145331](/images/951413iMgBlog/image-20220101104145331.png)
 
 从观察来看，RAID0的两块盘读写、iops都非常均衡，LVM的两块盘
 
 三个测试分开跑，独立nvme性能最好，LVM最差并且不均衡
 
-![image-20220101110016074](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101110016074.png)
+![image-20220101110016074](/images/951413iMgBlog/image-20220101110016074.png)
 
 三个测试分开跑，去掉 aio，性能都只有原来的一半
 
@@ -1066,7 +1066,7 @@ fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -siz
 fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101110708888](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220101110708888.png)
+![image-20220101110708888](/images/951413iMgBlog/image-20220101110708888.png)
 
 修改fio参数，用最快的 direct=0 buffered=1 aio 结论是raid0最快，直接写nvme略慢，LVM只有raid0的一半
 
@@ -1230,7 +1230,7 @@ Disk stats (read/write):
 
 raid6开buffer性能比raid0还要好10-20%，实际是将刷盘延迟异步在做，如果用-buffer=0 raid6的性能只有raid0的一半
 
-![image-20220105173206915](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220105173206915.png)
+![image-20220105173206915](/images/951413iMgBlog/image-20220105173206915.png)
 
 ```
 [root@hygon33 17:19 /md6]
@@ -1393,9 +1393,9 @@ avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表
 
 国产SSD指的是AliFlash
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
+![img](/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
+![img](/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
 
 ## rq_affinity
 
@@ -1435,7 +1435,7 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
 
 ## 磁盘挂载参数
 
@@ -1456,7 +1456,7 @@ RunFio 10 64 4k randwrite filename
 
 整个方案是：原始文件切割成小分片，喂给24个worker；每个worker读数据，处理数据，定期批量写索引出去；最后查询会去读每个worker生成的所有索引文件，通过跳表快速seek。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png)
+![img](/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png)
 
 ## LVM性能对比
 

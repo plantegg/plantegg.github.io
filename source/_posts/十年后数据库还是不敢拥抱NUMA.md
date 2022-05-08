@@ -7,7 +7,7 @@ tags:
     - Linux
     - NUMA
     - CPU
-    - Performance
+    - performance
     - zone_reclaim_mode
 ---
 
@@ -19,11 +19,11 @@ tags:
 
 最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png) 
+![undefined](/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png) 
 
 从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，执行的SQL也是一样
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png) 
+![undefined](/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png) 
 所有MySQL实例流量一样
 
 那么问题来了为什么在同样的机器上、同样的流量下CPU使用率差了这么多？ 换句话来问就是CPU使用率高就有效率吗？
@@ -146,7 +146,7 @@ Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
 
 如下图，是一个Intel Xeon E5 CPU的架构信息，左右两边的大红框分别是两个NUMA，每个NUMA的core访问直接插在自己红环上的内存必然很快，如果访问插在其它NUMA上的内存还要走两个红环之间上下的黑色箭头线路，所以要慢很多。
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png)
+![img](/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png)
 
 实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket（这两块CPU内部不再是上图的红环Bus,而是改用了Mesh Bus一个Die就是一个NUMA，服务器有两路，也就是一个Socket就是一个NUMA），也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。[测试工具从这里下载](https://software.intel.com/content/www/us/en/develop/articles/intelr-memory-latency-checker.html)
 
@@ -178,19 +178,19 @@ Numa node      0       1
 
 The SMP/UMA architecture
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/uma-architecture.png)
+![img](/images/951413iMgBlog/uma-architecture.png)
 
 The NUMA architecture
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/numa-architecture.png)
+![img](/images/951413iMgBlog/numa-architecture.png)
 
 Modern multiprocessor systems mix these basic architectures as seen in the following diagram:
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/39354-figure-3-184398.jpg)
+![img](/images/951413iMgBlog/39354-figure-3-184398.jpg)
 
 In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.
 
-![03-05-Broadwell_HCC_Architecture](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
+![03-05-Broadwell_HCC_Architecture](/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg)
 
 ## 对比测试Intel NUMA 性能
 
@@ -243,7 +243,7 @@ other_node                 23652          106041
 - 如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%  IPC: 0.42；
 - 绑0-15个物理core，qps能到17万，绑32-47也是一样的效果；
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png) 
+![undefined](/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png) 
 
 从这个数据看起来**即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下**， NUMA更多性能差异应该会更大。
 
@@ -251,9 +251,9 @@ other_node                 23652          106041
 
 来看看不通绑核情况下node之间的带宽利用情况：
 
-![image-20210525151537507](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210525151537507.png)
+![image-20210525151537507](/images/951413iMgBlog/image-20210525151537507.png)
 
-![image-20210525151622425](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210525151622425.png)
+![image-20210525151622425](/images/951413iMgBlog/image-20210525151622425.png)
 
 实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。
 
@@ -321,11 +321,11 @@ Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收�
 ### 查看kernel提交记录
 [github kernel commit](https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82)
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png) 
+![undefined](/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png) 
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png) 
+![undefined](/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png) 
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png) 
+![undefined](/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png) 
 
 关键是上图红框中的代码，node distance比较大（也就是开启了NUMA的话），强制将 zone_reclaim_mode设为1，这是2014年提交的代码，将这个强制设为1的逻辑去掉了。
 
@@ -352,17 +352,17 @@ To allocate 64GB memory
 Used time: 39 seconds
 ```
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png) 
+![undefined](/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png) 
 
 从如上截图来看，再分配64G内存的时候即使node0不够了也没有回收node0上的PageCache，而是将内存跨NUMA分配到了node1上，符合预期！
 
 释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png) 
+![undefined](/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png) 
 
 ### 将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试
 可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿
 
-![undefined](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png) 
+![undefined](/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png) 
 
 测试结论：**从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了**
 
@@ -399,7 +399,7 @@ cat /proc/sys/kernel/numa_balancing shows 1
 * ECS售卖如果能够精确地按NUMA绑核的话性能，超卖比能高很多
 * 在刷tpcc数据的时候更应该开NUMA和正确绑核
 
-我个人一直对集团所有机器默认关闭NUMA耿耿于怀，算是理清了来龙去脉。因为一个kernel的bug让大家对NUMA一直有偏见，即使14年已经修复了，大家还是以讹传讹，没必要。
+我个人一直对集团所有机器默认关闭NUMA耿耿于怀，因为定制的物理机（BIOS也是定制的）BIOS默认就是关闭NUMA的，装机还得一台台手工打开（跪了，几十万台啊），算是理清了来龙去脉。因为一个kernel的bug让大家对NUMA一直有偏见，即使14年已经修复了，大家还是以讹传讹，没必要。
 
 关于cpu为什么高但是没有产出的原因是因为CPU流水线长期stall，导致很低的IPC，所以性能自然上不去，可以看[这篇文章](http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html) 
 
@@ -407,7 +407,7 @@ cat /proc/sys/kernel/numa_balancing shows 1
 
 其他同学测试的结论：
 
-- ODPS离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%
+- Hadoop离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%
 
 
 

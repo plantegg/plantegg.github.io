@@ -211,7 +211,7 @@ sudo tc filter show dev eth0
 
 限流100MB后的实际监控效果
 
-![image-20211031205539407](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211031205539407.png)
+![image-20211031205539407](/images/951413iMgBlog/image-20211031205539407.png)
 
 
 

@@ -30,7 +30,7 @@ tags:
 在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话
 
 比如，通过tcpdump分析到的会话是这样的：
-![screenshot.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png)
+![screenshot.png](/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png)
 
 如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。
 
@@ -88,7 +88,7 @@ tags:
 
 终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接
 
-![screenshot.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/02bcccd66af82c929c4eee8c88875733.png)
+![screenshot.png](/images/oss/02bcccd66af82c929c4eee8c88875733.png)
 
 图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了
 

@@ -16,7 +16,7 @@ LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/�
 
 ​     **硬盘----分区(fdisk)----PV(pvcreate)----VG(vgcreate)----LV(lvcreate)----格式化(mkfs.ext4 LV为ext文件系统)----挂载**
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
+![img](/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
 
 
 
@@ -246,7 +246,7 @@ e2label /dev/mapper/vgpolarx-polarx polarx
 
 比如，下图右边的是启动失败的
 
-![image-20211228185144635](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228185144635.png)
+![image-20211228185144635](/images/951413iMgBlog/image-20211228185144635.png)
 
 ## [软RAID](https://xiaoz.co/2020/04/28/array-with-mdadm/)
 
@@ -321,7 +321,7 @@ fuser -km /data/
 
 [raid卡外观](http://aijishu.com/a/1060000000225602)
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/bV6Ra.png)
+![image.png](/images/951413iMgBlog/bV6Ra.png)
 
 ## 参考资料
 

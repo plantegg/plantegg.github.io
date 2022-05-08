@@ -52,7 +52,7 @@ docker images |grep "registry:5000" | awk '{ print $1":"$2 }' | xargs -I {} dock
 
 问题原因：https://access.redhat.com/solutions/30316
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
+![image.png](/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
 
 如上图去掉 admin nproc限制就可以了
 
@@ -117,7 +117,7 @@ ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：
 
 ## pam 权限报错
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/b646979272e71e015de4a47c62b89747.png)
+![image.png](/images/oss/b646979272e71e015de4a47c62b89747.png)
 
 从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient
 
@@ -249,6 +249,18 @@ Debug sudo /var/log/sudo_debug all@warn
 Debug sudoers.so /var/log/sudoers_debug all@debug
 ```
 
+## crond ERROR (getpwnam() failed)
+
+[报错信息](https://www.ibm.com/support/pages/cron-job-fails-error-message-getpwnam-failed-no-such-file-or-directory)
+
+```
+crond[246590]: (/usr/bin/ssh) ERROR (getpwnam() failed)
+```
+
+要特别注意crond格式是 时间  **用户**  命令
+
+有时候我们可以省略用户，但是在 **/etc/cron.d/** 中省略用户后报错如上
+
 ## 进程和线程
 
 把进程看做是资源分配的单位，把线程才看成一个具体的执行实体。
@@ -271,7 +283,7 @@ success
 
 ## 强制重启系统
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
+![image.png](/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
 
 ## hostname
 
@@ -281,19 +293,19 @@ getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这�
 
 ## tsar Floating point execption
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
+![image.png](/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
 
 因为 /etc/localtime 是deleted状态
 
 ## 奇怪的文件大小 [sparse file](https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
+![img](/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
 如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
+![img](/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
 
 [图片来源](https://www.systutorials.com/handling-sparse-files-on-linux/)
 
@@ -374,15 +386,15 @@ tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以�
 
 远古时代tty是物理形态的存在
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
+![img](/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
 
 PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
+![img](/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
 
 实际像如下图的工作协作:
 
-![Diagram](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/case3.png)
+![Diagram](/images/951413iMgBlog/case3.png)
 
 ## [rsync](https://wangdoc.com/ssh/rsync.html)
 
@@ -489,9 +501,7 @@ dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 
 为保证服务性能应选用 performance 模式，将 CPU 频率固定工作在其支持的最高运行频率上，不进行动态调节，操作命令为 `cpupower frequency-set --governor performance`。
 
-###
-
-常用命令
+### 常用命令
 
 - dmesg | tail
 - vmstat 1
@@ -501,6 +511,35 @@ dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 - free -m
 - sar -n DEV 1
 - sar -n TCP,ETCP 1
+
+#### 案例
+
+```
+//检查sda磁盘中哪个应用程序占用的io比较高
+pidstat -d  1
+
+//分析应用程序中哪一个线程占用的io比较高
+pidstat -dt -p 73739 1  执行两三秒即可,得到74770线程io高
+
+//分析74770这个线程在干什么
+perf trace -t 74770 -o /tmp/tmp_aa.pstrace
+cat /tmp/tmp_aa.pstrace
+  2850.656 ( 1.915 ms): futex(uaddr: 0x653ae9c4, op: WAIT|PRIVATE_FLAG, val: 1)               = 0
+  2852.572 ( 0.001 ms): futex(uaddr: 0x653ae990, op: WAKE|PRIVATE_FLAG, val: 1)               = 0
+  2852.601 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0
+  2852.690 ( 0.040 ms): write(fd: 159, buf: 0xd7a30020, count: 65536)                         = 65536
+  2852.796 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0
+  2852.798 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0
+  2852.939 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0
+  2852.950 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0
+  2852.977 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0
+  2853.029 ( 0.035 ms): write(fd: 64, buf: 0xcd51e020, count: 65536)                          = 65536
+  2853.164 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f68)             = 0
+  2853.167 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f58)             = 0
+  2853.302 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0
+```
+
+
 
 ### 内存——虚拟内存参数
 
@@ -521,13 +560,13 @@ echo noop > /sys/block/${SSD_DEV_NAME}/queue/scheduler
 
 ## Unix Linux关系
 
-![image-20211210085124387](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211210085124387.png)
+![image-20211210085124387](/images/951413iMgBlog/image-20211210085124387.png)
 
-![img](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/G2Xri.png)
+![img](/images/951413iMgBlog/G2Xri.png)
 
 ### [linux 发行版关系](https://blog.51cto.com/wangyafei/1881605)
 
-![细数各家linux之间的区别_软件应用_什么值得买](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
+![细数各家linux之间的区别_软件应用_什么值得买](/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
 
  Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
 

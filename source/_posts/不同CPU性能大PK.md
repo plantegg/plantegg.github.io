@@ -74,7 +74,7 @@ NUMA 节点7 CPU：                 56-63,120-127
 
 曙光H620-G30A 机型硬件结构，CPU是hygon 7280（截图只截取了Socket0）
 
-![image-20211231202402561](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211231202402561.png)
+![image-20211231202402561](/images/951413iMgBlog/image-20211231202402561.png)
 
 ### AMD EPYC 7H12
 
@@ -496,7 +496,7 @@ tpcc测试数据，结果为1000仓，tpmC (NewOrders) ，未标注CPU 则为跑
 
 tpcc并发到一定程度后主要是锁导致性能上不去，所以超多核意义不大。
 
-如果在Hygon 7280 2.1GHz 麒麟上起两个MySQLD实例，每个实例各绑定32物理core，性能刚好翻倍：![image-20210823082702539](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210823082702539.png)
+如果在Hygon 7280 2.1GHz 麒麟上起两个MySQLD实例，每个实例各绑定32物理core，性能刚好翻倍：![image-20210823082702539](/images/951413iMgBlog/image-20210823082702539.png)
 
 测试过程CPU均跑满（未跑满的话会标注出来），IPC跑不起来性能就必然低，超线程虽然总性能好了但是会导致IPC降低(参考前面的公式)。可以看到对本来IPC比较低的场景，启用超线程后一般对性能会提升更大一些。
 
@@ -504,7 +504,7 @@ CPU核数增加到32核后，MySQL社区版性能追平xdb， 此时sysbench使�
 
 32核的时候对比下MySQL 社区版在Hygon7280和Intel 8163下的表现：
 
-![image-20210817181752243](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210817181752243.png)
+![image-20210817181752243](/images/951413iMgBlog/image-20210817181752243.png)
 
 ## 三款CPU的性能指标
 
@@ -626,7 +626,7 @@ Lat_mem_rd 用cpu7访问node0和node15对比结果，随着数据的加大，延
 
 下图 第一列 表示读写数据的大小（单位M），第二列表示访问延时（单位纳秒），一般可以看到在L1/L2/L3 cache大小的地方延时会有跳跃，远超过L3大小后，延时就是内存延时了
 
-![image-20210924185044090](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20210924185044090.png)
+![image-20210924185044090](/images/951413iMgBlog/image-20210924185044090.png)
 
 ```
 numactl -C 7 -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M  //-C 7 cpu 7, -m 0 node0, -W 热身 -t stride
@@ -634,7 +634,7 @@ numactl -C 7 -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 64M  //-C 7 cpu 7, -m 0 node0, -
 
 同样的机型，开关numa的测试结果，关numa 时延、带宽都差了几倍
 
-![image-20220323153507557](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220323153507557.png)
+![image-20220323153507557](/images/951413iMgBlog/image-20220323153507557.png)
 
 关闭numa的机器上测试结果随机性很强，这应该是和内存分配在那里有关系，不过如果机器一直保持这个状态反复测试的话，快的core一直快，慢的core一直慢，这是因为物理地址分配有一定的规律，在物理内存没怎么变化的情况下，快的core恰好分到的内存比较近。
 
@@ -870,7 +870,7 @@ STREAM copy latency: 2.31 nanoseconds
 STREAM copy bandwidth: 6938.47 MB/sec
 ```
 
-[以华为泰山服务器(鲲鹏920芯片)配置为例](https://support.huawei.com/enterprise/zh/doc/EDOC1100088653/32aa8773)：![image-20211228165542167](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20211228165542167.png)
+[以华为泰山服务器(鲲鹏920芯片)配置为例](https://support.huawei.com/enterprise/zh/doc/EDOC1100088653/32aa8773)：![image-20211228165542167](/images/951413iMgBlog/image-20211228165542167.png)
 
 > Die Interleaving 控制是否使能DIE交织。使能DIE交织能充分利用系统的DDR带宽，并尽量保证各DDR通道的带宽均衡，提升DDR的利用率
 
@@ -1164,27 +1164,27 @@ for i in $(seq 0 8 127); do echo core:$i; numactl -C $i -m 0 ./bin/lat_mem_rd -W
 
 3A5000为龙芯，执行的命令为./lat_mem_rd 128M 4096，其中 4096 参数为跳步大小。其基本原理是，通过按 给定间隔去循环读一定大小的内存区域，测量每个读平均的时间。如果区域大小小于 L1 Cache 大 小，时间应该接近 L1 的访问延迟;如果大于 L1 小于 L2，则接近 L2 访问延迟;依此类推。图中横坐 标为访问的字节数，纵坐标为访存的拍数(cycles)。
 
-![image-20220221113929547](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220221113929547.png)
+![image-20220221113929547](/images/951413iMgBlog/image-20220221113929547.png)
 
 基于跳步访问的 3A5000 和 Zen1、Skylake 各级延迟的比较(cycles)
 
-![image-20220221112527936](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220221112527936.png)
+![image-20220221112527936](/images/951413iMgBlog/image-20220221112527936.png)
 
 
 
 下图给出了 LMbench 测试得到的访存操作的并发性，执行的命令为./par_mem。访存操作的并 发性是各级 Cache 和内存所支持并发访问的能力。在 LMbench 中，访存操作并发性的测试是设计一 个链表，不断地遍历访问下一个链表中的元素，链表所跳的距离和需要测量的 Cache 容量相关，在 一段时间能并发的发起对链表的追逐操作，也就是同时很多链表在遍历，如果发现这一段时间内 能同时完成 N 个链表的追逐操作，就认为访存的并发操作是 N。
 
-![image-20220221112727377](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220221112727377.png)
+![image-20220221112727377](/images/951413iMgBlog/image-20220221112727377.png)
 
 下图列出了三款处理器的功能部件操作延迟数据，使用的命令是./lat_ops。
 
-![image-20220221112853404](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220221112853404.png)
+![image-20220221112853404](/images/951413iMgBlog/image-20220221112853404.png)
 
 #### 龙芯stream数据
 
 LMbench 包含了 STREAM 带宽测试工具，可以用来测试可持续的内存访问带宽情况。图表12.25列 出了三款处理器的 STREAM 带宽数据，其中 STREAM 数组大小设置为 1 亿个元素，采用 OpenMP 版本 同时运行四个线程来测试满载带宽;相应测试平台均为 CPU 的两个内存控制器各接一根内存条， 3A5000 和 Zen1 用 DDR4 3200 内存条，Skylake 用 DDR4 2400 内存条(它最高只支持这个规格)。
 
-![image-20220221113037332](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220221113037332.png)
+![image-20220221113037332](/images/951413iMgBlog/image-20220221113037332.png)
 
 从数据可以看到，虽然硬件上 3A5000 和 Zen1 都实现了 DDR4 3200，但 3A5000 的实测可持续带宽 还是有一定差距。用户程序看到的内存带宽不仅仅和内存的物理频率有关系，也和处理器内部的 各种访存队列、内存控制器的调度策略、预取器和内存时序参数设置等相关，需要进行更多分析 来定位具体的瓶颈点。像 STREAM 这样的软件测试工具，能够更好地反映某个子系统的综合能力， 因而被广泛采用。
 

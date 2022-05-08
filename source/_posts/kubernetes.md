@@ -764,7 +764,7 @@ curl --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-ku
 
 由CA机构签发：/etc/kubernetes/pki/apiserver-kubelet-client.crt 
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5609125.jpeg)
+![Image](/images/951413iMgBlog/640-5609125.jpeg)
 
 [获取default namespace下的deployment](https://kubernetes.io/docs/reference/using-api/api-concepts/)
 
@@ -804,7 +804,7 @@ curl  --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-k
 >
 > curl http://localhost:8080/api/v1/namespaces
 
-![Image](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/640-5609622.png)
+![Image](/images/951413iMgBlog/640-5609622.png)
 
 ## 抓包
 
@@ -824,7 +824,7 @@ curl --local-port 12345 --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernet
 #cat $JWT_TOKEN_DEFAULT_DEFAULT eyJhbGciOiJSUzI1NiIsImtpZCI6ImlNVVFVNmxUM2t4c3Y2Q3IyT1BzV2hDZGRVSmVxTHc5RV8wUXZ4RVM5REEifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZWZhdWx0Iiwia3ViZXJ: File name too long
 ```
 
-![image-20220223170008311](https://plantegg.oss-cn-beijing.aliyuncs.com/images/951413iMgBlog/image-20220223170008311.png)
+![image-20220223170008311](/images/951413iMgBlog/image-20220223170008311.png)
 
 ## 参考资料
 

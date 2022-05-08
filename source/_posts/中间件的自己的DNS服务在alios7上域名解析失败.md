@@ -18,7 +18,7 @@ tags:
 
 分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png)
+![image.png](/images/oss/1d5295ccb1fab715f246b54faf94eaaf.png)
 
 绿色部分是正常的解析（centos6），**红色部分是解析，多了一个OPT（centos7）**
 
@@ -34,7 +34,7 @@ vipclient会启动一个53端口，在上面监听dns query，也就是自己就
 
 ## 分析vipclient域名解析返回的包内容
 
-![image.png](https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/0882e4815fb1acfa80f813db4bb7265b.png)
+![image.png](/images/oss/0882e4815fb1acfa80f813db4bb7265b.png)
 
 把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题
 
