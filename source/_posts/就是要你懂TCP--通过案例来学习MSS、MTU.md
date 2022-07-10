@@ -18,7 +18,7 @@ tags:
 *  发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现） 
 *  手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了
 *  尝试单独scp这个文件依然卡死
-*  在这个容器上scp其它文件没问题
+*  在这个容器上scp其它文件没问题(小文件)
 *  换一个容器scp这个文件没问题
 
 ## 分析过程
@@ -39,7 +39,7 @@ tags:
 * 查看了scp的两个容器的网卡mtu都是1500，正常
 
 ```
-    基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了
+基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了
 ```
 
 ## 接下来分析网络传输链路
@@ -126,6 +126,10 @@ centos或者ubuntu下：
 Q: 传输的包超过MTU后表现出来的症状？
 A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。
 
+Q: mtu 如何配置
+ifconfig eth1 mtu 9000 up
+vi /etc/sysconfig/network-scripts/ifcfg-eth0
+
 Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？
 A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。
 
@@ -138,10 +142,8 @@ A: 网卡配置--ifconfig；ip route在路由上指定；iptables中限制
 > \# delete rules
 > $ sudo iptables -D OUTPUT -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 48
 >
-> 
->
 > \# show router information
-> $ route -ne
+>$ route -ne
 > $ ip route show
 > 192.168.11.0/24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100
 > \# modify route table

@@ -182,51 +182,89 @@ sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e
 
 这样就直接看到发出的SQL是否是autocommit=1了
 
-## 按http response分析响应时间
+## HTTP响应时间分析
+
+```shell
+//按秒汇总每个http response 耗时
+tshark -r dump.pcap -Y 'http.time>0 ' -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.time  | awk '{ print int($2), $8 }' | awk '{ sum[$1]+=$2; count[$1]+=1 ;} END { for (key in count) {  printf  "time= %s  \t count=%s   \t avg=%.6f \n", key,  count[key], sum[key]/count[key] } }' | sort -k2n | awk '{ print strftime("%c",$2), $0 }'
+
+//on macOS
+tshark -r dump.pcap  -Y 'http.response_for.uri contains "health" ' -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response_for.uri  -e http.time  | awk '{ print int($2/10), $8 }' | awk '{ sum[$1]+=$2; count[$1]+=1 ;} END { for (key in count) {  printf  "time= %s  \t count=%s   \t avg=%.6f \n", key,  count[key], sum[key]/count[key] } }' | sort -k2n | gawk '{ print strftime("%c",$2), $0 }'
+```
+
+### 按http response分析响应时间
 
 第三列是RT，倒数第二列是stream，同一个stream是一个连接。对应http response 200的是请求响应结果的RT
 
 ```
 # tshark -nr 10.cap -o tcp.calculate_timestamps:true  -Y "http.request or http.response" -T fields -e frame.number -e frame.time_epoch  -e tcp.time_delta  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response.code -e http.response.phrase | sort -nk6 -nk1
 
-82579	1631791992.105383000	0.000113000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+82579	1631791992.105383000	0.000113000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 83167	1631791992.261663000	0.156042000	172.26.13.107	172.26.2.13	1198		200
-84917	1631791992.775011000	0.513106000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+84917	1631791992.775011000	0.513106000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 86388	1631791993.188458000	0.413018000	172.26.13.107	172.26.2.13	1198		200
-87391	1631791993.465156000	0.276608000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+87391	1631791993.465156000	0.276608000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 88067	1631791993.645780000	0.179832000	172.26.13.107	172.26.2.13	1198		200
-89364	1631791993.994322000	0.348324000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+89364	1631791993.994322000	0.348324000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 89843	1631791994.140131000	0.145169000	172.26.13.107	172.26.2.13	1198		200
-91387	1631791994.605527000	0.465245000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+91387	1631791994.605527000	0.465245000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 92271	1631791994.920607000	0.314639000	172.26.13.107	172.26.2.13	1198		200
-93491	1631791995.323424000	0.402724000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+93491	1631791995.323424000	0.402724000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 93860	1631791995.403614000	0.079834000	172.26.13.107	172.26.2.13	1198		200
-97221	1631791996.347307000	0.943423000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
+97221	1631791996.347307000	0.943423000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
 97862	1631791996.544563000	0.196448000	172.26.13.107	172.26.2.13	1198		200
-99613	1631791997.065735000	0.521095000	172.26.2.13	172.26.13.107	1198	http://mhpt.qlyhs.tax.cn/ajax.sword
-82714	1631791992.141943000	0.000122000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+99613	1631791997.065735000	0.521095000	172.26.2.13	172.26.13.107	1198	http://plantegg/ajax.sword
+82714	1631791992.141943000	0.000122000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 83055	1631791992.235637000	0.093471000	172.26.12.147	172.26.2.13	1199		200
-84789	1631791992.739133000	0.503423000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+84789	1631791992.739133000	0.503423000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 85525	1631791992.946220000	0.206860000	172.26.12.147	172.26.2.13	1199		200
-88208	1631791993.677995000	0.731490000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+88208	1631791993.677995000	0.731490000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 88638	1631791993.800956000	0.122637000	172.26.12.147	172.26.2.13	1199		200
-91010	1631791994.476918000	0.675911000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+91010	1631791994.476918000	0.675911000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 92079	1631791994.874566000	0.397357000	172.26.12.147	172.26.2.13	1199		200
-94480	1631791995.581990000	0.707200000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+94480	1631791995.581990000	0.707200000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 94764	1631791995.665365000	0.082906000	172.26.12.147	172.26.2.13	1199		200
-96241	1631791996.090803000	0.425378000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+96241	1631791996.090803000	0.425378000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 96731	1631791996.215406000	0.124276000	172.26.12.147	172.26.2.13	1199		200
-98832	1631791996.818172000	0.602695000	172.26.2.13	172.26.12.147	1199	http://mhpt.qlyhs.tax.cn/ajax.sword
+98832	1631791996.818172000	0.602695000	172.26.2.13	172.26.12.147	1199	http://plantegg/ajax.sword
 99735	1631791997.105453000	0.286845000	172.26.12.147	172.26.2.13	1199		200
-83462	1631791992.351494000	0.000042000	172.26.2.13	172.26.9.77	1200	http://mhpt.qlyhs.tax.cn/ajax.sword
+83462	1631791992.351494000	0.000042000	172.26.2.13	172.26.9.77	1200	http://plantegg/ajax.sword
 84309	1631791992.558541000	0.206305000	172.26.9.77	172.26.2.13	1200		200
-86253	1631791993.152426000	0.593767000	172.26.2.13	172.26.9.77	1200	http://mhpt.qlyhs.tax.cn/ajax.sword
+86253	1631791993.152426000	0.593767000	172.26.2.13	172.26.9.77	1200	http://plantegg/ajax.sword
 86740	1631791993.270402000	0.117311000	172.26.9.77	172.26.2.13	1200		200
-89775	1631791994.112908000	0.842414000	172.26.2.13	172.26.9.77	1200	http://mhpt.qlyhs.tax.cn/ajax.sword
+89775	1631791994.112908000	0.842414000	172.26.2.13	172.26.9.77	1200	http://plantegg/ajax.sword
 90429	1631791994.312254000	0.199015000	172.26.9.77	172.26.2.13	1200		200
-92840	1631791995.086191000	0.773857000	172.26.2.13	172.26.9.77	1200	http://mhpt.qlyhs.tax.cn/ajax.sword
+92840	1631791995.086191000	0.773857000	172.26.2.13	172.26.9.77	1200	http://plantegg/ajax.sword
 93262	1631791995.257123000	0.170488000	172.26.9.77	172.26.2.13	1200		200
 ```
+
+改进版本，每10秒钟统计http response耗时，最后按时间排序输出：
+
+```
+tshark -r 0623.pcap -Y 'http.time>0 ' -T fields -e frame.number -e frame.time_epoch  -e frame.time_delta_displayed  -e ip.src -e ip.dst -e tcp.stream  -e http.request.full_uri -e http.response_for.uri  -e http.time  | awk '{ print int($2/10), $8 }' | awk '{ sum[$1]+=$2; count[$1]+=1 ;} END { for (key in count) {  printf  "time= %s  \t count=%s   \t avg=%.6f \n", key,  count[key], sum[key]/count[key] } }' | sort -k2n | gawk '{ print strftime("%c",$2*10), $0 }'
+四  6/23 14:17:30 2022 time= 165596505  	 count=15289   	 avg=0.012168
+四  6/23 14:17:40 2022 time= 165596506  	 count=38725   	 avg=0.013669
+四  6/23 14:17:50 2022 time= 165596507  	 count=42545   	 avg=0.014140
+四  6/23 14:18:00 2022 time= 165596508  	 count=45613   	 avg=0.016915
+四  6/23 14:18:10 2022 time= 165596509  	 count=49033   	 avg=0.018768
+四  6/23 14:18:20 2022 time= 165596510  	 count=49797   	 avg=0.025015
+四  6/23 14:18:30 2022 time= 165596511  	 count=49670   	 avg=0.034057
+四  6/23 14:18:40 2022 time= 165596512  	 count=49524   	 avg=0.040647
+四  6/23 14:18:50 2022 time= 165596513  	 count=49204   	 avg=0.034251
+四  6/23 14:19:00 2022 time= 165596514  	 count=48024   	 avg=0.037120
+四  6/23 14:19:10 2022 time= 165596515  	 count=49301   	 avg=0.041453
+四  6/23 14:19:20 2022 time= 165596516  	 count=42174   	 avg=0.049191
+四  6/23 14:19:30 2022 time= 165596517  	 count=49437   	 avg=0.050924
+四  6/23 14:19:40 2022 time= 165596518  	 count=49563   	 avg=0.050709
+四  6/23 14:19:50 2022 time= 165596519  	 count=49517   	 avg=0.047916
+四  6/23 14:20:00 2022 time= 165596520  	 count=48256   	 avg=0.057453
+四  6/23 14:20:10 2022 time= 165596521  	 count=49412   	 avg=0.053587
+四  6/23 14:20:20 2022 time= 165596522  	 count=51361   	 avg=0.053422
+四  6/23 14:20:30 2022 time= 165596523  	 count=45610   	 avg=0.067171
+四  6/23 14:20:40 2022 time= 165596524  	 count=54   	 avg=2.886536
+```
+
+
 
 ## 分析包的总概览
 

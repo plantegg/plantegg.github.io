@@ -27,6 +27,9 @@ tags:
 | L2 | 512K        | 512K         | 1024K          | 512K       | 2048K       |
 
 
+
+![image-20220528105526139](/images/951413iMgBlog/image-20220528105526139.png)
+
 ## 参与比较的几款CPU参数
 
 IPC的说明：
@@ -107,6 +110,68 @@ L2 缓存：           512K
 L3 缓存：           16384K
 NUMA 节点0 CPU：    0-31
 NUMA 节点1 CPU：    32-63
+```
+
+AMD EPYC 7T83 ECS 
+
+```
+[root@bugu88 cpu0]# cd /sys/devices/system/
+[root@bugu88 cpu0]# cat cache/index0/size
+32K
+[root@bugu88 cpu0]# cat cache/index1/size
+32K
+[root@bugu88 cpu0]# cat cache/index2/size
+512K
+[root@bugu88 cpu0]# cat cache/index3/size
+32768K
+[root@bugu88 cpu0]# lscpu
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                16
+On-line CPU(s) list:   0-15
+Thread(s) per core:    2
+Core(s) per socket:    8
+座：                 1
+NUMA 节点：         1
+厂商 ID：           AuthenticAMD
+CPU 系列：          25
+型号：              1
+型号名称：        AMD EPYC 7T83 64-Core Processor
+步进：              1
+CPU MHz：             2545.218
+BogoMIPS：            5090.43
+超管理器厂商：  KVM
+虚拟化类型：     完全
+L1d 缓存：          32K
+L1i 缓存：          32K
+L2 缓存：           512K
+L3 缓存：           32768K
+NUMA 节点0 CPU：    0-15
+```
+
+stream：
+
+```
+[root@bugu88 lmbench-master]# for i in $(seq 0 15); do echo $i; numactl -C $i -m 0 ./bin/stream -W 5 -N 5 -M 64M; done
+0
+STREAM copy latency: 0.68 nanoseconds
+STREAM copy bandwidth: 23509.84 MB/sec
+STREAM scale latency: 0.69 nanoseconds
+STREAM scale bandwidth: 23285.51 MB/sec
+STREAM add latency: 0.96 nanoseconds
+STREAM add bandwidth: 25043.73 MB/sec
+STREAM triad latency: 1.40 nanoseconds
+STREAM triad bandwidth: 17121.79 MB/sec
+1
+STREAM copy latency: 0.68 nanoseconds
+STREAM copy bandwidth: 23513.96 MB/sec
+STREAM scale latency: 0.68 nanoseconds
+STREAM scale bandwidth: 23580.06 MB/sec
+STREAM add latency: 0.96 nanoseconds
+STREAM add bandwidth: 25049.96 MB/sec
+STREAM triad latency: 1.35 nanoseconds
+STREAM triad bandwidth: 17741.93 MB/sec
 ```
 
 ### Intel 8163

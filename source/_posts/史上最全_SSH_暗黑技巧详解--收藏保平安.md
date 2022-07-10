@@ -333,6 +333,48 @@ ForwardX11Trusted yes
 
 SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-mic,hostbased,publickey,keyboard-interactive,password**，但常见的是密码认证机制(password)和公钥认证机制(public key). 当公钥认证机制未通过时，再进行密码认证机制的验证。这些认证顺序可以通过ssh配置文件(注意，不是sshd的配置文件)中的指令PreferredAuthentications改变。
 
+### 永久隧道
+
+大多时候隧道会失效，或者断开，我们需要有重连机制，一般可以通过autossh（需要单独安装）搞定自动重连，再配合systemd或者crond搞定永久自动重连
+
+比如以下代码在gf开启2个远程转发端口
+
+```
+remote_port=(30081 30082)
+for port in "${remote_port[@]}"
+do
+    line=`ps aux |grep ssh |grep $port | wc -l`
+    if [[ "$line" -lt 1 ]]; then
+        autossh -M 0 -fNR gf:$port:127.0.0.1:22 root@gf
+    fi;
+done
+
+line=`ps aux |grep ssh |grep 13129 | wc -l`
+if [[ "$line" -lt 1 ]]; then
+    nohup ssh -fNR gf:13129:172.16.1.2:3129 root@gf
+fi;
+
+#cat /etc/cron.d/jump
+#* * * * * root sh /root/drds_private_cloud/jump.sh
+```
+
+或者另外创建一个service服务
+
+```
+[Unit]
+Description=AutoSSH tunnel on 31081 to gf server
+After=network.target
+
+[Service]
+Environment="AUTOSSH_GATETIME=0"
+ExecStart=/usr/bin/autossh -M 0 -q -N -o "ServerAliveInterval 60" -o "ServerAliveCountMax 3" -NR gf:31081:172.16.1.2:22 -i /root/.ssh/id_rsa root@gf
+
+[Install]
+WantedBy=multi-user.target
+```
+
+
+
 ### 调试ssh--终极大招
 
 好多问题我都是debug发现的
@@ -344,7 +386,7 @@ SSH支持多种身份验证机制，**它们的验证顺序如下：gssapi-with-
 /usr/sbin/sshd -ddd -p 2222 
 ```
 
-### ssh 提示信息
+### [ssh 提示信息](https://www.tecmint.com/ssh-warning-banner-linux/)
 
 可以用一下脚本生成一个彩色文件，放到 /etc/motd 中就行
 
@@ -399,6 +441,18 @@ $(tput sgr0)"
 ### sshd Banner
 
 `Banner`指定用户登录后，sshd 向其展示的信息文件（`Banner /usr/local/etc/warning.txt`），默认不展示任何内容。
+
+或者配置：
+
+```
+cat /etc/ssh/sshd_config
+# no default banner path
+#Banner none
+#在配置文件末尾添加Banner /etc/ssh/my_banner这一行内容：
+Banner /etc/ssh/my_banner
+```
+
+/etc/ssh/my_banner 中可以放置提示内容
 
 ### 验证秘钥对
 
@@ -509,7 +563,7 @@ ssh -J gf:22 centos8
 
 ## 无所不能的 SSH 三大转发模式
 
-了解完前面的一些小知识，再来看看无所不能的大杀招。
+了解完前面的一些小知识，再来看看无所不能的三大杀招。上面的各种代理基本都是由这三种转发模式实现的。
 
 SSH能够做动态转发、本地转发、远程转发。先简要概述下他们的特点和使用场景
 
@@ -675,6 +729,8 @@ curl --socks5-hostname localhost:8001 http://www.google.com/
 -Y表示是否使用代理，on表示使用代理。
 
 -e执行后面跟的命令，相当于在.wgetrc配置文件中添加了一条命令，将http_proxy设置为需要使用的代理服务器。
+
+wget --limit-rate=2.5k 限制下载速度，进行测试
 
 ## PKI (Public Key Infrastructure)证书
 

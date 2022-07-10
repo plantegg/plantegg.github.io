@@ -85,6 +85,22 @@ cache对速度的影响：
 - 一个方面是物理速度，如果要更大的容量就需要更多的晶体管，除了芯片的体积会变大，更重要的是大量的晶体管会导致速度下降，因为访问速度和要访问的晶体管所在的位置成反比，也就是当信号路径变长时，通信速度会变慢。这部分是物理问题。
 - 另外一个问题是，多核技术中，数据的状态需要在多个CPU中进行同步，并且，我们可以看到，cache和RAM的速度差距太大，所以，多级不同尺寸的缓存有利于提高整体的性能。
 
+cache 大小查看
+
+```
+[root@bugu88 cpu0]# cd /sys/devices/system/
+[root@bugu88 cpu0]# cat cache/index0/size
+32K
+[root@bugu88 cpu0]# cat cache/index1/size
+32K
+[root@bugu88 cpu0]# cat cache/index2/size
+512K
+[root@bugu88 cpu0]# cat cache/index3/size
+32768K
+```
+
+
+
 ## 不同型号CPU的cache、内存时延
 
 测试命令：
@@ -586,7 +602,11 @@ SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是�
 
 ![Difference Between SRAM and DRAM - YouTube](/images/951413iMgBlog/maxresdefault.jpg)
 
+## Persistence memory
 
+左边是在32G物理内存的基础上挂了128G pmem, 然后系统通过free能看到 154G内存，用 `lat_mem_rd` 实际测试速度可以看到左边的机器抖动比较大
+
+![image-20220607154156826](/images/951413iMgBlog/image-20220607154156826.png)
 
 ## 系列文章
 
@@ -619,4 +639,6 @@ SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是�
 [揭秘 cache 访问延迟背后的计算机原理](https://mp.weixin.qq.com/s/QNgMS0gOXhZml8l_towAbw)
 
 [业务与芯片垂直整合的一点思考](https://mp.weixin.qq.com/s/FC-bPwHUT7EpTydxDk5btQ)
+
+ [What Every Programmer Should Know About Main Memory](http://www.akkadia.org/drepper/cpumemory.pdf) by Ulrich Drepper 
 

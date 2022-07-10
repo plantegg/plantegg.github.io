@@ -10,9 +10,15 @@ tags:
 
 # iptables使用
 
+## 结构
+
+![image-20220608093532338](/images/951413iMgBlog/image-20211116101345648.png)
+
 ## iptables监控reset的连接信息
 
 如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息
+
+
 
 ### iptables规则
 
@@ -377,6 +383,12 @@ If you would rather deny all connections and manually specify which ones you wan
 > `iptables --policy OUTPUT DROP`
 > `iptables --policy FORWARD DROP
 > ```
+
+## iptables规则对性能的影响
+
+蓝色是iptables规则数量，不过如果规则内容差不多，只是ip不一样，完全可以用ipset将他们合并到一条或者几条规则，从而提升性能
+
+<img src="/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;" />
 
 ## 参考资料
 

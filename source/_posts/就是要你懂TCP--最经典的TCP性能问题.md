@@ -252,6 +252,11 @@ ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此�
 
 网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt
 
+```
+#修改初始拥塞窗口
+sudo ip route change default via ip dev eth0 proto dhcp src ip metric 100 initcwnd 20
+```
+
 tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k
 
 如果网络rt是35ms，滑动窗口<CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)

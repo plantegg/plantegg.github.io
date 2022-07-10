@@ -48,7 +48,9 @@ CPU为什么要CACHE，请看这篇
 
 ## 什么是 cache_line
 
-CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）
+CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte（64Bytes也就是16个32位的整型）这就是CPU从内存中捞数据上来的最小数据单位，按照热点逻辑还是大概率会依次被访问到（详见后面的例子）。
+
+比如L1 Cache 有32KB，那么它可以分成32KB / 64 = 512 条 Cache Line。
 
 Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache Line 被从内存拷贝到 Cache 里，Cache 里会为这个 Cache Line 创建一个条目。这个 Cache 条目里既包含了拷贝的内存数据，即 Cache Line，又包含了这行数据在内存里的位置等元数据信息。
 
@@ -226,7 +228,11 @@ for(int _c=0; _c<col; _c++) {
 }
 ```
 
+## 四线程竞争下的cache_line影响
 
+![image-20220613103011120](/images/951413iMgBlog/image-20220613103011120.png)
+
+上图是每个线程对内存中自己的int进行++ (每个线程绑定在自己的core上，机器有4个P4 core)， 蓝色部分是每个线程的变量分配在线程内部，也就是每个变量有独立的cache_line，红色部分(含蓝色)是将变量放在一个cache_line（必然会出现伪共享）
 
 ## [Disruptor](https://lmax-exchange.github.io/disruptor/disruptor.html)
 
@@ -750,3 +756,4 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 
 [Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?](http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj) 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share
 
+[CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈](https://zhuanlan.zhihu.com/p/58881925)

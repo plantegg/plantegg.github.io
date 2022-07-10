@@ -36,6 +36,8 @@ sudo有一个参数 -E （--preserver-env）就是为了解决这个问题的。
 
 我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里
 
+![crontab](/images/951413iMgBlog/crontab-7372074.png)
+
 ### docker 容器中admin取不到env参数
 
 docker run的时候带入一堆参数，用root能env中能看到这些参数，admin用户也能看见这些参数，但是通过crond用admin就没法启动应用了，因为读不到这些env。
@@ -141,9 +143,17 @@ cat /etc/profile :
     export EDITOR=vim    
     export PS1='\n\e[1;37m[\e[m\e[1;32m\u\e[m\e[1;33m@\e[m\e[1;35m\H\e[m \e[4m`pwd`\e[m\e[1;37m]\e[m\e[1;36m\e[m\n\$'
 
-
  通过前面我们可以看到 /etc/bashrc 总是会去加载 /etc/profile.d/ 下的所有 *.sh 文件，同时我们还可以在这个文件中修改我们喜欢的 shell 配色方案和环境变量等等 
-### BASH 
+
+[脚本前增加如下一行是好习惯](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html)
+
+```shell
+#!/bin/bash --login
+```
+
+![image-20220505213833017](/images/951413iMgBlog/image-20220505213833017.png)
+
+### BASH
 
 1、交互式的登录shell （bash –il xxx.sh）
 载入的信息：
@@ -233,6 +243,12 @@ Linux 中export是一种命令工具通过export命令把shell变量中包含的
 source 是bash的一个内建命令（所以你找不到一个/bin/source 这样的可执行文件），也就是他是bash自带的，如果我们执行脚本是这样： sh shell.sh 而shell.sh中用到了source命令的话就会报 source: not found
 
 这是因为bash 和 sh是两个东西，sh是 POSIX shell，你可以把它看成是一个兼容某个规范的shell，而bash是 Bourne-Again shell script， bash是 POSIX shell的扩展，就是bash支持所有符合POSIX shell的规范，但是反过来就不一定了，而这里的 source 恰好就是 bash内建的，不符合 POSIX shell的规范（**POSIX shell 中用 . 来代替source**)
+
+> [. (a period)](https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Bourne-Shell-Builtins)
+> 
+> . filename [arguments]
+>
+> Read and execute commands from the filename argument in the current shell context. If filename does not contain a slash, the `PATH` variable is used to find filename. When Bash is not in POSIX mode, the current directory is searched if filename is not found in `$PATH`. If any arguments are supplied, they become the positional parameters when filename is executed. Otherwise the positional parameters are unchanged. If the -T option is enabled, `source` inherits any trap on `DEBUG`; if it is not, any `DEBUG` trap string is saved and restored around the call to `source`, and `source` unsets the `DEBUG` trap while it executes. If -T is not set, and the sourced file changes the `DEBUG` trap, the new value is retained when `source` completes. The return status is the exit status of the last command executed, or zero if no commands are executed. If filename is not found, or cannot be read, the return status is non-zero. This builtin is equivalent to `source`.
 
 ### 在centos执行好好的脚本放到Ubuntu上就不行了，报语法错误
 

@@ -27,6 +27,22 @@ MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 
 在数据量很小的时候方式三没什么优势，因为总是多一次set net_write_tiemout，也就是多了一次RTT。
 
+![img](/images/951413iMgBlog/70.png)
+
+## [MySQL timeout](https://www.cubrid.org/blog/3826470)
+
+1. Creates a statement by calling `Connection.createStatement()`.
+2. Calls `Statement.executeQuery()`.
+3. The statement transmits the Query to MySqlServer by using the internal connection.
+4. The statement creates a new timeout-execution thread for timeout process.
+5. For version 5.1.x, it changes to assign 1 thread for each connection.
+6. Registers the timeout execution to the thread.
+7. Timeout occurs.
+8. The timeout-execution thread creates a connection that has the same configurations as the statement.
+9. Transmits the cancel Query (KILL QUERY "connectionId“) by using the connection.
+
+![Figure 6: QueryTimeout Execution Process for MySQL JDBC Statement (5.0.8).](/images/951413iMgBlog/1f6df479e83fd2c14ecac4ee6be64a29.png)
+
 ## net_write_timeout
 
 先看下 [`net_write_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout)的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。
@@ -153,8 +169,546 @@ socketTimeout触发后，连接抛CommunicationsException（严重异常，触�
 
 queryTimeout（queryTimeoutKillsConnection=True--来强制关闭连接）会触发启动一个新的连接向server发送 kill id的命令，**MySQL5.7增加了max_statement_time/max_execution_time来做到在server上直接检测到这种查询，然后结束掉**。
 
+### jdbc 和 dn间 socket_timeout
+
+jdbc驱动设置socketTimeout=1459，如果是socketTimeout触发客户端断开后，server端的SQL会继续执行，如果是client被kill则server端的SQL会被终止
+
+```
+# java -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459" "user" "pass" "select sleep(2)" "1"
+Wed Jun 01 14:03:37 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,461 milliseconds ago.  The last packet sent successfully to the server was 1,461 milliseconds ago.
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2811)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2806)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2764)
+	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1399)
+	at Test.main(Test.java:29)
+Caused by: java.net.SocketTimeoutException: Read timed out
+	at java.net.SocketInputStream.socketRead0(Native Method)
+	at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+	at java.net.SocketInputStream.read(SocketInputStream.java:171)
+	at java.net.SocketInputStream.read(SocketInputStream.java:141)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 8 more
+	
+	或者开协程后的错误堆栈
+	# java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459" "user" "pass" "select sleep(2)" "1"
+Wed Jun 01 14:10:48 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 1,460 milliseconds ago.  The last packet sent successfully to the server was 1,459 milliseconds ago.
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2811)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2806)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2764)
+	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1399)
+	at Test.main(Test.java:29)
+Caused by: java.net.SocketTimeoutException: time out
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 8 more
+```
+
+对应抓包，没有 kill动作
+
+<img src="/images/951413iMgBlog/image-20220601141709318.png" alt="image-20220601141709318" style="zoom:50%;" />
+
+### cn 和 dn 间socket_timeout案例
+
+设置CN到DN的socket_timeout为2秒，然后执行一个sleep
+
+CN上抓包分析(stream 5是客户端到CN、stream6是CN到DN）如下，首先CN会计时2秒钟后发送quit给DN，然后断开和DN的连接，然后返回一个错误给client，client发送quit断开连接：
+
+<img src="/images/951413iMgBlog/image-20220601122556415.png" alt="image-20220601122556415" style="zoom:50%;" />
+
+CN完整报错堆栈：
+
+```
+2022-06-01 12:10:00.178 [ServerExecutor-bucket-2-19-thread-181] ERROR com.alibaba.druid.pool.DruidPooledStatement - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank] CommunicationsException, druid version 1.1.24, jdbcUrl : jdbc:mysql://172.16.40.215:3008/bank_000000?maintainTimeStats=false&rewriteBatchedStatements=false&failOverReadOnly=false&cacheResultSetMetadata=true&allowMultiQueries=true&clobberStreamingResults=true&autoReconnect=false&usePsMemOptimize=true&useServerPrepStmts=true&netTimeoutForStreamingResults=0&useSSL=false&metadataCacheSize=256&readOnlyPropagatesToServer=false&prepStmtCacheSqlLimit=4096&connectTimeout=5000&socketTimeout=9000000&cachePrepStmts=true&characterEncoding=utf8&prepStmtCacheSize=256, testWhileIdle true, idle millis 11861, minIdle 5, poolingCount 4, timeBetweenEvictionRunsMillis 60000, lastValidIdleMillis 11861, driver com.mysql.jdbc.Driver, exceptionSorter com.alibaba.polardbx.common.jdbc.sorter.MySQLExceptionSorter
+2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] ERROR com.alibaba.druid.pool.DruidDataSource - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank] discard connection
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)
+	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)
+	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)
+	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)
+	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)
+	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.<init>(MyPhyQueryCursor.java:67)
+	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)
+	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)
+	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)
+	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)
+	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)
+	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)
+	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)
+	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)
+	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)
+	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)
+	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)
+	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)
+	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)
+	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)
+	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)
+	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)
+	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:874)
+	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)
+	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)
+	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: java.net.SocketTimeoutException: time out
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] [1461cdf8b2809000]Execute ERROR on GROUP: BANK_000000_GROUP, ATOM: dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000, MERGE_UNION_SIZE:1, SQL: /*DRDS /10.101.32.6/1461cdf8b2809000/0// */SELECT SLEEP(?) AS `sleep(236)`, PARAM: [236], ERROR: Communications link failure, tddl version: 5.4.13-16522656
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)
+	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)
+	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)
+	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)
+	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)
+	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.<init>(MyPhyQueryCursor.java:67)
+	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)
+	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)
+	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)
+	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)
+	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)
+	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)
+	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)
+	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)
+	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)
+	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)
+	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)
+	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)
+	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)
+	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)
+	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)
+	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)
+	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:874)
+	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)
+	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)
+	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: java.net.SocketTimeoutException: time out
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] Reset conn socketTimeout failed, lastSocketTimeout is 9000000, tddl version: 5.4.13-16522656
+com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: No operations allowed after connection closed.
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.Util.getInstance(Util.java:408)
+	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:918)
+	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:897)
+	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:886)
+	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:860)
+	at com.mysql.jdbc.ConnectionImpl.throwConnectionClosedException(ConnectionImpl.java:1326)
+	at com.mysql.jdbc.ConnectionImpl.checkClosed(ConnectionImpl.java:1321)
+	at com.mysql.jdbc.ConnectionImpl.setNetworkTimeout(ConnectionImpl.java:5888)
+	at com.alibaba.polardbx.atom.utils.NetworkUtils.setNetworkTimeout(NetworkUtils.java:18)
+	at com.alibaba.polardbx.group.jdbc.TGroupDirectConnection.setNetworkTimeout(TGroupDirectConnection.java:433)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.resetPhyConnSocketTimeout(MyJdbcHandler.java:721)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1173)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)
+	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.<init>(MyPhyQueryCursor.java:67)
+	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)
+	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)
+	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)
+	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)
+	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)
+	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)
+	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)
+	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)
+	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)
+	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)
+	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)
+	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)
+	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)
+	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)
+	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)
+	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)
+	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:874)
+	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)
+	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)
+	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+2022-06-01 12:10:00.179 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.executor.ExecutorHelper - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] PhyQuery(node="BANK_000000_GROUP", sql="SELECT SLEEP(?) AS `sleep(236)`")
+, tddl version: 5.4.13-16522656
+2022-06-01 12:10:00.180 [ServerExecutor-bucket-2-19-thread-181] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=43947,schema=bank]  [TDDL] [ERROR-CODE: 3009][1461cdf8b2809000] SQL:  /*+TDDL:node(0)  and SOCKET_TIMEOUT=2000 */ select sleep(236), tddl version: 5.4.13-16522656
+com.alibaba.polardbx.common.exception.TddlRuntimeException: ERR-CODE: [TDDL-4614][ERR_EXECUTE_ON_MYSQL] Error occurs when execute on GROUP 'BANK_000000_GROUP' ATOM 'dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000': Communications link failure
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.handleException(MyJdbcHandler.java:1935)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.generalHandlerException(MyJdbcHandler.java:1911)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1168)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.doInit(MyPhyQueryCursor.java:83)
+	at com.alibaba.polardbx.executor.cursor.AbstractCursor.init(AbstractCursor.java:53)
+	at com.alibaba.polardbx.repo.mysql.spi.MyPhyQueryCursor.<init>(MyPhyQueryCursor.java:67)
+	at com.alibaba.polardbx.repo.mysql.spi.CursorFactoryMyImpl.repoCursor(CursorFactoryMyImpl.java:42)
+	at com.alibaba.polardbx.repo.mysql.handler.MyPhyQueryHandler.handle(MyPhyQueryHandler.java:24)
+	at com.alibaba.polardbx.executor.handler.HandlerCommon.handlePlan(HandlerCommon.java:102)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.executeInner(AbstractGroupExecutor.java:58)
+	at com.alibaba.polardbx.executor.AbstractGroupExecutor.execByExecPlanNode(AbstractGroupExecutor.java:36)
+	at com.alibaba.polardbx.executor.TopologyExecutor.execByExecPlanNode(TopologyExecutor.java:34)
+	at com.alibaba.polardbx.transaction.TransactionExecutor.execByExecPlanNode(TransactionExecutor.java:120)
+	at com.alibaba.polardbx.executor.ExecutorHelper.executeByCursor(ExecutorHelper.java:155)
+	at com.alibaba.polardbx.executor.ExecutorHelper.execute(ExecutorHelper.java:70)
+	at com.alibaba.polardbx.executor.PlanExecutor.execByExecPlanNodeByOne(PlanExecutor.java:130)
+	at com.alibaba.polardbx.executor.PlanExecutor.execute(PlanExecutor.java:75)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeQuery(TConnection.java:682)
+	at com.alibaba.polardbx.matrix.jdbc.TConnection.executeSQL(TConnection.java:457)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.executeSQL(TPreparedStatement.java:65)
+	at com.alibaba.polardbx.matrix.jdbc.TStatement.executeInternal(TStatement.java:133)
+	at com.alibaba.polardbx.matrix.jdbc.TPreparedStatement.execute(TPreparedStatement.java:50)
+	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1131)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:883)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:850)
+	at com.alibaba.polardbx.server.ServerConnection.execute(ServerConnection.java:844)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:82)
+	at com.alibaba.polardbx.server.handler.SelectHandler.handle(SelectHandler.java:31)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeSql(ServerQueryHandler.java:155)
+	at com.alibaba.polardbx.server.ServerQueryHandler.executeStatement(ServerQueryHandler.java:133)
+	at com.alibaba.polardbx.server.ServerQueryHandler.queryRaw(ServerQueryHandler.java:118)
+	at com.alibaba.polardbx.net.FrontendConnection.query(FrontendConnection.java:460)
+	at com.alibaba.polardbx.net.handler.FrontendCommandHandler.handle(FrontendCommandHandler.java:49)
+	at com.alibaba.polardbx.net.FrontendConnection.lambda$handleData$0(FrontendConnection.java:753)
+	at com.alibaba.polardbx.common.utils.thread.RunnableWithCpuCollector.run(RunnableWithCpuCollector.java:36)
+	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool$RunnableAdapter.run(ServerThreadPool.java:793)
+	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)
+	at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+	at java.lang.Thread.run(Thread.java:874)
+	at com.alibaba.wisp.engine.WispTask.runOutsideWisp(WispTask.java:277)
+	at com.alibaba.wisp.engine.WispTask.runCommand(WispTask.java:252)
+	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)
+	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)
+	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)
+	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)
+	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)
+	... 44 common frames omitted
+Caused by: java.net.SocketTimeoutException: time out
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:244)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+
+```
+
+
+
+### kill 案例
+
+#### kill mysql client
+
+mysql client连cn执行一个很慢的SQL，然后kill掉mysql client
+
+cn报错：
+
+```
+2022-06-01 11:45:59.063 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.druid.pool.DruidPooledStatement - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank] CommunicationsException, druid version 1.1.24, jdbcUrl : jdbc:mysql://172.16.40.215:3008/bank_000000?maintainTimeStats=false&rewriteBatchedStatements=false&failOverReadOnly=false&cacheResultSetMetadata=true&allowMultiQueries=true&clobberStreamingResults=true&autoReconnect=false&usePsMemOptimize=true&useServerPrepStmts=true&netTimeoutForStreamingResults=0&useSSL=false&metadataCacheSize=256&readOnlyPropagatesToServer=false&prepStmtCacheSqlLimit=4096&connectTimeout=5000&socketTimeout=9000000&cachePrepStmts=true&characterEncoding=utf8&prepStmtCacheSize=256, testWhileIdle true, idle millis 72028, minIdle 5, poolingCount 4, timeBetweenEvictionRunsMillis 60000, lastValidIdleMillis 345734, driver com.mysql.jdbc.Driver, exceptionSorter com.alibaba.polardbx.common.jdbc.sorter.MySQLExceptionSorter
+2022-06-01 11:45:59.064 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.druid.pool.DruidDataSource - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank] discard connection
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	…………
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: java.net.SocketException: Socket is closed
+	at java.net.Socket.getSoTimeout(Socket.java:1291)
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] [1461c86bbe809001]Execute ERROR on GROUP: BANK_000000_GROUP, ATOM: dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000, MERGE_UNION_SIZE:1, SQL: /*DRDS /10.101.32.6/1461c86bbe809001/0// */SELECT SLEEP(?) AS `sleep(236)`, PARAM: [236], ERROR: Communications link failure, tddl version: 5.4.13-16522656
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+…………
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: java.net.SocketException: Socket is closed
+	at java.net.Socket.getSoTimeout(Socket.java:1291)
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Reset conn socketTimeout failed, lastSocketTimeout is 9000000, tddl version: 5.4.13-16522656
+com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: No operations allowed after connection closed.
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:80)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+…………
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+2022-06-01 11:45:59.065 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.executor.ExecutorHelper - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] PhyQuery(node="BANK_000000_GROUP", sql="SELECT SLEEP(?) AS `sleep(236)`")
+, tddl version: 5.4.13-16522656
+2022-06-01 11:45:59.066 [ServerExecutor-bucket-0-17-thread-158] ERROR com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Interrupted unexpectedly for 1461c86bbe809001, tddl version: 5.4.13-16522656
+java.lang.InterruptedException: null
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1310)
+	at com.alibaba.polardbx.common.utils.BooleanMutex$Sync.innerGet(BooleanMutex.java:136)
+	at com.alibaba.polardbx.common.utils.BooleanMutex.get(BooleanMutex.java:53)
+	at com.alibaba.polardbx.common.utils.thread.ServerThreadPool.waitByTraceId(ServerThreadPool.java:445)
+	at com.alibaba.polardbx.server.ServerConnection.innerExecute(ServerConnection.java:1291)
+	……
+	at com.alibaba.wisp.engine.WispTask.access$100(WispTask.java:33)
+	at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+2022-06-01 11:45:59.066 [ServerExecutor-bucket-0-17-thread-158] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] [ERROR-CODE: 3009][1461c86bbe809001] SQL:  /*+TDDL:node(0)  and SOCKET_TIMEOUT=40000 */ select sleep(236), tddl version: 5.4.13-16522656
+com.alibaba.polardbx.common.exception.TddlRuntimeException: ERR-CODE: [TDDL-4614][ERR_EXECUTE_ON_MYSQL] Error occurs when execute on GROUP 'BANK_000000_GROUP' ATOM 'dskey_bank_000000_group#pxc-xdb-s-pxcunrcbmk4g9lcpk0f24#172.16.40.215-3008#bank_000000': Communications link failure
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.handleException(MyJdbcHandler.java:1935)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.generalHandlerException(MyJdbcHandler.java:1911)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1168)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQuery(MyJdbcHandler.java:990)
+	…………
+		at com.alibaba.wisp.engine.WispTask$CacheableCoroutine.run(WispTask.java:223)
+	at java.dyn.CoroutineBase.startInternal(CoroutineBase.java:60)
+Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+	at sun.reflect.GeneratedConstructorAccessor72.newInstance(Unknown Source)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:2658)
+	at com.mysql.jdbc.ServerPreparedStatement.serverExecute(ServerPreparedStatement.java:1281)
+	at com.mysql.jdbc.ServerPreparedStatement.executeInternal(ServerPreparedStatement.java:782)
+	at com.mysql.jdbc.PreparedStatement.execute(PreparedStatement.java:1367)
+	at com.alibaba.druid.pool.DruidPooledPreparedStatement.execute(DruidPooledPreparedStatement.java:497)
+	at com.alibaba.polardbx.group.jdbc.TGroupDirectPreparedStatement.execute(TGroupDirectPreparedStatement.java:84)
+	at com.alibaba.polardbx.repo.mysql.spi.MyJdbcHandler.executeQueryInner(MyJdbcHandler.java:1133)
+	... 44 common frames omitted
+Caused by: java.net.SocketException: Socket is closed
+	at java.net.Socket.getSoTimeout(Socket.java:1291)
+	at sun.nio.ch.WispSocketImpl$1$1.read0(WispSocketImpl.java:249)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:208)
+	at sun.nio.ch.WispSocketImpl$1$1.read(WispSocketImpl.java:201)
+	at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+	at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+	at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3183)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3659)
+	... 53 common frames omitted
+2022-06-01 11:45:59.071 [KillExecutor-15-thread-49] WARN  com.alibaba.polardbx.server.ServerConnection - [user=polardbx_root,host=10.101.32.6,port=50684,schema=bank]  [TDDL] Connection Killed, tddl version: 5.4.13-16522656
+```
+
+mysqld报错：
+
+```
+2022-06-01T11:45:58.915371+08:00 8218735 [Note] Aborted connection 8218735 to db: 'bank_000000' user: 'rds_polardb_x' host: '172.16.40.214' (Got an error reading communication packets)
+```
+
+172.16.40.214是客户端IP
+
+抓包看到CN收到mysql client发过来的fin，CN回复fin断开连接
+
+CN会给DN在新的连接上发Kill Query（stream 1596），同时会在原来的连接(stream 583)上发fin，然后原来的连接收到DN的response（被kill），然后CN发reset给DN
+
+<img src="/images/951413iMgBlog/image-20220601120626629.png" alt="image-20220601120626629" style="zoom:50%;" />
+
+下图是sleep 连接的收发包
+
+<img src="/images/951413iMgBlog/image-20220601120417026.png" alt="image-20220601120417026" style="zoom:50%;" />
+
+#### Kill jdbc client
+
+Java jdbc client被kill后没有错误堆栈，kill后触发socket.close(对应client发送fin断开连接），kill后server端SQL也被立即中断
+
+抓包：
+
+<img src="/images/951413iMgBlog/image-20220601143200253.png" alt="image-20220601143200253" style="zoom:50%;" />
+
+server端报错信息：
+
+```
+2022-06-01T14:33:52.204848+08:00 8288839 [Note] Aborted connection 8288839 to db: 'bank_000000' user: 'user' host: '172.16.40.214' (Got an error reading communication packets)
+```
+
+
+
+### Statement timeout 
+
+```
+# java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=5459" "user" "pass" "select sleep(180)" "1" 3
+Wed Jun 01 14:57:53 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+com.mysql.jdbc.exceptions.MySQLTimeoutException: Statement cancelled due to timeout or client request
+	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1419)
+	at Test.main(Test.java:31)
+```
+
+statement会设置一个timer，到时间还没有返回结果就创建一个新连接发送kill query
+
+server 端收到kill后终止SQL执行，抓包看到Server端主动提前返回了错误
+
+<img src="/images/951413iMgBlog/image-20220601152401387.png" alt="image-20220601152401387" style="zoom:50%;" />
+
+
+
+
+
 
 
 ## 参考资料
 
-[MySQL JDBC StreamResult通信原理浅析](https://www.atatech.org/articles/122079)
+[MySQL JDBC StreamResult通信原理浅析](https://blog.csdn.net/xieyuooo/article/details/83109971)

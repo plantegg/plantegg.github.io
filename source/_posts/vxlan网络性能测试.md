@@ -29,7 +29,7 @@ tags:
 
 ## iperf3 下载和安装
 
-- wget http://downloads.es.net/pub/iperf/iperf-3.0.6.tar.gz
+- wget http://downloads.es.net/pub/iperf/iperf-3.9.tar.gz （https://downloads.es.net/pub/iperf/）
 - tar zxvf iperf-3.0.6.tar.gz
 - cd iperf-3.0.6
 - ./configure

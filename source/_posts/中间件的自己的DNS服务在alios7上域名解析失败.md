@@ -32,6 +32,8 @@ tags:
 
 vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service
 
+![img](/images/951413iMgBlog/dig.png)
+
 ## 分析vipclient域名解析返回的包内容
 
 ![image.png](/images/oss/0882e4815fb1acfa80f813db4bb7265b.png)

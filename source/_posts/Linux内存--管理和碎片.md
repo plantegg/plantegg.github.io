@@ -337,18 +337,180 @@ dmidecode 可以查看到服务器上插着的所有内存条，也可以看到�
 
 ### /proc/buddyinfo
 
-/proc/buddyinfo记录了可用内存的情况。
+/proc/buddyinfo记录了**可用内存**的情况。
+
+Normal那行之后的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列表示：  357451\*2^2\*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。
+
+应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上--2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。
 
 ```
 #cat /proc/buddyinfo 
 Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 
 Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 
 Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854
+
+如果是多node机器：
+#cat /proc/buddyinfo
+Node 0, zone      DMA      4      6      3      2      3      3      1      1      2      3      1
+Node 0, zone    DMA32   1607   1619   1552   1520   1370   1065    827    576    284    105     13
+Node 0, zone   Normal  38337 145731 222145 199776 151452  91969  38086  10037   1762    104      1
+Node 1, zone   Normal  21521 147637 299185 245533 172451  81459  19451   7198    579      3      0
+Node 2, zone   Normal  68427 538670 446906 229138 123555  62539  21161   4407   1122    166    274
+Node 3, zone   Normal  27353  54601 114355 123568 101892  79098  48610  21036   5021    475      6
+Node 4, zone   Normal  45802  42758   8573 184548 148397  70540  20772   4147    381    148    109
+Node 5, zone   Normal  19514  39583 140493 167901 134774  61888  22998   6326    457     32      0
+Node 6, zone   Normal 104493 378362 355158  93138  12928   2248   1019    663    172     40    121
+Node 7, zone   Normal  34185 256886 249560  95547  54526  51022  28180   9757   2038   1351    280
+
+[root@hygon8 15:50 /root]
+#numactl -H
+available: 8 nodes (0-7)
+node 0 cpus: 0 1 2 3 4 5 6 7 64 65 66 67 68 69 70 71
+node 0 size: 64083 MB
+node 0 free: 49838 MB
+node 1 cpus: 8 9 10 11 12 13 14 15 72 73 74 75 76 77 78 79
+node 1 size: 64480 MB
+node 1 free: 43596 MB
+node 2 cpus: 16 17 18 19 20 21 22 23 80 81 82 83 84 85 86 87
+node 2 size: 64507 MB
+node 2 free: 44216 MB
+node 3 cpus: 24 25 26 27 28 29 30 31 88 89 90 91 92 93 94 95
+node 3 size: 64507 MB
+node 3 free: 51095 MB
+node 4 cpus: 32 33 34 35 36 37 38 39 96 97 98 99 100 101 102 103
+node 4 size: 64507 MB
+node 4 free: 32877 MB
+node 5 cpus: 40 41 42 43 44 45 46 47 104 105 106 107 108 109 110 111
+node 5 size: 64507 MB
+node 5 free: 33430 MB
+node 6 cpus: 48 49 50 51 52 53 54 55 112 113 114 115 116 117 118 119
+node 6 size: 64507 MB
+node 6 free: 14233 MB
+node 7 cpus: 56 57 58 59 60 61 62 63 120 121 122 123 124 125 126 127
+node 7 size: 63483 MB
+node 7 free: 36577 MB
+node distances:
+node   0   1   2   3   4   5   6   7
+  0:  10  16  16  16  28  28  22  28
+  1:  16  10  16  16  28  28  28  22
+  2:  16  16  10  16  22  28  28  28
+  3:  16  16  16  10  28  22  28  28
+  4:  28  28  22  28  10  16  16  16
+  5:  28  28  28  22  16  10  16  16
+  6:  22  28  28  28  16  16  10  16
+  7:  28  22  28  28  16  16  16  10
+  
+[root@hygon8 15:51 /root]
+#cat /proc/pagetypeinfo
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    0, zone      DMA, type    Unmovable      1      2      1      1      3      2      0      0      1      0      0
+Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      3      1
+Node    0, zone      DMA, type  Reclaimable      3      4      2      1      0      1      1      1      1      0      0
+Node    0, zone      DMA, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone    DMA32, type    Unmovable    151    164    162    165    140     78     19      8      0      0      0
+Node    0, zone    DMA32, type      Movable   1435   1430   1374   1335   1214    974    798    563    281     98     12
+Node    0, zone    DMA32, type  Reclaimable     21     25     16     20     16     13     10      5      3      7      1
+Node    0, zone    DMA32, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone   Normal, type    Unmovable   4849   6607   4133   1629    654    121     15      3      0      0      0
+Node    0, zone   Normal, type      Movable  21088 >100000 >100000 >100000 >100000  90231  37197   9379   1552     83      1
+Node    0, zone   Normal, type  Reclaimable    153    139   3012   3113   2437   1617    874    655    210     21      0
+Node    0, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 0, zone      DMA            1            6            1            0            0
+Node 0, zone    DMA32           27          974           15            0            0
+Node 0, zone   Normal          856        30173          709            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    1, zone   Normal, type    Unmovable    842   2898   2495   1316    490    102     23      1      2      0      0
+Node    1, zone   Normal, type      Movable  22484 >100000 >100000 >100000 >100000  80084  18922   6889     48      4      0
+Node    1, zone   Normal, type  Reclaimable      1   2022   3850   3534   2582   1273    506    308    529      0      0
+Node    1, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 1, zone   Normal          810        31221          737            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    2, zone   Normal, type    Unmovable   2833   6802   3888   1636    329      3      1      2      0      0      0
+Node    2, zone   Normal, type      Movable  72017 >100000 >100000 >100000 >100000  61710  20764   4242    841     55    239
+Node    2, zone   Normal, type  Reclaimable    114      8   2056   2221   1544    826    396    163    281    111     35
+Node    2, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    2, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 2, zone   Normal         1066        31063          639            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    3, zone   Normal, type    Unmovable   2508   6171   3802   1502    365     93     30      1      2      0      0
+Node    3, zone   Normal, type      Movable  23396  48450 >100000 >100000  99802  77850  47910  20587   4796    428      5
+Node    3, zone   Normal, type  Reclaimable     10      0    609   2111   1726   1155    670    448    223     46      1
+Node    3, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    3, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 3, zone   Normal          768        31425          575            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    4, zone   Normal, type    Unmovable   3817   3739   1716    992    261     39      4      1      0      0      1
+Node    4, zone   Normal, type      Movable  27857  39138   6875 >100000 >100000  70501  20752   4115    362     49    104
+Node    4, zone   Normal, type  Reclaimable      1      8      3      5      0      0     16     31     19     97      4
+Node    4, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    4, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 4, zone   Normal          712        31706          350            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    5, zone   Normal, type    Unmovable   4875   4728   3165   1202    464     67      3      0      0      0      0
+Node    5, zone   Normal, type      Movable  18382  34874 >100000 >100000 >100000  61296  22711   6235    348     32      0
+Node    5, zone   Normal, type  Reclaimable     16      0      1      7      2    525    284     91    109      0      0
+Node    5, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    5, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 5, zone   Normal          736        31716          316            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    6, zone   Normal, type    Unmovable  10489   6842   2821    434    257     22      1      1      1      3      0
+Node    6, zone   Normal, type      Movable  90841 >100000 >100000  92129  11336   1526    704    552    141     34    118
+Node    6, zone   Normal, type  Reclaimable    434     41      0    576   1338    700    314    110     30      5      3
+Node    6, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    6, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 6, zone   Normal          807        31686          275            0            0
+Page block order: 9
+Pages per block:  512
+
+Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10
+Node    7, zone   Normal, type    Unmovable   1516   1894   2285    908    633    121     16      7      4      2      0
+Node    7, zone   Normal, type      Movable  18209 >100000 >100000  93283  52811  50349  27973   9703   2026   1341    248
+Node    7, zone   Normal, type  Reclaimable      0      1      0   1341   1082    552    191     47      8      8     32
+Node    7, zone   Normal, type   HighAtomic      0      0      0      0      0      0      0      0      0      0      0
+Node    7, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0
+
+Number of blocks type     Unmovable      Movable  Reclaimable   HighAtomic      Isolate
+Node 7, zone   Normal         1262        31265          241            0            0  
 ```
-
-Normal那行之后的第二列表示：  643847\*2^1\*Page_Size(4K) ;  第三列表示：  357451\*2^2\*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。
-
-应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上--2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。
 
 ### /proc/pagetypeinfo
 
@@ -456,6 +618,16 @@ full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082
 你需要重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。
 
 ![image.png](/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png)
+
+### 容器中的内存回收
+
+> kswapd线程(每个node一个kswapd进程，负责本node）回收内存时，可以先对脏页进行回写（writeback）再进行回收，而直接内存回收只回收干净页。也叫同步回收.
+>
+> 直接内存回收是在当前进程的上下文中进行的，要等内存回收完成才能继续尝试进行分配，所以是阻塞了当前进程的执行，会导致响应延迟增加
+
+如果是在容器里，也就是在某个子memory cgroup 中，那么在分配内存后，还有一个记账（charge）的步骤，就是要把这次分配的内存页记在某个memory cgroup的账上，这样才能控制这个容器里的进程所能使用的内存数量。
+
+在开源社区的linux代码中，如果charge 失败，也就是说，当新分配的内存加上原先的usage超过了limit，就会触发内存回收，try_to_free_mem_cgroup_pages，这个也是同步回收，等同于直接内存回收（发生在当前进程的上下文忠），所以会对应用的响应造成影响（表现为卡顿）。
 
 ## 碎片化
 

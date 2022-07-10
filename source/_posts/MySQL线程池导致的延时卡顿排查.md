@@ -46,7 +46,9 @@ tags:
 
 或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询
 
-!<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
+<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
+
+
 
 ### 快的连接
 

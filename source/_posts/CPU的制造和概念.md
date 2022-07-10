@@ -77,7 +77,7 @@ node：同一个Die下的多个core以及他们对应的内存，对应着NUMA
 
 晶圆为什么总是圆的呢？生产过程就是从沙子中提纯硅，硅晶柱生长得到晶圆，生长是以圆柱形式的，所以切割下来的晶圆就是圆的了：
 
-![img](/images/951413iMgBlog/weixin15664418828781.gif)
+![img](/images/951413iMgBlog/gif/weixin15664418828781.gif)
 
 硅晶柱切片：
 
@@ -111,7 +111,7 @@ node：同一个Die下的多个core以及他们对应的内存，对应着NUMA
 
 从晶圆上切割检测合格的Die（螺片），所以Die跟Wafer不一样不是圆的，而是是方形的，因为方形的在切割封测工艺上最简单
 
-![img](/images/951413iMgBlog/weixin15664418828785.gif)
+![img](/images/951413iMgBlog/gif/weixin15664418828785.gif)
 
 一个大晶圆，拿走了合格的Die后剩下的次品：
 

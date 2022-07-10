@@ -138,7 +138,7 @@ Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem 
 
 ### 零拷贝应用
 
-kafaka就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一(利用磁盘顺序写；PageCache)。
+kafka就利用了「零拷贝」技术，从而大幅提升了 I/O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一(利用磁盘顺序写；PageCache)。
 
 非零拷贝代码：
 
@@ -149,11 +149,11 @@ Socket.send(socket, buf, len);
 
 Traditional data copying approach：
 
-![Traditional data copying approach](/images/951413iMgBlog/figure1.gif)
+![Traditional data copying approach](/images/951413iMgBlog/gif/figure1.gif)
 
 Traditional context switches：
 
-![Traditional context switches](/images/951413iMgBlog/figure2.gif)
+![Traditional context switches](/images/951413iMgBlog/gif/figure2.gif)
 
 如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 `transferTo` 方法：
 
@@ -166,15 +166,15 @@ long transferFrom(FileChannel fileChannel, long position, long count) throws IOE
 
 Data copy with transferTo()
 
-![Data copy with transferTo()](/images/951413iMgBlog/figure3.gif)
+![Data copy with transferTo()](/images/951413iMgBlog/gif/figure3.gif)
 
 Context switching with transferTo()：
 
-![Context switching when using transferTo()](/images/951413iMgBlog/figure4.gif)
+![Context switching when using transferTo()](/images/951413iMgBlog/gif/figure4.gif)
 
 Data copies when transferTo() and gather operations are used
 
-![Data copies when transferTo() and gather operations are used](/images/951413iMgBlog/figure5.gif)
+![Data copies when transferTo() and gather operations are used](/images/951413iMgBlog/gif/figure5.gif)
 
 如果 Linux 系统支持 `sendfile()` 系统调用，那么 `transferTo()` 实际上最后就会使用到 `sendfile()` 系统调用函数。
 

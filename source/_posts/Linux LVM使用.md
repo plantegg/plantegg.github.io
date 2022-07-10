@@ -83,6 +83,19 @@ ls /
 sudo mkdir /lv2
 sudo mount /dev/vg1/lv2 /lv2
 df -lh
+
+//手工创建lvm
+ 1281  18/05/22 11:04:22 ls -l /dev/|grep -v ^l|awk '{print $NF}'|grep -E "^nvme[7-9]{1,2}n1$|^df[a-z]$|^os[a-z]$"
+ 1282  18/05/22 11:05:06 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1
+ 1283  18/05/22 11:05:50 vgcreate -s 32 vgbig /dev/nvme7n1 /dev/nvme8n1 /dev/nvme9n1
+ 1287  18/05/22 11:07:59 lvcreate -A y -I 128K -l 100%FREE  -i 3 -n big vgbig
+ 1288  18/05/22 11:08:02 df -h
+ 1289  18/05/22 11:08:21 lvdisplay
+ 1290  18/05/22 11:08:34 df -lh
+ 1291  18/05/22 11:08:42 df -h
+ 1292  18/05/22 11:09:05 mkfs.ext4 /dev/vgbig/big -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L big -J size=4000
+ 1298  18/05/22 11:10:28 mkdir -p /big
+ 1301  18/05/22 11:12:11 mount /dev/vgbig/big /big
 ```
 
 ## 创建LVM
@@ -205,6 +218,14 @@ fi
 ```
 
 LVM性能还没有做到多盘并行，也就是性能和单盘差不多，盘数多读写性能也一样
+
+## 安装LVM
+
+```
+sudo yum install lvm2 -y
+```
+
+
 
 ## dmsetup查看LVM
 

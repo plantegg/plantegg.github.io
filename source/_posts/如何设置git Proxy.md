@@ -81,13 +81,6 @@ nc代理参数-X proxy_version 指定 nc 请求时使用代理服务的协议
 
 
 
-## 自动启动阿里郎网络加速
-有时候网络加速会关掉，还得手工打开阿里郎开始网络加速，很不流畅
-可以用如下命令拉起：
-> Applications/AliLang.app/Contents/Resources/AliMgr/AliMgrSockAgent -bd 参数1 -wd 工号 -td 参数2
-
-上面的参数1、参数2可以先手工拉起网络加速，然后 ps | grep 得到，写到脚本里面就好了
-
 ## 我的拉起代理自动脚本
 
 下面的脚本总共拉起了三个socks5代理，端口13657-13659，其中13659是阿里郎网络加速的代理

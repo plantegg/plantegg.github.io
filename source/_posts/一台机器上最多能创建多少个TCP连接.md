@@ -374,6 +374,30 @@ port number 0
 
 Port Range有点像雷达转盘数字，时间就像是雷达上的扫描指针，这个指针不停地旋转，如果这个时候刚好有应用要申请Port，那么就从指针正好指向的Port开始向后搜索可用port
 
+## tcp_max_tw_buckets
+
+tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的连接断开不再进入TIME_WAIT阶段，而是直接断开，并打印warnning.
+
+实际测试发现 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时 新的连接仍然可以不断地创建和断开，这个参数大小不会影响性能，只是影响TIME_WAIT 数量的展示（当然 TIME_WAIT 太多导致local port不够除外）, 这个值设置小一点会避免出现端口不够的情况
+
+> tcp_max_tw_buckets - INTEGER
+> 	Maximal number of timewait sockets held by system simultaneously.
+> 	If this number is exceeded time-wait socket is immediately destroyed
+> 	and warning is printed. This limit exists only to prevent
+> 	simple DoS attacks, you _must_ not lower the limit artificially,
+> 	but rather increase it (probably, after increasing installed memory),
+> 	if network conditions require more than default value.
+
+## 短连接的开销
+
+用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3/4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万
+
+![image-20220627154822263](/images/951413iMgBlog/image-20220627154822263.png)
+
+再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万
+
+![image-20220627154931495](/images/951413iMgBlog/image-20220627154931495.png)
+
 ## 结论
 
 - 在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的
@@ -394,3 +418,5 @@ https://idea.popcount.org/2014-04-03-bind-before-connect/
 [TCP连接中客户端的端口号是如何确定的？](https://mp.weixin.qq.com/s/C-Eeoeh9GHxugF4J30fz1A)
 
 [对应4.19内核代码解析](https://github.com/plantegg/linux/commit/9b3312bf18f6873e67f1f51dab3364c95c9dc54c)
+
+[How to stop running out of ephemeral ports and start to love long-lived connections](https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/)

@@ -35,6 +35,8 @@ sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf
 #sudo grep "menuentry " /boot/grub2/grub.cfg | grep -n menu
 ##grub认的index从0开始数的
 #sudo grub2-reboot 0; sudo reboot
+or
+#grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot
 ```
 
 ## 修改是否启用透明大页
@@ -70,7 +72,7 @@ $ sudo diskutil eject /dev/disk3
 ```
 umount /dev/sdn1
 sudo mkfs.vfat /dev/sdn1
-dd if=/polarx/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
+dd if=/data/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 ```
 
 ## 定制内存

@@ -388,6 +388,38 @@ RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离
 cat /proc/sys/kernel/numa_balancing shows 1
 ```
 
+### 监控
+
+查找相应的内存和调度器事件
+
+```shell
+#perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 7191
+ Performance counter stats for process id '7191':
+
+                 0      sched:sched_stick_numa                                        (100.00%)
+                 1      sched:sched_move_numa                                         (100.00%)
+                 0      sched:sched_swap_numa
+                 0      migrate:mm_migrate_pages
+               286      minor-faults
+               
+# perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p PID
+...
+                 1      sched:sched_stick_numa
+                 3      sched:sched_move_numa
+                41      sched:sched_swap_numa
+             5,239      migrate:mm_migrate_pages
+            50,161      minor-faults
+
+#perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 676322
+ Performance counter stats for process id '676322':
+
+                 0      sched:sched_stick_numa
+                16      sched:sched_move_numa
+                 0      sched:sched_swap_numa
+                24      migrate:mm_migrate_pages
+             2,079      minor-faults               
+```
+
 
 
 ## 总结
@@ -444,3 +476,5 @@ https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and
 https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/
 
 https://queue.acm.org/detail.cfm?id=2513149
+
+[NUMA DEEP DIVE PART 1: FROM UMA TO NUMA](https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/) 这是一个系列，都很干货，值得推荐

@@ -117,7 +117,7 @@ iptables-save | grep KUBE-SERVICES
 
 kube-proxy有两种主要的实现（userspace基本没有使用了）：
 
-- iptables来做NAT以及负载均衡
+- [[iptables使用]]来做NAT以及负载均衡
 - ipvs来做NAT以及负载均衡
 
 Service 是由 kube-proxy 组件通过监听 Pod 的变化事件，在宿主机上维护iptables规则或者ipvs规则。
@@ -346,7 +346,7 @@ TCP  10.68.70.130:12380 rr
 
 在 Kubernetes v1.0 版本，代理完全在 userspace 实现。Kubernetes v1.1 版本新增了 [iptables 代理模式](https://jimmysong.io/kubernetes-handbook/concepts/service.html#iptables-代理模式)，但并不是默认的运行模式。从 Kubernetes v1.2 起，默认使用 iptables 代理。在 Kubernetes v1.8.0-beta.0 中，添加了 [ipvs 代理模式](https://jimmysong.io/kubernetes-handbook/concepts/service.html#ipvs-代理模式)
 
-kube-proxy相当于service的管理方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。
+kube-proxy相当于service的管控方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。
 
 kube-proxy的三种模式：
 
@@ -360,7 +360,7 @@ ipvs 就是用于解决在大量 Service 时，iptables 规则同步变得不可
 
 除了能够提升性能之外，ipvs 也提供了多种类型的负载均衡算法，除了最常见的 Round-Robin 之外，还支持最小连接、目标哈希、最小延迟等算法，能够很好地提升负载均衡的效率。
 
-而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价。这也正印证了我在前面提到过的，“将重要操作放入内核态”是提高性能的重要手段。
+而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价，“将重要操作放入内核态”是提高性能的重要手段。
 
 **IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。**
 

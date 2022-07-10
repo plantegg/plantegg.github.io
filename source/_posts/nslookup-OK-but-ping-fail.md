@@ -56,7 +56,7 @@ ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返
 
 而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。
 
-如下文字摘自：https://www.atatech.org/articles/91088
+如下文字摘自网络：
 
 >NSCD(name service cache daemon)是GLIBC关于网络库的一个组件，服务基于glibc开发的各类网络服务，基本上来讲我们能见到的一些编程语言和开发框架最终均会调用到glibc的网络解析的函数（如GETHOSTBYNAME or GETHOSTBYADDR等），因此绝大部分程序能够使用NSCD提供的缓存服务。当然了如果是应用端自己用socker编写了一个网络client就无法使用NSCD提供的缓存服务，比如DNS领域常见的dig命令不会使用NSCD提供的缓存，而作为对比ping得到的DNS解析结果将使用NSCD提供的缓存
 
@@ -130,7 +130,7 @@ nameserver：指定nameserver，必须配置，每行指定一个nameserver，�
 
 [https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt](https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt)
 
-[DNS缓存介绍](https://www.atatech.org/articles/46211)
+
 
 [来自redhat上原因的描述，但是从代码的原作者的描述来看，他认为rotate下这个行为是合理的](https://access.redhat.com/solutions/1426263)
 

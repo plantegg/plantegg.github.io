@@ -185,7 +185,7 @@ __builtin_expect 这个指令是 gcc 引入的。该函数作用是允许程序�
 - __builtin_expect(!!(x),1) x 为真的可能性更大  //0两次取反还是0，非0两次取反都是1，这样可以适配__builtin_expect(EXP, N)的N，要不N的参数没法传
 - __builtin_expect(!!(x),0) x 为假的可能性更大
 
-当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。
+当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。让L1i中加载的代码尽量有效紧凑
 
 这样可以让 CPU流水线分支预测的时候默认走可能性更大的分支。如果分支预测错误所有流水线都要取消重新计算。
 
@@ -521,9 +521,11 @@ intel X86 8260
 
 ipc是指每个core的IPC
 
-### 超线程(Hyper-Threading)原理
+### [超线程(Hyper-Threading)原理](https://www.intel.com/content/www/us/en/gaming/resources/hyper-threading.html)
 
-**概念**：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，有时叫做 simultaneous multi-threading（SMT）。
+**概念**：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，intel体系下也叫做 simultaneous multi-threading（[SMT--wiki用的是simultaneous](https://en.wikipedia.org/wiki/Simultaneous_multithreading)，[也有人用 symmetric](https://akkadia.org/drepper/cpumemory.pdf)（29页），我觉得symmetric也比较能表达超线程的意思）。
+
+> Two logical cores can work through tasks more efficiently than a traditional single-threaded core. By taking advantage of idle time when the core would formerly be waiting for other tasks to complete, Intel® Hyper-Threading Technology improves CPU throughput (by up to 30% in server applications).
 
 超线程技术主要的出发点是，当处理器在运行一个线程，执行指令代码时，很多时候处理器并不会使用到全部的计算能力，部分计算能力就会处于空闲状态。而超线程技术就是通过多线程来进一步“压榨”处理器。**pipeline进入stalled状态就可以切到其它超线程上**
 
@@ -689,3 +691,6 @@ https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&mid=2247483755&idx=1&sn=5324f7
 
 https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/
 
+ [What Every Programmer Should Know About Main Memory](http://www.akkadia.org/drepper/cpumemory.pdf) by Ulrich Drepper 
+
+[How fast are Linux pipes anyway?](https://mazzo.li/posts/fast-pipes.html) 优化 pipes 的读写带宽，perf、hugepage、splice使用

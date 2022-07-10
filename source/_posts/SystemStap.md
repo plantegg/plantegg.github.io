@@ -20,6 +20,8 @@ SystemTap 是一个 tracing 系统，**简单来说，它提供了一种领域�
 
 `perf` 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。`perf` 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。**可以把它想象成开销更低，但功能更强大的 `strace`**。 本文只会使用非常简单的 `perf` 命令。想了解更多，强烈建议访问 [Brendan Gregg](http://www.brendangregg.com/perf.html)的博客。
 
+![图片](/images/951413iMgBlog/640-4652000.png)
+
 ## 安装
 
 sudo stap-prep //安装好systemtap所有依赖的（debugfs等等）
@@ -314,8 +316,9 @@ Attaching 2 probes...
 获取函数调用延时的直方图，纳秒级：
 
 ```bash
-    bpftrace -e 'k:tcp_sendmsg { @ts[tid] = nsecs; }
-        kr:tcp_sendmsg /@ts[tid]/ { @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); }'
+    bpftrace -e 'k:tcp_sendmsg { @ts[tid] = nsecs; } kr:tcp_sendmsg /@ts[tid]/ { @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); }'
+    
+    bpftrace -e 'k:net_rx_action { @ts[tid] = nsecs; } kr:tcp_sendmsg /@ts[tid]/ { @ns = hist(nsecs - @ts[tid]); delete(@ts[tid]); }'
 ```
 
 最后一个例子在探测点（线程 ID 作为主键）保存时间戳，并在另外一个探测点获得这个时间戳。这个模式可以用来计算各种延时。

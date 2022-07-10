@@ -1,0 +1,138 @@
+---
+title: Apple M1 Pro 和 Intel I9-12900K到底谁强
+date: 2022-01-01 12:30:03
+categories: CPU
+tags:
+    - Intel
+    - M1
+    - Apple
+    - CPU
+---
+
+# Apple M1 Pro 和 Intel I9-12900K到底谁强
+
+主要比较 M1 Pro和 I9-12900K，从芯片的参数来分析他们的差异。不和M1Max、M1Ultra比是因为从成本看没有可比性，M1Max、M1Ultra应该比I9贵多了，比起来意义不大，M1Max、M1Ultra的场景不一样。结论在最后
+
+网上很多拿I9-12900K和M1 Max比实际没有意义，CPU core方面M1 Max和M1 Pro是一样的（跑分结果一样），干嘛不挑个便宜的去比较！
+
+## **The M1 Pro**
+
+The M1 Pro takes this higher, with:
+
+- 33.7 billion transistors on a 240mm squared die.
+- 8 performance cores, 24MB L2 Cache，每个core 3MB，cache跟不要钱一样的堆
+- 2 efficiency cores with 4MB L2 cache，每个core 2MB
+- 16 GPU Cores.
+- 32GB DDR5 memory at 200GB/s.
+
+![image-20220402101632476](/images/951413iMgBlog/image-20220402101632476-8873839.png)
+
+
+
+**从性能来看不推荐买M1**，内存还是DDR4，M1Pro以上就都是DDR5了（文后有惊喜告诉你怎么用M1的价格买到M1 Pro） 
+
+![image-20220402104020407](/images/951413iMgBlog/image-20220402104020407-8873873.png)
+
+上图中PCPU就是高性能核，共8个，PCPU左边的是低频节能的2个ECPU，机器不忙的时候可以用ECPU，节能。一旦有复杂任务就可以用PCPU。至于M1 Max在狂堆 GPU, 然后M1 Ultra学习AMD把两块M1 Max封装在一起，有没有用就看你的应用场景了，比如搞程序编译、跑跑Idea用M1 Pro就够了，没必要多花几倍的钱用在GPU上，搞视频编辑、图片处理可以考虑Max、Ultra。
+
+### **The M1 Max**
+
+The M1 Max provides:（相对M1 Pro主要是多堆了 16个GPU，CPU方面是一样的，大多数跑分是M1 Pro和Max几乎一样，多花钱买那16个GPU不一定值得）
+
+- 57 billion transistors on a 420mm squared die.
+- 8 performance cores, 24MB L2 Cache.
+- 2 efficiency cores with 4MB L2 cache.
+- 32 GPU Cores.
+- 64GB DDR5 memory at 400GB/s.
+
+### **And the new M1 Ultra**
+
+The M1 Ultra brings you:（下面的数据完全是M1 Max的2倍，实际就是封装两块M1 Max）
+
+- 114 billion transistors on a 840mm squared die.
+- 16 performance cores, 48MB L2 Cache.
+- 4 efficiency cores with 4MB L2 cache.
+- 64 GPU Cores.
+- Up to 128GB DDR5 memory at 800GB/s.
+
+### M1 Pro主板拆解
+
+![image-20220506142049220](/images/951413iMgBlog/image-20220506142049220.png)
+
+上图中，红框是 M1 Pro 芯片，黄框是三星 8GB 内存（共两块），绿框是铠侠的 128GB 闪存（共两块）。
+
+## Inel I9-12900K
+
+对比下 i9-12900K，i9也有GPU只是没有说多少个，它的GPU频率在0.3到1.55GHz之间
+
+![alder lake die 2.png](/images/951413iMgBlog/400px-alder_lake_die_2.png)
+
+| ISA                                                          | x86-64 (x86)                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Microarchitecture                                            | [Alder Lake](https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake), [Golden Cove](https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove), [Gracemont](https://en.wikichip.org/wiki/intel/microarchitectures/gracemont) |
+| Process                                                      | [Intel 7](https://en.wikichip.org/w/index.php?title=Intel_7_process&action=edit&redlink=1) |
+| Die                                                          | 215.25 mm²" 20.5 mm × 10.5 mm                                |
+| MCP                                                          | No (1 dies)                                                  |
+| Cores                                                        | 16                                                           |
+| Threads                                                      | 24                                                           |
+| [l1$ size](https://en.wikichip.org/wiki/Property:l1$_size)   | 0.75 MiB (768 KiB, 786,432 B, 7.324219e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.75-20MiB) and 0.625 MiB (640 KiB, 655,360 B, 6.103516e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1-24-20size/0.625-20MiB) |
+| [l1d$ size](https://en.wikichip.org/wiki/Property:l1d$_size) | 0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.25-20MiB) and 0.375 MiB (384 KiB, 393,216 B, 3.662109e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1d-24-20size/0.375-20MiB) |
+| [l1i$ size](https://en.wikichip.org/wiki/Property:l1i$_size) | 0.5 MiB (512 KiB, 524,288 B, 4.882812e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.5-20MiB) and 0.25 MiB (256 KiB, 262,144 B, 2.441406e-4 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l1i-24-20size/0.25-20MiB) |
+| [l2$ size](https://en.wikichip.org/wiki/Property:l2$_size)   | 4 MiB (4,096 KiB, 4,194,304 B, 0.00391 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/4-20MiB) and 10 MiB (10,240 KiB, 10,485,760 B, 0.00977 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l2-24-20size/10-20MiB) 共14Mb |
+| [l3$ size](https://en.wikichip.org/wiki/Property:l3$_size)   | 6 MiB (6,144 KiB, 6,291,456 B, 0.00586 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/6-20MiB) and 24 MiB (24,576 KiB, 25,165,824 B, 0.0234 GiB) [+](https://en.wikichip.org/wiki/Special:SearchByProperty/:l3-24-20size/24-20MiB) 共30Mb |
+| TDP                                                          | 125 W                                                        |
+
+从下面的芯片分布图来看，绿色部分是8个高性能物理core，每个2 thread，绿色其右边的蓝色E Cores是8个低频节能core，没开超线程，所以24个threads就是2*8PCPU+8ECPU。真正打起仗来从蓝色部分的面积占比来看基本可以忽略，重点得靠绿色的PCPU。
+
+![img](/images/951413iMgBlog/arch2_small.jpg)
+
+
+
+## 性能比较
+
+从上面分析来看 I9-12900K和M1 Pro的比较最终回到了各自8个PCPU的较量。Intel/X86的超线程在大部分场景下可以提升单核计算能力的1.5倍左右，所以这里就是Intel的12core打M1 Pro的，另外Intel主频也比M1 Pro要高，如果比较单core的计算能力Intel能睿频到5GHz以上，所以不考虑视频、图片、矩阵等简单计算场景，Intel的性能应该还是要强很多的。但是如果作为笔记本来说一定要考虑功耗，125W VS 45W，我的建议是买Apple（M1的软件兼容性也是个问题）。如果是当服务器工作站使用还是建议买I9. 价钱就不好比较了M1 Pro不单独卖没法估计价格。
+
+I9弱在内存还是DDR4，而M1 Pro是DDR5了，另外就是M1 Pro的L2要大。当然I9也有DDR5的内存的。
+
+笔记本领域M1整体来看应该优势明显，尤其是经过几年的生态发展能够把软件生态补上的话。
+
+## 购买建议
+
+如果想买苹果，推荐买这款：
+
+![image-20220402103153047](/images/951413iMgBlog/image-20220402103153047-8874337.png)
+
+这种[非标8核的M1（就是10核关闭了2核），便宜了2500，特别值](https://ata.alibaba-inc.com/articles/211563)。苹果从来没有发布过8核的M1 Pro芯片，但是这款售卖的CPU号称是M1 Pro，比正常的M1 Pro少了两个CPU core和两个GPU。这点差异是不会重新设计一个新的芯片多搞一条生产线的，一般是正常的M1 Pro生产线下来检测发现坏了个别的core，扔了太浪费，于是关掉坏core当低配的M1 Pro在卖，价钱便宜了快一半了，实际性能其实差得不多。
+
+如果是买Intel i9的话，从性价比上来看如果能买到i5-12600K也是非常不错的，实际就是i9关掉(坏掉)了2个PCPU和4个ECPU，价钱是i9的一半不到，PCPU少了但是Base主频反而高了，因为总核少了，发热就能控制，所以单核能跑到的频率更高一些。
+
+![image 19](/images/951413iMgBlog/image_19.jpg)
+
+其实I9、I7、I5都是同一条生产线、同样的工艺下制造出来的，差别在于帮I9分摊成本，比如你看看[i5-12600k的参数](https://en.wikichip.org/wiki/intel/core_i5/i5-12600k)和i9-12900K基本是一样的，重点在215.25 mm² 的 Die Size：
+
+| ISA               | x86-64 (x86)                                                 |
+| ----------------- | ------------------------------------------------------------ |
+| Microarchitecture | [Alder Lake](https://en.wikichip.org/wiki/intel/microarchitectures/alder_lake), [Golden Cove](https://en.wikichip.org/wiki/intel/microarchitectures/golden_cove), [Gracemont](https://en.wikichip.org/wiki/intel/microarchitectures/gracemont) |
+| Process           | [Intel 7](https://en.wikichip.org/w/index.php?title=Intel_7_process&action=edit&redlink=1) |
+| Die               | 215.25 mm² 20.5 mm × 10.5 mm                                 |
+| Cores             | 10                                                           |
+| Threads           | 16                                                           |
+
+即使把 [i5-12600k拆开](https://www.techpowerup.com/review/intel-core-i5-12600k-alder-lake-12th-gen/2.html)用放大镜看也是和i9-12900K 一样的：
+
+![img](/images/951413iMgBlog/arch1_small.jpg)
+
+## 总结
+
+- 笔记本建议买M1 Pro
+- M1和M1 Pro如果看重性能的话肯定要买M1 Pro了
+- M1 Pro 建议买8 core的，买到就是赚到
+- 集团内M1 Pro想要轻便就选14寸的，综合考虑我还是推荐14寸的
+- I9的笔记本建议买I7、I5，平时使用性能差得不多
+- 性能还是I9强，做服务器更合适 
+
+最后我手里头既没有I9也没有M1，结论靠键盘 :)，买错了别找我。
+
+## 参考资料
+
+[CPU的生产和概念](https://ata.alibaba-inc.com/articles/211563)

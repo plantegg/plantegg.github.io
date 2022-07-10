@@ -13,6 +13,8 @@ tags:
 
 原理先看这篇：[CPU 性能和Cache Line](https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/)
 
+写这篇文章的起因是这个 [记一次 Netty PR 的提交](https://mp.weixin.qq.com/s/vkCskOVSpzxt3Umzc_GYrQ)，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题
+
 ## 什么是 cache_line
 
 CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。

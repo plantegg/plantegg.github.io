@@ -56,7 +56,7 @@ Tomcat中的NIO指的是同步非阻塞，但是触发时机又是通过Java中�
 
 #### epoll JStack 堆栈
 
-像Redis采取的是一个进程绑定一个core，然后处理所有连接的所有事件，因为redis主要是内存操作，速度比较快，这样做避免了加锁，权衡下来更有利。但是对大多服务器就不可取了，毕竟单核处理能力是瓶颈，另外就是IO速度和CPU速度中间的差异也没处理好，所以不能采取Redis的设计。
+像Redis采取的是一个进程绑定一个core，然后处理所有连接的所有事件，因为redis主要是内存操作，速度比较快，这样做避免了加锁，权衡下来更有利（实践上为了利用多核会部署多个redis实例；另外新版本的redis也开始支持多线程了）。但是对大多服务器就不可取了，毕竟单核处理能力是瓶颈，另外就是IO速度和CPU速度的差异非常大，所以不能采取Redis的设计。
 
 Nginx采取的是多个Worker通过reuseport来监听同一个端口，一个Worker对应一个Epoll红黑树，上面挂着所有这个Worker负责处理的连接。默认多个worker是由OS来调度，可以通过 worker_cpu_affinity 来指定某个worker绑定到哪个core。
 
@@ -98,7 +98,7 @@ ps -eo pid,ni,pri,pcpu,psr,comm|grep nginx|awk '{++s[$(NF-1)]}END{for (i in s)pr
 完整的NIO中Acceptor逻辑JStack:
 
 	//3306 acceptor端口
-	"TDDLServer" #32 prio=5 os_prio=0 tid=0x00007fb76cde6000 nid=0x4620 runnable [0x00007fb6db5f6000]
+	"HTTPServer" #32 prio=5 os_prio=0 tid=0x00007fb76cde6000 nid=0x4620 runnable [0x00007fb6db5f6000]
 	   java.lang.Thread.State: RUNNABLE
 	        at sun.nio.ch.EPollArrayWrapper.epollWait(Native Method)
 	        at sun.nio.ch.EPollArrayWrapper.poll(EPollArrayWrapper.java:275)
@@ -334,6 +334,13 @@ Channel 如此实现也付出了代价（如下图所示）：
 
 **因为Tomcat支持同步非阻塞IO模型和异步IO模型，所以Http11Processor不是直接读取Channel。针对不同的IO模型在Java API中对Channel有不同的实现，比如：AsynchronousSocketChannel 和 SocketChannel，为了对 Http11Processor屏蔽这些差异，Tomcat设计了一个包装类SocketWrapper，Http11Processor只需要调用SocketWrapper的读写方法**
 
+#### Tomcat核心参数
+
+- acceptorThreadCount： Acceptor线程数量，多核情况下充分利用多核来应对大量连接的创建，默认值是1
+- acceptCount： TCP全连接队列大小，默认值是100，这个值是交给内核，由内核来维护这个队列的大小，满了后Tomcat无感知
+- maxConnections： NIO模式默认10000，最大同时处理的连接数量。如果是BIO，一个connections需要一个thread来处理，不应设置太大。
+- maxThreads： 专门处理IO操作的Worker线程数量，默认值是200
+
 #### Acceptor
 
 Acceptor实现了Runnable接口，可以跑在单线程里，一个Listen Port只能对应一个ServerSocketChannel，因此这个ServerSocketChannel是在多个Acceptor线程之间共享
@@ -344,13 +351,6 @@ Acceptor实现了Runnable接口，可以跑在单线程里，一个Listen Port�
 
 - bind方法的第二个参数是操作系统的等待队列长度，也就是TCP的全连接队列长度，对应着Tomcat的 acceptCount 参数配置，默认是100
 - ServerSocketChannel被设置成阻塞模式，也就是连接创建的时候是阻塞的方式。
-
-#### Tomcat核心参数
-
-- acceptorThreadCount： Acceptor线程数量，多核情况下充分利用多核来应对大量连接的创建，默认值是1
-- acceptCount： TCP全连接队列大小，默认值是100，这个值是交给内核，由内核来维护这个队列的大小，满了后Tomcat无感知
-- maxConnections： NIO模式默认10000，最大同时处理的连接数量。如果是BIO，一个connections需要一个thread来处理，不应设置太大。
-- maxThreads： 专门处理IO操作的Worker线程数量，默认值是200
 
 ### 多路复用--多个socket共用同一个线程来读取socket中的数据
 
@@ -505,7 +505,7 @@ Erlang解决了协程密集计算的问题，它基于自行开发VM，并不执
 
 ## 多线程下的真正开销代价
 
-系统调用开销其实不大，上下文切换同样也是[数十条cpu指令可以完成](https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S?spm=ata.13261165.0.0.675273b65vwzFO#L282)
+系统调用开销其实不大，上下文切换同样也是[数十条cpu指令可以完成](https://github.com/torvalds/linux/blob/v5.2/arch/x86/entry/entry_64.S#L282)
 
 多线程调度下的热点火焰图：
 

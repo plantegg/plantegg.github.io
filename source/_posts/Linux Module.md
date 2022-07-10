@@ -113,6 +113,8 @@ make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息�
 
 	sudo systemctl start kdump
 
+参考：[Linux 系统内核崩溃分析处理简介](https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/)
+
 ## crash
 
 	sudo yum install crash -y

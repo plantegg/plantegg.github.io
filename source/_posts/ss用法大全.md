@@ -185,6 +185,10 @@ ESTAB       0      84288    172.16.210.17:3306                   10.100.7.26:511
          cubic wscale:7,7 rto:216 rtt:15.129/0.314 ato:40 mss:1448 rcvmss:976 advmss:1448 cwnd:157 ssthresh:157 bytes_acked:2954689465 bytes_received:1393 segs_out:2041403 segs_in:237797 data_segs_out:2041402 data_segs_in:8 send 120.2Mbps lastsnd:11 lastrcv:1103462 lastack:10 pacing_rate 144.2Mbps delivery_rate 31.3Mbps busy:1103503ms sndbuf_limited:3398ms(0.3%) unacked:24 retrans:0/7rcv_space:14600 notsent:49536 minrtt:9.551
 ```
 
+推荐 -m -i 一起查看状态，比如 rcv_space 表示buffer达到过的最大水位
+
+> **rcv_space** is the high water mark of the rate of the local application reading from the receive buffer during any RTT. This is used internally within the kernel to adjust sk_rcvbuf.
+
 ## ss 查看拥塞窗口、RTO
 
 > //rto的定义，不让修改，每个ip的rt都不一样，必须通过rtt计算所得, HZ 一般是1秒
@@ -304,6 +308,12 @@ Where OP can be one of the following:
 	ss  state connected sport = :http
 	ss \( sport = :http or sport = :https \)
 	ss -o state fin-wait-1 \( sport = :http or sport = :https \) dst 192.168.1/24
+
+## ss 查看 timer 状态
+
+ss -atonp
+
+
 
 ## 按连接状态过滤
 

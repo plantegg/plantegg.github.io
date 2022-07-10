@@ -268,7 +268,7 @@ node 1                                             node 3
 
 Though Huawei has been keeping a tight lip on the chip design itself, the Hi1620 is actually a multi-chip design. Actually, we believe are three dies. The chip itself comprise two compute dies called the **Super CPU cluster** (SCCL), each one packing 32 cores. It’s also possible the SCCL only have 24 cores, in which case there are three such dies with a theoretical maximum core count of 72 cores possible but are not offered for yield reasons. Regardless of this, there are at least two SCCL dies for sure. Additionally, there is also an I/O die called the **Super IO Cluster** (SICL) which contains all the high-speed SerDes and low-speed I/Os.
 
-下图是6426型号，我测试用的是4826型号，也就是一个CPU内是48core，一个CPU封装3个Die，两个Die是 core，还有一个是Super IO Cluster
+下图是6426型号，我测试用的是4826型号，也就是一路CPU内是48core，一个CPU封装3个Die，两个Die是 core，还有一个是Super IO Cluster
 
 ![taishan v110 soc details.svg](/images/951413iMgBlog/700px-taishan_v110_soc_details.svg.png)
 

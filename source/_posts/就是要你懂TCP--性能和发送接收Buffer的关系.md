@@ -85,7 +85,7 @@ tags:
     net.core.wmem_max = 212992
     net.ipv4.tcp_adv_win_scale = 1 //
     net.ipv4.tcp_moderate_rcvbuf = 1
-    net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值】
+    net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值
     net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
     net.ipv4.udp_rmem_min = 4096
     net.ipv4.udp_wmem_min = 4096
@@ -115,9 +115,7 @@ net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只�
 
 从这里我们可以看到，有些理论知识点虽然我们知道，但是在实践中很难联系起来，也就是常说的无法学以致用，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践没联系上。
 
-
-
-## BDP 带宽时延积
+## BDP([Bandwidth-Delay Product](https://hpbn.co/building-blocks-of-tcp/#bandwidth-delay-product)) 带宽时延积
 
 BDP=rtt*(带宽/8)
 
@@ -125,7 +123,11 @@ BDP=rtt*(带宽/8)
 
 因为这里根据带宽、rtt计算得到的BDP是250K，BDP跑满后拥塞窗口（带宽、接收窗口和rt决定的）即将成为新的瓶颈，所以调大buffer没意义了。
 
+> Bandwidth-delay product (BDP)
+>
+> Product of data link’s capacity and its end-to-end delay. The result is the maximum amount of unacknowledged data that can be in flight at any point in time.
 
+![Figure 2-7. Transmission gaps due to low congestion window size](/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg)
 
 ## 接下来看看接收buffer(rmem)和接收窗口的关系
 
@@ -281,20 +283,33 @@ BDP=rtt*(带宽/8)
             tp->snd_cwnd_stamp = tcp_jiffies32;
     }
 
-传输过程中，最大接收窗口会动态调整，当指定了SO_RCVBUF后，实际buffer是两倍SO_RCVBUF，但是要分出一部分（2^net.ipv4.tcp_adv_win_scale)来作为乱序报文缓存。
+传输过程中，最大接收窗口会动态调整，当指定了SO_RCVBUF后，实际buffer是两倍SO_RCVBUF，但是要分出一部分（2^net.ipv4.tcp_adv_win_scale)来作为乱序报文缓存以及metadata
 
 > 1. net.ipv4.tcp_adv_win_scale = 2  //2.6内核，3.1中这个值默认是1
 
-如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K     
-    static inline int tcp_win_from_space(const struct sock *sk, int space)
-    {//space 传入的时候就已经是 2*SO_RCVBUF了
-            int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;    
+如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K（64-16） 
+
+​    static inline int tcp_win_from_space(const struct sock *sk, int space)
+​    {//space 传入的时候就已经是 2*SO_RCVBUF了
+​            int tcp_adv_win_scale = sock_net(sk)->ipv4.sysctl_tcp_adv_win_scale;    
 
             return tcp_adv_win_scale <= 0 ?
                     (space>>(-tcp_adv_win_scale)) :
                     space - (space>>tcp_adv_win_scale); //sysctl参数tcp_adv_win_scale 
     }
 
+tcp_adv_win_scale 的取值
+
+| tcp_adv_win_scale |              TCP window size               |
+| :---------------: | :----------------------------------------: |
+|         4         | 15/16 * available memory in receive buffer |
+|         3         |   ⅞ * available memory in receive buffer   |
+|         2         |   ¾ * available memory in receive buffer   |
+|         1         |   ½ * available memory in receive buffer   |
+|         0         |     available memory in receive buffer     |
+|        -1         |   ½ * available memory in receive buffer   |
+|        -2         |   ¼ * available memory in receive buffer   |
+|        -3         |   ⅛ * available memory in receive buffer   |
 
 接收窗口有最大接收窗口和当前可用接收窗口。
 
@@ -315,10 +330,6 @@ BDP=rtt*(带宽/8)
 ![image.png](/images/oss/d0e12e8bad8764385549f9b391c62ab0.png)
 
 从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值
-
-
-
-
 
 # 从kernel来看buffer相关信息
 
@@ -489,6 +500,10 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 > time mysql --net-buffer-length=163840000  -h127.1  -e "select * from test;" >/tmp/result.txt
 
+## 在2 MiB buffer下rt和 throughput的关系
+
+![img](/images/951413iMgBlog/image10-5.png)
+
 # 总结
 
 * 一般来说绝对不要在程序中手工设置SO_SNDBUF和SO_RCVBUF，内核自动调整比你做的要好；
@@ -520,7 +535,15 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 [高性能网络编程7--tcp连接的内存使用][27]
 
-[The story of one latency spike][22]
+[The story of one latency spike][https://blog.cloudflare.com/the-story-of-one-latency-spike/] : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点
+
+> Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is `tcp_collapse` and it will merge adjacent TCP packets into one larger `sk_buff`. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.
+
+原因：将 tcp_rmem 最大值设置得太大，在内存压力场景下触发了GC（tcp_collapse），将 tcp_rmem 调小后（32M->2M）不再有偶发性 rt 很高的延时
+
+从 net_rx_action 追到 tcp_collapse 的逻辑没太理解（可能是对内核足够了解） 
+
+
 
 [What is rcv_space in the 'ss --info' output, and why it's value is larger than net.core.rmem_max][28]
 

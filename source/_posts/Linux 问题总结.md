@@ -374,6 +374,54 @@ http://yum.baseurl.org/wiki/Faq
 
 否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的
 
+## [D状态的进程](https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html)
+
+```
+echo 1 >  /proc/sys/kernel/hung_task_panic  
+
+----- 处于D状态的超时时间，默认是120s
+$ cat /proc/sys/kernel/hung_task_timeout_secs
+
+----- 发现hung task之后是否触发panic操作
+$ cat /proc/sys/kernel/hung_task_panic
+
+----- 每次检查的进程数
+$ cat /proc/sys/kernel/hung_task_check_count
+
+----- 为了防止日志被刷爆，设置最多的打印次数
+$ cat /proc/sys/kernel/hung_task_warnings
+```
+
+这个参数可以用来处理 D 状态进程 
+
+内核在 3.10.0 版本之后提供了 hung task 机制，用来检测系统中长期处于 D 状体的进程，如果存在，则打印相关警告和进程堆栈。
+
+如果配置了 `hung_task_panic` ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。
+
+其基本原理也很简单，系统启动时会创建一个内核线程 `khungtaskd`，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。
+
+## T 状态进程
+
+kill -CONT pid 来恢复
+
+jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能**导致detach的动作不会被执行**，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。
+
+## linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”
+
+在 2.6.32 以前的内核里，即使你在java里写queue.await(1ns)之类的代码，其实都是需要1ms左右才会执行的，但.32以后则可以支持ns级的调度，对于实时性要求非常非常高的性能而言，这本来是个好特性。
+
+```
+cat /proc/timer_list | grep .resolution
+```
+
+可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）
+
+## Linux 进程调度
+
+Linux的进程调度有一个不太为人熟知的特性，叫做**wakeup affinity**，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。
+
+这个特性缺省是打开的，它有时候很有用，但有时候却对性能有伤害作用。设想这样一个应用场景：一个主进程给成百上千个辅进程派发任务，这成百上千个辅进程被唤醒后被安排到与主进程相同的CPU core或者NUMA节点上，就会导致负载严重失衡，CPU忙的忙死、闲的闲死，造成性能下降。https://mp.weixin.qq.com/s/DG1v8cUjcXpa0x2uvrRytA
+
 ## [tty](https://www.cnblogs.com/liqiuhao/p/9031803.html)
 
 tty（teletype--最早的一种终端设备） stty 设置tty的相关参数
@@ -568,9 +616,21 @@ echo noop > /sys/block/${SSD_DEV_NAME}/queue/scheduler
 
 ![细数各家linux之间的区别_软件应用_什么值得买](/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
 
- Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
+Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
 
 不同发行版几乎采用了不同包管理器（SLES、Fedora、openSUSE、centos、RHEL使用rmp包管理系统，包文件以RPM为扩展名；Ubuntu系列，Debian系列使用基于DPKG包管理系统，包文件以deb为扩展名。)
+
+69年Unix诞生在贝尔实验室，80年 DARPA（国防部高级计划局）请人在Unix实现全新的TCP、IP协议栈。ARPANET最先搞出以太网
+
+Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提供的WEB服务被大家大规模采用
+
+
+
+ARPANET：**高等研究計劃署網路**（英語：Advanced Research Projects Agency Network），通称**阿帕网**（英語：ARPANET）是美國[國防高等研究計劃署](https://zh.m.wikipedia.org/wiki/國防高等研究計劃署)开发的世界上第一个运营的[封包交换](https://zh.m.wikipedia.org/wiki/封包交換)网络，是全球[互联网](https://zh.m.wikipedia.org/wiki/互联网)的鼻祖。
+
+TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。
+
+在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。
 
 
 

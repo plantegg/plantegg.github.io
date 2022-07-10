@@ -583,11 +583,23 @@ MySQL 这里读取Mutex or rw-lock 会导致其它core的cache line 失效，这
 
 我们举个具体的例子来看看这四个状态的转换：
 
-1. 当 A 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 A 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；
-2. 然后 B 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 A 号 CPU 核心已经缓存了该数据，所以会把数据返回给 B 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；
-3. 当 A 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，**然后 A 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了**。
-4. 如果 A 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。
-5. 如果 A 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。
+1. 当 0 号 CPU 核心从内存读取变量 i 的值，数据被缓存在 0 号 CPU 核心自己的 Cache 里面，此时其他 CPU 核心的 Cache 没有缓存该数据，于是标记 Cache Line 状态为「独占」，此时其 Cache 中的数据与内存是一致的；
+2. 然后 1 号 CPU 核心也从内存读取了变量 i 的值，此时会发送消息给其他 CPU 核心，由于 0 号 CPU 核心已经缓存了该数据，所以会把数据返回给 1 号 CPU 核心。在这个时候， A 和 B 核心缓存了相同的数据，Cache Line 的状态就会变成「共享」，并且其 Cache 中的数据与内存也是一致的；
+3. 当 0 号 CPU 核心要修改 Cache 中 i 变量的值，发现数据对应的 Cache Line 的状态是共享状态，则要向所有的其他 CPU 核心广播一个请求，要求先把其他核心的 Cache 中对应的 Cache Line 标记为「无效」状态，**然后 0 号 CPU 核心才更新 Cache 里面的数据，同时标记 Cache Line 为「已修改」状态，此时 Cache 中的数据就与内存不一致了**。
+4. 如果 0 号 CPU 核心「继续」修改 Cache 中 i 变量的值，由于此时的 Cache Line 是「已修改」状态，因此不需要给其他 CPU 核心发送消息，直接更新数据即可。
+5. 如果 0 号 CPU 核心的 Cache 里的 i 变量对应的 Cache Line 要被「替换」，发现 Cache Line 状态是「已修改」状态，就会在替换前先把数据同步到内存。
+
+下面是个示例（如果你想看一下动画演示的话，这里有一个网页（[MESI Interactive Animations](https://www.scss.tcd.ie/Jeremy.Jones/VivioJS/caches/MESIHelp.htm)），你可以进行交互操作，这个动画演示中使用的Write Through算法）：
+
+| 当前操作           | CPU0    | CPU1   | Memory | 说明                                                         |
+| :----------------- | :------ | :----- | :----- | :----------------------------------------------------------- |
+| 1) CPU0 read(x)    | x=1 (E) |        | x=1    | 只有一个CPU有 x 变量， 所以，状态是 Exclusive                |
+| 2) CPU1 read(x)    | x=1 (S) | x=1(S) | x=1    | 有两个CPU都读取 x 变量， 所以状态变成 Shared                 |
+| 3) CPU0 write(x,9) | x=9 (M) | x=1(I) | x=1    | 变量改变，在CPU0中状态 变成 Modified，在CPU1中 状态变成 Invalid |
+| 4) 变量 x 写回内存 | x=9 (M) | X=1(I) | x=9    | 目前的状态不变                                               |
+| 5) CPU1 read(x)    | x=9 (S) | x=9(S) | x=9    | 变量同步到所有的Cache中， 状态回到Shared                     |
+
+ 
 
 ![img](/images/951413iMgBlog/fa98835c78c879ab69fd1f29193e54d1.jpeg)
 

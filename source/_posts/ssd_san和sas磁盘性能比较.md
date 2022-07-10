@@ -1439,7 +1439,9 @@ RunFio 10 64 4k randwrite filename
 
 ## 磁盘挂载参数
 
-内核一般配置的脏页回写超时时间是30s，理论上page cache能buffer住所有的脏页，但是ext4文件系统的默认挂载参数开始支持日志（journal），文件的inode被修改后，需要刷到journal里，这样系统crash了文件系统能恢复过来，内核配置默认5s刷一次journal，ext4还有一个配置项叫挂载方式，有ordered和writeback两个选项，区别是ordered在把inode刷到journal里之前，会把inode的所有脏页先回写到磁盘里，如果不希望inode这么快写回到磁盘则可以用writeback参数。当SSD开始写盘的时候会严重影响SSD读能力
+内核一般配置的脏页回写超时时间是30s，理论上page cache能buffer住所有的脏页，但是ext4文件系统的默认挂载参数开始支持日志（journal），文件的inode被修改后，需要刷到journal里，这样系统crash了文件系统能恢复过来，内核配置默认5s刷一次journal。
+
+ext4还有一个配置项叫挂载方式，有`ordered`和`writeback`两个选项，区别是ordered在把inode刷到journal里之前，会把inode的所有脏页先回写到磁盘里，如果不希望inode这么快写回到磁盘则可以用writeback参数。当SSD开始写盘的时候会严重影响SSD读能力
 
 ```
 # 编辑/etc/fstab，挂载参数设置为defaults,noatime,nodiratime,delalloc,nobarrier,data=writeback
@@ -1447,6 +1449,10 @@ RunFio 10 64 4k randwrite filename
 ```
 
 `noatime` 读取文件时，将禁用对元数据的更新。它还启用了 nodiratime 行为，该行为会在读取目录时禁用对元数据的更新
+
+`nodelalloc` 参数是关闭了ext4的delayed  allocation 特性。所谓delayed allocation 是指，把磁盘block的分配推后到真正要写数据的时候，比如写入文件的时候，先写内存，当数据需要落盘的时候，再由文件系统分配磁盘块，这有利于文件系统做出更佳的磁盘块分配决策，比如可以分配大片连续的磁盘块。显然 nodelalloc 性能要差些
+
+`nobarrier` 参数是不保证先写入文件系统日志然后才写入数据，也就是不保证系统崩溃后文件系统恢复的正确性,但是对写入性能有提升
 
 ### 优化case
 

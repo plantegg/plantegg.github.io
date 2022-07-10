@@ -51,17 +51,17 @@ tc qdisc add dev eth0 root netem loss 1%
 
 ## 指定ip和端口延时
 
-指定 eth0 网卡，来源 ip 是 10.10.200.45，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms 
+指定 eth0 网卡，来源 ip 是 10.0.1.1，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms 
 
 ```
-# 指定 eth0 网卡，来源 ip 是 10.0.200.45，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms
+# 指定 eth0 网卡，来源 ip 是 10.0.1.1，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms
 tc qdisc add dev eth0 root handle 1: prio bands 4
 tc qdisc add dev eth0 parent 1:4 handle 40: netem delay 20ms 2ms
 tc filter add dev eth0 parent 1: protocol ip prio 4 basic match "cmp(u16 at 2 layer transport eq 3306)
                             and cmp(u8 at 16 layer network eq 10)
                             and cmp(u8 at 17 layer network eq 0)
-                            and cmp(u8 at 18 layer network eq 200)
-                            and cmp(u8 at 19 layer network eq 45)" flowid 1:4
+                            and cmp(u8 at 18 layer network eq 1)
+                            and cmp(u8 at 19 layer network eq 1)" flowid 1:4
                             
 # 删除过滤
 sudo tc filter del dev eth0 parent 1: prio 4 basic

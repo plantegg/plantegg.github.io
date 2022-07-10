@@ -9,4 +9,4 @@ find $dest -type f -name "*.md" -exec gsed -i -E 's/https*:\/\/ata2-img.cn-hangz
 
 #find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "intranetproxy.alipay.com|cn-hangzhou.oss-pub.aliyun-inc.com|img.oss-cn-zhangjiakou.aliyuncs.com"  {} \; | grep -v "img src=" | awk -F "(" '{ print $NF }' | sed 's/)//g' >>img.list
 
-cp 951413iMgBlog/* source/images/951413iMgBlog/
+cp -r 951413iMgBlog/* source/images/951413iMgBlog/

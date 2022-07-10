@@ -179,7 +179,11 @@ SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
 再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例
 
-[因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接，但是这个时候他如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果](https://www.atatech.org/articles/89653) 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。
+[因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接（或者这个worker上的其它请求），但是这个时候worker一直在压缩如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果](https://www.atatech.org/articles/89653) 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。
+
+> 上面Nginx Hang死的原因是：Nginx 使用了边缘触发模式，因此Nginx 在套接字有可读性事件的情况下，必须把所有数据都读掉才行，在gzip buffer < connection rcvbuf 同时后端比较快时候，一次性读不完连接上所有数据，就会出现读数据->压缩->新数据到达->继续读数据-> 继续压缩... 的循环，由于压缩需要时间，此时套接字上又来了新的数据，只要数据来的速度比压缩的快，就会出现数据一直读不完的情况，CPU 就一直切不出去。
+>
+> 解决：OSS gzip_buffers 配置为 64*8k = 512K，给后端进程增加了设置sndbuf/rcvbuf 指令之后通过配置Tengine 与后 oss_server 之间的连接的rcvbuf 到512k 以内，这样就能解决这个问题了，实测这个修改几乎不影响后端整体吞吐，同时也不会出现Nginx worker Hang 的情况。
 
 如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）
 
@@ -191,7 +195,48 @@ SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：
 
 ![image.png](/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png)
 
-比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲
+比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲, 这会导致 RT 抖动加大：
+
+Here is the same test run against the SO_REUSEPORT multi-queue NGINX setup (c):
+
+```undefined
+$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/
+        | cut -d " " -f 1
+        | ./mmhistogram -t "Duration in ms (multiple queues)"
+min:1.49 avg:31.37 med=24.67 max:144.55 dev:25.27 count:100000
+Duration in ms (multiple queues):
+ value |-------------------------------------------------- count
+     0 |                                                   0
+     1 |                                                 * 1023
+     2 |                                         ********* 5321
+     4 |                                 ***************** 9986
+     8 |                  ******************************** 18443
+    16 |    ********************************************** 25852
+    32 |************************************************** 27949
+    64 |                              ******************** 11368
+   128 |                                                   58
+```
+
+相对地一个accept queue多个 worker的模式 running against a single-queue NGINX:
+
+```undefined
+$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/
+        | cut -d " " -f 1
+        | ./mmhistogram -t "Duration in ms (single queue)"
+min:3.61 avg:30.39 med=30.28 max:72.65 dev:1.58 count:100000
+Duration in ms (single queue):
+ value |-------------------------------------------------- count
+     0 |                                                   0
+     1 |                                                   0
+     2 |                                                   1
+     4 |                                                   16
+     8 |                                                   67
+    16 |************************************************** 91760
+    32 |                                              **** 8155
+    64 |                                                   1
+```
+
+可以看到一个accept queue多个 worker的模式下 RT 极其稳定
 
 #### SO_REUSEPORT另外的问题
 
@@ -241,13 +286,15 @@ EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡�
 
 图中的电话机相当于一个worker，只是**实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复**。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。
 
-#### EPOLLEXCLUSIVE 带来的问题
+#### [多个worker共享一个 accept queue 带来的问题](https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/)
 
 下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：
 
 ![image.png](/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png)
 
 这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐
+
+图中LIFO场景出现是在多个worker共享一个accept queue的epoll场景下，如果用 SO_REUSEPORT 搞成每个worker一个accept queue就不存在这个问题了
 
 epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。
 
