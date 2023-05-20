@@ -27,4 +27,4 @@ rsync -v --existing -r -a ossimg_small/ public/images/oss
 #上传图片到 oss
 ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/images/ oss://plantegg/images/ -u --output-dir=/tmp/
 #上传整个静态网站（含图片）到 oss
-#ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/
+ossutil --config-file=~/src/script/mac/.ossutilconfig sync ./public/ oss://plantegg/ -u --output-dir=/tmp/

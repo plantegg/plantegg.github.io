@@ -56,11 +56,15 @@ AMD 从Zen2开始架构有了比较大的变化，Zen2架构改动比较大，�
 | PCIe Gen Support | 64 Gen 3                         | 128 Gen 4                                 | 128 Gen 4                       | 128 Gen 5                        |
 | TDP Range        | 200W                             | 280W                                      | 280W                            | 320W (cTDP 400W)                 |
 
+命名规范：
+
+<img src="/images/951413iMgBlog/image-20220721174306194.png" alt="image-20220721174306194" style="zoom:70%;" />
+
 ## Zen1
 
 hygon 5280封装后类似下图(一块CPU封装了2个Die，还有封装4个Die的，core更多更贵而已)
 
-![image-20210812204437220](/images/951413iMgBlog/image-20210812204437220.png)
+<img src="/images/951413iMgBlog/image-20210812204437220.png" alt="image-20210812204437220" style="zoom:50%;" />
 
 或者4个Die封装在一起
 

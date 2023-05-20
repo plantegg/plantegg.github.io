@@ -304,7 +304,11 @@ netstat -st命令中，Tcp: 部分取自/proc/net/snmp，而TCPExt部分取自/p
 
 ## nc 测试
 
+```
 nc -v -u -z -w 3 10.101.0.1 53 //测试server 的53端口上的udp服务能否通
+```
+
+
 
 ### nc 6.5 快速fin
 

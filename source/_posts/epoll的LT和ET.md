@@ -25,6 +25,8 @@ tags:
 
 LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。
 
+举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。
+
 ### 条件触发的问题：不必要的唤醒
 
 1. 内核：收到一个新建连接的请求
@@ -116,3 +118,5 @@ epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而
 [Epoll is fundamentally broken](https://www.atatech.org/articles/157349) 
 
 [Epoll is fundamentally broken 1/2](https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12) 
+
+https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/

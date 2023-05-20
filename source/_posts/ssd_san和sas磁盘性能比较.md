@@ -655,7 +655,11 @@ Disk stats (read/write):
 | 单路随机写平均时延（ms），Block Size=4K | 0.2                        | 0.03                  | 0.2                           | 0.2                         | 0.2                        | 0.3~0.5                      | 0.5~2                      | 1~3                      | 5~10     |
 | API参数取值                             | cloud_auto                 | cloud_plx             | cloud_essd                    | cloud_essd                  | cloud_essd                 | cloud_essd                   | cloud_ssd                  | cloud_efficiency         | cloud    |
 
-#### ESSD PL3测试
+#### ESSD(PL3) 测试
+
+> 阿里云ESSD（Enhanced SSD）云盘结合25 GE网络和RDMA技术，为您提供单盘高达100万的随机读写能力和单路低时延性能。本文介绍了ESSD云盘的性能级别、适用场景及性能上限，提供了选择不同ESSD云盘性能级别时的参考信息。
+
+测试结论：读能力非常差(不到写的10%)，写能力能符合官方标称的IOPS，但是写IOPS抖动极大，会长时间IOPS 跌0，但最终IOPS还是会达到目标IOPS。
 
 测试命令
 
@@ -663,16 +667,16 @@ Disk stats (read/write):
 fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-ESSD 是PL3，LVM是海光物理机下两块本地NVMe SSD做的LVM，测试基于ext4文件系统，阿里云官方提供ESSD的IOPS是裸盘（不含文件系统的）
+ESSD 是aliyun 购买的 ESSD PL3，LVM是海光物理机下两块本地NVMe SSD做的LVM，测试基于ext4文件系统，阿里云官方提供ESSD的 IOPS 性能数据是裸盘（不含文件系统的）
 
-|                                                              | 本地LVM                                                      | ESSD                                                         |
-| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| fio -ioengine=libaio -bs=4k -buffered=1 read                 | bw=36636KB/s, iops=9159<br/>nvme0n1:util=42.31%<br/>nvme1n1: util=41.63% | IOPS=3647, BW=14.2MiB/s<br/>util=88.08%                      |
-| fio -ioengine=libaio -bs=4k -buffered=1 write                | bw=383626KB/s, iops=95906<br/>nvme0n1:util=37.16%<br/>nvme1n1: util=33.58% | IOPS=104k, BW=406MiB/s<br/>util=39.06%                       |
-| fio -ioengine=libaio -bs=4k -buffered=1 randrw rwmixread=70  | write: bw=12765KB/s, iops=3191<br/>read : bw=29766KB/s, iops=7441<br/>nvme0n1:util=35.18%<br/>nvme1n1: util=35.04% | write:IOPS=1701, BW=6808KiB/s<br/>read: IOPS=3962, BW=15.5MiB/s<br/> nvme7n1: util=99.35% |
-| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 read       | bw=67938KB/s, iops=16984<br/>nvme0n1:util=43.17%<br/>nvme1n1: util=39.18% | IOPS=4687, BW=18.3MiB/s<br/>util=99.75%                      |
-| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 write      | bw=160775KB/s, iops=40193<br/>nvme0n1:util=28.66%<br/>nvme1n1: util=21.67% | IOPS=7153, BW=27.9MiB/s<br/>util=99.85%                      |
-| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 randrw rwmixread=70 | write: bw=23087KB/s, iops=5771<br/>read : bw=53849KB/s, iops=13462 | write:IOPS=1511, BW=6045KiB/s<br/>read: IOPS=3534, BW=13.8MiB/s |
+|                                                              | 本地LVM                                                      | ESSD PL3                                                     | PL2+倚天                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| fio -ioengine=libaio -bs=4k -buffered=1 read                 | bw=36636KB/s, iops=9159<br/>nvme0n1:util=42.31%<br/>nvme1n1: util=41.63% | IOPS=3647, BW=14.2MiB/s<br/>util=88.08%                      | IOPS=458k, BW=1789MiB/s<br/>util=96.69%                      |
+| fio -ioengine=libaio -bs=4k -buffered=1 randwrite            | bw=383626KB/s, iops=95906<br/>nvme0n1:util=37.16%<br/>nvme1n1: util=33.58% | IOPS=104k, BW=406MiB/s<br/>util=39.06%                       | IOPS=37.4k, BW=146MiB/s<br/>util=94.03%                      |
+| fio -ioengine=libaio -bs=4k -buffered=1 randrw rwmixread=70  | write: bw=12765KB/s, iops=3191<br/>read : bw=29766KB/s, iops=7441<br/>nvme0n1:util=35.18%<br/>nvme1n1: util=35.04% | write:IOPS=1701, BW=6808KiB/s<br/>read: IOPS=3962, BW=15.5MiB/s<br/> nvme7n1: util=99.35% | write:IOPS=1826, BW=7306KiB/s<br/>read:IOPS=4254, BW=16.6MiB/s<br/>util=98.99% |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 read       | bw=67938KB/s, iops=16984<br/>nvme0n1:util=43.17%<br/>nvme1n1: util=39.18% | IOPS=4687, BW=18.3MiB/s<br/>util=99.75%                      | read: IOPS=145k, BW=565MiB/s<br/>util=98.88%                 |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 write      | bw=160775KB/s, iops=40193<br/>nvme0n1:util=28.66%<br/>nvme1n1: util=21.67% | IOPS=7153, BW=27.9MiB/s<br/>util=99.85%                      | write: IOPS=98.0k, BW=387MiB/s<br/>util=99.88%               |
+| fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 randrw rwmixread=70 | write: bw=23087KB/s, iops=5771<br/>read : bw=53849KB/s, iops=13462 | write:IOPS=1511, BW=6045KiB/s<br/>read: IOPS=3534, BW=13.8MiB/s | write: IOPS=29.4k, BW=115MiB/s<br/>read: IOPS=68.6k, BW=268MiB/s<br/>util=99.88% |
 
 结论：
 
@@ -680,12 +684,10 @@ ESSD 是PL3，LVM是海光物理机下两块本地NVMe SSD做的LVM，测试基�
 - direct 读是本地盘的四分之一
 - direct 写是本地盘的六分之一，写16K Page差距缩小到五分之一（5749/25817）
 - intel direct 写本地intel SSDPE2KX040T8 iops=55826（比海光好40%，海光是memblaze）
-- ESSD带buffer读写抖动很大
-- ESSD出现过多次ESSD卡死，表现就是磁盘不响应任何操作，大概N分钟后恢复，原因未知
+- ESSD 带 buffer 读写抖动很大
+- ESSD 出现过多次卡死，表现就是磁盘不响应任何操作，大概N分钟后恢复，原因未知
 
 PL3单盘IOPS性能计算公式  min{1800+50*容量, 1000000}
-
-
 
 ```
 [essd_pl3]# fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=160G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
@@ -913,8 +915,6 @@ Disk stats (read/write):
   nvme1n1: ios=0/609470, merge=0/0, ticks=0/4186, in_queue=4109, util=13.65%
   nvme2n1: ios=0/610060, merge=0/0, ticks=0/4216, in_queue=4134, util=13.74% 
 ```
-
-
 
 ### HDD性能测试数据
 
@@ -1452,6 +1452,9 @@ ext4还有一个配置项叫挂载方式，有`ordered`和`writeback`两个选�
 
 `nodelalloc` 参数是关闭了ext4的delayed  allocation 特性。所谓delayed allocation 是指，把磁盘block的分配推后到真正要写数据的时候，比如写入文件的时候，先写内存，当数据需要落盘的时候，再由文件系统分配磁盘块，这有利于文件系统做出更佳的磁盘块分配决策，比如可以分配大片连续的磁盘块。显然 nodelalloc 性能要差些
 
+> delalloc吞吐高，但是偶发性延迟抖动，平均延迟略高
+> nodelalloc延迟稳定，但是吞吐会下降，偶发性会延迟剧烈抖动.
+
 `nobarrier` 参数是不保证先写入文件系统日志然后才写入数据，也就是不保证系统崩溃后文件系统恢复的正确性,但是对写入性能有提升
 
 ### 优化case
@@ -1605,8 +1608,6 @@ nvme0n1        4187.00         0.00    332368.00          0     332368
 dm-0           4348.00         0.00    332368.00          0     332368
 ```
 
-
-
 ## 数据总结
 
 - 性能排序 NVMe SSD > SATA SSD > SAN > ESSD > HDD
@@ -1619,6 +1620,17 @@ dm-0           4348.00         0.00    332368.00          0     332368
 - 软RAID、LVM等阵列都会导致性能损耗，即使多盘一起读写也不如单盘性能
 - 不同测试场景(4K/8K/ 读写、随机与否)会导致不同品牌性能数据差异较大
 
+## 工具
+
+[smartctl](https://www.jianshu.com/p/d5389994fad1)
+
+```
+//raid 阵列查看
+smartctl --all /dev/sda -d megaraid,1
+```
+
+
+
 ## 参考资料
 
 http://cizixs.com/2017/01/03/how-slow-is-disk-and-network
@@ -1626,6 +1638,8 @@ http://cizixs.com/2017/01/03/how-slow-is-disk-and-network
 https://tobert.github.io/post/2014-04-17-fio-output-explained.html 
 
 https://zhuanlan.zhihu.com/p/40497397
+
+https://linux.die.net/man/1/fio
 
 [块存储NVMe云盘原型实践](https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&flag_data_from=home_algorithm_article)
 
@@ -1636,4 +1650,8 @@ https://zhuanlan.zhihu.com/p/40497397
 [SSD基本工作原理](http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml)
 
 [SSD原理解读](https://zhuanlan.zhihu.com/p/347599423)
+
+[Linux 后台开发必知的 I/O 优化知识总结](https://mp.weixin.qq.com/s?__biz=MzAxNDI5NzEzNg==&mid=2651171913&idx=1&sn=68f658c539edc2b5063d6d15d0bfa0cf)
+
+[SSD性能怎么测？看这一篇就够了](https://www.sohu.com/a/390625596_505795)
 

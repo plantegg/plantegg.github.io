@@ -112,6 +112,16 @@ centos或者ubuntu下：
 
 ![image.png](/images/oss/23df36d95295c839722627b5d63bac48.png)
 
+一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 
+
+![image-20221125133218008](/images/951413iMgBlog/image-20221125133218008.png)
+
+上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。
+
+这个ICMP包在链路上有可能会被丢掉，比如：
+
+Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。
+简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。
 
 ## 总结
 

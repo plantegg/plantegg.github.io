@@ -82,6 +82,8 @@ curl https://docs.projectcalico.org/v3.15/manifests/calico.yaml -o calico.yaml
 
 Calico IPIP模式对物理网络无侵入，符合云原生容器网络要求；使用IPIP封包，性能略低于Calico BGP模式；无法使用传统防火墙管理、也无法和存量网络直接打通。Pod在Node做SNAT访问外部，Pod流量不易被监控。
 
+![img](/images/951413iMgBlog/yyb9c0ee93730542ebb5475a734991c7.jpg)
+
 ## calico ipip网络不通
 
 集群有五台机器192.168.0.110-114, 同时每个node都有另外一个ip：192.168.3.110-114，部分节点之间不通。每台机器部署好calico网络后，会分配一个 /26 CIRD 子网（64个ip）。

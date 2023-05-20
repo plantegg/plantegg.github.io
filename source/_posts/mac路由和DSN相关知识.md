@@ -34,8 +34,9 @@ Mac 下上网,尤其是在双网卡一起使用的时候, 一个网卡连内网�
  
  sudo networksetup -setdnsservers 'USB 10/100/1000 LAN' 223.5.5.5 30.30.30.30 114.114.114.114
  
- ip route get 8.8.8.8
- netstat -rn  //查看路由  
+ ip route get 8.8.8.8 //linux
+ route get 8.8.8.8    //macos
+ netstat -rn          //查看路由  
  netstat -nr -f inet  //只看ipv4相关路由
 ```
 

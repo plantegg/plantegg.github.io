@@ -43,6 +43,27 @@ MySQL JDBC 在从 MySQL 拉取数据的时候有三种方式：
 
 ![Figure 6: QueryTimeout Execution Process for MySQL JDBC Statement (5.0.8).](/images/951413iMgBlog/1f6df479e83fd2c14ecac4ee6be64a29.png)
 
+## net_read_timeout
+
+| Command-Line Format | `--net-read-timeout=#` |
+| :------------------ | ---------------------- |
+| System Variable     | `net_read_timeout`     |
+| Scope               | Global, Session        |
+| Dynamic             | Yes                    |
+| Type                | Integer                |
+| Default Value       | `30`                   |
+| Minimum Value       | `1`                    |
+| Maximum Value       | `31536000`             |
+| Unit                | seconds                |
+
+The number of seconds to wait for more data from a connection before aborting the read. When the server is reading from the client, [`net_read_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_read_timeout) is the timeout value controlling when to abort.
+
+如下图，MySQL Server监听3017端口，195228号包 客户端发一个SQL 给 MySQL Server，但是似乎这个时候正好网络异常，30秒钟后（从 SQL 请求的前一个 ack 开始算，Server应该一直都没有收到），Server 端触发 net_read_timeout 超时异常（疑问：这里没有 net_read_timeout 描述的读取了一半的现象）
+
+![image-20230209155545142](/images/951413iMgBlog/image-20230209155545142.png)
+
+解决方案：建议调大 net_read_timeout 以应对可能出现的网络丢包
+
 ## net_write_timeout
 
 先看下 [`net_write_timeout`](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout)的解释：The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。
@@ -79,6 +100,14 @@ if (doStreaming && this.connection.getNetTimeoutForStreamingResults() > 0) {
 
 而 this.connection.getNetTimeoutForStreamingResults() 默认是600秒，或者在JDBC连接串种通过属性 netTimeoutForStreamingResults 来指定。
 
+netTimeoutForStreamingResults 默认值：
+
+What value should the driver automatically set the server setting 'net_write_timeout' to when the streaming result sets feature is in use? Value has unit of seconds, the value "0" means the driver will not try and adjust this value.
+
+| Default Value | 600   |
+| :------------ | ----- |
+| Since Version | 5.1.0 |
+
 一般在数据导出场景中容易出现 net_write_timeout 这个错误，比如这个错误堆栈：
 
 ![](/images/oss/8fe715d3ebb6929afecd19aadbe53e5e.png)
@@ -113,6 +142,19 @@ Caused by: java.io.EOFException: Can not read response from server. Expected to 
 	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3387)
 	... 11 more
 ```
+
+### 特别注意
+
+JDBC驱动报如下错误
+
+> Application was streaming results when the connection failed. Consider raising value of 'net_write_timeout' on the server. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of 'net_write_timeout' on the server.  
+
+不一定是 `net_write_timeout` 设置过小导致的，JDBC 在 streaming 流模式下只要连接异常就会报如上错误，比如：
+
+- 连接被 TCP reset
+- 连接因为某种原因(比如 QueryTimeOut) 触发 kill Query导致连接中断
+
+[比如出现内核bug，内核卡死不发包的话，客户端同样报 net_write_timeout 错误](https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/)
 
 ## 一些其他的 Timeout
 
@@ -163,7 +205,7 @@ On thread startup, the session [`wait_timeout`](https://dev.mysql.com/doc/refman
 
 ## 案例
 
-设置JDBC参数不合理（queryTimeout=10s，socketTimeout=10s），会导致在异常情况下，第二条get获得了第一条的结果，拿到了错误的数据，数据库则表现正常
+设置JDBC参数不合理（不设置的话默认值是：queryTimeout=10s，socketTimeout=10s），会导致在异常情况下，第二条get获得了第一条的结果，拿到了错误的数据，数据库则表现正常
 
 socketTimeout触发后，连接抛CommunicationsException（严重异常，触发后连接应该断开）, 但JDBC会检查请求是否被cancle了，如果cancle就会抛出MySQLTimeoutException异常，这是一个普通异常，连接会被重新放回连接池重用（导致下一个获取这个连接的线程可能会得到前一个请求的response）。
 
@@ -175,7 +217,6 @@ jdbc驱动设置socketTimeout=1459，如果是socketTimeout触发客户端断开
 
 ```
 # java -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459" "user" "pass" "select sleep(2)" "1"
-Wed Jun 01 14:03:37 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
 com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
 
 The last packet successfully received from the server was 1,461 milliseconds ago.  The last packet sent successfully to the server was 1,461 milliseconds ago.
@@ -208,7 +249,6 @@ Caused by: java.net.SocketTimeoutException: Read timed out
 	
 	或者开协程后的错误堆栈
 	# java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=1459" "user" "pass" "select sleep(2)" "1"
-Wed Jun 01 14:10:48 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
 com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
 
 The last packet successfully received from the server was 1,460 milliseconds ago.  The last packet sent successfully to the server was 1,459 milliseconds ago.
@@ -685,13 +725,10 @@ server端报错信息：
 2022-06-01T14:33:52.204848+08:00 8288839 [Note] Aborted connection 8288839 to db: 'bank_000000' user: 'user' host: '172.16.40.214' (Got an error reading communication packets)
 ```
 
-
-
 ### Statement timeout 
 
 ```
 # java  -XX:+UseWisp2 -cp /home/admin/drds-server/lib/*:. Test "jdbc:mysql://172.16.40.215:3008/bank_000000?socketTimeout=5459" "user" "pass" "select sleep(180)" "1" 3
-Wed Jun 01 14:57:53 CST 2022 WARN: Establishing SSL connection without server's identity verification is not recommended. According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
 com.mysql.jdbc.exceptions.MySQLTimeoutException: Statement cancelled due to timeout or client request
 	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1419)
 	at Test.main(Test.java:31)
@@ -702,12 +739,6 @@ statement会设置一个timer，到时间还没有返回结果就创建一个新
 server 端收到kill后终止SQL执行，抓包看到Server端主动提前返回了错误
 
 <img src="/images/951413iMgBlog/image-20220601152401387.png" alt="image-20220601152401387" style="zoom:50%;" />
-
-
-
-
-
-
 
 ## 参考资料
 

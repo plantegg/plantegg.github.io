@@ -14,6 +14,10 @@ tags:
 
 ![image-20220608093532338](/images/951413iMgBlog/image-20211116101345648.png)
 
+[包流](https://stuffphilwrites.com/wp-content/uploads/2014/09/FW-IDS-iptables-Flowchart-v2019-04-30-1.png)
+
+![img](/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png)
+
 ## iptables监控reset的连接信息
 
 如果连接被reset需要记录下reset包是哪边发出来的，并记录reset连接的四元组信息

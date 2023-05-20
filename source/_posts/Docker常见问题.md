@@ -291,6 +291,57 @@ echo -n 'HWADDR="'$MAC\" >> /etc/sysconfig/network-scripts/ifcfg-eth0
 
 删除 /var/lib/docker 目录如果报busy，一般是进程在使用中，可以fuser查看哪个进程在用，然后杀掉进程；另外就是目录mount删不掉问题，可以 mount | awk '{ print $3 }' |grep overlay2| xargs umount 批量删除
 
+## [No space left on device](https://www.manjusaka.blog/posts/2023/01/07/special-case-no-space-left-on-device/)
+
+**OSError: [Errno 28] No space left on device**：
+
+​	大部分时候不是真的磁盘没有空间了还有可能是inode不够了(df -ih 查看inode使用率)
+
+​	尝试用 fallocate 来测试创建文件是否成功
+
+​	尝试fdisk-l / tune2fs -l 来确认分区和文件系统的正确性
+
+​	fallocate 创建一个文件名很长的文件失败(也就是原始报错的文件名)，同时fallocate 创建一个短文件名的文件成功
+
+​	dmesg 查看系统报错信息
+
+```
+[13155344.231942] EXT4-fs warning (device sdd): ext4_dx_add_entry:2461: Directory (ino: 3145729) index full, reach max htree level :2
+[13155344.231944] EXT4-fs warning (device sdd): ext4_dx_add_entry:2465: Large directory feature is not enabled on this filesystem
+```
+
+​	看起来是小文件太多撑爆了ext4的BTree索引，通过 tune2fs -l /dev/nvme1n1p1 验证下
+
+```
+#tune2fs -l /dev/nvme1n1p1 |grep Filesystem
+Filesystem volume name:   /flash2
+Filesystem revision #:    1 (dynamic)
+Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent 64bit flex_bg sparse_super large_file huge_file uninit_bg dir_nlink extra_isize
+Filesystem flags:         signed_directory_hash
+Filesystem state:         clean
+Filesystem OS type:       Linux
+Filesystem created:       Fri Mar  6 17:08:36 2020
+```
+
+​	执行 `tune2fs -O large_dir ` /dev/nvme1n1p1 打开 large_dir 选项
+
+```
+tune2fs -l /dev/nvme1n1p1 |grep -i large
+Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent flex_bg large_dir sparse_super large_file huge_file uninit_bg dir_nlink extra_isize
+```
+
+如上所示，开启后Filesystem features 多了 large_dir，[不过4.13以上内核才支持这个功能](https://git.kernel.org/pub/scm/linux/kernel/git/tytso/ext4.git/commit/?h=dev&id=88a399955a97fe58ddb2a46ca5d988caedac731b)
+
+
+
+## CPU 资源分配
+
+对于cpu的限制，Kubernetes采用cfs quota来限制进程在单位时间内可用的时间片。当独享和共享实例在同一台node节点上的时候，一旦实例的工作负载增加，可能会导致独享实例工作负载在不同的cpu核心上来回切换，影响独享实例的性能。所以，为了不影响独享实例的性能，我们希望在同一个node上，独享实例和共享实例的cpu能够分开绑定，互不影响。
+
+内核的默认cpu.shares是1024，也可以通过 cpu.cfs_quota_us / cpu.cfs_period_us去控制容器规格
+
+cpu.shares 多层级限制后上层有更高的优先级，可能会经常看到 CPU 多核之间不均匀的现象，部分核总是跑不满之类的。  cpu.shares 是用来调配争抢用，比如离线、在线混部可以通过 cpu.shares 多给在线业务
+
 ## sock
 
 docker有两个sock，一个是dockershim.sock，一个是docker.sock。dockershim.sock是由实现了CRI接口的一个插件提供的，主要把k8s请求转换成docker请求，最终docker还是要 通过docker.sock来管理容器。

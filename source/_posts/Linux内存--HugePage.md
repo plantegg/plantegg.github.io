@@ -98,6 +98,82 @@ Huge pages require contiguous areas of memory, so allocating them at boot is the
 
   Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.
 
+
+
+应用程序想要利用大页优势，需要通过hugetlb文件系统来使用标准大页。[操作步骤](https://ata.alibaba-inc.com/articles/208718)
+
+#### 1.预留大页
+
+echo 20 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+#### 2.挂载hugetlb文件系统
+
+mount hugetlbfs /mnt/huge -t hugetlbfs
+
+#### 3.映射hugetbl文件
+
+fd = open("/mnt/huge/test.txt", O_CREAT|O_RDWR);
+
+addr = mmap(0, MAP_LENGTH, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+
+#### 4.hugepage统计信息
+
+通过hugepage提供的sysfs接口，可以了解大页使用情况
+
+HugePages_Total: 预先分配的大页数量
+
+HugePages_Free：空闲大页数量
+
+HugePages_Rsvd: mmap申请大页数量(还没有产生缺页)
+
+HugePages_Surp: 多分配的大页数量(由nr_overcommit_hugepages决定)
+
+#### 5 hugpage优缺点
+
+缺点:
+
+1.需要提前预估大页使用量，并且预留的大页不能被其他内存分配接口使用。
+
+2.兼容性不好，应用使用标准大页，需要对代码进行重构才能有效的使用标准大页。
+
+优点:因为内存是预留的，缺页延时非常小
+
+针对Hugepage的不足，内核又衍生出了THP大页(**Transparent Huge pages)**
+
+### [工具](https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/)
+
+```
+yum install libhugetlbfs-utils -y
+
+//列出
+hugeadm --pool-list
+      Size  Minimum  Current  Maximum  Default
+   2097152    12850    12850    12850        *
+1073741824        0        0        0
+
+hugeadm --list-all-mounts
+Mount Point          Options
+/dev/hugepages       rw,relatime,pagesize=2M
+```
+
+### 大页和 MySQL 性能 case
+
+MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。
+
+那么我们是否可以把MySQL的页设置为4K来减少读放大呢？
+
+在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去
+
+8.0中总算优化了这个场景，测试细节可以参考[这篇](http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html)
+
+16K VS 4K 性能对比（4K接近翻倍）
+
+![img](/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png)
+
+4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。
+
+
+
 ### [HugePage 带来的问题](http://cenalulu.github.io/linux/huge-page-on-numa/)
 
 #### CPU对同一个Page抢占增多
@@ -156,6 +232,16 @@ Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持
 
 THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。
 
+#### THP 原理
+
+大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.
+
+1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k**hugepage**d 动态为vma分配大页(内存回收，内存归整)
+
+2.madvise系统调用只是给VMA加了VM_**HUGEPAGE,用来**标记这段虚拟地址需要使用大页
+
+
+
 THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开
 
 ```
@@ -202,6 +288,101 @@ $ cat /proc/meminfo | grep HugePages_
 HugePages_Total:       1
 HugePages_Free:        1
 ```
+
+### THP和perf
+
+thp on后比off性能稳定好 10-15%
+
+```
+//on 419， thp off
+9,145,128,732      branch-instructions       #  229.068 M/sec                    (10.65%)
+       555,518,878      branch-misses             #    6.07% of all branches          (14.24%)
+     3,951,535,475      bus-cycles                #   98.979 M/sec                    (14.29%)
+       372,477,068      cache-misses              #    7.733 % of all cache refs      (14.34%)
+     4,816,702,013      cache-references          #  120.649 M/sec                    (14.36%)
+   114,521,174,305      cpu-cycles                #    2.869 GHz                      (14.36%)
+    48,969,565,344      instructions              #    0.43  insn per cycle           (17.93%)
+    98,728,666,922      ref-cycles                # 2472.967 M/sec                    (21.52%)
+                 0      alignment-faults          #    0.000 K/sec
+            12,187      context-switches          #    0.305 K/sec
+         39,922.47 msec cpu-clock                 #    7.898 CPUs utilized
+               147      cpu-migrations            #    0.004 K/sec
+                 0      dummy                     #    0.000 K/sec
+                 0      emulation-faults          #    0.000 K/sec
+                 0      major-faults              #    0.000 K/sec
+             1,727      minor-faults              #    0.043 K/sec
+             1,768      page-faults               #    0.044 K/sec
+         39,923.84 msec task-clock                #    7.898 CPUs utilized
+     1,848,336,574      L1-dcache-load-misses     #   13.31% of all L1-dcache hits    (21.51%)
+    13,889,399,043      L1-dcache-loads           #  347.903 M/sec                    (21.51%)
+     7,055,617,648      L1-dcache-stores          #  176.730 M/sec                    (21.50%)
+     2,017,950,458      L1-icache-load-misses                                         (21.50%)
+        88,802,885      LLC-load-misses           #    9.86% of all LL-cache hits     (14.35%)
+       900,379,398      LLC-loads                 #   22.553 M/sec                    (14.33%)
+       162,711,813      LLC-store-misses          #    4.076 M/sec                    (7.13%)
+       419,869,955      LLC-stores                #   10.517 M/sec                    (7.14%)
+       553,257,955      branch-load-misses        #   13.858 M/sec                    (10.71%)
+     9,195,874,519      branch-loads              #  230.339 M/sec                    (14.29%)
+       176,112,524      dTLB-load-misses          #    1.28% of all dTLB cache hits   (14.29%)
+    13,739,965,115      dTLB-loads                #  344.160 M/sec                    (14.28%)
+        33,087,849      dTLB-store-misses         #    0.829 M/sec                    (14.28%)
+     6,992,863,588      dTLB-stores               #  175.158 M/sec                    (14.26%)
+       170,555,902      iTLB-load-misses          #  107.90% of all iTLB cache hits   (14.24%)
+       158,070,998      iTLB-loads                #    3.959 M/sec                    (14.24%)
+        68,973,832      node-load-misses          #    1.728 M/sec                    (14.24%)
+        20,207,143      node-loads                #    0.506 M/sec                    (14.24%)
+        93,216,790      node-store-misses         #    2.335 M/sec                    (7.10%)
+        73,871,126      node-stores               #    1.850 M/sec                    (7.08%)
+
+//on 419， thp on
+    12,958,974,094      branch-instructions       #  227.392 M/sec                    (10.68%)
+       850,468,837      branch-misses             #    6.56% of all branches          (14.27%)
+     5,639,495,284      bus-cycles                #   98.957 M/sec                    (14.29%)
+       526,744,798      cache-misses              #    7.324 % of all cache refs      (14.32%)
+     7,192,328,925      cache-references          #  126.204 M/sec                    (14.34%)
+   163,419,436,811      cpu-cycles                #    2.868 GHz                      (14.33%)
+    68,638,583,038      instructions              #    0.42  insn per cycle           (17.90%)
+   140,882,455,768      ref-cycles                # 2472.076 M/sec                    (21.48%)
+                 0      alignment-faults          #    0.000 K/sec
+            18,171      context-switches          #    0.319 K/sec
+         56,987.52 msec cpu-clock                 #    7.932 CPUs utilized
+                68      cpu-migrations            #    0.001 K/sec
+                 0      dummy                     #    0.000 K/sec
+                 0      emulation-faults          #    0.000 K/sec
+                 0      major-faults              #    0.000 K/sec
+             2,323      minor-faults              #    0.041 K/sec
+             2,362      page-faults               #    0.041 K/sec
+         56,991.53 msec task-clock                #    7.932 CPUs utilized
+     2,471,392,118      L1-dcache-load-misses     #   12.69% of all L1-dcache hits    (21.47%)
+    19,480,914,771      L1-dcache-loads           #  341.833 M/sec                    (21.48%)
+    10,059,893,871      L1-dcache-stores          #  176.522 M/sec                    (21.46%)
+     3,184,073,065      L1-icache-load-misses                                         (21.46%)
+       128,467,945      LLC-load-misses           #   10.83% of all LL-cache hits     (14.31%)
+     1,186,653,892      LLC-loads                 #   20.822 M/sec                    (14.30%)
+       224,877,539      LLC-store-misses          #    3.946 M/sec                    (7.15%)
+       628,574,746      LLC-stores                #   11.030 M/sec                    (7.15%)
+       848,830,289      branch-load-misses        #   14.894 M/sec                    (10.71%)
+    13,074,297,582      branch-loads              #  229.416 M/sec                    (14.28%)
+       109,223,171      dTLB-load-misses          #    0.56% of all dTLB cache hits   (14.27%)
+    19,418,657,165      dTLB-loads                #  340.741 M/sec                    (14.29%)
+        13,930,402      dTLB-store-misses         #    0.244 M/sec                    (14.28%)
+    10,047,511,003      dTLB-stores               #  176.305 M/sec                    (14.28%)
+       194,902,860      iTLB-load-misses          #   61.23% of all iTLB cache hits   (14.27%)
+       318,292,771      iTLB-loads                #    5.585 M/sec                    (14.26%)
+       100,512,054      node-load-misses          #    1.764 M/sec                    (14.27%)
+        28,144,120      node-loads                #    0.494 M/sec                    (14.27%)
+       128,218,262      node-store-misses         #    2.250 M/sec                    (7.14%)
+       103,892,078      node-stores               #    1.823 M/sec                    (7.11%) 
+       
+         7,599,757      dTLB-load-misses          #    0.09% of all dTLB cache hits   (15.59%)
+     8,425,208,450      dTLB-loads                #  528.778 M/sec                    (15.62%)
+         1,288,979      dTLB-store-misses         #    0.081 M/sec                    (15.67%)
+     3,989,148,957      dTLB-stores               #  250.365 M/sec                    (15.27%)
+        21,578,944      iTLB-load-misses          #   15.23% of all iTLB cache hits   (14.42%)
+       141,697,584      iTLB-loads                #    8.893 M/sec                    (14.34%)
+```
+
+
 
 ## [MySQL 场景下代码大页对性能的影响](https://ata.alibaba-inc.com/articles/217859)
 

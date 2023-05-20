@@ -9,11 +9,11 @@ tags:
     - performance
 ---
 
-# Linux内核版本升级，性能到底提升多少？拿数据说话
+# Linux内核版本升级，性能到底提升多少？
 
 ## 背景
 
-DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差
+X 产品在公有云售卖一直使用的2.6.32的内核，有点老并且有些内核配套工具不能用，于是想升级一下内核版本。预期新内核的性能不能比2.6.32差
 
 以下不作特殊说明的话都是在相同核数的Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz下得到的数据，最后还会比较相同内核下不同机型/CPU型号的性能差异。
 
@@ -35,7 +35,7 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 ## 一波N折的4.19
 
-阿里云上默认买到的ALinux2 OS（4.19），同样配置跑起来后，tps只有16000，比2.6.32的22000差了不少，心里只能暗暗骂几句坑爹的货，看了下各项指标，看不出来什么问题，就像是CPU能力不行一样。如果这个时候直接找内核同学，估计他们心里会说 DRDS 是个什么东西？是不是你们测试有问题，是不是你们配置的问题，不要来坑我，内核性能我们每次发布都在实验室里跑过了，肯定是你们的应用问题。
+阿里云上默认买到的ALinux2 OS（4.19），同样配置跑起来后，tps只有16000，比2.6.32的22000差了不少，心里只能暗暗骂几句坑爹的货，看了下各项指标，看不出来什么问题，就像是CPU能力不行一样。如果这个时候直接找内核同学，估计他们心里会说 X 是个什么东西？是不是你们测试有问题，是不是你们配置的问题，不要来坑我，内核性能我们每次发布都在实验室里跑过了，肯定是你们的应用问题。
 
 所以要找到一个公认的场景下的性能差异。幸好通过qperf发现了一些性能差异。
 
@@ -66,11 +66,11 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 这下不用担心内核同学怼回来了，拿着这个数据直接找他们，可以稳定重现。
 
-经过内核同学排查后，发现默认镜像做了一些安全加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为DRDS的OS只给我们自己用，上面部署的代码都是DRDS自己的代码，没有客户代码，客户也不能够ssh连上DRDS节点）
+经过内核同学排查后，发现默认镜像做了一些安全加固，简而言之就是CPU拿出一部分资源做了其它事情，比如旁路攻击的补丁之类的，需要关掉（因为 X 的OS只给我们自己用，上面部署的代码都是X 产品自己的代码，没有客户代码，客户也不能够ssh连上X 产品节点）
 
 	去掉 melt、spec 能到20000， 去掉sonypatch能到21000 
 
-关闭的办法在grub配置中增加这些参数：
+关闭的办法在 /etc/default/grub 里 GRUB_CMDLINE_LINUX 配置中增加这些参数：
 
 	nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off
 
@@ -86,6 +86,45 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 
 这块参考[阿里云文档](https://help.aliyun.com/knowledge_detail/154567.html?spm=a2c4g.11186623.2.12.887e38843VLHkv) 和[这个](https://help.aliyun.com/document_detail/102087.html?spm=a2c4g.11186623.6.721.4a732223pEfyNC)
 
+开启漏洞补丁（性能差）：
+
+```
+# uname -r
+4.19.91-24.8.an8.x86_64
+
+# cat /proc/cmdline
+BOOT_IMAGE=(hd0,gpt2)/vmlinuz-4.19.91-24.8.an8.x86_64 root=UUID=ac9faf02-89c6-44d8-80b2-0f8ea1084fc3 ro console=tty0 crashkernel=auto console=ttyS0,115200 crashkernel=0M-2G:0M,2G-8G:192M,8G-:256M
+[root@Anolis82 ~]# sudo cat /sys/devices/system/cpu/vulnerabilities/*
+KVM: Mitigation: Split huge pages
+Mitigation: PTE Inversion; VMX: conditional cache flushes, SMT vulnerable
+Mitigation: Clear CPU buffers; SMT vulnerable
+Mitigation: PTI
+Mitigation: Speculative Store Bypass disabled via prctl and seccomp
+Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+Mitigation: Full generic retpoline, IBPB: conditional, IBRS_FW, STIBP: conditional, RSB filling
+Not affected
+Mitigation: Clear CPU buffers; SMT vulnerable
+```
+
+关闭（性能好）：
+
+```
+[root@Anolis82 ~]# sudo cat /sys/devices/system/cpu/vulnerabilities/*
+KVM: Vulnerable
+Mitigation: PTE Inversion; VMX: vulnerable
+Vulnerable; SMT vulnerable
+Vulnerable
+Vulnerable
+Vulnerable: __user pointer sanitization and usercopy barriers only; no swapgs barriers
+Vulnerable, IBPB: disabled, STIBP: disabled
+Not affected
+Vulnerable
+[root@Anolis82 ~]# cat /proc/cmdline
+BOOT_IMAGE=(hd0,gpt2)/vmlinuz-4.19.91-24.8.an8.x86_64 root=UUID=ac9faf02-89c6-44d8-80b2-0f8ea1084fc3 ro console=tty0 crashkernel=auto console=ttyS0,115200 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off crashkernel=0M-2G:0M,2G-8G:192M,8G-:256M
+```
+
+
+
 ### 4.9版本的内核性能
 
 但是性能还是不符合预期，总是比2.6.32差点。在中间经过几个星期排查不能解决问题，陷入僵局的过程中，尝试了一下4.9内核，果然有惊喜。
@@ -95,7 +134,6 @@ DRDS在公有云售卖一直使用的2.6.32的内核，有点老并且有些内�
 ![image.png](/images/oss/2f035e145f1bc41eb4a8b8bda8ed4ea2.png)
 
 **多队列是指网卡多队列功能，也是这次升级的一个动力。看起来在没达到单核瓶颈前，网卡多队列性能反而差点，这也符合预期**
-
 
 ### 继续分析为什么4.19比4.9差了这么多
 
@@ -160,17 +198,17 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 ## 4.19内核在MySQL Server场景下的性能比较
 
-这只是sysbench点查场景粗略比较，因为本次的目标是对DRDS性能的改进
+这只是sysbench点查场景粗略比较，因为本次的目标是对X 产品性能的改进
 
 ![image.png](/images/oss/4f276e93cb914b3cdd312423be63c376.png)
 
-（以上表格数据主要由 @夷则 团队和我一起测试得到）
+（以上表格数据主要由 内核团队和我一起测试得到）
 
 **重点注意2.6.32不但tps差30%，并发能力也差的比较多，如果同样用100个并发压2.6.32上的MySQL，TPS在30000左右。只有在减少并发到20个的时候压测才能达到图中最好的tps峰值：45000. **
 
 ## 新内核除了性能提升外带来的便利性
 
-升级内核带来的性能提升只是在极端场景下才会需要，大部分时候我们希望节省开发人员的时间，提升工作效率。于是DRDS在新内核的基础上定制如下一些便利的工具。
+升级内核带来的性能提升只是在极端场景下才会需要，大部分时候我们希望节省开发人员的时间，提升工作效率。于是X 产品在新内核的基础上定制如下一些便利的工具。
 
 ### 麻烦的网络重传率
 
@@ -282,16 +320,13 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 到此我们基本不用任何改动得到了30%的性能提升，但是对整个应用来说，通过以上工具让我们看到了一些明显的问题，还可以从应用层面继续提升性能。
 
-如上描述通过锁排序定位到logback确实会出现锁瓶颈，同时在一些客户场景中，因为网盘的抖动也带来了灾难性的影响，所以日志需要异步处理，经过异步化后tps 达到了32000，关键的是rt 95线下降明显，这个rt下降对DRDS这种Proxy类型的应用是非常重要的（经常被客户指责多了一层转发，rt增加了）。
+如上描述通过锁排序定位到logback确实会出现锁瓶颈，同时在一些客户场景中，因为网盘的抖动也带来了灾难性的影响，所以日志需要异步处理，经过异步化后tps 达到了32000，关键的是rt 95线下降明显，这个rt下降对X 产品这种Proxy类型的应用是非常重要的（经常被客户指责多了一层转发，rt增加了）。
 
 日志异步化和使用协程后的性能数据：
 
 ![image.png](/images/oss/bec4e8105091bc4b8a263aef245c0ce9.png)
 
-
 ### Wisp2 协程带来的红利
-
-参考 [@梁希 的 Wisp2: 开箱即用的Java协程](https://www.atatech.org/articles/147345)：
 
 在整个测试过程中都很顺利，只是**发现Wisp2在阻塞不明显的场景下，抖的厉害**。简单来说就是压力比较大的话Wisp2表现很稳定，一旦压力一般（这是大部分应用场景），Wisp2表现像是一会是协程状态，一会是没开携程状态，系统的CS也变化很大。
 
@@ -311,13 +346,9 @@ C5的CPU都是8163，相比sn1ne价格便宜10%，网卡性能也一样。但是
 
 最终应用不需要任何改动可以得到 30%的性能提升，经过开启协程等优化后应用有将近80%的性能提升，同时平均rt下降了到原来的60%，rt 95线下降到原来的40%。
 
-快点升级你们的内核，用上协程吧。同时考虑下在你们的应用中用上DRDS。
+快点升级你们的内核，用上协程吧。同时考虑下在你们的应用中用上X 产品。
 
 ## 参考文章
-
-[记一次不同OS间的网络性能差异的排查经历](https://www.atatech.org/articles/104696)
-
-[@梁希 的 Wisp2: 开箱即用的Java协程](https://www.atatech.org/articles/147345)
 
 https://help.aliyun.com/document_detail/25378.html
 

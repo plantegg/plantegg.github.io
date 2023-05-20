@@ -167,6 +167,10 @@ SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务�
 
 因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有**一个worker在监听一个的epoll**，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。
 
+![img](/images/951413iMgBlog/2021-12-31-12-44-05.png)
+
+图片来自：https://wenfh2020.com/2021/11/22/question-thundering-herd/
+
 #### Nginx下SO_REUSEPORT 带来的小问题
 
 从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept

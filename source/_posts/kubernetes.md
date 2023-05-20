@@ -1,5 +1,4 @@
 ---
-
 title: kubernetes 集群部署
 date: 2020-01-12 17:30:03
 categories:
@@ -48,6 +47,10 @@ yum install -y kubelet kubeadm kubectl ipvsadm
 ```shell
 # 使用本地 image repository
 kubeadm init --kubernetes-version=1.18.0  --apiserver-advertise-address=192.168.0.110   --image-repository registry:5000/registry.aliyuncs.com/google_containers  --service-cidr=10.10.0.0/16 --pod-network-cidr=10.122.0.0/16 
+
+# 给api-server 指定外网地址，在服务器有内网、外网多个ip的时候适用
+kubeadm init --control-plane-endpoint 外网-ip:6443 --image-repository=registry:5000/registry.aliyuncs.com/google_containers --kubernetes-version=v1.21.0  --pod-network-cidr=172.16.0.0/16
+#--apiserver-advertise-address=30.1.1.1，设置 apiserver 的 IP 地址，对于多网卡服务器来说很重要（比如 VirtualBox 虚拟机就用了两块网卡），可以指定 apiserver 在哪个网卡上对外提供服务。
 
 # node join command
 #kubeadm token create --print-join-command
@@ -223,6 +226,13 @@ Service cluster IP尽可在集群内部访问，外部请求需要通过NodePort
 
 kubelet启动参数会配置 KUBELET_NETWORK_ARGS=--network-plugin=cni --cni-conf-dir=/etc/cni/net.d --cni-bin-dir=/usr/libexec/cni 
 
+## kubectl 启动容器
+
+```
+kubectl run -i --tty busybox --image=registry:5000/busybox -- sh
+kubectl attach busybox -c busybox -i -t
+```
+
 ## dashboard
 
 ```
@@ -264,11 +274,15 @@ spec:
 
 kubectl proxy --address 0.0.0.0 --accept-hosts '.*'
 
-## node管理
+## node管理调度
 
 ```shell
-kubectl cordon my-node       # 标记 my-node 节点为不可调度
+//如何优雅删除node
 kubectl drain my-node        # 对 my-node 节点进行清空操作，为节点维护做准备
+kubectl drain ky4 --ignore-daemonsets --delete-local-data # 驱逐pod
+kubectl delete node ky4			 # 删除node
+
+kubectl cordon my-node       # 标记 my-node 节点为不可调度
 kubectl uncordon my-node     # 标记 my-node 节点为可以调度
 kubectl top node my-node     # 显示给定节点的度量值
 kubectl cluster-info         # 显示主控节点和服务的地址
@@ -279,8 +293,6 @@ kubectl cluster-info dump --output-directory=/path/to/cluster-state   # 将当�
 kubectl taint nodes foo dedicated=special-user:NoSchedule
 kubectl taint nodes poc65 node-role.kubernetes.io/master:NoSchedule-
 ```
-
-
 
 ### 地址[ ](https://kubernetes.io/zh/docs/concepts/architecture/nodes/#addresses)
 
@@ -301,6 +313,33 @@ NAME             STATUS                     ROLES    AGE    VERSION   INTERNAL-I
 ```
 
 如果 Ready 条件处于 `Unknown` 或者 `False` 状态的时间超过了 `pod-eviction-timeout` 值， （一个传递给 [kube-controller-manager](https://kubernetes.io/docs/reference/generated/kube-controller-manager/) 的参数）， 节点上的所有 Pod 都会被节点控制器计划删除。默认的逐出超时时长为 **5 分钟**。 某些情况下，当节点不可达时，API 服务器不能和其上的 kubelet 通信。 删除 Pod 的决定不能传达给 kubelet，直到它重新建立和 API 服务器的连接为止。 与此同时，被计划删除的 Pod 可能会继续在游离的节点上运行。
+
+
+
+## node cidr 缺失
+
+flannel pod 运行正常，pod无法创建，检查flannel日志发现该node cidr缺失
+
+```
+I0818 08:06:38.951132       1 main.go:733] Defaulting external v6 address to interface address (<nil>)
+I0818 08:06:38.951231       1 vxlan.go:137] VXLAN config: VNI=1 Port=0 GBP=false Learning=false DirectRouting=false
+E0818 08:06:38.951550       1 main.go:325] Error registering network: failed to acquire lease: node "ky3" pod cidr not assigned
+I0818 08:06:38.951604       1 main.go:439] Stopping shutdownHandler...
+```
+
+正常来说describe node会看到如下的cidr信息
+
+```
+ Kube-Proxy Version:         v1.15.8-beta.0
+PodCIDR:                     172.19.1.0/24
+Non-terminated Pods:         (3 in total)
+```
+
+可以手工给node添加cidr
+
+```
+kubectl patch node ky3 -p '{"spec":{"podCIDR":"172.19.3.0/24"}}'
+```
 
 ## prometheus
 
@@ -684,6 +723,8 @@ kubernetes自动补全：
 
 ```
 source <(kubectl completion bash) 
+
+echo "source <(kubectl completion bash)" >> ~/.bashrc
 ```
 
 helm自动补全：
@@ -742,6 +783,36 @@ pod镜像拉取不到的话可以在kebelet启动参数中写死pod镜像（pod_
 ```shell
 #cat /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
 ExecStart=/usr/bin/kubelet $KUBELET_KUBECONFIG_ARGS $KUBELET_CONFIG_ARGS $KUBELET_KUBEADM_ARGS $KUBELET_EXTRA_ARGS --pod_infra_container_image=registry:5000/registry.aliyuncs.com/google_containers/pause:3.1
+```
+
+### 构建离线镜像库
+
+```
+kubeadm config images list >1.24.list
+
+cat 1.24.list | awk -F / '{ print $0 "    " $3}' > 1.24.aarch.list
+
+```
+
+### [cni 报x509: certificate signed by unknown authority](https://www.cnblogs.com/huiyichanmian/p/15760579.html)
+
+一个集群下反复部署calico/flannel插件后，在 /etc/cni/net.d/ 下会有cni 网络配置文件残留，导致 flannel 创建容器网络的时候报证书错误。其实这不只是证书错误，还可能报其它cni配置错误，总之这是因为 10-calico.conflist 不符合 flannel要求所导致的。
+
+```
+# find /etc/cni/net.d/
+/etc/cni/net.d/
+/etc/cni/net.d/calico-kubeconfig
+/etc/cni/net.d/10-calico.conflist   //默认读取了这个配置文件，不符合flannel
+/etc/cni/net.d/10-flannel.conflist
+```
+
+因为calico 排在 flannel前面，所以即使用flannel配置文件也是用的 10-calico.conflist。每次 kubeadm reset 的时候是不会去做 cni 的reset 的：
+
+```
+[reset] Deleting files: [/etc/kubernetes/admin.conf /etc/kubernetes/kubelet.conf /etc/kubernetes/bootstrap-kubelet.conf /etc/kubernetes/controller-manager.conf /etc/kubernetes/scheduler.conf]
+[reset] Deleting contents of stateful directories: [/var/lib/kubelet /var/lib/dockershim /var/run/kubernetes /var/lib/cni]
+
+The reset process does not clean CNI configuration. To do so, you must remove /etc/cni/net.d
 ```
 
 ## [kubernetes API 案例](https://mp.weixin.qq.com/s/1ouLZbw-Z7G-fKz53uJZag)
@@ -808,7 +879,7 @@ curl  --cacert /etc/kubernetes/pki/ca.crt --cert /etc/kubernetes/pki/apiserver-k
 
 ## 抓包
 
-用curl调用kubernetes api-server来调试，需要抓包，现在执行curl的服务器上配置环境变量
+用curl调用kubernetes api-server来调试，需要抓包，先在执行curl的服务器上配置环境变量
 
 ```
 export SSLKEYLOGFILE=/root/ssllog/apiserver-ssl.log

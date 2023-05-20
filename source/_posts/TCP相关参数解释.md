@@ -40,7 +40,7 @@ Tick是HZ的倒数，意即timer interrupt每发生一次中断的间隔时间�
 
 ## Jiffies
 
-Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来纪录系统自开几以来，已经过多少的tick。每发生一次timer interrupt，Jiffies变数会被加一。值得注意的是，Jiffies于系统开机时，并非初始化成零，而是被设为-300*HZ (arch/i386/kernel/time.c)，即代表系统于开机五分钟后，jiffies便会溢位。那溢出怎么办?事实上，Linux核心定义几个macro(timer_after、time_after_eq、time_before与time_before_eq)，即便是溢位，也能藉由这几个macro正确地取得jiffies的内容。
+Jiffies为Linux核心变数(32位元变数，unsigned long)，它被用来记录系统自开机以来，已经过多少的tick。每发生一次timer interrupt，Jiffies变数会被加一。值得注意的是，Jiffies于系统开机时，并非初始化成零，而是被设为-300*HZ (arch/i386/kernel/time.c)，即代表系统于开机五分钟后，jiffies便会溢位。那溢出怎么办?事实上，Linux核心定义几个macro(timer_after、time_after_eq、time_before与time_before_eq)，即便是溢位，也能藉由这几个macro正确地取得jiffies的内容。
 
 另外，80x86架构定义一个与jiffies相关的变数jiffies_64 ，此变数64位元，要等到此变数溢位可能要好几百万年。因此要等到溢位这刻发生应该很难吧。那如何经由jiffies_64取得jiffies呢?事实上，jiffies被对应至jiffies_64最低的32位元。因此，经由jiffies_64可以完全不理会溢位的问题便能取得jiffies。
 

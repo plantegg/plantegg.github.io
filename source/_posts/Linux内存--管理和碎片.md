@@ -60,7 +60,42 @@ i7 处理器的页表也是存储在内存页里的，每个页表项都是 4 �
 
 8086最开始是按不同的作用将内存分为代码段、数据段等，386开始按页开始管理内存（混合有按段管理）。 现代的操作系统都是采用段式管理来做基本的权限管理，而对于内存的分配、回收、调度都是依赖页式管理。
 
-### tlab miss
+### [tlab miss](https://lwn.net/Articles/379748)
+
+tlb：从各级cache里分配的一块专用空间，用来存放页表(虚拟地址和物理地址的对应关系)
+
+```
+#x86info -c
+Monitor/Mwait: min/max line size 64/64, ecx bit 0 support, enumeration extension
+SVM: revision 1, 32768 ASIDs
+Address Size: 48 bits virtual, 48 bits physical
+The physical package has 96 of 32768 possible cores implemented.
+L1 Data TLB (1G):           Fully associative. 64 entries.
+L1 Instruction TLB (1G):    Fully associative. 64 entries.
+L1 Data TLB (2M/4M):        Fully associative. 64 entries.
+L1 Instruction TLB (2M/4M): Fully associative. 64 entries.
+L1 Data TLB (4K):           Fully associative. 64 entries.
+L1 Instruction TLB (4K):    Fully associative. 64 entries.
+L1 Data cache:
+	Size: 32Kb	8-way associative.
+	lines per tag=1	line size=64 bytes.
+L1 Instruction cache:
+	Size: 32Kb	8-way associative.
+	lines per tag=1	line size=64 bytes.
+L2 Data TLB (1G):           Fully associative. 64 entries.
+L2 Instruction TLB (1G):    Disabled. 0 entries.
+L2 Data TLB (2M/4M):        4-way associative. 2048 entries.
+L2 Instruction TLB (2M/4M): 2-way associative. 512 entries.
+L2 Data TLB (4K):           8-way associative. 2048 entries.
+L2 Instruction TLB (4K):    4-way associative. 512 entries.
+L2 cache:
+	Size: 512Kb	8-way associative.
+	lines per tag=1	line size=64 bytes.
+
+ running at an estimated 2.55GHz
+```
+
+![image-20220928160318893](/images/951413iMgBlog/image-20220928160318893.png)
 
 TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。TLB和L1一样每个core独享，由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据`Virual Address`转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖`4K*64 = 256K`的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。
 
@@ -230,7 +265,7 @@ ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0                  [vsysca
 
 ## 内存管理和使用
 
-### malloc
+### [malloc](https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&mid=2666566845&idx=1&sn=3d4b181d4928adae408f570ba46c17b3)
 
 malloc()分配内存时：
 
@@ -276,7 +311,7 @@ mmap映射内存
 
 ![image-20211118120851731](/images/951413iMgBlog/image-20211118120851731.png)
 
-### 查看zone
+### [查看zone](https://mp.weixin.qq.com/s/Cn-oX0W5DrI2PivaWLDpPw)
 
 [The zones are](https://utcc.utoronto.ca/~cks/space/blog/linux/KernelMemoryZones):
 

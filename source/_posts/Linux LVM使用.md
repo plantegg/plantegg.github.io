@@ -18,7 +18,9 @@ LVM是 Logical Volume Manager（逻辑[卷管理](https://baike.baidu.com/item/�
 
 ![img](/images/951413iMgBlog/949069-20200416104045527-1858978940.png)
 
+LVM磁盘管理方式
 
+![image-20220725100705140](/images/951413iMgBlog/image-20220725100705140.png)
 
 **lvreduce 缩小LV**
 
@@ -116,7 +118,7 @@ function create_polarx_lvm_V62(){
 
     #lvmdiskscan
     vgcreate -s 32 vgpolarx /dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1
-    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx
+    lvcreate -A y -I 16K -l 100%FREE  -i 4 -n polarx vgpolarx
     mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000
     sed  -i  "/polarx/d" /etc/fstab
     mkdir -p /polarx
@@ -126,6 +128,8 @@ function create_polarx_lvm_V62(){
 
 create_polarx_lvm_V62
 ```
+
+-I 64K 值条带粒度，默认64K，mysql pagesize 16K，所以最好16K
 
 ## 复杂版创建LVM
 
@@ -163,7 +167,7 @@ function disk_part(){
         #lvmdiskscan
     echo ${disk_device_list}
         vgcreate -s 32 vgpolarx ${disk_device_list[*]}
-    lvcreate -A y -I 128K -l 100%FREE  -i 4 -n polarx vgpolarx
+    lvcreate -A y -I 16K -l 100%FREE  -i 4 -n polarx vgpolarx
         #lvcreate -A y -I 128K -l 75%VG  -i ${len} -n volume1 vgpolarx
         #lvcreate -A y -I 128K -l 100%FREE  -i ${len} -n volume2 vgpolarx
         mkfs.ext4 /dev/vgpolarx/polarx -m 0 -O extent,uninit_bg -E lazy_itable_init=1 -q -L polarx -J size=4000

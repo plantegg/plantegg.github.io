@@ -349,7 +349,10 @@ The su command is used to become another user during a login session. Invoked wi
 
 将任务放到后台，断开ssh后还能运行：
 "ctrl-Z"将当前任务挂起（实际是发送 SIGTSTP 信号），父进程ssh退出时会给所有子进程发送 SIGHUP；
-"disown -h"让该任务忽略SIGHUP信号（不会因为掉线而终止执行）；
+
+jobs -l 查看所有job
+
+"disown -h %序号" 让该任务忽略SIGHUP信号（不会因为掉线而终止执行），序号为 Jobs -l 看到的顺序号；
 "bg"让该任务在后台恢复运行。
 
 ## shell 调试与参数
@@ -378,7 +381,30 @@ bash中数值运算要这样 $(( $a+$b )) // declare -i 才是定义一个整型
 
 ## 其它
 
+- 系统合法的 shell 均写在 /etc/shells 文件中；
+- 用户默认登陆取得的 shell 记录于 /etc/passwd 的最后一个字段；
+- type 可以用来找到运行命令为何种类型，亦可用于与 which 相同的功能 [**type -a**]；
+- 变量主要有环境变量与自定义变量，或称为全局变量与局部变量
+- 使用 env 与 export 可观察环境变量，其中 export 可以将自定义变量转成环境变量；
+- set 可以观察目前 bash 环境下的所有变量；
+- stty -a
+- **$? 亦为变量，是前一个命令运行完毕后的回传值**。在 Linux 回传值为 0 代表运行成功；
+- bash 的配置文件主要分为 login shell 与 non-login shell。login shell 主要读取 /etc/profile 与 ~/.bash_profile， non-login shell 则仅读取 ~/.bashrc
+
+
+
 在bash中进行比较时，尽量使用双方括号 `[[ ]]` 而不是单方括号 `[ ]`，[这样会降低犯错的几率](http://mywiki.wooledge.org/BashFAQ/031)，尽管这样并不能兼容 `sh`
+
+
+
+### type
+
+**执行顺序(type -a ls 可以查看到顺序)：**
+
+1. 以相对/绝对路径运行命令，例如『 /bin/ls 』或『 ./ls 』；
+2. 由 alias 找到该命令来运行；
+3. 由 bash 内建的 (builtin) 命令来运行；
+4. 透过 $PATH 这个变量的顺序搜寻到的第一个命令来运行。
 
 
 
@@ -403,3 +429,5 @@ https://wangdoc.com/bash/startup.html
 [编写一个最小的 64 位 Hello World](https://cjting.me/2020/12/10/tiny-x64-helloworld/)
 
 [计算机教育中缺失的一课](https://missing-semester-cn.github.io/)
+
+ [MacOS设置环境变量path/paths的完全总结](https://foxwho.com/article/184) 很详细

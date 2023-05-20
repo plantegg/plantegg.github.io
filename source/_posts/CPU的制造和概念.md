@@ -183,6 +183,12 @@ One die with multiple cores，下图是一个Die内部图:
 
 SoC（System on Chip）：南桥北桥都集成在CPU中，单芯片解决方案。ATOM就是SoC
 
+## [现代CPU的基本架构](https://frankdenneman.nl/2016/07/08/numa-deep-dive-part-2-system-architecture/)
+
+下图是一个两路的服务器结构，每路4个内存channel
+
+![image-20220711110145506](/images/951413iMgBlog/image-20220711110145506.png)
+
 ## 一个Core的典型结构
 
 Intel skylake 架构图
@@ -221,7 +227,7 @@ dTLB:data TLB
 
 三者的比较：
 
-性能肯定是大Die最好，但是良品率地，成本高；
+性能肯定是大Die最好，但是良品率低、成本高；
 
 方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和**内存**
 
@@ -764,17 +770,17 @@ Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca 
 
 2010年的 Lynnfield/Clarkdale 基于 45nm/32nm 工艺的新架构，第一代智能酷睿处理器；
 
-2011年的 Sandy Bridge ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；实现了GPU和CPU的融合
+2011年的 **Sandy Bridge** ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；实现了GPU和CPU的融合
 
 2012年的 IVY Bridge，是 Sandy Bridge 的 22nm 升级版，第三代智能酷睿处理器，Tick级改进；
 
 2013年的 Haswell ，基于 22nm 工艺的新架构，第四代智能酷睿处理器，Tock级改进；
 
-2014年的 Broadwell，是 Haswell 的 14nm 升级版，第五代智能酷睿处理器；
+2014年的 **Broadwell**，是 Haswell 的 14nm 升级版，第五代智能酷睿处理器；
 
-2015年则推出 SkyLake，基于 14nm 工艺的新架构， Tock级改进，Ring-Bus改成了Mesh架构，第6代Core i系列，8163就是这款；socket之间UPI互联，内存频率通道增强。不再使用Xeon命名，而是改用Bronze/Silver/Gold/Platinum 4个系列。青铜和白银系列支持双路（原本的 E5-24xx、E7-28xx 系列），黄金系列支持四路（原本的 E5-46xx、E7-48xx 系列），白金系列支持八路（原本的 E7-88xx 系列）；
+2015年则推出 **SkyLake**，基于 14nm 工艺的新架构， Tock级改进，Ring-Bus改成了Mesh架构，第6代Core i系列，8163就是这款；socket之间UPI互联，内存频率通道增强。不再使用Xeon命名，而是改用Bronze/Silver/Gold/Platinum 4个系列。青铜和白银系列支持双路（原本的 E5-24xx、E7-28xx 系列），黄金系列支持四路（原本的 E5-46xx、E7-48xx 系列），白金系列支持八路（原本的 E7-88xx 系列）；
 
-2019年的Cascade Lake也是Skylake的优化，是Intel首个支持基于3D XPoint的内存模块的微体系结构。同年也正式宣布了十代酷睿处理器，即i9-10900k，还是Skylake微内核不变。
+2019年的Cascade Lake(X2XX命名)也是Skylake的优化，是Intel首个支持基于3D XPoint的内存模块的微体系结构。同年也正式宣布了十代酷睿处理器，即i9-10900k，还是Skylake微内核不变。
 
 2020年的10nm Ice Lake自家工厂无能，改由台积电加工。
 
@@ -786,6 +792,8 @@ Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Ne
 
 2006年Intel也提出了Tick-Tock架构战略。Tick年改进制程工艺，微架构基本不做大改，重点在把晶体管的工艺水平往上提升;Tock年改进微架构设计，保持工艺水平不变，重点在用更复杂、更高级的架构设计。然后就是一代 Tick 再一代 Tock交替演进。
 
+
+
 从2006年酷睿架构开始，基本是摁着AMD在地上摩擦，直到2017年的AMD Zen杀回来，性能暴增。![img](/images/951413iMgBlog/f5e72f61ed8b6c2ba163e00491c7db40.png)
 
 **Sandy Bridge 引入核间的ring bus**
@@ -793,6 +801,17 @@ Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Ne
 感觉Broadwell前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是**Ring bus到Mesh**）
 
 ![image-20210602154509596](/images/951413iMgBlog/image-20210602154509596.png)
+
+### 命名规律
+
+Intel E3、E5、E7代表了3个不同档次的至强CPU。EX是按性能和应用场景分的，以前是E3 E5 E7，E3核最少，轻负载应用，E5 核多均衡型，E7是超高性能，核最多。Xeon E5是针对高端工作站及服务器的处理器系列，此系列每年更新，不过架构落后Xeon E3一代。从skylake开始，不再使用EX(E3/E5/E7)了，而是铜、银、金、铂金四种组合。
+
+V2 是ivy bridge，V3 是 haswell， V4 是broadwell，不带VX的是sandy bridge。所以2682是boradwell系列CPU。
+然后到了4114，就是Silver，8186就是Platinum，81是skylake，82是cscadelake，再下一代是83。
+
+
+
+![cascade lake naming scheme.svg](/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png)
 
 ### 不同的架构下的参数
 
@@ -1012,7 +1031,7 @@ BBK是步步高集团，包含vivo、oppo、oneplus、realme等
 
 ## [计算机芯片发展总结和展望](https://weibo.com/ttarticle/p/show?id=2309404745052319777615)
 
-从最早集成工艺驱动了CPU的性能符合摩尔定律发展，到现在工艺受限于物理上的客观因素（门延迟、电路间的绝缘层越薄漏电越严重--高温导致漏电呈指数级增加、电压无法随着尺寸降低而线性降低--130nm之前电压随现款而线性下降，到90nm工艺之后工作电压始终在1V左右无法进一步下降）越来越难进一步优化，导致摩尔定律基本已经做不到了。
+从最早集成工艺驱动了CPU的性能符合摩尔定律发展，到现在工艺受限于物理上的客观因素：门延迟、电路间的绝缘层越薄漏电越严重--高温导致漏电呈指数级增加、电压无法随着尺寸降低而线性降低--130nm之前电压随线宽(工艺)而线性下降，到90nm工艺之后工作电压始终在1V左右无法进一步下降，越来越难进一步优化，导致摩尔定律基本已经做不到了。
 
 下图显示最近几年CPU性能改进都在3%左右了（红色部分）
 

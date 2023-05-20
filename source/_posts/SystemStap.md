@@ -69,6 +69,10 @@ rpm -ivh kernel-debuginfo-2.6.32-220.23.2.ali878.el6.x86_64.rpm --nodeps
 	#验证安装是否成功
 	sudo stap -v -e 'probe begin{printf("Hello, World"); exit();}'
 
+
+
+检查OS是否支持 eBPF，你可以用这两个命令查看 `ls /sys/fs/bpf` 和 `lsmod | grep bpf`
+
 ## 案例
 
 写好的默认脚本都在：/usr/share/doc/systemtap-client-2.8/examples/
@@ -163,27 +167,28 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
     	      printf("write delay detail: tid: %d func:%s  sleep: %d \n",tid(),probefunc(),DELAY);
         }
     }
+    
+     probe syscall.fsync.return {
+    ​       if (pid() == target() && !quit ) {
+    ​    	    mdelay( DELAY );
+    ​    	    printf("fsync delay detail: tid: %d func:%s  sleep: %d \n",tid(),probefunc(),DELAY);
+    ​        }
+    ​     
+    ​    }
+    ​     
+    ​    # 任务持续时间
+    ​    probe timer.s(20) {
+    ​        if (!found) {
+    ​    	    warn("No backtraces found. Quitting now...\n")
+    ​    	    exit()
+    ​        } else {
+    ​    	    warn("Time's up. Quitting now...(it may take a while)\n")
+    ​    	    quit = 1
+    ​        }
+    ​    }
+    
+    
 
-
-​     
-​    probe syscall.fsync.return {
-​       if (pid() == target() && !quit ) {
-​    	    mdelay( DELAY );
-​    	    printf("fsync delay detail: tid: %d func:%s  sleep: %d \n",tid(),probefunc(),DELAY);
-​        }
-​     
-​    }
-​     
-​    # 任务持续时间
-​    probe timer.s(20) {
-​        if (!found) {
-​    	    warn("No backtraces found. Quitting now...\n")
-​    	    exit()
-​        } else {
-​    	    warn("Time's up. Quitting now...(it may take a while)\n")
-​    	    quit = 1
-​        }
-​    }
 
 
 
@@ -207,7 +212,6 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
 ```
 probe kernel.trace("kfree_skb")
 {
-
          printf("sock:%x,skb:%x,source:%d,dest:%d,%x:%x:%x,seq:%u,ack:%u %s\n",$skb->sk,$skb,ntohs(@cast($skb->data, "struct tcphdr")->source),ntohs(@cast($skb->data, "struct tcphdr")->dest),@cast($skb->data, "struct tcphdr")->syn,@cast($skb->data, "struct tcphdr")->ack,@cast($skb->data, "struct tcphdr")->rst,ntohl(@cast($skb->data, "struct tcphdr")->seq),ntohl(@cast($skb->data, "struct tcphdr")->ack_seq), symname($location));
 }
 ```
@@ -272,7 +276,7 @@ Attaching 2 probes...
 
 ```
 
-## [其它单行命令](https://lwn.net/Articles/793749/)
+## [bpftrace 单行命令](https://lwn.net/Articles/793749/)
 
 这里有一些其他的单行命令来展示 `bpftrace` 的能力，你可以把这些换成其他的内核函数：
 
@@ -443,6 +447,67 @@ bpftrace工具包
 
 最后一列就是backlog最大大小和已经多少
 
+## 遍历端口状态
+
+sudo stap -g walk_bhash.stp > /tmp/status
+
+```
+#cat walk_bhash.stp
+
+%{#include <linux/tcp.h>
+#include <net/tcp.h>
+%}
+
+function walk_bhash:long() %{
+    int i;
+    struct inet_bind_hashbucket *head;
+    struct inet_bind_bucket *tb;
+    const struct hlist_nulls_node *node;
+    unsigned long nr_ports = 0;
+
+    local_bh_disable();
+    rcu_read_lock();
+
+    for (i = 0; i < tcp_hashinfo. bhash_size; ++i) {
+        head = &tcp_hashinfo.bhash[i];
+        spin_lock(&head->lock);
+
+        inet_bind_bucket_for_each(tb, &head->chain) {
+            nr_ports++;
+            _stp_printf("port=%d, fastreuse=%d, fastreuseport=%d.\n",
+                   tb->port, tb->fastreuse, tb->fastreuseport);
+        }
+        spin_unlock(&head->lock);
+    }
+
+    rcu_read_unlock();
+    local_bh_enable();
+
+    _stp_printf("nr_ports: %lu.\n", nr_ports);
+
+    THIS->__retvalue = 0;
+    return;
+%}
+
+probe begin
+{
+    printf("Start traversing bhash ....\n");
+    walk_bhash();
+    exit();
+}
+```
+
+抓在bind端口的进程，端口被bind后就会将 fastreuseport 从默认的-1 改成 0
+
+```
+stap -e 'probe kernel.function("inet_csk_get_port") {
+printf("hook proc_fork_connector \n, execname = %s params:%d\n", execname(), $snum);
+print_backtrace();
+}'
+```
+
+
+
 ## DNS 域名解析时间
 
 	$sudo ./gethostlatency 
@@ -523,6 +588,18 @@ bpftrace工具包
 	      4096 -> 8191       : 3        |****************************************|
 	      8192 -> 16383      : 2        |**************************              |
 	     16384 -> 32767      : 1        |*************                           |
+
+内核收发包耗时分析
+
+```
+sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 'pthread:__libc_send'
+sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 'pthread:__libc_recv'
+sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 'tcp_sendmsg'
+sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 'tcp_recvmsg'
+sudo ./funclatency -p mysqld_pid -T -u -i 1 -d 5 'tcp_cleanup_rbuf'
+```
+
+
 
 ## 磁盘
 
@@ -696,6 +773,283 @@ SLOW FS READ AND WRITE
 	java[4457] lock 0x7f5d23bc3154 contended 1 times, 4342 avg us
 	java[4457] lock 0x7f5da2b897b4 contended 1 times, 70190 avg us
 	java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
+
+## [给程序注入系统调用setsockopt](https://lrita.github.io/2018/06/30/systemtap-inject-setsockopt/)
+
+没有源代码，需要将应用的keepalive 打开。可以通过`SystemTap`，给进程注入一个`setsockopt`调用，使其开启`SO_KEEPALIVE`
+
+在`accept`调用返回的时候注入这个调用，脚本源码为, 必须要在有新连接进来的时候：
+
+```c
+%{
+#include <net/sock.h>
+%}
+
+function set_sock_keepalive:long(fd) %{
+  int err = -1;
+  int keepalive = 1;
+  struct socket *sock = sockfd_lookup(STAP_ARG_fd, &err);
+  if (sock != NULL) {
+    /*
+     * sock_setsockopt 的参数在内核中声明为来自用户空间，
+     * 因此其内部会对该值的来源进行校验，该脚本注入的这段C
+     * 代码运行在内核空间，因此我们需要临时跳过这层校验。
+     * 下面三行就是跳过的方法。
+     */
+    mm_segment_t oldfs;
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    err = sock_setsockopt(sock, SOL_SOCKET,
+            SO_KEEPALIVE, (char __user*)&keepalive, sizeof(keepalive));
+    set_fs(oldfs);
+    sockfd_put(sock);
+  }
+  STAP_RETURN(err);
+%}
+
+probe begin {
+  printf("inject begin... \n")
+}
+
+/*
+ * 注入点选择accept系统调用返回时，accept的返回值就是新建连接的文件描述符
+ * 当触发的进程pid是给定进程时，进行注入操作
+ * 在生产环境中，可以删除ok之后的打印以提升性能
+ */
+probe syscall.accept.return, syscall.accept4.return {
+  fd = $return
+  if ((pid() == $1) && (fd != -1)) {
+    ok = set_sock_keepalive(fd)
+    if (ok)
+      printf("set_sock_keepalive %d\n", ok)
+  }
+}
+
+probe end {
+  printf("inject end... \n")
+}
+```
+
+执行的方式是，`$pid`为指定的进程pid：
+
+```
+> stap -g inject_keepalive.stp $pid
+```
+
+## Systemtap 抓取 mysql insert 慢操作
+
+主要抓取下面的函数
+
+row_ins_clust_index_entry_low  主键insert
+
+fsp_try_extend_data_file      文件扩展
+
+mysql_insert              mysql insert的最上层函数
+
+os_aio_func               mysql 调用aio的函数，我们测试时只抓取其中的同步io
+
+
+
+stap 脚本
+
+```
+global start_time;
+global quit = 0;
+global found;
+global threshold = 6000;
+ 
+probe begin {
+    warn(sprintf("Tracing begin ...\\n"))
+}
+ 
+probe process("/u01/mysql/bin/mysqld").function("row_ins_clust_index_entry_low").call {
+    if (!quit ) {
+        start_time[tid(), ppfunc()] = gettimeofday_us()
+        }
+    else{
+        exit()
+    }
+}
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("row_ins_clust_index_entry_low").return {
+    if (!quit) {
+        t = tid()
+        begin = start_time[t, ppfunc()]
+        if (begin > 0) {
+            elapsed = gettimeofday_us() - begin
+            if (elapsed >= threshold) {
+                printf("pid->%d   tid->%d   func->%s   start_time->%d    elapsed_time->%d \n",pid(), t, ppfunc(),begin, elapsed)
+                found = 1
+            }
+            delete start_time[t, ppfunc()]
+        }
+    }
+}
+ 
+ 
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("fsp_try_extend_data_file").call {
+    if (!quit ) {
+        start_time[tid(), ppfunc()] = gettimeofday_us()
+        }
+    else{
+        exit()
+    }
+}
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("fsp_try_extend_data_file").return {
+    if (!quit) {
+        t = tid()
+        begin = start_time[t, ppfunc()]
+        if (begin > 0) {
+            elapsed = gettimeofday_us() - begin
+            if (elapsed >= threshold) {
+                printf("pid->%d   tid->%d   func->%s   start_time->%d    elapsed_time->%d \n",pid(), t, ppfunc(),begin, elapsed)
+                found = 1
+            }
+            delete start_time[t, ppfunc()]
+        }
+    }
+}
+ 
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("mysql_insert").call {
+    if (!quit ) {
+        start_time[tid(), ppfunc()] = gettimeofday_us()
+        }
+    else{
+        exit()
+    }
+}
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("mysql_insert").return {
+    if (!quit) {
+        t = tid()
+        begin = start_time[t, ppfunc()]
+        if (begin > 0) {
+            elapsed = gettimeofday_us() - begin
+            if (elapsed >= threshold) {
+                printf("pid->%d   tid->%d   func->%s   start_time->%d    elapsed_time->%d sql:%s \n",pid(), t, ppfunc(),begin, elapsed, user_string($table_list->table_name))
+                found = 1
+            }
+            delete start_time[t, ppfunc()]
+        }
+    }
+}
+ 
+ 
+probe process("/u01/mysql/bin/mysqld").function("os_aio_func").call {
+    if (!quit ) {
+        if ($mode == 24){
+            start_time[tid(), ppfunc()] = gettimeofday_us()
+            }
+        }
+    else{
+        exit()
+    }
+}
+ 
+probe process("/u01/mysql/bin/mysqld").function("os_aio_func").return {
+    if (!quit) {
+        # 只抓取同步IO
+        if ($mode == 24){
+            t = tid()
+            begin = start_time[t, ppfunc()]
+            if (begin > 0) {
+                elapsed = gettimeofday_us() - begin
+                if (elapsed >= threshold) {
+                    #针对mysql 5.6
+                    printf("pid->%d   tid->%d   func->%s   start_time->%d    elapsed_time->%d  %d %d %d\n",pid(), t, ppfunc(),begin, elapsed, $type ,$offset,$n)
+                    found = 1
+                }
+                delete start_time[t, ppfunc()]
+            }
+        }
+    }
+}
+ 
+ 
+# 持续3000s
+probe timer.s(3000) {
+    if (!found) {
+        warn("No backtraces found. Quitting now...\n")
+        exit()
+    } else {
+        warn("Time's up. Quitting now...(it may take a while)\n")
+        quit = 1
+    }
+}
+```
+
+抓取结果
+
+```
+pid->30530   tid->90738   func->os_aio_func   start_time->1508234813956745    elapsed_time->11396
+pid->30530   tid->90738   func->row_ins_clust_index_entry_low   start_time->1508234813956724    elapsed_time->11463
+pid->30530   tid->90738   func->mysql_insert   start_time->1508234813956667    elapsed_time->11565 sql:__test_iss_schedule_job_instance_1015
+ 
+ 
+pid->30530   tid->56144   func->os_aio_func   start_time->1508236199976100    elapsed_time->7762  10 1304248320 16384
+pid->30530   tid->56144   func->row_ins_clust_index_entry_low   start_time->1508236199976072    elapsed_time->7840
+pid->30530   tid->56144   func->mysql_insert   start_time->1508236199976023    elapsed_time->7939 sql:iss_schedule_job_instance_0963
+ 
+ 
+pid->129041   tid->35427   func->os_aio_func   start_time->1508236506228913    elapsed_time->7686  10 188694528 16384
+pid->129041   tid->35427   func->row_ins_clust_index_entry_low   start_time->1508236506228896    elapsed_time->12958
+pid->129041   tid->35427   func->mysql_insert   start_time->1508236506228848    elapsed_time->13039 sql:iss_schedule_job_log_0115
+ 
+ 
+pid->30530   tid->42311   func->os_aio_func   start_time->1508236576977222    elapsed_time->7265  10 3863937024 16384
+pid->30530   tid->42311   func->row_ins_clust_index_entry_low   start_time->1508236576977200    elapsed_time->7338
+pid->30530   tid->42311   func->mysql_insert   start_time->1508236576977143    elapsed_time->7446 sql:iss_schedule_job_instance_0982
+```
+
+可以看出调用关系是 mysql_insert -> row_ins_clust_index_entry_low -> os_aio_func
+
+pid 30530和129041 分别指两个mysqld 进程，怀疑IO问题
+
+io逻辑以及涉及到的 perf 事件
+
+![image.png](/images/951413iMgBlog/perf_block_event.png)
+
+如果想要准确知道是不是硬件设备的问题，可以抓取block layer层和device driver层之间的rt，也就是以下两个事件：
+
+**block:block_rq_issue**  IO块经过io调度算法，以及队列等待后，最终下发出去的事件
+
+**block:block_rq_complete** IO块从device driver 返回的事件
+
+除了上面两个，假如我们想排查是不是由于IO调度策略，及队列的问题，可以追踪**block:block_rq_insert** 和 **block:block_rq_complete** 之间的rt
+
+
+
+perf是通过cpu的打点来计算事件发生的时间，我们只要通过后期进行处理，即可知道RT
+
+```
+# 抓取事件，会自动输出结果到当前目录下的perf.data中
+perf record -ga -e block:block_rq_issue -e block:block_rq_complete sleep 10
+
+# 读取perf.data 打印所有采集信息
+perf script
+
+# 只打印所有事件发生的信息（忽略具体堆栈）
+perf script -G
+```
+
+结果如下
+
+```
+进程名    pid      cpu         time                    事件                
+mysqld 117330 [002] 3630658.631426: block:block_rq_issue: 259,2   WS 0 ()     3536832512 + 512 [mysqld]
+swapper     0 [000] 3630658.631612: block:block_rq_complete: 259,2 WS ()       3536832512 + 512 [0]
+mysqld 117330 [002] 3630658.631462: block:block_rq_issue: 259,2    WS 0 () 3536833536 + 512 [mysqld]
+```
+
+
 
 ## 参考资料
 

@@ -34,12 +34,174 @@ Shell作为Unix系操作系统当中最有魅力且不可或缺的组件，经�
 
 ## 2.以HTTP方式共享当前文件夹的文件
 
-| 1    | $ python -m  SimpleHTTPServer |
-| ---- | ----------------------------- |
+| 1    | $ python -m  SimpleHTTPServer 8080 |
+| ---- | ---------------------------------- |
 
 这命令启动了Python的SimpleHTTPServer模块，考虑到Python在绝大多数的Linux发行版当中都默认安装，所以这个命令很可能是最简单的跨平台传文件的方法。
 
 命令执行后将在本机8000端口开放HTTP服务，在其他能访问本机的机器的浏览器打开ttp://ip:8000即打开一个目录列表，点击即可下载。
+
+python3的话
+
+```
+python3 -m http.server 8080
+```
+
+## find
+
+```
+#最近一天修改的md文档
+find . -maxdepth 1 -type f -mtime -1 -name "*.md" -not -name "template.md" -not -name "temp.md" -exec ls -lh "{}" \;
+
+find . -size 0  -type f -exec ls -lh "{}" \;
+
+find . -maxdepth 1 -type f -mtime -2 -name "*margin*" -exec mv "{}" /tmp/img/ \;
+
+#clean the big file, but exclude spill dir
+sudo find /home/admin/ -not -path "*/spill/*" -type f -size +3G -exec cp /dev/null {} \;
+sudo find /home/admin/ -type f -name "*.hprof" -mtime +1 -exec rm -f {} \;
+#clean the spill temp file which before 7 days ago
+sudo find /home/admin/ -type f -mtime +7 -exec cp /dev/null {} \;
+sudo find /home/admin/logs/ -type f -mtime +7 -exec rm -f {} \;
+sudo find /var/log/ -type f -size +500M -exec cp /dev/null {} \;
+
+#备份匹配的文件
+find . -name '*.ibd' | grep tpcc1000 | grep -v mysql_global | xargs -I{} cp --path {} /tmp/bak/
+
+#将yaml 备份，保留目录结构
+find . -name '*.yaml' | xargs -I{} cp --path {} /tmp/
+
+
+find $srcDir -maxdepth 1 -type f -mtime -$1 -name "*.md" -not -name "template.md" -not -name "temp.md" -exec ls -lh "{}" \;
+
+find $srcDir -maxdepth 1 -type f -mtime -$1 -name "*.md" -not -name "template.md" -not -name "temp.md" -exec cp "{}" ./source/_posts/ \;
+
+#sudo find /media/sf_D_DRIVE/case/ -maxdepth 1 -type f -mtime -$1 -name "*.md" -not -name "template.md" -print -exec cp "{}" ./source/_posts/ \;
+
+cat的时候输出文件名：
+find . -type f -print -exec cat {} \;
+```
+
+xargs 参数：
+
+> -I [replace-str]：将xargs的输出每一项参数，单独赋值给后面的命令，参数需要用指定的代替字符串replace-str代替，也就是说replace-str不可缺省，必须显示指明，可以使用{} $ @等符号，其主要作用是**当xargs command后有多个参数时，调整参数位置**
+
+## top
+
+默认配置文件：~/.toprc （on Ubuntu, it is *~/.config/procps/toprc*）
+
+增加列：f (此时可以调整用 → 选择列并调整位置， 此时也有4个窗口可以选择)
+
+按node展示cpu：2(3 选择需要展示的node)
+
+按core展示cpu: 1
+
+切换颜色：z (有4个窗口可以选择，按 g 可以选择1-4)
+
+配置颜色: Z 
+
+**V** 切换成森林视图，也就是展示进程父子关系
+
+保存配置: W
+
+```
+dG9wJ3MgQ29uZmlnIEZpbGUgKExpbnV4IHByb2Nlc3NlcyB3aXRoIHdpbmRvd3MpCklkOmksIE1vZGVfYWx0c2NyPTAsIE1vZGVfaXJpeHBzPTEsIERlbGF5X3RpbWU9My4wLCBDdXJ3aW49MApDcHUJZmllbGRzY3VyPaWmqLWztLu9wMS3urg5xScpKissLS4vMDEyNjw+P0FCQ0ZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWoKCXdpbmZsYWdzPTE5NTM4MCwgc29ydGluZHg9MTgsIG1heHRhc2tzPTAsIGdyYXBoX2NwdXM9MCwgZ3JhcGhfbWVtcz0wCglzdW1tY2xyPTQsIG1zZ3NjbHI9MSwgaGVhZGNscj0zLCB0YXNrY2xyPTQKTWVtCWZpZWxkc2N1cj2lu73AvMPBws3OJjk3uigzNEQnxSkqKywtLi8wMTI1Njg+P0ZHSElKS0xPUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqCgl3aW5mbGFncz0xOTUzODAsIHNvcnRpbmR4PTIxLCBtYXh0YXNrcz0wLCBncmFwaF9jcHVzPTAsIGdyYXBoX21lbXM9MAoJc3VtbWNscj02LCBtc2dzY2xyPTYsIGhlYWRjbHI9MywgdGFza2Nscj02ClNjaAlmaWVsZHNjdXI9pTo7PD0+P0BBTUJOQ7WztMfEtre5xcYmJygpKissLS4vMDEyOEhJSktMT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpagoJd2luZmxhZ3M9MTk0ODY4LCBzb3J0aW5keD0wLCBtYXh0YXNrcz0wLCBncmFwaF9jcHVzPTAsIGdyYXBoX21lbXM9MAoJc3VtbWNscj01LCBtc2dzY2xyPTUsIGhlYWRjbHI9MywgdGFza2Nscj01CkNncAlmaWVsZHNjdXI9paanqCowOTc6RCkrLC0uLzEyMzQ1Njg7PD0+P0BBQkNGR8hJSktMTU5P0NHS09TVxVZXWFlaW1xdXl9gYWJjZGVmZ2hpagoJd2luZmxhZ3M9MTk0ODY4LCBzb3J0aW5keD0wLCBtYXh0YXNrcz0wLCBncmFwaF9jcHVzPTAsIGdyYXBoX21lbXM9MAoJc3VtbWNscj0yLCBtc2dzY2xyPTMsIGhlYWRjbHI9MywgdGFza2Nscj0yCkZpeGVkX3dpZGVzdD0wLCBTdW1tX21zY2FsZT0wLCBUYXNrX21zY2FsZT0wLCBaZXJvX3N1cHByZXNzPTAKCnBpcGUJTmV0RmlsZXMJbHNvZiAtYSAtbCAtbiAtUCAtaTQgLXAgJWQgMj4mMQpwaXBlCU9wZW5GaWxlcwlsc29mIC1hIC1sIC1uIC1QIC1wICVkIDI+JjEKZmlsZQlOVU1BSW5mbwkvcHJvYy8lZC9udW1hX21hcHMK
+```
+
+
+
+## xargs 传参数
+
+> ls /xx | xargs -t -I{}  cp {} /tmp/{}
+
+-t ： 打印内容，去掉\n之后的字符串
+
+-I :  后面定义占位符，上例子是{}  ，后面命令行中可以多次使用占位符
+
+挂载多台苹果的例子
+
+>  idevice_id -l|xargs -t -I{} mkdir {};idevice_id -l |xargs -t -I{} ifuse {} {}
+
+
+
+批量执行docker exec
+
+```
+ansible -i host.ini all -m shell -a "docker ps -a | grep tpcc | grep dn | cut -d ' ' -f 1 | xargs  -I{} docker exec {} bash -c \"myc -e 'shutdown'\""
+```
+
+批量推送镜像
+
+```
+docker images |grep "docker.io:5000" | awk '{ print $1":"$2 }' | xargs -I {} docker push {}
+```
+
+## 非贪婪匹配
+
+vim中默认匹配：abc.*d 是贪婪匹配，也就是尽可能长地匹配，改用 abc.\{-}d 匹配到第一个 d字符就结束
+
+> 贪婪模式是: .*
+>
+> 非贪婪模式是: .\\{-}
+
+```
+\{n,m} Matches n to m of the preceding atom, as many as possible
+\{n} Matches n of the preceding atom
+\{n,} Matches at least n of the preceding atom, as many as possible
+\{,m} Matches 0 to m of the preceding atom, as many as possible
+\{} Matches 0 or more of the preceding atom, as many as possible (like *)
+*/\{-*
+\{-n,m} matches n to m of the preceding atom, as few as possible
+\{-n} matches n of the preceding atom
+\{-n,} matches at least n of the preceding atom, as few as possible
+\{-,m} matches 0 to m of the preceding atom, as few as possible
+\{-} matches 0 or more of the preceding atom, as few as possibles
+```
+
+grep 非贪婪匹配
+
+```
+grep --color -P "agHost.*?," test.table  //匹配 agHost后带有多个任意字符直到第一个 逗号 结束，-P表示用 perl 的匹配语法，而perl默认是不支持贪婪的
+
+grep --color -o -P "agHost.*?," test.table  //-o 只打印匹配部分
+```
+
+匹配数字至少4次
+
+```
+grep -E ",rows=[0-9]{4,}"
+```
+
+
+
+## MacOS sed 删除行
+
+```
+//查找匹配的行：|      |                               |
+grep -E "\| [[:space:]]*\| [[:space:]]*\|" top_linux_commands.md -B3
+
+//删除行 -i ".bak"是直接操作文件并添加.bak作为备份文件名称，如果不需要备份文件，则使用-i ""
+sed -i '' -e  '/\| [[:space:]]*\| [[:space:]]*\|/d'  top_linux_commands.md
+
+//先备份文件为.bak, 再删除行 -i ".bak"是添加.bak作为备份文件名称
+sed -i '.bak' 's/\| [[:space:]]*\| [[:space:]]*\|/d'  top_linux_commands.md
+```
+
+## ps 查看进程
+
+```
+ps -Tfp pid // -T 展开进程下的线程 -f full -p pid
+```
+
+
+
+## 循环按行处理
+
+```
+while  read i ; do echo $i ; done <./prometheus.list
+```
+
+
 
 ## 3.在以普通用户打开的vim当中保存一个root用户文件
 
@@ -96,7 +258,6 @@ tee是一个把stdin保存到文件的小工具。
 
 | 1    | $ **echo** **{**a,b,c**}{**a,b,c**}{**a,b,c**}** |
 | ---- | ------------------------------------------------ |
-|      |                                                  |
 
 将输出三个集合的全排列:
 
@@ -112,15 +273,13 @@ caa cab cac cba cbb cbc cca ccb ccc
 
 | 1    | $ ssh-copy-id remote-machine |
 | ---- | ---------------------------- |
-|      |                              |
 
 这个命令把当前用户的公钥串写入到远程主机的~/.ssh/authorized_keys内，这样下次使用ssh登录的时候，远程主机就直接根据这串密钥完成身份校验，不再询问密码了。前提是你当前用户有生成了公钥，默认是没有的，先执行ssh-keygen试试吧！
 
 这个命令如果用手工完成，是这样的：
 
-| 1  2  3 | your-machine$ **scp**  ~**/**.ssh**/**identity.pub  remote-machine:  your-machine$ **ssh**  remote-machine  remote-machine$ **cat**  identity.pub **>>** ~**/**.ssh**/**authorized_keys |
+| 1  2  3 | your-machine$ scp  ~/.ssh/identity.pub  remote-machine:  your-machine$ ssh  remote-machine  remote-machine$ cat  identity.pub >> ~/.ssh/authorized_keys |
 | ------- | ------------------------------------------------------------ |
-|         |                                                              |
 
 如果你想删掉远程主机上的密钥，直接打开authorized_keys，搜索你的用户名，删除那行，即可。
 
@@ -128,7 +287,6 @@ caa cab cac cba cbb cbc cca ccb ccc
 
 | 1    | $ **ffmpeg** -f x11grab -s  wxga -r 25  -i :0.0 -sameq **/**tmp**/**out.mpg |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 我们在一些视频网站上看到别人的3D桌面怎么怎么酷的视频，通常就是这么来的，ffmpeg可以直接解码X11的图形，并转换到相应输出格式。
 
@@ -160,15 +318,10 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
  
 
- 
-
- 
-
 ## 1.用你最喜欢的编辑器来敲命令
 
 | 1    | **command** **<**CTRL-x  CTRL-e**>** |
 | ---- | ------------------------------------ |
-|      |                                      |
 
 在已经敲完的命令后按<CTRL-x CTRL-e>，会打开一个你指定的编辑器（比如vim，通过环境变量$EDITOR指定），里面就是你刚输入的命令，然后爱怎么编辑就怎么编辑吧，特别是那些参数异常复杂的程序，比如mencoder/ffmpeg，一个命令动辄3、4行的，要修改其中的参数，这个方法最合适不过了，保存退出后自动执行这个程序。
 
@@ -182,7 +335,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1    | **>** file.txt |
 | ---- | -------------- |
-|      |                |
 
 \>在shell里面是标准输出重定向符，即把（前部个命令的）命令行输出转往一个文件内，但这里没有“前部命令”，输出为空，于是就覆盖（或创建）成一个空文件了。
 
@@ -194,7 +346,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1    | **ssh** -N  -L2001:remotehost:80 user**@**somemachine |
 | ---- | ----------------------------------------------------- |
-|      |                                                       |
 
 这个命令在本机打开了2001端口，对本机2001端口的请求通过somemachine作为跳板，转到remotehost的80端口上。
 
@@ -206,7 +357,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1  2 | **ssh** -f -N -L  0.0.0.0:443:twitter.com:443 shell.cjb.net  **ssh** -f -N -L  0.0.0.0:80:twitter.com:80 shell.cjb.net |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 然后在/etc/hosts里面添加127.0.0.1 twitter.com，好吧剩下的你懂的。
 
@@ -216,7 +366,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1    | reset |
 | ---- | ----- |
-|      |       |
 
 如果你试过不小心cat了某个二进制文件，很可能整个终端就傻掉了，可能不会换行，没法回显，大堆乱码之类的，这时候敲入reset回车，不管命令有没有显示，就能回复正常了。
 
@@ -224,7 +373,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1    | printf("**\033**c**\033**(K**\033**[J**\033**[0m**\033**[?25h"); |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 输出的这些字符对Shell是有特殊意义的：
 
@@ -244,7 +392,6 @@ Shell的工作方式，大多数入门用户会觉得枯燥难学，而所谓的
 
 | 1    | **echo** cmd **\|** at  midnight |
 | ---- | -------------------------------- |
-|      |                                  |
 
 说的就是at这个组件，通常跟cron相提并论，不过at主要用于定时一次性任务，而cron定时周期性任务。
 
@@ -254,7 +401,6 @@ at的参数比较人性化，跟英语语法一样，可以tomorrow, next week�
 
 | 1    | **dd** if=**/**dev**/**dsp  **\|** **ssh**  username**@**host **dd** of=**/**dev**/**dsp |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 没错就是实现一个喊话器的功能。
 
@@ -266,7 +412,6 @@ dd是常用的数据拷贝程序，如果不同时指定if、of，就直接使�
 
 | 1    | **dd** if=**/**dev**/**dsp  of=**/**dev**/**dsp |
 | ---- | ----------------------------------------------- |
-|      |                                                 |
 
 直接回放麦克风的声音，只是有一点延时。
 
@@ -274,25 +419,21 @@ dd是常用的数据拷贝程序，如果不同时指定if、of，就直接使�
 
 | 1    | **arecord** **\|** **ssh** username**@**host  **aplay** |
 | ---- | ------------------------------------------------------- |
-|      |                                                         |
 
 本地回放就是：
 
 | 1    | **arecord** **\|** **aplay** |
 | ---- | ---------------------------- |
-|      |                              |
 
 如果你想吓吓别人：
 
 | 1    | **cat** **/**dev**/**urandom **\|**  **ssh** username**@**host **aplay** |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 ## 7.映射一个内存目录
 
 | 1    | **mount** -t tmpfs -o size=1024m  tmpfs **/**mnt**/**ram |
 | ---- | -------------------------------------------------------- |
-|      |                                                          |
 
 这个命令开了一块1G内存来当目录用。不过放心，如果里面没文件，是不会占用内存的，用多少占多少。
 
@@ -306,7 +447,6 @@ dd是常用的数据拷贝程序，如果不同时指定if、of，就直接使�
 
 | 1    | **ssh** user**@**host **cat** **/**path**/**to**/**remotefile  **\|** **diff**  **/**path**/**to**/**localfile - |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 diff通常的用法是从参数读入两个文件，而命令里面的-则是指从stdin读入了。
 
@@ -316,7 +456,6 @@ diff通常的用法是从参数读入两个文件，而命令里面的-则是指
 
 | 1    | **netstat** -tulnp |
 | ---- | ------------------ |
-|      |                    |
 
 Netstat是很常用的用来查看Linux网络系统的工具之一，这个参数可以背下来：
 
@@ -338,49 +477,41 @@ Netstat是很常用的用来查看Linux网络系统的工具之一，这个参�
 
 | `1`  | `**mount** **|** column -t` |
 | ---- | --------------------------- |
-|      |                             |
 
 这条命令适用于任何文件系统，column 用于把输出结果进行列表格式化操作，这里最主要的目的是让大家熟悉一下 columnt 的用法。 下面是单单使用 mount 命令的结果：
 
 | `1``2``3``4``5` | `$ **mount**`` ``**/**dev**/**root on **/** **type** ext3 **(**rw**)**``**/**proc on **/**proc **type** proc **(**rw**)**``**/**dev**/**mapper**/**lvmraid-home on **/**home **type** ext3 **(**rw,noatime**)**` |
 | --------------- | ------------------------------------------------------------ |
-|                 |                                                              |
 
 而加了 column -t 命令后就成为这样了：
 
 | `1``2``3``4``5` | `$ **mount** **|** column -t`` ``**/**dev**/**root on **/** **type** ext3 **(**rw**)**``**/**proc on **/**proc **type** proc **(**rw**)**``**/**dev**/**mapper**/**lvmraid-home on **/**home **type** ext3 **(**rw,noatime**)**` |
 | --------------- | ------------------------------------------------------------ |
-|                 |                                                              |
 
 另外你可加上列名称来改善输出结果
 
 | `1``2``3``4``5``6` | `$ **(echo** "DEVICE - PATH - TYPE FLAGS" **&&** **mount)** **|** column -t`` ``DEVICE          -  PATH  -   TYPE  FLAGS``**/**dev**/**root         on **/**   **type** ext3  **(**rw**)**``**/**proc           on **/**proc **type** proc  **(**rw**)**``**/**dev**/**mapper**/**lvmraid-home on **/**home **type** ext3  **(**rw,noatime**)**` |
 | ------------------ | ------------------------------------------------------------ |
-|                    |                                                              |
 
 列2和列4并不是很友好，我们可以用 awk 来再处理一下
 
 | `1``2``3``4``5``6` | `$ **(echo** "DEVICE PATH TYPE FLAGS" **&&** **mount** **|** **awk** '$2=$4="";1'**)** **|** column -t`` ``DEVICE          PATH  TYPE  FLAGS``**/**dev**/**root         **/**   ext3  **(**rw**)**``**/**proc           **/**proc proc  **(**rw**)**``**/**dev**/**mapper**/**lvmraid-home **/**home ext3  **(**rw,noatime**)**` |
 | ------------------ | ------------------------------------------------------------ |
-|                    |                                                              |
 
 最后我们可以设置一个别名，为 nicemount
 
 | `1`  | `$ nicemount**()** **{** **(echo** "DEVICE PATH TYPE FLAGS" **&&** **mount** **|** **awk** '$2=$4="";1'**)** **|** column -t; **}**` |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 试一下
 
 | `1``2``3``4``5``6` | `$ nicemount`` ``DEVICE          PATH  TYPE  FLAGS``**/**dev**/**root         **/**   ext3  **(**rw**)**``**/**proc           **/**proc proc  **(**rw**)**``**/**dev**/**mapper**/**lvmraid-home **/**home ext3  **(**rw,noatime**)**` |
 | ------------------ | ------------------------------------------------------------ |
-|                    |                                                              |
 
 ## 2. 运行前一个 Shell 命令，同时用 “bar” 替换掉命令行中的每一个 “foo”
 
 | `1`  | `**!!**:gs**/**foo**/**bar` |
 | ---- | --------------------------- |
-|      |                             |
 
 `!!` 表示重复执行上一条命令，并用 `:gs/foo/bar` 进行替换操作。 关于 `!!` 这个用法在[前一篇文章中](http://www.isspy.com/most_useful_linux_commands_1/)已有详细的介绍。
 
@@ -388,7 +519,6 @@ Netstat是很常用的用来查看Linux网络系统的工具之一，这个参�
 
 | `1`  | `**watch** -d -n 1 'df; ls -FlAt /path'` |
 | ---- | ---------------------------------------- |
-|      |                                          |
 
 watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参数表示刷新间隔为 1 秒。 df; ls -FlAt /path 运行了两条命令，df 是输出磁盘使用情况，`ls -FlAt` 则列出 /path 下面的所有文件。 ls -FlAt 的参数详解：
 
@@ -404,45 +534,39 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | `1`  | `sshfs name**@**server:**/**path**/**to**/**folder **/**path**/**to**/**mount**/**point` |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 这条命令可以让你通过 SSH 加载远程主机上的文件系统为本地磁盘，前提是你需要安装 FUSE 及 sshfs 这两个软件。 **译者注**：关于 sshfs 实际上我之前写过一篇文章介绍过，详见[在 Ubuntu 上使用 sshfs 映射远程 ssh 文件系统为本地磁盘](http://wowubuntu.com/sshfs.html)。 卸载的话使用 fusermount 或 umount 命令：
 
 | `1``2` | `$ fusermount -u **/**path**/**to**/**mount**/**point``*# umount /path/to/mount/point*` |
 | ------ | ------------------------------------------------------------ |
-|        |                                                              |
 
 ## 5. 通过 DNS 来读取 Wikipedia 的词条
 
 | `1`  | `**dig** +short txt .wp.dg.cx` |
 | ---- | ------------------------------ |
-|      |                                |
 
 这也许是最有趣的一条技巧了，David Leadbeater 创建了一个 [DNS 服务器](https://dgl.cx/wikipedia-dns)，通过它当你查询一个 TXT 记录类型时，会返回一条来自于 Wikipedia 的简短的词条文字，这是[他的介绍](https://dgl.cx/2008/11/wpdns-pres/)。 这里有一个样例，来查询 “hacker” 的含义：
 
 | `1``2``3``4``5``6``7``8` | `$ **dig** +short txt hacker.wp.dg.cx`` ``"Hacker may refer to: Hacker (computer security), someone involved``in computer security/insecurity, Hacker (programmer subculture), a``programmer subculture originating in the US academia in the 1960s,``which is nowadays mainly notable for the free software/” “open``source movement, Hacker (hobbyist), an enthusiastic home computer``hobbyist http://a.vu/w:Hacker"` |
 | ------------------------ | ------------------------------------------------------------ |
-|                          |                                                              |
 
 这里使用了 dig 命令，这是标准的用来查询 DNS 的系统管理工具，+short 参数是让其仅仅返回文字响应，txt 则是指定查询 TXT 记录类型。 更简单的做法是你可以为这个技巧创建一个函数：
 
 | `1``2``3``4``5` | `wiki**()** **{** **dig** +short txt $1.wp.dg.cx; **}**``*#**然后试试吧：*``wiki hacker`` ``"Hacker may refer to: Hacker (computer security), …"` |
 | --------------- | ------------------------------------------------------------ |
-|                 |                                                              |
 
 如果你不想用 dig ，也可以用 host 命令：
 
 | `1`  | `host -t txt hacker.wp.dg.cx` |
 | ---- | ----------------------------- |
-|      |                               |
 
 另外在Twitter上看过某人的创意，用普通的dns来作为程序版本更新的查询服务器：设定域名`software-version-check.example.com`的A记录为`1.2.40.3`，对比自己的版本号，嗯，有更新了！
 
 ## 6. 用 Wget 的递归方式下载整个网站
 
-| `1`  | `**wget** --random-wait -r -p -e robots=off -U Mozilla www.example.com` |
-| ---- | ------------------------------------------------------------ |
-|      |                                                              |
+```
+nohup wget --random-wait -nc -q -r -l 0 --reject=html -np -e robots=off -U Mozilla www.example.com &
+```
 
 参数解释： *–random-wait* *等待* *0.5* *到* *1.5* *秒的时间来进行下一次请求* -r 开启递归检索 *-e robots=off* *忽略* *robots.txt* -U Mozilla 设置 User-Agent 头为 Mozilla 其它一些有用的参数：
 
@@ -454,29 +578,35 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 ·    -wait=1h 每下载一个文件后等待1小时
 
+-np 不下载父目录 
+
+--reject=html 不下载html
+
+-nc 本地已有的不再下载
+
+
+
 ## 7. 复制最后使用的命令中的参数
 
-| `1`  | `**<**Ctrl + .**>** or **<**ESC + . **>**` |
-| ---- | ------------------------------------------ |
-|      |                                            |
+```
+Ctrl + . or ESC + . 
+command + . //macos
+```
 
 这个快捷键只能工作于 shell 的 emacs 编辑模式，它可以从最后使用的命令行中复制参数到当前命令行中，下面是一个样例：
 
 | `1``2``3``4``5` | `$ **echo** a b c``a b c`` ``$ **echo**``$ **echo** c` |
 | --------------- | ------------------------------------------------------ |
-|                 |                                                        |
 
 你可以重复执行该快捷键，以便获取自已需要的参数， 以下是样例：
 
 | `1``2``3``4``5``6``7``8``9``10` | `$ **echo** 1 2 3``1 2 3``$ **echo** a b c``a b c`` ``$ **echo**``$ **echo** c`` ``$ **echo** again``$ **echo** 3` |
 | ------------------------------- | ------------------------------------------------------------ |
-|                                 |                                                              |
 
 另外，假如你想指定第1个或第2个，或者是第 n 个参数的话，可以按 ALT + 1 (或 ESC + 1) 或 ALT + 2 (或 ESC +2) 这样形式的快捷键。 以下是样例：
 
 | `1``2``3``4``5``6``7``8``9``10` | `$ **echo** a b c``a b c`` ``$ **echo**``$ **echo** a``a`` ``$ **echo**``$ **echo** b``b` |
 | ------------------------------- | ------------------------------------------------------------ |
-|                                 |                                                              |
 
 查看[Emacs Editing Mode Keyboard Shortcuts](http://www.catonmat.net/blog/bash-emacs-editing-mode-cheat-sheet/)一文获取更多类似的快捷键。
 
@@ -484,7 +614,6 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | `1`  | `$ **command**` |
 | ---- | --------------- |
-|      |                 |
 
 这条命令可运行于最新的 Bash shell 里，在其它 shell 中没测试过。 通过在命令行前面添加一个空格，就可以阻止这条命令被保存到 bash history (~/.bash_history) 文件中，这个行为可以通过 $HISTIGNORE shell 变量来控制。我的设置是 HISTIGNORE=”&:[ ]*” ，表示不保存重复的命令到 history 中，并且不保存以空格开头的命令行。$HISTIGNORE 中的值以冒号分隔。 如果你的命令内包含密码，比如`mysqladmin`，不把它记录在历史当中是好主义。 深入了解的话，可进一步看此文[The Definitive Guide to Bash Command Line History](http://www.catonmat.net/blog/the-definitive-guide-to-bash-command-line-history/)
 
@@ -492,7 +621,6 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | `1`  | `**du** -h --max-depth=1` |
 | ---- | ------------------------- |
-|      |                           |
 
 –max-depth=1 参数可以让 du 命令显示当前目录下 1 级子目录的统计信息，当然你也可以把 1 改为 2 ，进一步显示 2 级子目录的统计信息，可以灵活运用。而 -h 参数则是以 Mb 、G 这样的单位来显示大小。 **译者注**：在此推荐一个小工具 ncdu ，可以更方便的达到此效果。
 
@@ -500,7 +628,6 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | `1`  | `**ps** aux **|** **sort** -nk +4 **|** **tail**` |
 | ---- | ------------------------------------------------- |
-|      |                                                   |
 
 显然这并不是最好的方法，但它确实用起还不错。 这是一个典型的管道应用，通过 ps aux 来输出到 sort 命令，并用 sort 排序列出 4 栏，再进一步转到 tail 命令，最终输出 10 行显示使用内存最多的进程情况。 假如想要发现哪个进程使用了大量内存的话，我通常会使用 htop 或 top 而非 ps 。
 
@@ -508,13 +635,11 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | `1`  | `python -m smtpd -n -c DebuggingServer localhost:1025` |
 | ---- | ------------------------------------------------------ |
-|      |                                                        |
 
 这是一个用 Python 标准库 smtpd （用 -m smtpd 指定) 实现在简易 SMTP 服务，运行于 1025 端口 。 另外三个参数的解释： *-n* *参数让* *Python* *不要进行* *setuid (* *改变用户）为* *“nobody”* *，也就是说直接用你的帐号来运行* -c DebuggingServer 参数是让 Python 运行时在屏幕上输出调试及运行信息 * localhost:1025 参数则是让 Python 在本地的 1025 端口上开启 SMTP 服务 另外，假如你想让程序运行于标准的 25 的端口上的话，你必须使用 sudo 命令，因为只有 root 才能在 1-1024 端口上开启服务。如下：
 
 | `1`  | `**sudo** python -m smtpd -n -c DebuggingServer localhost:25` |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
  
 
@@ -522,7 +647,6 @@ watch 是实时监控工具，-d 参数会高亮显示变化的区域，-n 1 参
 
 | 1    | **man** 7 ascii |
 | ---- | --------------- |
-|      |                 |
 
 很多人初学编程都会接触到ascii码的概念，有时候为了查某个符号的ascii值，可能还得翻箱倒柜找出当年的课本？[Linux Manpage](http://www.kernel.org/doc/man-pages/)里面其实包含了很多类似的实用资料，上述命令就能很详细的方式解释ascii编码，[当然这里还有在线版](http://www.kernel.org/doc/man-pages/online/pages/man7/ascii.7.html)。
 
@@ -580,7 +704,6 @@ manpages里面还有一些有趣而且实用的资料，可能鲜为人知：
 
 | 1    | **time** **read** |
 | ---- | ----------------- |
-|      |                   |
 
 运行命令开始算起，到结束时按一下Enter，就显示出整个过程的时间，精确到ms级别。
 
@@ -588,7 +711,6 @@ time是用来计算一个进程在运行到结束过程耗费多少时间的程�
 
 | 1  2  3  4  5 | $ time ls /opt  ...  real    0m0.008s  user    0m0.003s  sys    0m0.007s |
 | ------------- | ------------------------------------------------------------ |
-|               |                                                              |
 
 real指整个程序对真实世界而言运行所需时间，user指程序在用户空间运行的时间，sys指程序对系统调用锁占用时间。
 
@@ -600,7 +722,6 @@ read本来是一个读取用户输入的命令，常见用法是read LINE，用�
 
 | 1    | net rpc shutdown -I  IP_ADDRESS -U username**%**password |
 | ---- | -------------------------------------------------------- |
-|      |                                                          |
 
 Windows平台上的net命令是比较强大的，因为其后台是一个RPC类的系统服务，大家应该看过win下用net use \\ip\ipc$ *这样一个命令建立IPC空连接，入侵主机的事情。
 
@@ -612,7 +733,6 @@ Linux下的net命令是samba组件的程序，通常包含在smbclient内，可�
 
 | 1    | **(cd** **/**tmp **&&** **ls)** |
 | ---- | ------------------------------- |
-|      |                                 |
 
 当然这只是演示，要查看目录当然可以ls /tmp。
 
@@ -622,13 +742,11 @@ Linux下的net命令是samba组件的程序，通常包含在smbclient内，可�
 
 | 1    | **echo** $**(echo** -e \\x$**(printf**  "%x" 65**))** |
 | ---- | ----------------------------------------------------- |
-|      |                                                       |
 
 5.利用中间管道嵌套使用SSH
 
 | 1    | **ssh** -t host_A **ssh** host_B |
 | ---- | -------------------------------- |
-|      |                                  |
 
 如果目标机器host_B处于比较复杂的网络环境，本机无法直接访问，但另外一台host_A能够访问到host_B，而且也能被本机访问到，那上述命令就解决了方便登录host_B的问题。
 
@@ -636,7 +754,6 @@ Linux下的net命令是samba组件的程序，通常包含在smbclient内，可�
 
 | 1    | **ssh** -t host1 **ssh** -t  host2 **ssh** -t  host3 **ssh** -t  host4 ... |
 | ---- | ------------------------------------------------------------ |
-|      |                                                              |
 
 嗯那神马FBI CIA的，有本事来捉我吧～
 
@@ -644,7 +761,6 @@ Linux下的net命令是samba组件的程序，通常包含在smbclient内，可�
 
 | 1    | **<**CTRL+l**>**; |
 | ---- | ----------------- |
-|      |                   |
 
 这个跟之前介绍的reset命令重置终端的作用有些类似，其实都只是发送一段控制序列，让终端的显示复位。
 
@@ -652,7 +768,6 @@ Linux下的net命令是samba组件的程序，通常包含在smbclient内，可�
 
 | 1    | tput **clear** |
 | ---- | -------------- |
-|      |                |
 
 tput是专门用来控制终端的一个小工具，也挺强大的，详细信息运行man tput查看。
 
@@ -678,7 +793,6 @@ history输出用户了命令历史；awk统计并输出列表；sort排序；hea
 
 | 1  2  3  4  5  6 | curl -u you**@**gmail.com --silent  "https://mail.google.com/mail/feed/atom"  **\|**   **perl** -ne  \   '      print "Subject: $1 " if /<title>(.+?)<\/title>/  && $title++;      print "(from $1)\n" if /<email>(.+?)<\/email>/;   ' |
 | ---------------- | ------------------------------------------------------------ |
-|                  |                                                              |
 
 Gmail的一个特色是支持Atom feed输出邮件列表，所以总是见到很多Gmail邮件提醒器之类的，因为开发特简单，atom很方便。
 
@@ -688,8 +802,8 @@ Gmail的一个特色是支持Atom feed输出邮件列表，所以总是见到很
 
 | 1    | telnet towel.blinkenlights.nl |
 | ---- | ----------------------------- |
-|      |                               |
 
 没什么好解释的，就是ASCII艺术之一。如果你有ipv6连接，还能看到彩色版的。牛吧？
 
  
+

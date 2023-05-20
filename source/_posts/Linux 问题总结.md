@@ -20,33 +20,9 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
  crond会每分钟去检查一下job有没有修改，有修改的话会reload，但是这个**修改不包含权限的修改**。可以简单地理解这个修改是指文件的change time。
 
-## xargs传参数例如
+## [cgroup目录报No space left on device](https://rotadev.com/cgroup-no-space-left-on-device-server-fault/)
 
-> ls /xx | xargs -t -I{}  cp {} /tmp/{}
-
--t ： 打印内容，去掉\n之后的字符串
-
--I :  后面定义占位符，上例子是{}  ，后面命令行中可以多次使用占位符
-
-挂载多台苹果的例子
-
->  idevice_id -l|xargs -t -I{} mkdir {};idevice_id -l |xargs -t -I{} ifuse {} {}
-
-
-
-批量执行docker exec
-
-```
-ansible -i host.ini all -m shell -a "docker ps -a | grep pxd-tpcc | grep dn | cut -d ' ' -f 1 | xargs  -I{} docker exec {} bash -c \"myc -e 'shutdown'\""
-```
-
-批量推送镜像
-
-```
-docker images |grep "registry:5000" | awk '{ print $1":"$2 }' | xargs -I {} docker push {}
-```
-
-
+可能是因为某个规则下的 cpuset.cpus 文件是空导致的
 
 ## 容器中root用户执行 su - admin 切换失败
 
@@ -91,6 +67,18 @@ grep -rin pam_limit /etc/pam.d //可以看到触发重新加载的场景
 
 对于systemd service 的资源设置，则需修改全局配置，全局配置文件放在/etc/systemd/system.conf 和/etc/systemd/user.conf，同时也会加载两个对应目录中的所有.conf 文件/etc/systemd/system.conf.d/.conf 和/etc/systemd/user.conf.d/.conf。
 
+## open files 限制在1024
+
+docker 容器内 nofile只有1024，检查：
+
+```
+cat /etc/sysconfig/docker
+或者
+cat /usr/lib/systemd/system/docker.service
+LimitNOFILE=1048576
+LimitNPROC=1048576
+```
+
 ### 关于ulimit的一些知识点
 
 参考 [Ulimit](https://feichashao.com/ulimit_demo/) http://blog.yufeng.info/archives/2568
@@ -108,8 +96,6 @@ ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：
 2. pam_limits 读取 limits.conf，相应地设定用户所获得的 shell 的 limits；
 3. 用户在 shell 中，可以通过 ulimit 命令，查看或者修改当前 shell 的 limits;
 4. 当用户在 shell 中执行程序时，该程序进程会继承 shell 的 limits 值。于是，limits 在进程中生效了
-
-
 
 判断要分配的句柄号是不是超过了 limits.conf 中 nofile 的限制。fd 是当前进程相关的，是一个从 0 开始的整数
 结论1：soft nofile 和 fs.nr_open的作用一样，它两都是限制的单个进程的最大文件数量。区别是 soft nofile 可以按用户来配置，而 fs.nr_open 所有用户只能配一个。注意 hard nofile 一定要比 fs.nr_open 要小，否则可能导致用户无法登陆。
@@ -374,7 +360,29 @@ http://yum.baseurl.org/wiki/Faq
 
 否则的话debug为啥，比如检查设备标签（e2label）是否冲突之类的
 
-## [D状态的进程](https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html)
+
+
+## 进程状态
+
+https://zhuanlan.zhihu.com/p/401910162
+
+```text
+PROCESS STATE CODES
+  Here are the different values that the s, stat and state output specifiers(header "STAT" or "S") will display to describe the state of a process:
+ 
+    D    uninterruptible sleep (usually IO)  #不可中断睡眠 不接受任何信号，因此kill对它无效，一般是磁盘io,网络io读写时出现
+    R    running or runnable (on run queue)  #可运行状态或者运行中，可运行状态表明进程所需要的资源准备就绪，待内核调度
+    S    interruptible sleep (waiting for an event to complete) #可中断睡眠，等待某事件到来而进入睡眠状态
+    T    stopped by job control signal #进程暂停状态 平常按下的ctrl+z,实际上是给进程发了SIGTSTP 信号 （kill -l可查看系统所有的信号量）
+    t    stopped by debugger during the tracing #进程被ltrace、strace attach后就是这种状态
+    W    paging (not valid since the 2.6.xx kernel) #没有用了
+    X    dead (should never be seen) #进程退出时的状态
+    Z    defunct ("zombie") process, terminated but not reaped by its parent #进程退出后父进程没有正常回收，俗称僵尸进程
+```
+
+### [D状态的进程](https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html)
+
+D： Disk sleep（task_uninterruptible)--比如，磁盘满，导致进程D，无法kill
 
 ```
 echo 1 >  /proc/sys/kernel/hung_task_panic  
@@ -400,11 +408,37 @@ $ cat /proc/sys/kernel/hung_task_warnings
 
 其基本原理也很简单，系统启动时会创建一个内核线程 `khungtaskd`，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。
 
-## T 状态进程
+### T 状态进程
 
 kill -CONT pid 来恢复
 
 jmap -heap/histo和大家使用-F参数是一样的，底层都是通过serviceability agent来实现的，并不是jvm attach的方式，通过sa连上去之后会挂起进程，在serviceability agent里存在bug可能**导致detach的动作不会被执行**，从而会让进程一直挂着，可以通过top命令验证进程是否处于T状态，如果是说明进程被挂起了，如果进程被挂起了，可以通过kill -CONT [pid]来恢复。
+
+## 路由
+
+『你所规划的路由必须要是你的网卡 (如 eth0) 或 IP 可以直接沟通 (broadcast) 的情况』才行
+
+```
+$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0
+SIOCDELRT: No such process // 从bond0没法广播到 11.164.191.247
+
+$sudo route add -net 11.164.191.0  gw 100.81.183.247 netmask 255.255.255.0 bond0.700
+SIOCADDRT: Network is unreachable //从bond0.700 没法广播到 100.81.183.247，实际目前从bond0.700没法广播到任何地方
+
+$sudo route add** **11.164.191.247** **dev** **bond0.700
+
+$sudo route add -net 11.164.191.0  **gw 100.81.183.247** netmask 255.255.255.0 bond0.700
+SIOCADDRT: Network is unreachable  //从bond0.700 没法广播到 100.81.183.247
+
+$sudo route add -net 11.164.191.0  gw 11.164.191.247 netmask 255.255.255.0 bond0
+SIOCADDRT: Network is unreachable//从bond0没法广播到 11.164.191.247但是从bond0.700可以
+
+$sudo route add -net 11.164.191.0  **gw 11.164.191.247** netmask 255.255.255.0 bond0.700
+```
+
+https://serverfault.com/questions/581159/unable-to-add-a-static-route-sioaddrt-network-is-unreachable
+
+
 
 ## linux 2.6.32内核高精度定时器带来的cpu sy暴涨的“问题”
 
@@ -416,6 +450,14 @@ cat /proc/timer_list | grep .resolution
 
 可以通过在 /boot/grub2/grub.cfg 中相应的kernel行的最后增加highres=off nohz=off来关闭高精度（不建议这样做，最好还是程序本身做相应的修改）
 
+## 后台执行
+
+将任务放到后台，断开ssh后还能运行：
+
+1. "ctrl-Z"将当前任务挂起；
+2. "disown -h"让该任务忽略 SIGHUP 信号（不会因为掉线而终止执行）；
+3. "bg"让该任务在后台恢复运行。
+
 ## Linux 进程调度
 
 Linux的进程调度有一个不太为人熟知的特性，叫做**wakeup affinity**，它的初衷是这样的：如果两个进程频繁互动，那么它们很有可能共享同样的数据，把它们放到亲缘性更近的scheduling domain有助于提高缓存和内存的访问性能，所以当一个进程唤醒另一个的时候，被唤醒的进程可能会被放到相同的CPU core或者相同的NUMA节点上。
@@ -424,7 +466,7 @@ Linux的进程调度有一个不太为人熟知的特性，叫做**wakeup affini
 
 ## [tty](https://www.cnblogs.com/liqiuhao/p/9031803.html)
 
-tty（teletype--最早的一种终端设备） stty 设置tty的相关参数
+tty（teletype--最早的一种终端设备，远程打字机） stty 设置tty的相关参数
 
 tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以看到本次的终端
 
@@ -509,9 +551,6 @@ sed -i 's/^#SystemMaxUse=$/SystemMaxUse=500M/g' /etc/systemd/journald.conf
 ##grub认的index从0开始数的
 #sudo grub2-reboot 0; sudo reboot
 
-```
-
-```
 $cat /sys/kernel/mm/transparent_hugepage/enabled
 always [madvise] never
 ```
@@ -587,8 +626,6 @@ cat /tmp/tmp_aa.pstrace
   2853.302 ( 0.001 ms): clock_gettime(which_clock: MONOTONIC, tp: 0xfff7bd470f38)             = 0
 ```
 
-
-
 ### 内存——虚拟内存参数
 
 - `dirty_ratio` 百分比值。当脏的 page cache 总量达到系统内存总量的这一百分比后，系统将开始使用 pdflush 操作将脏的 page cache 写入磁盘。默认值为 20％，通常不需调整。对于高性能 SSD，比如 NVMe 设备来说，降低其值有利于提高内存回收时的效率。
@@ -626,6 +663,12 @@ Linux 从91年到95年处于成长期，真正大规模应用是Linux+Apache提�
 
 
 
+rpm:  centos/fedora/suse
+
+deb:  debian/ubuntu/uos(早期基于ubuntu定制，后来基于debian定制，再到最近开始直接基于kernel定制)
+
+
+
 ARPANET：**高等研究計劃署網路**（英語：Advanced Research Projects Agency Network），通称**阿帕网**（英語：ARPANET）是美國[國防高等研究計劃署](https://zh.m.wikipedia.org/wiki/國防高等研究計劃署)开发的世界上第一个运营的[封包交换](https://zh.m.wikipedia.org/wiki/封包交換)网络，是全球[互联网](https://zh.m.wikipedia.org/wiki/互联网)的鼻祖。
 
 TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表了一篇题为《关于分组交换的网络通信协议》的论文，正式提出TCP/IP，用以实现计算机网络之间的互联。
@@ -633,6 +676,10 @@ TCP/IP：1974年，卡恩和瑟夫带着研究成果，在IEEE期刊上，发表
 在1983年，美国国防部高级研究计划局决定淘汰NCP协议（ARPANET最早使用的协议），TCP/IP取而代之。
 
 
+
+### Deepin UOS
+
+***\*Deepin 与统信 UOS 类似于红帽的 Fedora 与 RHEL 的上下游关系，Deepin 依然保持着原来的社区运营模式，而统信 UOS 则是基于社区版 Deepin 构建的商业发行版，为 Deepin 挖掘更多的商业机会和更大的商业价值，进而反哺社区，形成良性循环\****。
 
 ## 参考文章
 

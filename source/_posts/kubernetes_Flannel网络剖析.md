@@ -14,25 +14,35 @@ tags:
 
 ## cni（Container Network Interface）
 
-CNI 全称为 Container Network Interface，是用来定义容器网络的一个 [规范](https://github.com/containernetworking/cni/blob/master/SPEC.md)。[containernetworking/cni](https://github.com/containernetworking/cni) 是一个 CNCF 的 CNI 实现项目，包括基本额 bridge,macvlan等基本网络插件。
+CNI 全称为 Container Network Interface，是用来定义容器网络的一个 [规范](https://github.com/containernetworking/cni/blob/master/SPEC.md)。[containernetworking/cni](https://github.com/containernetworking/cni) 是一个 CNCF 的 CNI 实现项目，包括基本的 bridge,macvlan等基本网络插件。
 
-一般将cni各种网络插件的可执行文件二进制放到 `/opt/cni/bin` ，在 `/etc/cni/net.d/` 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。
+一般将cni各种网络插件的可执行文件二进制放到 `/usr/libexec/cni/` ，在 `/etc/cni/net.d/` 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。
 
 比如：
 
 ```
-#ls -lh /opt/cni/bin/
-总用量 90M
--rwxr-x--- 1 root root 4.0M 12月 23 09:39 bandwidth
--rwxr-x--- 1 root root  35M 12月 23 09:39 calico
--rwxr-x--- 1 root root  35M 12月 23 09:39 calico-ipam
--rwxr-x--- 1 root root 3.0M 12月 23 09:39 flannel
--rwxr-x--- 1 root root 3.5M 12月 23 09:39 host-local
--rwxr-x--- 1 root root 3.1M 12月 23 09:39 loopback
--rwxr-x--- 1 root root 3.8M 12月 23 09:39 portmap
--rwxr-x--- 1 root root 3.3M 12月 23 09:39 tuning
+# ls -lh /usr/libexec/cni/
+总用量 133M
+-rwxr-xr-x 1 root root 4.4M  8月 18 11:51 bandwidth
+-rwxr-xr-x 1 root root 4.3M  3月  6  2021 bridge
+-rwxr-x--- 1 root root  31M  8月 18 11:51 calico
+-rwxr-x--- 1 root root  30M  8月 18 11:51 calico-ipam
+-rwxr-xr-x 1 root root  12M  3月  6  2021 dhcp
+-rwxr-xr-x 1 root root 5.6M  3月  6  2021 firewall
+-rwxr-xr-x 1 root root 3.1M  8月 18 11:51 flannel
+-rwxr-xr-x 1 root root 3.8M  3月  6  2021 host-device
+-rwxr-xr-x 1 root root 3.9M  8月 18 11:51 host-local
+-rwxr-xr-x 1 root root 4.0M  3月  6  2021 ipvlan
+-rwxr-xr-x 1 root root 3.6M  8月 18 11:51 loopback
+-rwxr-xr-x 1 root root 4.0M  3月  6  2021 macvlan
+-rwxr-xr-x 1 root root 4.2M  8月 18 11:51 portmap
+-rwxr-xr-x 1 root root 4.2M  3月  6  2021 ptp
+-rwxr-xr-x 1 root root 2.7M  3月  6  2021 sample
+-rwxr-xr-x 1 root root 3.2M  3月  6  2021 sbr
+-rwxr-xr-x 1 root root 2.8M  3月  6  2021 static
+-rwxr-xr-x 1 root root 3.7M  8月 18 11:51 tuning
+-rwxr-xr-x 1 root root 4.0M  3月  6  2021 vlan
 
-[root@hygon3 15:55 /root]
 #ls -lh /etc/cni/net.d/
 总用量 12K
 -rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist
@@ -61,7 +71,15 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 
 默认cni 网络是没法跨宿主机的，跨宿主机需要走overlay（比如flannel的vxlan）或者仅限宿主机全在一个二层网络可达（比如用flannel的host-gw模式）
 
-## flannel vxlan网络
+## [flannel vxlan网络](https://msazure.club/flannel-networking-demystify/)
+
+什么是 flannel
+
+> *Flannel is a simple and easy way to configure a layer 3 network fabric designed for Kubernetes.*
+
+Flannel 工作原理
+
+> *Flannel runs a small, single binary agent called* `flanneld` on each host, and is responsible for allocating a subnet lease to each host out of a larger, preconfigured address space. Flannel uses either the Kubernetes API or etcd directly to store the network configuration, the allocated subnets, and any auxiliary data (such as the host's public IP). Packets are forwarded using one of several backend mechanisms including VXLAN and various cloud integrations.
 
 核心原理就是将pod网络包通过vxlan协议封装成一个udp包，udp包的ip是数据ip，内层是pod原始网络通信包。
 
@@ -76,7 +94,7 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 5. 然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（**这里会过宿主机iptables**）
 6. cni0将包送给POD4
 
-![image-20220115132938290](/images/951413iMgBlog/image-20220115132938290.png)
+![img](/images/951413iMgBlog/Flannel.jpg)
 
 flannel容器启动的时候会给自己所在的node注入一些信息：
 
@@ -89,6 +107,48 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"6
                     
  "VtepMAC":"66:c6:ba:a2:8f:a1"----宿主机网卡 flannel.1的mac   
 ```
+
+flannel.1 知道如何通过物理网卡打包网络包到目标地址，flanneld 会在每个host 添加 arp，以及将本机的 vxlan fdb 添加到新的 host上
+
+```
+//这个 flannel 集群有四个 host，这是其中一个host 
+//4e:95:a9:e2:ed:28是对方 host 上 flannel.1 的 mac
+#ip neigh show dev flannel.1 
+172.19.2.0 lladdr 4e:95:a9:e2:ed:28 PERMANENT
+172.19.3.0 lladdr 2e:8b:65:d7:54:3e PERMANENT
+172.19.1.0 lladdr 6a:78:f3:db:b1:9e PERMANENT
+
+#bridge fdb show flannel.1
+01:00:5e:00:00:01 dev enp125s0f0 self permanent
+01:00:5e:00:00:01 dev enp125s0f1 self permanent
+01:00:5e:00:00:01 dev enp125s0f2 self permanent
+01:00:5e:00:00:01 dev enp125s0f3 self permanent
+33:33:00:00:00:01 dev enp125s0f3 self permanent
+33:33:ff:8e:d6:ac dev enp125s0f3 self permanent
+01:00:5e:00:00:01 dev enp2s0f0 self permanent
+01:00:5e:00:00:01 dev enp2s0f1 self permanent
+33:33:00:00:00:01 dev cni0 self permanent
+01:00:5e:00:00:01 dev cni0 self permanent
+f2:64:e3:49:4c:c8 dev cni0 vlan 1 master cni0 permanent
+f2:64:e3:49:4c:c8 dev cni0 master cni0 permanent
+72:d6:f3:54:7d:d6 dev vethe54b12b5 master cni0
+
+
+# ip neigh show dev flannel.1 //另一个host
+172.19.2.0 lladdr 4e:95:a9:e2:ed:28 PERMANENT
+172.19.3.0 lladdr 2e:8b:65:d7:54:3e PERMANENT
+172.19.0.0 lladdr 92:5c:b2:af:37:62 PERMANENT
+```
+
+包流程：
+
+![image-20220915113511706](/images/951413iMgBlog/image-20220915113511706.png)
+
+[ARP 和 FDB:](https://blog.michaelfmcnamara.com/2008/02/what-are-the-arp-and-fdb-tables/)
+
+ARP ([Address Resolution Protocol](http://en.wikipedia.org/wiki/Address_Resolution_Protocol)) table is used by a [Layer 3](http://en.wikipedia.org/wiki/Layer_3) device (router, switch, server, desktop) to store the IP address to MAC address entries for a specific network device. 
+
+The FDB ([forwarding database](http://en.wikipedia.org/wiki/Forwarding_table)) table is used by a Layer 2 device (switch/bridge) to store the MAC addresses that have been learned and which ports that MAC address was learned on. The MAC addresses are learned through [transparent bridging](http://en.wikipedia.org/wiki/Transparent_bridge) on switches and dedicated bridges.
 
 ### 抓包演示packet流转以及封包解包
 
@@ -105,7 +165,7 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
 
 //hygon3上的pod 192.168.0.4 访问 hygon4上的pod 192.168.2.56，在本机flannel.1（a2:06:5e:83:44:78）上抓包
 [root@hygon3 10:53 /root]
-#tcpdump -i  flannel.1 host 192.168.0.4 -nnetvv 
+#tcpdump -i flannel.1 host 192.168.0.4 -nnetvv 
 dropped privs to tcpdump
 tcpdump: listening on flannel.1, link-type EN10MB (Ethernet), capture size 262144 bytes
 a2:06:5e:83:44:78 > 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 729: (tos 0x0, ttl 63, id 52997, offset 0, flags [DF], proto TCP (6), length 715)
@@ -183,7 +243,9 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
     192.168.0.4.40712 > 192.168.2.56.3100: Flags [P.], cksum 0x7aa8 (correct), seq 150369440:150370309, ack 3441659494, win 507, options [nop,nop,TS val 1239115869 ecr 2297259166], length 869   
 ```
 
+这个流转流程如下图：
 
+![flannel-network-flow](/images/951413iMgBlog/flannel-network-flow.jpg)
 
 对应宿主机查询到的ip、路由信息（和上图不是对应的）
 
@@ -195,26 +257,12 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
     inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0
        valid_lft forever preferred_lft forever
 
-#ip -d -4 addr show flannel.1
+#ip -d -4 addr show flannel.1 //vxlan id 1 local 10.133.2.252 dev bond0 --指定了物理网卡
 474: flannel.1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UNKNOWN group default
     link/ether fe:49:64:ae:36:af brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535
     vxlan id 1 local 10.133.2.252 dev bond0 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535
     inet 192.168.3.0/32 brd 192.168.3.0 scope global flannel.1
-       valid_lft forever preferred_lft forever
-       
-[root@hygon239 20:06 /root]
-#kubectl describe node hygon252 | grep -C5 -i vtep  //可以看到VetpMAC 以及对应的宿主机IP（vxlan封包后的IP）
-Labels:             beta.kubernetes.io/arch=amd64
-                    beta.kubernetes.io/os=linux
-                    kubernetes.io/arch=amd64
-                    kubernetes.io/hostname=hygon252
-                    kubernetes.io/os=linux
-Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"fe:49:64:ae:36:af"}
-                    flannel.alpha.coreos.com/backend-type: vxlan
-                    flannel.alpha.coreos.com/kube-subnet-manager: true
-                    flannel.alpha.coreos.com/public-ip: 10.133.2.252
-                    kubeadm.alpha.kubernetes.io/cri-socket: /var/run/dockershim.sock
-                    node.alpha.kubernetes.io/ttl: 0       
+       valid_lft forever preferred_lft forever    
 ```
 
 包流转[示意图](https://blog.laputa.io/kubernetes-flannel-networking-6a1cb1f8ec7c)
@@ -252,9 +300,9 @@ Annotations:        flannel.alpha.coreos.com/backend-data: {"VNI":1,"VtepMAC":"f
 
 ### [flannel网络不通](https://github.com/flannel-io/flannel/issues/799)
 
-flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机，但是从flannel解开udp转送到cni的时候出了问题，大概率是iptables 拦截了包
-
 > Starting from Docker 1.13 default iptables policy for FORWARDING is DROP
+
+flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机，但是从flannel解开udp转送到cni的时候出了问题，大概率是iptables 拦截了包
 
 ```
 It seems docker version >=1.13 will add iptables rule like below,and it make this issue happen:
@@ -262,6 +310,108 @@ iptables -P FORWARD DROP
 
 All you need to do is add a rule below:
 iptables -P FORWARD ACCEPT //将FORWARD 默认规则(没有匹配到其它规则的话）改成ACCEPT
+
+//flannel 会检查 forward chain并将之改成 accept？以下是flannel 容器日志
+I0913 07:52:30.965060       1 main.go:698] Using interface with name enp2s0f0 and address 192.168.0.1
+I0913 07:52:30.965128       1 main.go:720] Defaulting external address to interface address (192.168.0.1)
+I0913 07:52:30.965134       1 main.go:733] Defaulting external v6 address to interface address (<nil>)
+I0913 07:52:30.965243       1 vxlan.go:137] VXLAN config: VNI=1 Port=0 GBP=false Learning=false DirectRouting=false
+I0913 07:52:30.966878       1 kube.go:339] Setting NodeNetworkUnavailable
+I0913 07:52:30.977942       1 main.go:340] Setting up masking rules
+I0913 07:52:31.332105       1 main.go:361] Changing default FORWARD chain policy to ACCEPT
+```
+
+## 宿主机多 ip 下 flannel 网络不通
+
+宿主机有两个ip，flannel组网ip是192.168，但是默认路由在1.1.网络下，此时能 ping 通，但是curl不通端口
+
+```
+#tcpdump -i enp2s0f0 -nettvv host 192.168.0.3 and udp
+tcpdump: listening on enp2s0f0, link-type EN10MB (Ethernet), capture size 262144 bytes
+
+//握手请求syn包，udp src ip:192.168.0.1
+1660897108.334556 0c:42:a1:4f:d1:e2 > 0c:42:a1:4f:d1:ee, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 32118, offset 0, flags [none], proto UDP (17), length 110)
+    192.168.0.1.56773 > 192.168.0.3.otv: [bad udp cksum 0x81c0 -> 0x459f!] OTV, flags [I] (0x08), overlay 0, instance 1
+56:fa:69:e3:dc:6b > 4e:95:a9:e2:ed:28, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 41108, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.6.35118 > 172.19.2.39.http: Flags [S], cksum 0x10c8 (correct), seq 582983385, win 64860, options [mss 1410,sackOK,TS val 2648241865 ecr 0,nop,wscale 7], length 0
+
+//对端回复syn包, 注意udp的目标ip:1.1.1.198,应该是 192.168.0.1 才对，mac是192.168.0.1 的，mac和ip不匹配，所以被内核扔掉（但是icmp不会被扔，原因未知）
+1660897108.334738 0c:42:a1:4f:d1:ee > 0c:42:a1:4f:d1:e2, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 41433, offset 0, flags [none], proto UDP (17), length 110)
+    192.168.0.3.38086 > 1.1.1.198.otv: [bad udp cksum 0x5aff -> 0x1769!] OTV, flags [I] (0x08), overlay 0, instance 1
+4e:95:a9:e2:ed:28 > 56:fa:69:e3:dc:6b, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 0, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.2.39.http > 172.19.0.6.35118: Flags [S.], cksum 0x8027 (correct), seq 3633913151, ack 582983386, win 64308, options [mss 1410,sackOK,TS val 3514485603 ecr 2648241865,nop,wscale 7], length 0
+
+//没有回复第三次握手，继续发syn，因为收到syn+ack后被扔掉了
+1660897109.363382 0c:42:a1:4f:d1:e2 > 0c:42:a1:4f:d1:ee, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 32123, offset 0, flags [none], proto UDP (17), length 110)
+    192.168.0.1.60933 > 192.168.0.3.otv: [bad udp cksum 0x81c0 -> 0x355f!] OTV, flags [I] (0x08), overlay 0, instance 1
+56:fa:69:e3:dc:6b > 4e:95:a9:e2:ed:28, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 41109, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.6.35118 > 172.19.2.39.http: Flags [S], cksum 0x0cc3 (correct), seq 582983385, win 64860, options [mss 1410,sackOK,TS val 2648242894 ecr 0,nop,wscale 7], length 0
+
+```
+
+多ip宿主机的网卡及路由
+
+```
+5: enp125s0f3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    link/ether 64:2c:ac:e9:78:3d brd ff:ff:ff:ff:ff:ff
+    inet 1.1.1.198/25 brd 1.1.1.255 scope global dynamic noprefixroute enp125s0f3
+       valid_lft 12463sec preferred_lft 12463sec
+    inet6 fe80::859a:7861:378e:d6ac/64 scope link noprefixroute
+       valid_lft forever preferred_lft forever
+6: enp2s0f0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000
+    link/ether 0c:42:a1:4f:d1:e2 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.0.1/24 brd 192.168.0.255 scope global noprefixroute enp2s0f0
+       valid_lft forever preferred_lft forever
+       
+#ip route
+default via 1.1.1.254 dev enp125s0f3 proto dhcp metric 101
+1.1.1.128/25 dev enp125s0f3 proto kernel scope link src 1.1.1.198 metric 101
+172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown
+172.19.0.0/24 dev cni0 proto kernel scope link src 172.19.0.1
+172.19.2.0/24 via 172.19.2.0 dev flannel.1 onlink
+172.19.3.0/24 via 172.19.3.0 dev flannel.1 onlink
+192.168.0.0/24 dev enp2s0f0 proto kernel scope link src 192.168.0.1 metric 100       
+```
+
+解决办法：真正生效的是 flannel.1 中的地址
+
+```
+//比如 flannel 选用了以下公网ip（默认路由上的ip）导致flannel网络不通，应该选内网ip
+#ip -details link show flannel.1
+29: flannel.1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UNKNOWN mode DEFAULT group default
+    link/ether 96:ad:e2:29:29:09 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535
+    vxlan id 1 local 30.1.1.1 dev eno1 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535
+```
+
+解决办法得先删掉 flannel 网络，然后在 flannel.yaml 中指定内网网卡：
+
+```yaml
+containers:
+      - name: kube-flannel
+        image: registry:5000/quay.io/coreos/flannel:v0.14.0
+        command:
+        - /opt/bin/flanneld
+        args:
+        - --ip-masq
+        - --kube-subnet-mgr
+        #指定网卡, enp33s0f0 为内网网卡，不是默认路由
+        #- --iface=enp33s0f0
+        #— --iface-regex=[enp0s8|enp0s9]
+
+//然后会看到 flannel.1 的地址用的是 enp33s0f0（192.168.0.1）
+#ip -details link show flannel.1
+40: flannel.1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc noqueue state UNKNOWN mode DEFAULT group default
+    link/ether 92:5c:b2:af:37:62 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535
+    vxlan id 1 local 192.168.0.1 dev enp2s0f0 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535        
+```
+
+>  If you happen to have different interfaces to be matched, you can match it on a regex pattern. Let’s say the worker nodes could’ve enp0s8 or enp0s9 configured, then the flannel args would be `— --iface-regex=[enp0s8|enp0s9]`
+
+修改node的annotation中flannel的 public-ip。如果因为 public-ip 不对导致网络不通，在annotation中修改public-ip没用，这个值是 flannel 读取underlay 网络配置后写进来的，同时也写到了 flannel.1 的 config 中
+
+```
+kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip-
+kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip=192.168.0.1
 ```
 
 ## 抓包和调试 -- nsenter
@@ -269,7 +419,8 @@ iptables -P FORWARD ACCEPT //将FORWARD 默认规则(没有匹配到其它规则
 ```
 获取pid：docker inspect -f {{.State.Pid}} c8f874efea06
 
-进入namespace：nsenter --target 17277 --net --pid –mount
+进入namespace：nsenter --net --pid --target 17277
+nsenter --net --pid --target `docker inspect -f {{.State.Pid}} c8f874efea06`
 
 //只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的
 nsenter --target 17277 --net 
@@ -349,7 +500,7 @@ FLANNEL_MTU=1450
 FLANNEL_IPMASQ=true
 ```
 
-calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，清理不掉（重启可以清理掉tunl0）
+calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，[清理不掉](https://askubuntu.com/questions/1190684/how-can-i-permanently-delete-tun-interfaces#:~:text=doing%20sudo%20ip%20link%20delete,which%20removes%20all%20tun%20devices)（重启可以清理掉tunl0）
 
 ```
 ip link set dev tunl0 name tunl0_fallback
@@ -360,6 +511,13 @@ ip link set dev tunl0 name tunl0_fallback
 ```
 
 ### 清理和创建flannel网络
+
+查看容器网卡和宿主机上的虚拟网卡veth pair:
+
+```
+ip link //宿主机上执行
+cat /sys/class/net/eth0/iflink //容器中执行
+```
 
 清理
 
@@ -386,7 +544,19 @@ brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡
 
 ### flannel ip在多个node之间分配错乱
 
-可以铲掉网卡重新分配
+当铲掉重新部署的时候可能cni等网络有残留，导致下一次部署会报ip已存在的错误
+
+```
+(combined from similar events): Failed create pod sandbox: rpc error: code = Unknown desc = failed to set up sandbox container "f7aa44bf81b27bf0ff6c02339df2d2743cf952c1519fead4c563892d2d41a979" network for pod "nginx-deployment-6c8c86b759-f8fb7": NetworkPlugin cni failed to set up pod "nginx-deployment-6c8c86b759-f8fb7_default" network: failed to set bridge addr: "cni0" already has an IP address different from 172.19.2.1/24
+```
+
+ 可以铲掉网卡重新分配，或者给cni重新分配错误信息提示的ip
+
+```
+ ifconfig cni0 172.19.2.1/24
+```
+
+or
 
 ```
 ip link set cni0 down && ip link set flannel.1 down 
@@ -394,9 +564,7 @@ ip link delete cni0 && ip link delete flannel.1
 systemctl restart containerd && systemctl restart kubelet
 ```
 
-
-
-## host-gw
+## [host-gw](https://msazure.club/flannel-networking-demystify/)
 
 实现超级简单，就是在宿主机上配置路由规则，把其它宿主机ip当成其上所有pod的下一跳，不用封包解包，所以性能奇好，但是要求所有宿主机在一个2层网络，因为ip路由规则要求是直达其它宿主机。
 
@@ -486,6 +654,45 @@ void sock_net_set(struct sock *sk, struct net *net)
 ![Image](/images/951413iMgBlog/640-5304524.)
 
 每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等
+
+## etcd 中存储的 flannel 配置
+
+```
+kubectl exec -it etcd-uos21 -n=kube-system -- /bin/sh
+
+然后：
+ETCDCTL_API=3 etcdctl --key /etc/kubernetes/pki/etcd/peer.key --cert /etc/kubernetes/pki/etcd/peer.crt --cacert /etc/kubernetes/pki/etcd/ca.crt --endpoints=https://localhost:2379 get /registry/configmaps/kube-system/kube-flannel-cfg
+
+cni-conf.json�{
+  "name": "cbr0",
+  "cniVersion": "0.3.1",
+  "plugins": [
+    {
+      "type": "flannel",
+      "delegate": {
+        "hairpinMode": true,
+        "isDefaultGateway": true
+      }
+    },
+    {
+      "type": "portmap",
+      "capabilities": {
+        "portMappings": true
+      }
+    }
+  ]
+}
+Z
+net-conf.jsonI{
+  "Network": "172.19.0.0/18",
+  "Backend": {
+    "Type": "vxlan"
+  }
+}
+"
+```
+
+
 
 ## 总结
 

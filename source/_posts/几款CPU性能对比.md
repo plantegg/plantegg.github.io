@@ -1104,10 +1104,7 @@ ARM 优势的来源主要是工艺领先一代(7nm VS 14nm)
 
 ## 参考资料
 
-[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://www.atatech.org/articles/157681)
+[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/)
 
 [华为TaiShan服务器ARMNginx应用调优案例 大量绑核、中断、Numa等相关调优信息](https://bbs.huaweicloud.com/blogs/146367)
 
-[主流处理器内部单核微架构细节1——AMD ZEN(即海光)微架构](https://topic.atatech.org/articles/178985)
-
-[主流处理器内部单核微架构细节2——Skylake微架构](https://topic.atatech.org/articles/178986)

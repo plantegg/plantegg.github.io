@@ -107,13 +107,25 @@ make总是报找不到libc，但实际我执行 ld -lc --verbose 从debug信息�
 	    TCP_MAX_STATES  /* Leave at the end! */
 	};
 
-## kdump
+## [kdump](https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&mid=2666565525&idx=2&sn=f5adc9ad8f192dac9d1d46f6c2140749)
 
 启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)
 
 	sudo systemctl start kdump
 
 参考：[Linux 系统内核崩溃分析处理简介](https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/)
+
+Kdump 的概念出现在 2005 左右，是迄今为止最可靠的内核转存机制，已经被主要的 linux™ 厂商选用。kdump是一种先进的基于 kexec 的内核崩溃转储机制。当系统崩溃时，kdump 使用 kexec 启动到第二个内核。第二个内核通常叫做捕获内核，以很小的内存启动以捕获转储镜像。
+
+第一个内核保留了内存的一部分给第二个内核启动用。由于 kdump 利用 kexec 启动捕获内核，绕过了 BIOS，所以第一个内核的内存得以保留。这是内核崩溃转储的本质。
+
+kdump 需要两个不同目的的内核，生产内核和捕获内核。生产内核是捕获内核服务的对象。捕获内核会在生产内核崩溃时启动起来，与相应的 ramdisk 一起组建一个微环境，用以对生产内核下的内存进行收集和转存。
+
+### 什么是 kexec ？
+
+Kexec 是实现 kdump 机制的关键，它包括 2 一是组成部分：一是内核空间的系统调用 kexec_load，负责在生产内核（production kernel 或 first kernel）启动时将捕获内核（capture kernel 或 sencond kernel）加载到指定地址。二是用户空间的工具 kexec-tools，他将捕获内核的地址传递给生产内核，从而在系统崩溃的时候能够找到捕获内核的地址并运行。
+
+没有 kexec 就没有 kdump。先有 kexec 实现了在一个内核中可以启动另一个内核，才让 kdump 有了用武之地。kexec 原来的目的是为了节省时间 kernel 开发人员重启系统的时间，谁能想到这个“偷懒”的技术却孕育了最成功的内存转存机制呢？
 
 ## crash
 

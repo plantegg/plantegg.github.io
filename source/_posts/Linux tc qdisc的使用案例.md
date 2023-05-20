@@ -79,17 +79,17 @@ tc qdisc add dev eth0 parent 1:3 handle 30: netem delay 5ms
 tc filter add dev eth0 protocol ip parent 1:0 u32 match ip sport 34001 0xffff flowid 1:3
 ```
 
-## 控制eth0网卡的带宽、延时、乱序、丢包
+## 控制网卡的带宽、延时、乱序、丢包
 
 ```shell
 sudo tc qdisc add dev bond0 root handle 1: netem delay 10ms reorder 25% 50% loss 0.2%
 sudo tc qdisc add dev bond0 parent 1: handle 2: tbf rate 1mbit burst 32kbit latency 10ms
 
-/sbin/tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+/sbin/tc qdisc add dev bond0 root tbf rate 500kbit latency 50ms burst 15kb
 
 // 同时模拟20Mbps带宽，50msRTT和0.1%丢包率  
-# tc qdisc add dev eth5 root handle 1:0 tbf rate 20mbit burst 10kb limit 300000  
-# tc qdisc add dev eth5 parent 1:0 handle 10:0 netem delay 50ms loss 0.1 limit 300000 
+# tc qdisc add dev bond0 root handle 1:0 tbf rate 20mbit burst 10kb limit 300000  
+# tc qdisc add dev bond0 parent 1:0 handle 10:0 netem delay 50ms loss 0.1 limit 300000 
 
 tc qdisc change dev eth0 root netem reorder 50% gap 3 delay 1ms
 tc qdisc change dev eth0 root netem delay 1ms reorder 15%
@@ -212,6 +212,88 @@ sudo tc filter show dev eth0
 限流100MB后的实际监控效果
 
 ![image-20211031205539407](/images/951413iMgBlog/image-20211031205539407.png)
+
+
+
+## docker 中使用 tc
+
+docker里无法使用的bug 可以参考 https://bugzilla.redhat.com/show_bug.cgi?id=1152231，解决方法就是升级tc版本，tc qdisc add 时加上direct_qlen参数
+
+### 场景： 
+
+故障注入的docker: 10.1.1.149
+
+10.1.1.149上会模拟各种网络故障，但是中控机到该docker的连接需要不受影响
+
+
+
+DEVICE_NAME=eth0
+
+```
+# 根规则，direct_qlen 1000必须加，否则在docker的虚拟网络跑不了
+tc qdisc add dev ${DEVICE_NAME} root handle 1: htb  default 1024 direct_qlen 1000
+
+
+# 建立两个类继承root
+tc class add dev ${DEVICE_NAME} parent 1:0 classid 1:1 htb rate 10000mbit
+tc class add dev ${DEVICE_NAME} parent 1:0 classid 1:2 htb rate 10000mbit
+
+
+#新版本的tc在filter设置完后，所有网络都会断，类似黑名单，需要加qdisc才能恢复, 所以先让两个通道都能跑
+# 队列采用公平的调度算法，保证网络通畅，perturb参数是每隔10秒换一次hash，进一步保障平均
+tc qdisc add dev ${DEVICE_NAME} parent 1:1 sfq perturb 10
+tc qdisc add dev ${DEVICE_NAME} parent 1:2 sfq perturb 10
+
+
+# 加过滤规则
+#1.队列1是和跳板机交互的网络，需要保持通畅
+tc filter add dev ${DEVICE_NAME} protocol ip parent 1: prio 10 u32 match ip dst 11.136.106.200/32 flowid 1:1
+
+
+#2.其他所有主机走队列2，实现网络模拟
+tc filter add dev ${DEVICE_NAME} protocol ip parent 1: prio 10 u32 match ip dst 0.0.0.0/0 flowid 1:2
+
+#队列2 开始网络模拟
+#该命令将${DEVICE_NAME}网卡的耗时随机delay 100ms，延迟的尖刺在标准值的正负30ms, 最后的百分比数字是尖刺的相关系数
+
+# 这边用replace是因为之前已经用add加过规则了
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 netem delay 100ms 30ms 25%
+
+
+#该命令将 ${DEVICE_NAME} 网卡的传输设置为随机丢掉10%的数据包, 成功率为50%
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 netem loss 10% 50%
+
+
+#该命令将 ${DEVICE_NAME} 网卡的传输设置为随机产生10%的重复数据包。
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 netem duplicate 10%
+
+
+#该命令将 ${DEVICE_NAME} 网卡的传输设置为:有25%的数据包会被立即发送,其他的延迟10ms,相关性是10%,产生乱序
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 netem delay 10ms reorder 25% 10% 
+
+
+#该命令将 ${DEVICE_NAME} 网卡的传输设置为随机产生9%的损坏的数据包
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 netem corrupt 9%
+```
+
+恢复网络
+
+```
+#让网络恢复正常
+tc qdisc replace dev ${DEVICE_NAME} parent 1:2 sfq perturb 10
+
+# =================== 查看规则 ======================
+tc filter show dev ${DEVICE_NAME}
+tc class show dev ${DEVICE_NAME}
+tc qdisc show dev ${DEVICE_NAME}
+
+#====================== 清理 ======================
+tc filter delete dev ${DEVICE_NAME} parent 1:0 protocol ip pref 10
+tc qdisc del dev ${DEVICE_NAME} parent 1:2 netem
+tc class del dev ${DEVICE_NAME} parent 1:0 classid 1:2
+tc class del dev ${DEVICE_NAME} parent 1:0 classid 1:1
+tc qdisc del dev ${DEVICE_NAME} root handle 1
+```
 
 
 

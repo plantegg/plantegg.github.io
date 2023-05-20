@@ -52,12 +52,19 @@ tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED
 
 **那么为什么大家有这样的误解呢？**我总结了下，大概是以下两个原因让大家误解了：
 
-- 如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次（如果有个连接用了80连别人，这里80还是不能被listen……想想）。
+- 如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。
 - 另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。
 
 我们在创建连接前，经常会先调bind，bind后可以调listen当做服务端监听，也可以直接调connect当做client来连服务端。
 
 bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。
+
+比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 
+
+> Linux 4.2后的内核增加了IP_BIND_ADDRESS_NO_PORT 这个socket option来解决这个问题，将src port的选择延后到connect的时候
+>
+> [IP_BIND_ADDRESS_NO_PORT (since Linux 4.2)](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=90c337da1524863838658078ec34241f45d8394d)
+>               Inform the kernel to not reserve an ephemeral port when using bind(2) with a port number of 0.  The port will later be automatically chosen at connect(2) time, in a way that allows sharing a source port as long as the 4-tuple is unique.
 
 但如果我只是个client端，只需要连接server建立连接，也就不需要bind，直接调connect就可以了，这个时候只要保证四元组唯一就行。
 
@@ -71,19 +78,17 @@ bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，
 
 文档描述：
 
-> ```
-> SO_REUSEADDR      Indicates that the rules used in validating addresses supplied      in a bind(2) call should allow reuse of local addresses.  For      AF_INET sockets this means that a socket may bind, except when      there is an active listening socket bound to the address.      When the listening socket is bound to INADDR_ANY with a spe‐      cific port then it is not possible to bind to this port for      any local address.  Argument is an integer boolean flag.
-> ```
+> SO_REUSEADDR      Indicates that the rules used in validating addresses supplied in a bind(2) call should allow reuse of local addresses.  For AF_INET sockets this means that a socket may bind, except when there is an active listening socket bound to the address. When the listening socket is bound to INADDR_ANY with a specific port then it is not possible to bind to this port for any local address.  Argument is an integer boolean flag.
 
 从这段文档中我们可以知道三个事：
 
-1. 使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是说，两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。
+1. 使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。
 2. 当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。
 3. 当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。
 
-SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//SO_REUSEPORT主要是解决Server端的port重用
+==SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）//而 SO_REUSEPORT主要是解决Server端的port重用==
 
-[SO_REUSEADDR 还可以重用TIME_WAIT状态的port](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ), 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出Address Already in use的错误导致启动失败。可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
+[SO_REUSEADDR 还可以重用TIME_WAIT状态的port](https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ), 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出<u>Address Already in use</u>的错误导致启动失败。这时候可以通过在调用bind函数之前设置SO_REUSEADDR来解决。
 
 > What exactly does SO_REUSEADDR do?
 >
@@ -381,12 +386,88 @@ tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的�
 实际测试发现 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时 新的连接仍然可以不断地创建和断开，这个参数大小不会影响性能，只是影响TIME_WAIT 数量的展示（当然 TIME_WAIT 太多导致local port不够除外）, 这个值设置小一点会避免出现端口不够的情况
 
 > tcp_max_tw_buckets - INTEGER
-> 	Maximal number of timewait sockets held by system simultaneously.
-> 	If this number is exceeded time-wait socket is immediately destroyed
-> 	and warning is printed. This limit exists only to prevent
-> 	simple DoS attacks, you _must_ not lower the limit artificially,
-> 	but rather increase it (probably, after increasing installed memory),
-> 	if network conditions require more than default value.
+> 	Maximal number of timewait sockets held by system simultaneously.If this number is exceeded time-wait socket is immediately destroyed and warning is printed. This limit exists only to prevent simple DoS attacks, you _must_ not lower the limit artificially, but rather increase it (probably, after increasing installed memory), if network conditions require more than default value.
+
+## [SO_LINGER](https://notes.shichao.io/unp/ch7/)
+
+SO_LINGER选项**用来设置延迟关闭的时间，等待套接字发送缓冲区中的数据发送完成**。 没有设置该选项时，在调用close() 后，在发送完FIN后会立即进行一些清理工作并返回。 如果设置了SO_LINGER选项，并且等待时间为正值，则在清理之前会等待一段时间。
+
+如果把延时设置为 0  时，Socket就丢弃数据，并向对方发送一个 `RST` 来终止连接，因为走的是 RST 包，所以就不会有 `TIME_WAIT` 了。
+
+> This option specifies how the `close` function operates for a connection-oriented protocol (for TCP, but not for UDP). By default, `close` returns immediately, but ==if there is any data still remaining in the socket send buffer, the system will try to deliver the data to the peer==.
+
+SO_LINGER 有三种情况
+
+1. l_onoff 为false（0）， 那么 l_linger 的值没有意义，socket主动调用close时会立即返回，操作系统会将残留在缓冲区中的数据发送到对端，并按照正常流程关闭(交换FIN-ACK），最后连接进入`TIME_WAIT`状态。**这是默认情况**
+2. l_onoff 为true（非0），  l_linger 为0，主动调用close的一方也是立刻返回，但是这时TCP会丢弃发送缓冲中的数据，而且不是按照正常流程关闭连接（不发送FIN包），直接发送`RST`，连接不会进入 time_wait 状态，对端会收到 `java.net.SocketException: Connection reset`异常
+3. l_onoff 为true（非0），  l_linger 也为非 0，这表示 `SO_LINGER`选项生效，并且超时时间大于零，这时调用close的线程被阻塞，TCP会发送缓冲区中的残留数据，这时有两种可能的情况：
+   - 数据发送完毕，收到对方的ACK，然后进行连接的正常关闭（交换FIN-ACK）
+   - 超时，未发送完成的数据被丢弃，连接发送`RST`进行非正常关闭
+
+```
+struct linger {
+  int   l_onoff;        /* 0=off, nonzero=on */
+  int   l_linger;       /* linger time, POSIX specifies units as seconds */
+};
+```
+
+### NIO下设置 SO_LINGER 的错误案例
+
+在使用NIO时，最好不设置`SO_LINGER`。比如Tomcat服务端接收到请求创建新连接时，做了这样的设置：
+
+```
+SocketChannel.setOption(SocketOption.SO_LINGER, 1000)
+```
+
+`SO_LINGER`的单位为`秒`！在网络环境比较好的时候，例如客户端、服务器都部署在同一个机房，close虽然会被阻塞，但时间极短可以忽略。但当网络环境不那么好时，例如存在丢包、较长的网络延迟，buffer中的数据一直无法发送成功，那么问题就出现了：`close会被阻塞较长的时间，从而直接或间接引起NIO的IO线程被阻塞`，服务器会不响应，不能处理accept、read、write等任何IO事件。也就是应用频繁出现挂起现象。解决方法就是删掉这个设置，close时立即返回，由操作系统接手后面的工作。
+
+这时会看到如下连接状态
+
+![image-20220721100246598](/images/951413iMgBlog/image-20220721100246598.png)
+
+以及对应的堆栈
+
+![image-20220721100421130](/images/951413iMgBlog/image-20220721100421130.png)
+
+查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行`preClose0`，就是在这里等待连接的关闭![image-20220721100446521](/images/951413iMgBlog/image-20220721100446521.png)
+
+每次HTTP线程在关闭连接被阻塞时，同时持有了`SocketChannelImpl`的对象锁，而IO线程在把这个连接移除出它的selector管理队列时，也要获得同一个`SocketChannelImpl`的对象锁。IO线程就这么一次次的被阻塞，悲剧的无以复加。有些NIO框架会让IO线程去做close，这时候就更加悲剧了。
+
+**总之这里的错误原因有两点：1）网络状态不好；2）错误理解了l_linger 的单位，是秒，不是毫秒。 在这两个原因的共同作用下导致了数据迟迟不能发送完毕，l_linger 超时又需要很久，所以服务会出现一直阻塞的状态。**
+
+## 为什么要有 time_wait 状态
+
+> TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.
+
+![alt text](/images/951413iMgBlog/image-20220721093116395.png)
+
+## [由Nginx SY CPU高负载引发内核探索之旅](https://mp.weixin.qq.com/s/njpdTW5TndO4-H7nbEpXAA)  
+
+这个案例来自腾讯7层网关团队，网关用的Nginx，请求转发给后面的被代理机器(RS:real server)，发现 sys CPU异常高，CPU都用在搜索可用端口.
+
+![Image](/images/951413iMgBlog/640-8259033.png)
+
+![Image](/images/951413iMgBlog/640-20221112211814567.png)
+
+ local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）
+
+核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪 如果你对
+
+我的看法，这个分奇偶数的实现就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！
+
+## [从STGW流量下降探秘内核收包机制](https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&mid=2649745268&idx=1&sn=f72f164847060d7b19cba272a38485e5&scene=21#wechat_redirect)
+
+listen port search消耗CPU异常高
+
+![图片](/images/951413iMgBlog/640-9840722.jpeg)
+
+在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。
+
+然而在内核支持了reuseport并且被广泛使用后，情况就不一样了，**在多进程架构里，listen port对应的socket数量，是会被几十倍的放大的。**以应用层监听了5000个端口，reuseport 使用了50个cpu核心为例，5000*50/32约等于7812，意味着每次握手包到来时，光是查找listen socket，就需要遍历7800多次。随着机器硬件性能越来越强，应用层使用的cpu数量增多，这个问题还会继续加剧。
+
+
+
+**正因为上述原因，并且我们现网机器开启了reuseport，在端口数量较多的机器里，inet_lookup_listener的哈希桶大小太小，遍历过程消耗了cpu，导致出现了函数热点。**
 
 ## 短连接的开销
 
@@ -398,11 +479,40 @@ tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的�
 
 ![image-20220627154931495](/images/951413iMgBlog/image-20220627154931495.png)
 
+
+
+## [一条连接的开销](https://mp.weixin.qq.com/s/BwddYkVLSYlkKFNeA-NUVg)
+
+主要是内存开销(如图，来源见水印)，另外就是每个连接都会占用一个文件句柄，可以通过参数来设置：fs.nr_open、nofile（其实 nofile 还分 soft 和 hard） 和 fs.file-max
+
+![Image](/images/951413iMgBlog/640-20220413134252639)
+
+从上图可以看到：
+
+- 没有收发数据的时候收发buffer不用提前分配，3K多点的内存是指一个连接的元信息数据空间，不包含传输数据的内存buffer
+
+- 客户端发送数据后，会根据数据大小分配send buffer（一般不超过wmem，默认kernel会根据系统内存压力来调整send buffer大小)
+
+- server端kernel收到数据后存放在rmem中，应用读走后就会释放对应的rmem
+
+- rmem和wmem都不会重用，用时分配用完释放
+
+可见，内核在 socket 内存开销优化上采取了不少方法:
+
+- 内核会尽量及时回收发送缓存区、接收缓存区，但高版本做的更好
+- 发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0
+- 其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象
+
+## [可用 local port 不够导致对端time_wait 连接重用进而卡顿案例](https://ata.alibaba-inc.com/articles/251853)
+
+A进程选择某个端口，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象
+
 ## 结论
 
 - 在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的
 - SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误
 - SO_REUSEPORT主要用来解决惊群、性能等问题
+- 全局范围可以用 net.ipv4.tcp_max_tw_buckets = 50000 来限制总 time_wait 数量，但是会掩盖问题
 - local port的选择是递增搜索的，搜索起始port随时间增加也变大
 
 ## 参考资料

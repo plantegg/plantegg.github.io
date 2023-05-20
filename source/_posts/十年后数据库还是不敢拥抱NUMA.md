@@ -368,7 +368,9 @@ Used time: 39 seconds
 
 ### innodb_numa_interleave
 
-从5.7开始，mysql增加了对NUMA的感知：[innodb_numa_interleave](https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave)
+从5.7开始，mysql增加了对NUMA的无感知：[innodb_numa_interleave](https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave)，也就是在开了NUMA的机器上，使用内错交错来分配内存，相当于使用上关掉 NUMA
+
+> For the [`innodb_numa_interleave`](https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave) option to be available, MySQL must be compiled on a NUMA-enabled Linux system.
 
 当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 [NUMA memory policy](https://linux.die.net/man/2/set_mempolicy) 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。
 
@@ -478,3 +480,5 @@ https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/
 https://queue.acm.org/detail.cfm?id=2513149
 
 [NUMA DEEP DIVE PART 1: FROM UMA TO NUMA](https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/) 这是一个系列，都很干货，值得推荐
+
+https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf Morsel-Driven Parallelism: A NUMA-Aware Query Evaluation Framework for the Many-Core Age 论文给出了很多numa-aware下的bandwidth、latency数据，以及对THC-H的影响

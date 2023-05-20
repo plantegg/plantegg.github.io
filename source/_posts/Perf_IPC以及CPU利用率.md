@@ -100,7 +100,7 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 
 另外cpu可以同时有多条pipeline，这就是理论上最大的IPC.
 
-### pipeline效率和IPC
+### [pipeline效率和IPC](https://www.hikunpeng.com/document/detail/zh/kunpenggrf/progtuneg/kunpengprogramming_05_0009.html)
 
 虽然一个指令需要5个步骤，也就是完全执行完需要5个cycles，这样一个时钟周期最多能执行0.2条指令，IPC就是0.2，显然太低了。
 
@@ -139,6 +139,12 @@ stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发
 每个功能单元都有独立的管道，甚至可以具有不同的长度。 这使更简单的指令可以更快地完成，从而减少了等待时间。 在各个管道内部之间也有许多旁路，但是为简单起见，这些旁路已被省略。
 
 下图中，处理器可能每个周期执行3条不同的指令，例如，一个整数，一个浮点和一个存储器操作。 甚至可以添加更多的功能单元，以便处理器能够在每个周期执行两个整数指令，或两个浮点指令，或使用任何其他方式。
+
+鲲鹏的流水线结构：
+
+![zh-cn_image_0000001237942853.png](/images/951413iMgBlog/zh-cn_image_0000001237942853.png)
+
+三级流水线的执行容易被打断，导致指令执行效率低，后面发展起来的五级指令流水线技术被认为是经典的处理器设置方式，已经在多种RISC处理器中广泛使用，它在三级流水线（取指、译码、执行）的基础上，增加了两级处理，将“执行”动作进一步分解为执行、访存、回写，解决了三级流水线中存储器访问指令在指令执行阶段的延迟问题，但是容易出现寄存器互锁等问题导致流水线中断。鲲鹏920处理器采用八级流水线结构，首先是提取指令，然后通过解码、寄存器重命名和调度阶段。一旦完成调度，指令将无序发射到八个执行管道中的一个，每个执行管道每个周期都可以接受并完成一条指令，最后就是访存和回写操作。
 
 ![img](/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png)
 
@@ -205,13 +211,31 @@ __builtin_expect 这个指令是 gcc 引入的。该函数作用是允许程序�
 
 ​    这样整个处理器可以更高的时钟速度运行。当然，每个指令将需要更多的周期来完成（等待时间），但是处理器仍将在每个周期中完成1条指令，这样每秒将有更多的周期，处理器每秒将完成更多的指令。
 
-​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。。
+​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。
 
 ​    如今，现代处理器努力将每个流水线阶段的门延迟数量降低到很少（大约12-25个）。
 
 ​    在PowerPC G4e中为7-12，在ARM11和Cortex-A9中为8+，在Athlon中为10-15，在Pentium-Pro/II/III/M中为12+，在Athlon64/Phenom/Fusion-A中为12-17，在Cortex-A8中为13+，在UltraSPARC-III/IV中为14，在Core 2中为14+，在Core i*2中为14-18+，在Core i中为16+，在PowerPC G5中为16-25，在Pentium-4中为20+， 在奔腾4E中为31+。 与RISC相比，x86处理器通常具有更深的流水线，因为它们需要做更多的工作来解码复杂的x86指令。UltraSPARC-T1/T2/T3是深度流水线趋势的例外（UltraSPARC-T1仅6个，T2/T3是8-12，因为其倾向让单核简化的方式来堆叠核数量）。
 
-​    例如 Cortex-A15、Sandy Bridge 都分别具备 15 级、14 级流水线，而 Intel NetBurst（Pentium 4）、AMD Bulldozer 都是 20 级流水线，它们的工位数都远超出基本的四（或者五）工位流水线设计。更长的流水线虽然能提高频率，但是代价是耗电更高而且可能会有各种性能惩罚。
+​	不同架构的CPU流水线的级数（长度）存在很大差异，从几级到几十级不等，流水线级数越多，CPU结构就越复杂，功能也就越强大，同时功耗也会越大。相反地，流水线级数少，CPU结构简单，功耗就会降低很多。下表是一些典型的ARM流水线级别。
+
+例如 Cortex-A15、Sandy Bridge 都分别具备 15 级、14 级流水线，而 Intel NetBurst（Pentium 4）、AMD Bulldozer 都是 20 级流水线，它们的工位数都远超出基本的四（或者五）工位流水线设计。更长的流水线虽然能提高频率，但是代价是耗电更高而且可能会有各种性能惩罚。
+
+ARM指令集以及对应的流水线
+
+| 型号               | 指令集  | 流水线 |
+| ------------------ | ------- | ------ |
+| ARM7               | ARMv4   | 3级    |
+| ARM9               | ARMv5   | 5级    |
+| ARM11              | ARMv6   | 8级    |
+| Cortex-A8          | ARMv7-A | 13级   |
+| 鲲鹏920/Cortex-A55 | ARMv8   | 8级    |
+
+流水线越长带来的问题：
+
+- 每一级流水线之间需要流水线寄存器暂存数据，存取需要额外的负担
+- 功耗高
+- 对分支预测不友好
 
 ### 指令延时
 
@@ -240,11 +264,19 @@ __builtin_expect 这个指令是 gcc 引入的。该函数作用是允许程序�
 
 ​    执行100条指令的时间= 65 * 6 * 1 + 65 * 1 * 99 = 390 + 6435 = 6825 ns
 
+### 保留站和乱序执行
+
+指令在做完取码、译码后一般先交由一个指令保留站，统一交给后面的多个执行单元（多发射），执行完后再次将结果排序就行，有依赖关系的需要等待。
+
+保留站后面就是乱序执行技术，就好像在指令的执行阶段提供一个“线程池”。指令不再是顺序执行的，而是根据池里所拥有的资源，以及各个任务是否可以进行执行，进行动态调度。在执行完成之后，又重新把结果在一个队列里面，按照指令的分发顺序重新排序。即使内部是“乱序”的，但是在外部看起来，仍然是井井有条地顺序执行。
+
+![image-20221102161222519](/images/951413iMgBlog/image-20221102161222519.png)
+
 ### 从流水线获得加速
 
-​    加速是没有流水线的平均指令时间与有流水线的平均指令时间之比。（这里不考虑由不同类型的危害引起的任何失速）
+加速是没有流水线的平均指令时间与有流水线的平均指令时间之比。（这里不考虑由不同类型的危害引起的任何失速）
 
-​    假设：
+假设：
 
 ​    未流水线的平均指令时间= 320 ns
 
@@ -335,6 +367,8 @@ perf record -e 'skb:consume_skb' -ag  //记录网络消耗
 perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1
 sudo perf sched record -- sleep 1 //记录cpu调度的延时
 sudo perf sched latency //查看
+
+perf sched latency --sort max //查看上一步记录的结果，以调度延迟排序。
 
 perf record --call-graph dwarf
 perf report 
@@ -547,7 +581,7 @@ physical id对应socket，也就是物理上购买到的一块CPU； core id对�
 
 ### IPC和超线程的关系
 
-IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是从core里面取到的，不针对具体进程。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍
+IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是该进程分到的circle里执行了多少个指令，只和进程业务逻辑相关。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍
 
 ![image-20210513123233344](/images/951413iMgBlog/image-20210513123233344.png)
 
@@ -556,6 +590,85 @@ IPC 和一个core上运行多少个进程没有关系。实际测试将两个�
 ![image-20210513130252565](/images/951413iMgBlog/image-20210513130252565.png)
 
 以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)
+
+再来看如下CPU上，0和64核是一对HT，单独跑nop、Pause指令的IPC分别是5/0.17(nop是一条完全不会卡顿的指令)，可以得到这款CPU的最高IPC是5，一条 Pause 指令需要28-30个时钟周期。
+
+如果在0/64上同时跑两个nop指令，虽然是两个超线程得到的IPC只有5的一半，也就是超线程在这种完全不卡顿的 nop 指令上完全没用；另外对比在0/64上同时跑两个Pause 指令，IPC 都还是0.17，也就是 Pause 指令完全可以将一个物理核发挥出两倍的运算能力
+
+![image-20221108095422200](/images/951413iMgBlog/image-20221108095422200.png)
+
+Pause指令和nop指令同时跑在一对HT上，nop基本不受影响，Pause降得非常低
+
+![image-20221108094802841](/images/951413iMgBlog/image-20221108094802841.png)
+
+Pause指令和nop指令同时跑在一个核上，IPC 倒是各自保持不变，但是抢到的 CPU 配额相当于各自 50%(在自己的50%范围内独占，IPC也不受影响)
+
+![image-20221108095753861](/images/951413iMgBlog/image-20221108095753861.png)
+
+关掉如上CPU的超线程，从测试结果看海光如果开了超线程 Pause 是28个时钟周期，关掉超线程 Pause 是14个时钟周期
+
+```
+//关掉超线程后 Pause 的IPC 从0.17提升到了0.34
+#perf stat taskset -c 0 ./pause
+^Ctaskset: Interrupt
+
+ Performance counter stats for 'taskset -c 0 ./pause':
+
+          3,190.28 msec task-clock                #    0.999 CPUs utilized
+               302      context-switches          #    0.095 K/sec
+                 1      cpu-migrations            #    0.000 K/sec
+                99      page-faults               #    0.031 K/sec
+     7,951,451,789      cycles                    #    2.492 GHz
+         1,337,801      stalled-cycles-frontend   #    0.02% frontend cycles idle
+     7,842,812,091      stalled-cycles-backend    #   98.63% backend cycles idle
+     2,671,280,445      instructions              #    0.34  insn per cycle
+                                                  #    2.94  stalled cycles per insn
+        21,917,856      branches                  #    6.870 M/sec
+            29,607      branch-misses             #    0.14% of all branches
+
+       3.192937987 seconds time elapsed
+
+       3.190322000 seconds user
+       0.000000000 seconds sys
+
+
+#lscpu
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+Address sizes:       43 bits physical, 48 bits virtual
+CPU(s):              48
+On-line CPU(s) list: 0-47
+Thread(s) per core:  1
+Core(s) per socket:  24
+Socket(s):           2
+NUMA node(s):        8
+Vendor ID:           HygonGenuine
+CPU family:          24
+Model:               1
+Model name:          Hygon C86 7260 24-core Processor
+Stepping:            1
+Frequency boost:     enabled
+CPU MHz:             1070.009
+CPU max MHz:         2200.0000
+CPU min MHz:         1200.0000
+BogoMIPS:            4399.40
+Virtualization:      AMD-V
+L1d cache:           1.5 MiB
+L1i cache:           3 MiB
+L2 cache:            24 MiB
+L3 cache:            128 MiB
+NUMA node0 CPU(s):   0-5
+NUMA node1 CPU(s):   6-11
+NUMA node2 CPU(s):   12-17
+NUMA node3 CPU(s):   18-23
+NUMA node4 CPU(s):   24-29
+NUMA node5 CPU(s):   30-35
+NUMA node6 CPU(s):   36-41
+NUMA node7 CPU(s):   42-47
+```
+
+![image-20221108175100638](/images/951413iMgBlog/image-20221108175100638.png)
 
 ### Intel和AMD单核以及HT性能比较
 
@@ -687,7 +800,7 @@ CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程
 
 [CPU Utilization is Wrong](http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html)
 
-https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&mid=2247483755&idx=1&sn=5324f7e46c91739b566dfc1d0847fc4a&chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&mpshare=1&scene=1&srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd 
+[震惊，用了这么多年的 CPU 利用率，其实是错的](https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&mid=2247483755&idx=1&sn=5324f7e46c91739b566dfc1d0847fc4a&chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&mpshare=1&scene=1&srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd)
 
 https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/
 

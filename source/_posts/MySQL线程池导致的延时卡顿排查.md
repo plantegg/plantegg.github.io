@@ -124,9 +124,85 @@ thread_pool_stall_limit 会控制一个SQL过长时间（默认60ms）占用线�
 
 > The thread_pool_stall_limit affects executing statements. The value is the amount of time a statement has to finish after starting to execute before it becomes defined as stalled, at which point the thread pool permits the thread group to begin executing another statement. The value is measured in 10 millisecond units, so the default of 6 means 60ms. Short wait values permit threads to start more quickly. Short values are also better for avoiding deadlock situations. Long wait values are useful for workloads that include long-running statements, to avoid starting too many new statements while the current ones execute.
 
+## 类似案例
+
+一个其它客户同样的问题的解决过程，最终发现是因为thread pool group中的active thread count 计数有泄漏，导致达到thread_pool_oversubscribe 的上限(实际没有任何线程运行)
+
+问题：1）为什么调整到20后 active_thread_count 没变，但是不卡了？那以前卡着的10个 thread在干嘛？
+
+​             2）卡住的根本原因是，升级能解决？
 
 
-## Thread Pool原理
+
+![image-20230308214801877](/images/951413iMgBlog/image-20230308214801877.png)
+
+调整前的 thread pool 配置：
+
+![image-20230308222538102](/images/951413iMgBlog/image-20230308222538102.png)
+
+出问题时候的线程池 32个 group状态，有两个group queue count、active thread都明显到了瓶颈：select * from information_schema.THREAD_POOL_STATUS;
+
+![image-20230308222416238](/images/951413iMgBlog/image-20230308222416238.png)
+
+调整 thread_pool_oversubscribe由10到20后不卡了，这时的 pool status(重点注意 ACTIVE_THREAD_COUNT 数字没有任何变化)：
+
+![image-20230308223126774](/images/951413iMgBlog/image-20230308223126774.png)
+
+看起来像是 ACTIVE_THREAD 全假死了，没有跑任务也不去take新任务一直卡在那里，类似线程泄露。查看了一下所有MySQLD 线程都是 S 的正常状态，并无异常。
+
+继续分析统计了一下mysqld线程数量(157)，远小于 thread pool 中的active线程数量(202)，看起来像是计数器在线程异常(磁盘故障时)忘记 减减 了，导致计数器虚高进而无法新创建新线程：
+
+```
+#top -H -b -n 1 -p 130650 |grep mysqld | wc -l
+157
+
+# mysql -e "select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS"
++-------------------+--------------------------+
+| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |
++-------------------+--------------------------+
+|                71 |                      206 |
++-------------------+--------------------------+
+# mysql -e "select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS"
++-------------------+--------------------------+
+| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |
++-------------------+--------------------------+
+|                75 |                      202 |
++-------------------+--------------------------+
+# mysql_secbox  --exe-path=mysql -A -uroot -h127.0.0.1 -P3054 -e  "select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT  from information_schema.THREAD_POOL_STATUS"
++----+--------------+-----+----+-----------------+------------------+
+| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |
++----+--------------+-----+----+-----------------+------------------+
+|  0 |            3 |   7 | 13 |               0 |                0 |
+| 19 |            3 |  10 | 14 |               0 |                0 |
+| 20 |            3 |   8 | 13 |               0 |                0 |
+| 21 |            2 |   5 |  9 |               0 |                0 |
+| 28 |            2 |   6 |  6 |               0 |                0 |
+//增加了一个active count,执行完毕后active thread count会减下去
+| 29 |            2 |  12 | 14 |               0 |                0 | 
+| 30 |            2 |   4 | 11 |               0 |                0 | 
+| 31 |            2 |   8 | 10 |               0 |                0 |
++----+--------------+-----+----+-----------------+------------------+
+```
+
+正常的thread_pool状态, ACTIVE_THREAD_COUNT极小且小于 THREAD_COUNT：
+
+```
+mysql> select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT from information_schema.THREAD_POOL_STATUS;
++----+--------------+-----+----+-----------------+------------------+
+| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |
++----+--------------+-----+----+-----------------+------------------+
+|  0 |            2 |   0 |  3 |               0 |                0 |
+|  1 |            2 |   0 |  2 |               0 |                0 |
+|  2 |            2 |   0 |  2 |               0 |                0 |
+|  3 |            2 |   0 |  2 |               0 |                0 |
+|  4 |            2 |   0 |  4 |               0 |                0 |
+|  5 |            2 |   0 |  3 |               0 |                0 |
+|  6 |            2 |   0 |  4 |               0 |                0 |
+|  7 |            2 |   0 |  4 |               0 |                0 |
++----+--------------+-----+----+-----------------+------------------+
+```
+
+## [Thread Pool原理](https://dbaplus.cn/news-11-1989-1.html)
 
 ![image.png](/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png)
 
@@ -140,7 +216,7 @@ no-threads一般用于调试，生产环境一般用one-thread-per-connection方
 
 thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过`thread_pool_oversubscribe`时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了`thread_pool_max_threads`上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。`thread_pool_oversubscribe`控制group中活跃线程和等待中的线程总数，从而防止了上述情况。
 
-**MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。**
+**MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。另外如果对每个Pool的 Worker做CPU 亲和性绑定也会对cache更友好、效果更高**
 
 group中又有多个队列，用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。
 
@@ -197,7 +273,7 @@ public class MySQLPingPacket implements CommandPacket {
 
 应用用于获取监控信息的端口 3406卡死，监控脚本无法连接上3406，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。
 
-通过jstack看到drds-server进程的manager线程池都是这样: 
+通过jstack看到应用进程的3406端口线程池都是这样: 
 
 ```java
 "ManagerExecutor-1-thread-1" #47 daemon prio=5 os_prio=0 tid=0x00007fe924004000 nid=0x15c runnable [0x00007fe9034f4000]

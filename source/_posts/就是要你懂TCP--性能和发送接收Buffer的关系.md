@@ -93,7 +93,7 @@ tags:
     net.ipv4.tcp_mem = 88560        118080  177120
     vm.lowmem_reserve_ratio = 256   256     32
 
-net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从Cobra中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。
+net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从 Cobar 中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。
 
 接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制
 
@@ -331,6 +331,18 @@ tcp_adv_win_scale 的取值
 
 从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值
 
+## 实验：分别改小server wmem/client rmem 来对比对速度的影响
+
+> server 设置 wmem=4096, client curl get server的文件，速度60mbps, 两边的rtt都很好 
+>
+> client 设置 rmem=4096，client curl get server的文件，速度6mbps, 为什么速度差别这么大？
+
+为什么server 设置 wmem=4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延
+
+![image-20230414092751721](/images/951413iMgBlog/image-20230414092751721.png)
+
+![img](/images/951413iMgBlog/1460000039103606.png)
+
 # 从kernel来看buffer相关信息
 
 ## kernel相关参数
@@ -394,7 +406,7 @@ tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,
 
 ![image.png](/images/oss/d385a7dad76ec4031dfb6c096bca434b.png)
 
-（图片[来自][5]）
+
 
 ## 用tc构造延时和带宽限制的模拟重现环境    
 
@@ -523,18 +535,6 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 [用stap从内核角度来分析buffer、rt和速度](https://blog.csdn.net/dog250/article/details/113020804)
 
-[经典的 nagle 和 dalay ack对性能的影响 就是要你懂 TCP-- 最经典的TCP性能问题][23]
-
-[关于TCP 半连接队列和全连接队列][24]
-
-[MSS和MTU导致的悲剧][25]
-
-[双11通过网络优化提升10倍性能][26]
-
-[就是要你懂TCP的握手和挥手][7]
-
-[高性能网络编程7--tcp连接的内存使用][27]
-
 [The story of one latency spike][https://blog.cloudflare.com/the-story-of-one-latency-spike/] : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点
 
 > Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is `tcp_collapse` and it will merge adjacent TCP packets into one larger `sk_buff`. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.
@@ -550,8 +550,6 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 [1]: /images/oss/1558603861745-190dadd2-cff2-49c9-8bc3-5856fdfb2d44.png#align=left&display=inline&height=627&originHeight=627&originWidth=1251&size=0&status=done&width=1251
 [2]: /images/oss/1558603861610-e9b14af0-2400-4207-8bec-dfc96430ca58.png#align=left&display=inline&height=591&originHeight=591&originWidth=508&size=0&status=done&width=508
 [3]: /images/oss/1558603861781-2e236663-2909-44eb-84a3-82ddf5f3af9d.png#align=left&display=inline&height=755&originHeight=755&originWidth=1285&size=0&status=done&width=1285
-[5]: https://www.atatech.org/articles/9032
-[7]: https://www.atatech.org/articles/79660
 [8]: /images/oss/1558603861595-39197d54-4e04-4a61-8687-f549bdaa883b.png#align=left&display=inline&height=855&originHeight=855&originWidth=1395&size=0&status=done&width=1395
 [9]: /images/oss/1559025761962-cf422801-1d67-4665-a12e-8419ffb1e27a.png#align=left&display=inline&height=447&name=image.png&originHeight=559&originWidth=1367&size=137942&status=done&width=1093.6 "image.png"
 [10]: /images/oss/1559025983487-bf6bde7b-6cb1-4d18-b0a0-ea63ddf538e4.png#align=left&display=inline&height=421&name=image.png&originHeight=526&originWidth=435&size=11128&status=done&width=348 "image.png"
@@ -564,14 +562,6 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 [17]: /images/oss/1558922856836-92aca189-2b5c-46b9-ae06-cbb0db50baf4.png#align=left&display=inline&height=522&name=image.png&originHeight=653&originWidth=1007&size=48934&status=done&width=805.6 "image.png"
 [18]: /images/oss/1558923047361-de371658-b656-4566-9e20-5958919ee1fe.png#align=left&display=inline&height=422&name=image.png&originHeight=528&originWidth=982&size=112809&status=done&width=785.6 "image.png"
 [19]: /images/oss/1559030833230-72b44e6d-5c3c-413b-91ff-26074bd2bdbe.gif#align=left&display=inline&height=144&originHeight=103&originWidth=289&size=0&status=done&width=404
+
 [20]: /images/oss/1559043502992-97c4c823-8cd1-4ae7-9883-203e553604ff.png#align=left&display=inline&height=720&name=image.png&originHeight=900&originWidth=958&size=48144&status=done&width=766.4 "image.png"
 [21]: /images/oss/1559097931609-28c0fc94-09ca-4564-8f47-432f9b5e2c5b.png#align=left&display=inline&height=682&name=image.png&originHeight=853&originWidth=760&size=41904&status=done&width=608 "image.png"
-[22]: https://blog.cloudflare.com/the-story-of-one-latency-spike/
-[23]: https://www.atatech.org/articles/80292
-[24]: https://www.atatech.org/articles/78858
-[25]: https://www.atatech.org/articles/60633
-[26]: https://www.atatech.org/articles/73174
-[27]: https://www.atatech.org/articles/13203
-[28]: https://access.redhat.com/discussions/782343
-
-  

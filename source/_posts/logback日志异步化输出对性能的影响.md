@@ -176,8 +176,6 @@ logback.doAppend: 2.63%
 	- waiting to lock <0x00007f866dcec208> (a ch.qos.logback.classic.sift.SiftingAppender)
 ```
 
-
-
 ## immediateFlush true/false 以及同步异步对tps的影响
 
 ![image.png](/images/oss/a4753f40c89640c4d86a54902b9ed691.png)
@@ -189,10 +187,10 @@ logback.doAppend: 2.63%
 	    <appender name="asyncROOT" class="ch.qos.logback.classic.AsyncAppender">
 	        <queueSize>1000</queueSize>
 	        <maxFlushTime>3000</maxFlushTime>
-			<discardingThreshold>0</discardingThreshold>
+					<discardingThreshold>0</discardingThreshold>
 	        <neverBlock>true</neverBlock>
 	        <appender-ref ref="ROOT"/>
-		</appender>
+			</appender>
 
 ## JDK中BufferedOutputStream Buffer大小
 
@@ -231,13 +229,147 @@ com.taobao/trace 指的是将com.taobao.*设为trace输出，以增加输出日�
 
 （这个表格和前面的表格整体tps不一致，前一个表格是晚上测试，这个表格是上午测试的，不清楚是否环境受到了影响）
 
-
-
 ## 总结
 
 关键结论见最前面，但是要结合自己场景输出日志的速度，日志输出越少影响越不明显，机器核数越多会越明显，总的原因就是logback的 AppenderBase的doAppend()函数需要同步
 
 	public synchronized void doAppend(E eventObject)
+
+## 案例
+
+Logback 异步日志处理能力分析
+
+### 环境信息
+
+32C128G
+
+### 单条日志较大 len=1137 
+
+top
+
+```
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+13200 admin     20   0  128.6g  78.6g  22864 R 85.1 63.5  15:13.50 AsyncAppende //异步写日志
+13389 admin     20   0  128.6g  78.6g  22864 R 42.1 63.5   1:33.49 logback-5 --压缩
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+13200 admin     20   0  128.6g  78.5g  22864 R 85.1 63.5  15:54.71 AsyncAppender-W
+13456 admin     20   0  128.6g  78.5g  22864 R 73.5 63.5   1:49.45 logback-6
+```
+
+日志内容
+
+```
+[len=1137] select 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/
+
+[ 408s] threads: 360, tps: 0.00, reads/s: 78817.18, writes/s: 0.00, response time: 15.55ms (95%)
+[ 409s] threads: 360, tps: 0.00, reads/s: 85020.78, writes/s: 0.00, response time: 12.70ms (95%)
+[ 410s] threads: 360, tps: 0.00, reads/s: 86073.08, writes/s: 0.00, response time: 12.83ms (95%)
+[ 411s] threads: 360, tps: 0.00, reads/s: 84357.86, writes/s: 0.00, response time: 12.90ms (95%)
+```
+
+平均每分钟输出日志内容 13个512MB日志文件，每秒100MB的输出能力
+
+### 每条日志len=150
+
+```
+[len=150] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ 
+
+[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)
+[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)
+[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)
+[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)
+[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)
+```
+
+减小日志
+
+```
+[len=46] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ 
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W
+15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-5
+15664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W
+15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W
+15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-515664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W
+```
+
+### select 1日志
+
+```
+[len=8] SELECT 1 
+
+[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)
+[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)
+[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)
+[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)
+[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+15646 admin     20   0  128.3g  78.1g  22976 R 81.5 63.2   3:37.77 AsyncAppender-W
+16849 admin     20   0  128.3g  78.1g  22976 R 37.7 63.2   0:26.85 logback-8
+16066 admin     20   0  128.3g  78.1g  22976 S 33.8 63.2   0:33.07 logback-7
+```
+
+### 点查日志
+
+```
+[len=43] SELECT *, pad FROM sbtest1 WHERE id=5000089
+
+[  31s] threads: 360, tps: 0.00, reads/s: 120084.93, writes/s: 0.00, response time: 3.20ms (95%)
+[  32s] threads: 360, tps: 0.00, reads/s: 119897.70, writes/s: 0.00, response time: 3.21ms (95%)
+[  33s] threads: 360, tps: 0.00, reads/s: 120158.21, writes/s: 0.00, response time: 3.20ms (95%)
+[  34s] threads: 360, tps: 0.00, reads/s: 119777.94, writes/s: 0.00, response time: 3.22ms (95%)
+[  35s] threads: 360, tps: 0.00, reads/s: 120047.95, writes/s: 0.00, response time: 3.20ms (95%)
+[  36s] threads: 360, tps: 0.00, reads/s: 118585.32, writes/s: 0.00, response time: 3.23ms (95%)
+[  37s] threads: 360, tps: 0.00, reads/s: 119351.12, writes/s: 0.00, response time: 3.20ms (95%)
+
+  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND
+15644 admin     20   0  128.5g  78.3g  22976 R 99.9 63.3   1:12.14 logback-1
+15646 admin     20   0  128.5g  78.3g  22976 R 65.6 63.3   8:46.11 AsyncAppender-W
+15659 admin     20   0  128.5g  78.3g  22976 R 25.5 63.3   2:53.82 Processor0-R
+15662 admin     20   0  128.5g  78.3g  22976 S 25.5 63.3   3:06.63 Processor1-W
+```
+
+后端RDS快打满了
+
+### 案例总结
+
+len表示日志长度
+
+|      | len=43 ，点查   | len=8 select 1           | [len=150] SELECT 1 | [len=1137] select 1 |
+| ---- | --------------- | ------------------------ | ------------------ | ------------------- |
+| QPS  | 12万（rds瓶颈） | 18.6万(写日志单线程瓶颈) | 18.5万             | 8.5万(磁盘瓶颈)     |
+
+因为**调度问题** 异步写日志进程很难跑满CPU, 最多跑到80%左右
+
+单核按条输出能力在 18万条每秒左右（Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz）
+
+如果日志太大会受限于物理磁盘写出能力，测试环境最大输出能力是每秒 100MB
+
+
+
+## 16core VS 32 Core 案例比较
+
+如果都是用一半超线程，32 Core基本能达到16Core的1.9倍性能
+
+下图上半部分是32C，下半部分是16C
+
+![image-20220810160155192](/images/951413iMgBlog/image-20220810160155192.png)
+
+对应CPU状态
+
+![image-20220810160241298](/images/951413iMgBlog/image-20220810160241298.png)
+
+![image-20220810160249972](/images/951413iMgBlog/image-20220810160249972.png)
+
+如果都改用物理核后，32Core VS 16Core是 25万 VS 15万，大概提升有1.67倍，不到2倍
+
+同时看到perf 也是打了7折，这应该是core太多后应用代码内部锁竞争太激励
+
 
 
 ## 横向比较
@@ -248,6 +380,10 @@ logback、log4j2等横向关系和性能比较分析
 
 紫色为接口类，蓝色为实现，白色为转换
 ![image.png](/images/oss/f8f589fd11e4d480162e24b02d95e511.png)
+
+log4j-over-slf4j和slf4j-log4j12之所以不能共存，是因为它俩可以造成循环依赖！从图中可以看到，有不少会造成循环依赖的场景，比如jul-to-slf4j与slf4j-jdk14、jcl-over-slf4j与JCL等，有些jar的共存会让调用方产生困惑，不知道具体调用哪个
+
+![image-20220907151035617](/images/951413iMgBlog/image-20220907151035617.png)
 
 ### 性能比较
 
@@ -280,6 +416,8 @@ AsyncAppender to FileAppender
 ArrayBlockingQueue是一种地节省了空间，对于记日志有很好的适用性，同时避免内存的伸缩产生波动，也降低了GC的负担。入队出队时由内部的重入锁来控制并发，同时默认采用非公平锁的性质来处理活跃线程的闯入(Barge)，从而提高吞吐量。
 ArrayBlockingQueue在处理数据的入队提供了offer和put方法。两者的区别是：如果队列满了，offer直接返回给调用线程false, 而不用等待，这种场景较适合异步写日志，即使没有入队成功，仍然可以接受。而put方法则会让当前线程进入等待队列，并再次去竞争锁。
 类似的，处理出队时提供了poll和take方法，区别也是是否阻塞调用线程。
+
+
 
 
 ## 参考资料

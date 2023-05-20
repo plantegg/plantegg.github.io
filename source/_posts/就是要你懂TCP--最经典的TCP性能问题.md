@@ -207,14 +207,16 @@ tags:
 #### 运行中每个连接 CWND/ssthresh(slow start threshold) 的确认
 
 
-    for i in {1..1000}; do ss -i | grep -A 1 100.118.58.7 | grep ssthresh ; done
-     reno wscale:9,9 rto:233 rtt:29.171/14.585 mss:1444 cwnd:40 ssthresh:361 send 15.8Mbps lastsnd:10 lastrcv:909498308 lastack:10 pacing_rate 7.9Mbps unacked:1 rcv_space:29200
-     reno wscale:9,9 rto:230 rtt:29.237/3.534 redis:40 mss:1444 cwnd:40 ssthresh:361 send 15.8Mbps lastsnd:8 lastrcv:38 lastack:8 pacing_rate 31.6Mbps unacked:40 rcv_space:29200
-     reno wscale:9,9 rto:230 rtt:29.201/0.111 redis:40 mss:1444 cwnd:155 ssthresh:361 send 61.3Mbps lastsnd:7 lastrcv:96 lastack:8 pacing_rate 122.6Mbps unacked:151 rcv_space:29200
-     reno wscale:9,9 rto:230 rtt:29.381/0.193 redis:40 mss:1444 cwnd:362 ssthresh:361 send 142.3Mbps lastsnd:6 lastrcv:153 lastack:6 pacing_rate 284.7Mbps unacked:360 rcv_space:29200
-     reno wscale:9,9 rto:230 rtt:29.351/0.081 redis:40 mss:1444 cwnd:364 ssthresh:361 send 143.3Mbps lastsnd:5 lastrcv:211 lastack:5 pacing_rate 286.5Mbps unacked:360 rcv_space:29200
-
-
+    #for i in {1..1000}; do ss -i dst 172.16.250.239:22 ; sleep 0.2; done
+    Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+    tcp        ESTAB      0           2068920           192.168.99.211:43090           172.16.250.239:ssh
+    	 cubic wscale:7,7 rto:224 rtt:22.821/0.037 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:139275001 bytes_acked:137206082 bytes_received:46033 segs_out:99114 segs_in:9398 data_segs_out:99102 data_segs_in:1203 send 1524.8Mbps lastrcv:4 pacing_rate 1829.8Mbps delivery_rate 753.9Mbps delivered:97631 app_limited busy:2024ms unacked:1472 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 minrtt:22.724
+    Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+    tcp        ESTAB      0           2036080           192.168.99.211:43090           172.16.250.239:ssh
+    	 cubic wscale:7,7 rto:224 rtt:22.814/0.022 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:157304161 bytes_acked:155284502 bytes_received:51685 segs_out:111955 segs_in:10597 data_segs_out:111943 data_segs_in:1360 send 1525.3Mbps pacing_rate 1830.3Mbps delivery_rate 745.7Mbps delivered:110506 app_limited busy:2228ms unacked:1438 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 notsent:16420 minrtt:22.724
+    Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+    tcp        ESTAB      0           1970400           192.168.99.211:43090           172.16.250.239:ssh
+    	 cubic wscale:7,7 rto:224 rtt:22.816/0.028 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:174955661 bytes_acked:172985262 bytes_received:57229 segs_out:124507 segs_in:11775 data_segs_out:124495 data_segs_in:1514 send 1525.2Mbps pacing_rate 1830.2Mbps delivery_rate 746.7Mbps delivered:123097 app_limited busy:2432ms unacked:1399 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 minrtt:22.724
 
 #### 从系统cache中查看 tcp_metrics item
 

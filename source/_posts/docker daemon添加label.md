@@ -95,3 +95,41 @@ tags:
 }
 
 ```
+
+Daemon.json 指定 ulimit等参考
+
+```
+cat >> /etc/docker/daemon.json <<EOF
+{
+  "data-root": "/var/lib/docker",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "200m",
+    "max-file": "5"
+  },
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 655360,
+      "Soft": 655360
+    },
+    "nproc": {
+      "Name": "nproc",
+      "Hard": 655360,
+      "Soft": 655360
+    }
+  },
+  "live-restore": true,
+  "oom-score-adjust": -1000,
+  "max-concurrent-downloads": 10,
+  "max-concurrent-uploads": 10,
+  "storage-driver": "overlay2",
+  "storage-opts": ["overlay2.override_kernel_check=true"],
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "registry-mirrors": [
+    "https://yssx4sxy.mirror.aliyuncs.com/"
+  ]
+}
+EOF
+```
+

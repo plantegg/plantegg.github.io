@@ -19,7 +19,7 @@ tags:
 
 如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。
 
-如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：[程序员的网络知识 -- 一个网络包的旅程](https://www.atatech.org/articles/80573) ，对后面理解LVS的各个转发模式非常有帮助。
+如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：[程序员的网络知识 -- 一个网络包的旅程](https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/) ，对后面理解LVS的各个转发模式非常有帮助。
 
 ## 几个术语和缩写
 
@@ -154,7 +154,6 @@ nat模式的结构图如下：
 
 - RS看不到cip(NAT模式下可以看到)
 - 进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)
-
 
 ### 为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题
 
@@ -291,7 +290,9 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 !！注意：一般来说，ctk与toa/vtoa模块不同时使用，toa和vtoa不同时使用:
 
 > vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip/vip可能失败。
+>
 > 当toa/vtoa单独工作时，toa/vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername/getsockname系统接口给用户提供服务。
+>
 > 如果同时加载ctk和toa/vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa/vtoa信息。
 
 ## 阿里云 SLB 的双机房高可用
@@ -335,7 +336,7 @@ LVS侧针对内存的访问所做的优化如下：
 
 1.session/svc 数据结构调整 热点字段聚集到同个cache line
 
-2.结合[Vtune](https://www.atatech.org/articles/111259?spm=ata.13269325.0.0.1cfa49faqM3Zpp)/[PCM](https://www.atatech.org/articles/120853?spm=ata.13269325.0.0.1d9d49faNUdBi6)性能测试数据，调整session的prefecth
+2.结合性能测试数据，调整session的prefecth
 
 3.消除false sharing。
 
@@ -370,10 +371,6 @@ per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会
 ## 参考资料
 
 [LVS 20倍的负载不均衡，原来是内核的这个Bug](https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/)
-
-[云服务ALB接入，后端依赖内核模块及接口使用指南](https://www.atatech.org/articles/106276)
-
-[程序员的网络知识 -- 一个网络包的旅程](https://www.atatech.org/articles/80573)
 
 [章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国](https://yq.aliyun.com/articles/52752)
 

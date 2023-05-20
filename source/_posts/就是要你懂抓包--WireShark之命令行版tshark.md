@@ -17,13 +17,19 @@ tags:
 
 下面让我们通过一些例子来学习TShark的常用功能，所有用到的*.cap/*.pcap等都是通过tcpdump抓到的包。请收藏好，下次碰到类似问题直接用文章中的命令跑一下。
 
-## wireshark不再展示协议内容
+## wireshark问题
+
+### 不再展示协议内容
 
 比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 
 
 配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos
 
 如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。
+
+### IO graph图表无法展示数据
+
+一般是缺数据，先把IO graph关掉再重新打开就可以了，注意图表title显示
 
 ### tcp segment of a reassembled pdu
 

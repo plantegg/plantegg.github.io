@@ -9,6 +9,8 @@ tags:
 
 # 定制Linux Kernel
 
+Linux 里面有一个工具，叫 Grub2，全称 Grand Unified Bootloader Version 2。顾名思义，就是搞系统启动的。
+
 ## 修改启动参数
 
 ```shell
@@ -24,6 +26,7 @@ $cat change_kernel_parameter.sh
 sudo sed -i 's/\(GRUB_CMDLINE_LINUX=".*\)"/\1 nopti nospectre_v2 nospectre_v1 l1tf=off nospec_store_bypass_disable no_stf_barrier mds=off mitigations=off transparent_hugepage=always"/' /etc/default/grub
 
 //从修改的 /etc/default/grub 生成 /boot/grub2/grub.cfg 配置
+//如果是uefi引导，则是 /boot/efi/EFI/redhat/grub.cfg
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 
 #limit the journald log to 500M
@@ -39,6 +42,26 @@ or
 #grub2-set-default "CentOS Linux (3.10.0-1160.66.1.el7.x86_64) 7 (Core)" ; sudo reboot
 ```
 
+[GRUB 2 reads its configuration](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-working_with_the_grub_2_boot_loader) from the `/boot/grub2/grub.cfg` file on traditional BIOS-based machines and from the `/boot/efi/EFI/redhat/grub.cfg` file on UEFI machines. This file contains menu information.
+
+The GRUB 2 configuration file, `grub.cfg`, is generated during installation, or by invoking the **/usr/sbin/grub2-mkconfig** utility, and is automatically updated by `grubby` each time a new kernel is installed. When regenerated manually using **grub2-mkconfig**, the file is generated according to the template files located in `/etc/grub.d/`, and custom settings in the `/etc/default/grub` file. Edits of `grub.cfg` will be lost any time **grub2-mkconfig** is used to regenerate the file, so care must be taken to reflect any manual changes in `/etc/default/grub` as well.
+
+## 查看kernel编译参数
+
+一般在 /boot/config-** 文件内放置所有内核编译参数
+
+```
+//启用 tcp_rt 模块
+cat /boot/config-4.19.91-24.8.an8.x86_64 |grep TCP_RT
+CONFIG_TCP_RT=y
+
+//启用 RPS
+cat /boot/config-4.19.91-24.8.an8.x86_64 |grep RPS
+CONFIG_RPS=y
+```
+
+
+
 ## 修改是否启用透明大页
 
 ```
@@ -48,7 +71,7 @@ always [madvise] never
 
 ## 制作启动盘
 
-Windows 上用 UltraISO 烧制，Mac 上就比较简单了，直接用 dd 就可以搞
+Windows 上用 UltraISO、rufus 烧制，MacOS 上就比较简单了，直接用 dd 就可以做好：
 
 ```
 $ diskutil list
@@ -74,6 +97,32 @@ umount /dev/sdn1
 sudo mkfs.vfat /dev/sdn1
 dd if=/data/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 ```
+
+## [iommu passthrough](https://bbs.huaweicloud.com/blogs/291576)
+
+### IOMMU 硬件单元
+
+DMA Remapping Feature 的工作是通过 CPU 硬件平台的 IOMMU（I/O MMU，Input/Output Memory Management Unit，I/O 内存管理硬件单元）来完成的。IOMMU 的出现，实现了地址空间上的隔离，使设备只能访问规定的内存区域。
+
+![image-20220718111233654](/images/951413iMgBlog/image-20220718111233654.png)
+
+参考资料：https://lenovopress.lenovo.com/lp1467.pdf
+
+![image-20220729162624318](/images/951413iMgBlog/image-20220729162624318.png)
+
+```
+/*
+ * This variable becomes 1 if iommu=pt is passed on the kernel command line.
+ * If this variable is 1, IOMMU implementations do no DMA translation for
+ * devices and allow every device to access to whole physical memory. This is
+ * useful if a user wants to use an IOMMU only for KVM device assignment to
+ * guests and not for driver dma translation.
+ */
+```
+
+说明配置了iommu=pt 的话函数iommu_no_mapping返回1，那么驱动就直接return paddr，并不会真正调用到domain_pfn_mapping，直接用了物理地址少了一次映射性能当然会高一些。如果是跑KVM建议 passthrough=0，物理机场景 passthrough=1
+
+iommu=pt并不会影响kvm/dpdk/spdk的性能，这三者本质上都是用户态驱动，iommu=pt只会影响内核驱动，能让内核驱动设备性能更高。
 
 ## 定制内存
 
@@ -128,6 +177,16 @@ linux16 /vmlinuz-0-rescue-e91413f0be2c4c239b4aa0451489ae01 root=/dev/mapper/cent
 
 128G表示相对地址，$64G是绝对地址，128G\\$64G 的意思是屏蔽64G到（64+128）G的地址对应的内存
 
+## 检查
+
+检查正在运行的系统使用的grub参数：
+
+```
+cat /proc/cmdline
+```
+
+
+
 ## 内存信息
 
 ```
@@ -166,7 +225,7 @@ Memory Device
 	Asset Tag: Not Specified
 	Part Number: HMAA4GR7AJR8N-WM
 	Rank: 2
-	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如海光CPU内存太多会给内存降频
+	Configured Memory Speed: 2400 MT/s  //内存实际运行速度--比如内存条数插太多会给内存降频
 	Minimum Voltage: 1.2 V
 	Maximum Voltage: 1.2 V
 	Configured Voltage: 1.2 V
@@ -322,4 +381,30 @@ Memory Device
   Maximum Voltage:  1.2 V
   Configured Voltage:  1.2 V
 ```
+
+## BIOS定制
+
+### ipmitool
+
+直接在linux内设置主板bios，然后重启就可以生效：
+
+```
+//Hygon C86 7260 24-core Processor 设置numa node（hygon 7280 就不行了）
+ipmitool raw 0x3e 0x5c 0x00 0x01 0x81 
+ipmitool raw 0x3e 0x5c 0x05 0x01 0x81
+
+//查询是否生效, 注意是 0x5d
+#ipmitool raw 0x3e 0x5d 0x00 0x01
+ 01 81
+```
+
+[ipmitool使用](https://blog.csdn.net/zygblock/article/details/53367664)
+
+基本语法：ipmitool raw 0x3e 0x5c index 0x01 value
+
+raw 0x3e 0x5c 固定不需要改， 
+
+Index表示需要修改的配置项， 接下来的 0x01 固定不需要改
+
+value 表示值，0x81表示enable; 0x80表示disable
 

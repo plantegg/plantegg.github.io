@@ -56,6 +56,28 @@ Cache Line 是 CPU 和主存之间数据传输的最小单位。当一行 Cache 
 
 处理器都实现了 Cache 一致性 (Cache Coherence）协议。如历史上 x86 曾实现了[ MESI 协议](https://en.wikipedia.org/wiki/MESI_protocol)，以及 MESIF 协议。
 
+![image-20220928160819468](/images/951413iMgBlog/image-20220928160819468.png)
+
+先看下如上一张图，其中
+
+tag：一般虚拟地址高位多bit表示；
+
+index: 虚拟地址中间多bit表示；
+
+offset: 虚拟地址多bit表示；
+
+但是这三者的值是多少呢，只能说和cache缓存的的大小息息相关。
+
+举个例子，录入cache缓存大小为64K, 有4路， 服务器寻址为64bit。
+
+- offset的值为 2^ = 64; offset = 6;
+- index的值为 64k / (64 * 4) = 256 = 2 ^ 8; 所以index的值为8bit；
+- tag的值为 64 - 8 - 6 = 50bit; 
+
+注:此计算完全按照理论方式计算，实际情况需要考虑TLB别名以及其他情况影响。
+
+了解以上概念后，此处用一张图去介绍TLB转换获取数据的过程。
+
 ### cache 失效
 
 假设两个处理器 A 和 B, 都在各自本地 Cache Line 里有同一个变量的拷贝时，此时该 Cache Line 处于 Shared 状态。当处理器 A 在本地修改了变量，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个处理器 B 读同一个变量前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。
@@ -610,24 +632,6 @@ MySQL利用Intel 的Pause指令在spinlock(自旋锁)的时候尽量避免cache 
 
 [spinlock(自旋锁)]( http://linuxperf.com/?p=138)是内核中最常见的锁，它的特点是：等待锁的过程中不休眠，而是占着CPU空转，优点是避免了上下文切换的开销，缺点是该CPU空转属于浪费, 同时还有可能导致cache ping-pong，**spinlock适合用来保护快进快出的临界区**。持有spinlock的CPU不能被抢占，持有spinlock的代码不能休眠
 
-### pause 和 cpu_relax
-
-内核频繁使用 cpu_relax 函数，顺序锁 (seqlock) 就是其中的典型代表。cpu_relax 人如其名，它有两个作用：
-
-- 主动让出cpu，小憩一会儿（一般是100ns左右），避免恶性竞争；
-- 释放cpu占用的流水线资源。既可以降低功耗，在SMT中还可以让邻居HyperThread跑的更快；
-
-对于顺序锁而言，cpu_relax 尤为关键：
-
-- 锁一般是全局变量，各个cpu持续不断的轮询锁状态（读操作），会给系统总线（CCIX / UPI）、内存控制器造成很大的带宽压力，使得访存延迟恶化。
-- cache coherence 维护代价增加；一旦某个cpu获得锁，需要写全局变量，然后会逐一通知其它cpu上的cacheline 失效； 这也会增加延迟。
-
-由此可见，正确实现 cpu_relax 函数的语义，对内核是很有意义的。cpu_relax 的实现与处理器微架构有关，x86下是用pause来实现，而arm下是用的yield来实现，yield 指令的实现退化为 nop 指令，执行非常非常快，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片)。
-
-当然在ARM芯片下这个问题就不一样了：[ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield来代替pause，yield 指令的实现退化为 nop 指令，执行时间非常非常短，也就是一个circle。yield指令的IPC能达到3.99，而pause的IPC才0.03(intel 8260芯片). 
-
-在ARM芯片里因为yield很快，那么上层软件的spinlock就要用不一样的方式来优化了。
-
 ## ECS cache_line miss导致整个物理机响应慢
 
 [如果一台ECS运行大量的cache_line miss逻辑](https://topic.atatech.org/articles/100065)，也就是利用spinlock所保护的区域没有按照cacheline对齐的时候，CPU为了保证数据一致性，会触发Super Queue lock splits，将总线锁住，哪怕是其他socket，而这个时候，其他CPU CORE访问L2cache、L3cahe、以及内存就会阻塞，直到Super Queue lock splits释放。
@@ -756,4 +760,4 @@ case2的branch miss降到了0，不过两者在x86上的IPC都是0.49，所以�
 
 [Why is transposing a matrix of 512×512 much slower than transposing a matrix of 513×513 ?](http://stackoverflow.com/questions/11413855/why-is-transposing-a-matrix-of-512x512-much-slower-than-transposing-a-matrix-of?spm=ata.21736010.0.0.43c1e11aGARvVj) 矩阵倒置的时候因为同一个cache_line的数据频繁被update导致cache_line失效，也就是FALSE share
 
-[CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈](https://zhuanlan.zhihu.com/p/58881925)
+[CPU时间都去哪了：一步步定位数据库代码中的性能瓶颈(SAP)](https://zhuanlan.zhihu.com/p/58881925)

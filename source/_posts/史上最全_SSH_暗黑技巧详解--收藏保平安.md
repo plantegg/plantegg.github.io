@@ -68,8 +68,6 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 然后再在 /etc/hosts 中将域名 k8s.gcr.io 指向 127.0.0.1， 那么本来要访问 k8s.gcr.io:443的，变成了访问本地 127.0.0.1:443 而 127.0.0.1:443 又通过ssh重定向到了 108.177.125.82:443 这样就实现了http代理或者说这种特殊情况下的科学上网。这个方案不需要装任何东西，但是每个访问目标都要这样处理，好在这种情况不多
 
-
-
 ## 内部堡垒机、跳板机都需要密码+动态码，太复杂了，怎么解？
 
 
@@ -87,6 +85,7 @@ ControlPath ~/tmp/ssh_mux_%h_%p_%r
 
 #其它也很有用的配置
 GSSAPIAuthentication=no
+#这个配置在公网因为安全原因请谨慎关闭
 StrictHostKeyChecking=no
 TCPKeepAlive=yes
 CheckHostIP=no
@@ -171,28 +170,30 @@ UserKnownHostsFile /dev/null
 
 -vvv 参数是debug，把ssh登录过程的日志全部打印出来。 
 
+
+
 ## 将隔离环境中的web端口映射到本地（本地代理）
 
-远程机器部署了WEB Server，需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？
+远程机器部署了WEB Server（端口 8083），需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？
 
 现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。
 
-假设web server是：10.1.1.123:8083， ssh账号是：plantegg
+假设web server是：10.1.1.123:8083， ssh账号是：user
 
 
-先配置好本地直接 ssh plantegg@10.1.1.123 （参考前面的 ProxyCommand配置过程，最好是免密也配置好），然后在你的笔记本上执行：
+先配置好本地直接 ssh user@10.1.1.123 （参考前面的 ProxyCommand配置过程，最好是免密也配置好），然后在你的笔记本上执行：
 
 
-	ssh -CNfL 0.0.0.0:8088:10.1.1.123:8083 plantegg@10.1.1.123
+	ssh -CNfL 0.0.0.0:8088:10.1.1.123:8083 user@10.1.1.123
 
 或者：(root@100.1.2.3 -p 54900 是可达10.1.1.123的代理服务器)
 
 	ssh -CNfL 0.0.0.0:8089:10.1.1.123:8083 root@100.1.2.3 -p 54900
 
 
-这表示在本地启动一个8088的端口，将这个8088端口映射到10.1.1.123的8083端口上，用的ssh账号是plantegg
+这表示在本地启动一个8088的端口，将这个8088端口映射到10.1.1.123的8083端口上，用的ssh账号是user
 
-然后在笔记本上的浏览器中输入： 127.0.0.1：8088 就看到了如下界面：
+然后在笔记本上的浏览器中输入： 127.0.0.1:8088 就看到了如下界面：
 
 ![image.png](/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
 
@@ -265,7 +266,8 @@ for循环部分一次把生成的密钥对和authorized_keys复制到所有机�
 
 下面是我个人常用的ssh config配置
 
-```
+```shell
+$cat ~/.ssh/config
 #GSSAPIAuthentication=no
 StrictHostKeyChecking=no
 #TCPKeepAlive=yes
@@ -279,16 +281,36 @@ UserKnownHostsFile /dev/null
 
 #reuse the same connection
 ControlMaster auto
-ControlPath ~/tmp/ssh_mux_%h_%p_%r
+ControlPath /tmp/ssh_mux_%h_%p_%r
 
 #keep one connection in 72hour
 ControlPersist 72h
 
-
-#Host 10.1?.*
-#ProxyCommand ssh -l bninet us.jump exec /usr/bin/nc %h %p 2>/dev/null
+Host 192.168.1.*
+ProxyCommand ssh user@us.jump exec /usr/bin/nc %h %p 2>/dev/null
+Host 192.168.2.*
+ProxyCommand ssh user@cn.jump exec /usr/bin/nc %h %p 2>/dev/null
 #ProxyCommand /bin/nc -x localhost:12346 %h %p
+
+Host 172
+    HostName 10.172.1.1
+    Port 22
+    User root
+    ProxyJump root@1.2.3.4:12345
+
+Host 176
+    HostName 10.176.1.1
+    Port 22
+    User root
+    ProxyJump admin@1.2.3.4:12346
+    
+Host 10.5.*.*, 10.*.*.*
+    port 22
+			user root
+			ProxyJump plantegg@1.2.3.4:12347
 ```
+
+ProxyJump完全可以取代 ProxyCommand，比如ProxyJump 不再依赖nc、也更灵活一些
 
 ## /etc/ssh/ssh_config 参考配置
 
@@ -462,6 +484,48 @@ Banner /etc/ssh/my_banner
 
 `ssh-keygen -y -e -f <private key>`获取一个私钥并打印相应的公钥，该公钥可以直接与您可用的公钥进行比较
 
+
+
+### github 上你的公钥
+
+github可以取到你的公钥，如果别人让你查看他的服务器，直接给 https://github.com/plantegg.keys这个链接，让他把下载的key 加到 ~/.ssh/authorized_keys 里面就行了
+
+### [ssh-keygen](https://superuser.com/questions/1416315/how-can-i-convert-a-public-key-generated-by-putty-to-rfc-4716-format)
+
+[静默生成](https://stackoverflow.com/questions/43235179/how-to-execute-ssh-keygen-without-prompt)
+
+```shell
+ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa <<<y
+
+ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa <<<y >/dev/null 2>&1
+
+//修改 passphrase
+ssh-keygen -p -P "12345" -N "abcde" -f .ssh/id_rsa
+//ssh-keygen -p [-P old_passphrase] [-N new_passphrase] [-f keyfile]
+//或者直接通过提示一步步修改：
+ssh-keygen -p 
+```
+
+删除或者修改 passphrase
+
+> run `ssh-keygen -p` in a terminal. It will then prompt you for a keyfile (defaulted to the correct file for me, `~/.ssh/id_rsa`), the old passphrase (enter what you have now) and the new passphrase (enter nothing). 
+
+[要注意openssh 不同版本使用的不同 format](https://www.ibm.com/support/pages/openssl-wont-understand-rsa-keys-rfc4716-format)，用openssh 8.0 默认用 “RFC4716” 格式，老的 4.0 默认是 PKCS8 格式
+
+ 去修改dsa密钥后 openssh 4.0 不认 
+
+> -m key_format
+>         Specify a key format for the -i (import) or -e (export) conversion options.  The sup‐
+>         ported key formats are: “RFC4716” (RFC 4716/SSH2 public or private key), “PKCS8” (PEM
+>         PKCS8 public key) or “PEM” (PEM public key).  The default conversion format is
+>         “RFC4716”.
+
+如果用 8.0 去修改 PKCS8 格式的 key 可以指定格式参数
+
+```
+ssh-keygen -p  -m "PKCS8" -f ./id_dsa
+```
+
 ### ssh-agent
 
 私钥设置了密码以后，每次使用都必须输入密码，有时让人感觉非常麻烦。比如，连续使用`scp`命令远程拷贝文件时，每次都要求输入密码。
@@ -503,6 +567,8 @@ $ ssh-add my-other-key-file
 
 上面的命令中，`my-other-key-file`就是用户指定的私钥文件。
 
+SSH agent 程序能够将您的已解密的私钥缓存起来，在需要的时候用它来解密key chanllge返回给 SSHD  https://webcache.googleusercontent.com/search?q=cache:7OfvSBFki10J:https://www.ibm.com/developerworks/cn/linux/security/openssh/part2/+&cd=7&hl=en&ct=clnk&gl=hk keychain介绍
+
 ### 安装sshd和debug
 
 sshd 有自己的一对或多对密钥。它使用密钥向客户端证明自己的身份。所有密钥都是公钥和私钥成对出现，公钥的文件名一般是私钥文件名加上后缀`.pub`。
@@ -526,7 +592,17 @@ DSA 格式的密钥文件默认为`/etc/ssh/ssh_host_dsa_key`（公钥为`ssh_ho
 >
 > sshd -D -d -p 2222 -p 3333
 
-### scp可以通过命令行参数来设置socks代理
+sshd config 配置多端口
+
+```
+#cat /etc/ssh/sshd_config
+Port 22022
+Port 22
+#AddressFamily any
+#ListenAddress 0.0.0.0
+```
+
+### scp设置socks代理
 
 > scp -o "ProxyCommand=nc -X 5 -x **[SOCKS_HOST]**:**[SOCKS_PORT]** %h %p" **[LOCAL/FILE/PATH]** **[REMOTE_USER]**@**[REMOTE_HOST]**:**[REMOTE/FILE/PATH]**
 
@@ -559,7 +635,91 @@ ProxyCommand和ProxyJump很类似，ProxyJump使用：
 ssh -J gf:22 centos8
 ```
 
+### ProxyJump
 
+需要 `OpenSSH 7.3` 以上版本才可以使用 `ProxyJump`, 相对 ProxyCommand 更简洁方便些
+
+```
+#ssh 116 就可以通过 jumpserver:50023 连上 root@1.116.2.1:22
+Host 116
+    HostName 1.116.2.1
+    Port 22
+    User root
+    ProxyJump admin@jumpserver:50023
+
+#ssh 1.112.任意ip 都会默认走 jumpserver 跳转过去
+Host 1.112.*.*
+    Port 22
+    User root
+    ProxyJump root@jumpserver
+```
+
+### [加密算法](http://www.openssh.com/legacy.html)
+
+列出本地所支持默认的加密算法
+
+```
+#ssh -Q key                                                            
+ssh-ed25519
+ssh-ed25519-cert-v01@openssh.com
+ssh-rsa
+ssh-dss
+ecdsa-sha2-nistp256
+ecdsa-sha2-nistp384
+ecdsa-sha2-nistp521
+ssh-rsa-cert-v01@openssh.com
+ssh-dss-cert-v01@openssh.com
+ecdsa-sha2-nistp256-cert-v01@openssh.com
+ecdsa-sha2-nistp384-cert-v01@openssh.com
+ecdsa-sha2-nistp521-cert-v01@openssh.com
+
+ssh -Q cipher       # List supported ciphers
+ssh -Q mac          # List supported MACs
+ssh -Q key          # List supported public key types
+ssh -Q kex          # List supported key exchange algorithms
+```
+
+比如连服务器报如下错误：
+
+```
+debug1: kex: algorithm: (no match)
+Unable to negotiate with server port 22: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1,diffie-hellman-group14-sha1
+```
+
+表示服务端支持 diffie-hellman-group1-sha1,diffie-hellman-group14-sha1 加密，但是client端不支持，那么可以指定算法来强制client端使用某种和server一致的加密方式
+
+```
+ssh  -oKexAlgorithms=+diffie-hellman-group14-sha1 -l user
+
+或者config中配置：
+host server_ip
+KexAlgorithms +diffie-hellman-group1-sha1
+```
+
+如果仍然报以下错误：
+
+```
+debug2: first_kex_follows 0
+debug2: reserved 0
+debug1: kex: algorithm: diffie-hellman-group14-sha1
+debug1: kex: host key algorithm: (no match)
+Unable to negotiate with server_ip port 22: no matching host key type found. Their offer: ssh-rsa
+```
+
+那么可以配置来解决：
+
+```
+Host *
+    HostKeyAlgorithms +ssh-rsa
+    PubkeyAcceptedKeyTypes +ssh-rsa
+```
+
+When an SSH client connects to a server, each side offers lists of connection parameters to the other. These are, with the corresponding [ssh_config](https://man.openbsd.org/ssh_config.5) keyword:
+
+- `KexAlgorithms`: the key exchange methods that are used to generate per-connection keys
+- `HostkeyAlgorithms`: the public key algorithms accepted for an SSH server to authenticate itself to an SSH client
+- `Ciphers`: the ciphers to encrypt the connection
+- `MACs`: the message authentication codes used to detect traffic modification
 
 ## 无所不能的 SSH 三大转发模式
 
@@ -567,14 +727,16 @@ ssh -J gf:22 centos8
 
 SSH能够做动态转发、本地转发、远程转发。先简要概述下他们的特点和使用场景
 
-**三个转发模式的比较：**
+**[三个转发模式的比较](https://www.skywind.me/blog/archives/2546)：**
 
-- 动态转发完全可以代替本地转发，只是动态转发是`socks5协议`，本地转发是tcp协议
-- 本地转发完全是把动态转发特例化到访问某个固定目标的转发
+- 动态转发完全可以代替本地转发，只是动态转发是`socks5协议`，当科学上网用，本地转发是tcp协议
+- 本地转发完全是把动态转发特例化到访问某个固定目标的转发，类似  iptable 的 port forwarding
 - 远程转发是启动转端口的机器同时连上两端的两个机器，把本来不连通的两端拼接起来，中间显得多了个节点。
 - 三个转发模式可以串联使用
 
 动态转发常用来科学上网，本地转发用来打洞，这两种转发启动的端口都是在本地；远程转发也是打洞的一种，只不过启用的端口在远程机器上。
+
+![img](/images/951413iMgBlog/ssh-tunnels.png)
 
 ### 动态转发 (-D)   SOCKS5 协议
 
@@ -663,7 +825,7 @@ LocalForward client-IP:client-port server-IP:server-port
 由于本机无法访问内网 SSH 跳板机，就无法从外网发起 SSH 隧道，建立端口转发。必须反过来，从 SSH 跳板机发起隧道，建立端口转发，这时就形成了远程端口转发。
 
 ```
-ssh -NR 30.1.2.3:30081:166.100.64.1:3128 root@30.1.2.3 -p 2728
+ssh -fNR 30.1.2.3:30081:166.100.64.1:3128 root@30.1.2.3 -p 2728
 ```
 
 上面的命令，首先需要注意，**不是在30.1.2.3 或者166.100.64.1 上执行的，而是找一台能联通 30.1.2.3 和166.100.64.1的机器来执行**，在执行前Remote clients能连上 30.1.2.3 但是 30.1.2.3 和 166.100.64.1 不通，所以需要一个中介将 30.1.2.3 和166.100.64.1打通，这个中介就是下图中的MobaXterm所在的机器，命令在MobaXterm机器上执行
@@ -702,22 +864,33 @@ nohup ssh -qTfnN -D *:13658 root@127.0.0.1 -p 30081 vmstat 10  >/dev/null 2>&1
 
 ### [curl](https://docs.google.com/document/d/1lSeScMYw9I7Pj_OgXEugfwp-taeF4b72WF_CGp4ey5s/edit#heading=h.n7jhdk88a6rk)
 
-> curl -I --socks5-hostname 127.0.0.1:13659 twitter.com
+> curl -I --socks5-hostname localhost:13659 twitter.com
 >
 > curl -x socks5://localhost:13659 twitter.com
 
-Suppose you have a socks5 proxy running on localhost:8001. 
+Suppose you have a socks5 proxy running on localhost:13659 . 
 
 [In curl >= 7.21.7, you can use](https://blog.emacsos.com/use-socks5-proxy-in-curl.html)
 
 ```shell
-curl -x socks5h://localhost:8001 http://www.google.com/
+curl -x socks5h://localhost:13659 http://www.google.com/
 ```
+
+In a proxy string, socks5h:// and socks4a:// mean that the hostname is
+resolved by the SOCKS server. socks5:// and socks4:// mean that the
+hostname is resolved locally. socks4a:// means to use SOCKS4a, which is
+an extension of SOCKS4. Let's make urllib3 honor it.
 
 In curl >= 7.18.0, you can use
 
 ```shell
-curl --socks5-hostname localhost:8001 http://www.google.com/
+curl --socks5-hostname localhost:13659 http://www.google.com/
+```
+
+--proxy 参数含义如下：
+
+```
+The --socks5 option is basically considered obsolete since curl 7.21.7. This is because starting in that release, you can now specify the proxy protocol directly in the string that you specify the proxy host name and port number with already. The server you specify with --proxy. If you use a socks5:// scheme, curl will go with SOCKS5 with local name resolve but if you instead use socks5h:// it will pick SOCKS5 with proxy-resolved host name.
 ```
 
 ### wget

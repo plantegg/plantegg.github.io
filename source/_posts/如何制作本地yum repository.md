@@ -183,6 +183,185 @@ yum provides */libmysqlclient.so.18
 
 
 
+## [制作debian 仓库](https://rpmdeb.com/devops-articles/how-to-create-local-debian-repository/)
+
+适合ubuntu、deepin、uos等, 参考：https://lework.github.io/2021/04/03/debian-kubeadm-install/
+
+```
+#添加新仓库
+sudo apt-add-repository 'deb http://ftp.us.debian.org/debian stretch main contrib non-free'
+```
+
+![img](/images/951413iMgBlog/2-60.png)
+
+
+
+[rpm转换成 dpkg](https://zh-cn.linuxcapable.com/%E5%9C%A8-debian-11-%E9%9D%B6%E5%BF%83%E4%B8%8A%E5%AE%89%E8%A3%85-rpm-%E5%8C%85/)
+
+### [apt-mirror](https://www.rickylss.site/os/linux/2020/05/12/debian-repositry/)
+
+先要安装apt-mirror 工具，安装后会生成配置文件 /etc/apt/mirror.list 然后需要手工修改配置文件：
+
+```
+#cat /etc/apt/mirror.list
+############# config ##################
+
+#下载下来的仓库文件放在哪里
+set base_path    /polarx/debian
+
+set mirror_path  $base_path/mirror
+set skel_path    $base_path/skel
+set var_path     $base_path/var
+set cleanscript $var_path/clean.sh
+set defaultarch  amd64
+#set postmirror_script $var_path/postmirror.sh
+set run_postmirror 0
+set nthreads     20
+set _tilde 0
+#
+############# end config ##############
+
+#从哪里镜像仓库
+deb http://yum.tbsite.net/mirrors/debian/ buster main non-free contrib
+#deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main
+
+#deb http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-src http://ftp.us.debian.org/debian unstable main contrib non-free
+
+# mirror additional architectures
+#deb-alpha http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-amd64 http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-armel http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-hppa http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-i386 http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-ia64 http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-m68k http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-mips http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-mipsel http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-powerpc http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-s390 http://ftp.us.debian.org/debian unstable main contrib non-free
+#deb-sparc http://ftp.us.debian.org/debian unstable main contrib non-free
+
+#clean http://ftp.us.debian.org/debian
+clean http://yum.tbsite.net/mirrors/debian/
+```
+
+
+
+### [debian仓库介绍](https://wiki.debian.org/zh_CN/DebianRepository)
+
+一个Debian仓库包含多个**发行版**。Debian 的发行版是以 "玩具总动员 "电影中的角色命名的 (wheezy, jessie, stretch, ...)。 代号有别名，叫做**套件**(stable, oldstable, testing, unstable)。一个发行版会被分成几个**组件**。在 Debian 中，这些组件被命名为 `main`, `contrib`, 和 `non-free`，并表并表示它们所包含的软件的授权条款。一个版本也有各种**架构**(amd64, i386, mips, powerpc, s390x, ...)的软件包，以及源码和架构独立的软件包。
+
+仓库的[根目录下有一个`dists` 目录](https://mirrors.aliyun.com/debian/dists/)，而这个目录又有每个发行版和套件的目录，后者通常是前者的符号链接，但浏览器不会向您显示出这个区别。每个发行版子目录都包含一个加密签名的`Release`文件和每个组件的目录，里面是不同架构的目录，名为`binary`-*<架构>*和`sources`。而在这些文件中，`Packages`是文本文件，包含了软件包。嗯，那么实际的软件包在哪里？
+
+![image-20220829163817671](/images/951413iMgBlog/image-20220829163817671.png)
+
+软件包本身在仓库根目录下的`pool`。在`pool`下面又有所有组件的目录，其中有`0`，...，`9`，`a`，`b`，.., `z`, `liba`, ... , `libz`。 而在这些目录中，是以它们所包含的软件包命名的目录，这些目录最后包含实际的软件包，即`.deb`文件。这个名字不一定是软件包本身的名字，例如，软件包bsdutils在目录`pool/main/u/util-linux` 下，它是生成软件包的源码的名称。一个上游源可能会生成多个二进制软件包，而所有这些软件包最终都会在`pool`下面的同一个子目录中。额外的单字母目录只是一个技巧，以避免在一个目录中有太多的条目，因为这是很多系统传统上存在性能问题的原因。
+
+在`pool`下面的子目录中，通常会有多个版本的软件包，而每个版本的软件包属于什么发行版的信息只存在于索引中。这样一来，同一个版本的包可软件以属于多个发行版，但只使用一次磁盘空间，而且不需要求助于硬链接或符号链接，所以镜像相当简单，甚至可以在没有这些概念的系统中进行。
+
+### 常用命令
+
+```
+apt install kubeadm=1.20.12-00 //指定版本安装
+
+#查询可用版本
+apt-cache policy kubeadm
+apt list --all-versions kubeadm
+
+#清理
+apt clean --dry-run 
+apt update
+apt list
+apt show kubeadm
+
+#查询安装包的所有文件
+dpkg-query -L kubeadm
+
+#列出所有依赖包
+apt-cache depends ansible
+
+#被依赖查询
+apt-cache rdepends kubelet
+
+dpkg -I kubernetes/pool/kubeadm_1.21.0-00_amd64.deb
+
+#下载依赖包
+apt-get download $(apt-rdepends kubeadm|grep -v "^ ")
+aptitude --download-only -y install $(apt-rdepends kubeadm|grep -v "^ ") //不能下载已经安装了的依赖包
+
+apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep "^\w" | sort -u)
+```
+
+### [简单仓库](https://zhuanlan.zhihu.com/p/482592599)
+
+下载所有 deb 包以及他们的依赖
+
+```
+apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep "^\w" | sort -u)
+```
+
+生成 index
+
+```
+dpkg-scanpackages -m . > Packages
+```
+
+apt source 指向这个目录
+
+```
+deb [trusted=yes] file:/polarx/test /
+```
+
+### Kubernetes 仓库
+
+[debian 上通过kubeadm 安装 kubernetes 集群](https://lework.github.io/2021/04/03/debian-kubeadm-install/)
+
+```
+//官方
+echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list
+
+//阿里云仓库
+echo 'deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main' > /etc/apt/sources.list.d/kubernetes.list
+curl -s https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | sudo apt-key add -
+apt-get update
+
+export KUBE_VERSION="1.20.5"
+apt-get install -y kubeadm=$KUBE_VERSION-00 kubelet=$KUBE_VERSION-00 kubectl=$KUBE_VERSION-00
+sudo apt-mark hold kubelet kubeadm kubectl
+
+[ -d /etc/bash_completion.d ] && \
+    { kubectl completion bash > /etc/bash_completion.d/kubectl; \
+      kubeadm completion bash > /etc/bash_completion.d/kubadm; }
+      
+[ ! -d /usr/lib/systemd/system/kubelet.service.d ] && mkdir -p /usr/lib/systemd/system/kubelet.service.d
+cat << EOF > /usr/lib/systemd/system/kubelet.service.d/11-cgroup.conf
+[Service]
+CPUAccounting=true
+MemoryAccounting=true
+BlockIOAccounting=true
+ExecStartPre=/usr/bin/bash -c '/usr/bin/mkdir -p /sys/fs/cgroup/{cpuset,memory,systemd,pids,"cpu,cpuacct"}/{system,kube,kubepods}.slice'
+Slice=kube.slice
+EOF
+systemctl daemon-reload
+ 
+systemctl enable kubelet.service
+```
+
+### docker 仓库
+
+```
+apt-get install -y apt-transport-https ca-certificates curl gnupg2 lsb-release bash-completion
+    
+curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | sudo apt-key add -
+echo "deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/debian $(lsb_release -cs)   stable" > /etc/apt/sources.list.d/docker-ce.list
+sudo apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io
+apt-mark hold docker-ce docker-ce-cli containerd.io
+```
+
+
+
 ## 参考资料
 
 [xargs 命令教程](https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html)

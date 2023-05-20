@@ -474,6 +474,35 @@ ansible blocks -m copy -a "src=/tmp/hello6 dest=/tmp/hello7etc remote_src=yes" -
 ansible -i xty_172.ini all -m synchronize -a " src=/home/ren/docker.service dest=/usr/lib/systemd/system/docker.socket " -u root
 ```
 
+### find_file
+
+```
+- hosts: all
+
+  tasks:
+    - name: find_file
+      find:
+        paths: /home/admin/.ssh/
+        patterns: "*.rsa"
+        recurse: no
+      register: file_name
+
+    - name: copy_file
+      fetch:
+        src: "{{ item.path }}"
+        dest: /tmp/sshbak/
+        flat: no
+      with_items: "{{ file_name.files }}"
+```
+
+test
+
+```
+ansible-playbook -i 127.0.0.1,  ./find_file.yaml
+```
+
+
+
 ### 不使用 hosts.ini文件，从命令行中传入目标机的 ip 列表
 
 ```
