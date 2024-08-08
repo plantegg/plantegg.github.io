@@ -1,0 +1,830 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="performance,TCP,network,">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="通过分析tcp包来确认服务调用的响应时间不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间案例1当时的问题，客户现场不管怎么样增加应用机器，tps就是上不去，同时增加应用机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪，也就是cpu用的更多了，tps没变化），客户感觉 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各">
+<meta name="keywords" content="performance,TCP,network">
+<meta property="og:type" content="article">
+<meta property="og:title" content="通过分析tcp包来确认服务调用的响应时间">
+<meta property="og:url" content="https://plantegg.github.io/2017/01/14/通过分析tcp包来确认服务调用的响应时间/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="通过分析tcp包来确认服务调用的响应时间不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间案例1当时的问题，客户现场不管怎么样增加应用机器，tps就是上不去，同时增加应用机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪，也就是cpu用的更多了，tps没变化），客户感觉 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220524155218723.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220524155221182.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220524155217000.png">
+<meta property="og:updated_time" content="2024-08-08T11:15:22.294Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="通过分析tcp包来确认服务调用的响应时间">
+<meta name="twitter:description" content="通过分析tcp包来确认服务调用的响应时间不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间案例1当时的问题，客户现场不管怎么样增加应用机器，tps就是上不去，同时增加应用机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪，也就是cpu用的更多了，tps没变化），客户感觉 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220524155218723.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2017/01/14/通过分析tcp包来确认服务调用的响应时间/">
+
+
+
+
+
+  <title>通过分析tcp包来确认服务调用的响应时间 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br>
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/01/14/通过分析tcp包来确认服务调用的响应时间/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">通过分析tcp包来确认服务调用的响应时间</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-01-14T10:30:03+08:00">
+                2017-01-14
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="通过分析tcp包来确认服务调用的响应时间"><a href="#通过分析tcp包来确认服务调用的响应时间" class="headerlink" title="通过分析tcp包来确认服务调用的响应时间"></a>通过分析tcp包来确认服务调用的响应时间</h1><h2 id="不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）-分析服务调用的响应时间"><a href="#不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）-分析服务调用的响应时间" class="headerlink" title="不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间"></a>不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间</h2><h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">当时的问题，客户现场不管怎么样增加应用机器，tps就是上不去，同时增加应用机器后，增加的机器CPU还都能被用完，但是tps没有变化（这点比较奇怪，也就是cpu用的更多了，tps没变化），客户感觉 整体服务调用慢，数据库没有慢查询，不知道到具体时间花在哪里，各个环节都尝试过增加服务器（或提升配置），但是问题一直得不到解决</span><br></pre></td></tr></table></figure>
+
+<h2 id="原因"><a href="#原因" class="headerlink" title="原因"></a>原因</h2><h3 id="数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）"><a href="#数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）" class="headerlink" title="数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）"></a>数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</h3><blockquote>
+<p>通过程序把每个请求、响应时间等数据分析出来并存入数据库中（缺一个图形展示界面，有图形展示界面后会更直观）</p>
+</blockquote>
+<blockquote>
+<p>图一中是每一秒中的平均 rtt 时间（round trip time）</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20220524155218723.png" alt="image"></p>
+<h4 id="问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4-5毫秒"><a href="#问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4-5毫秒" class="headerlink" title="问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒"></a>问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒</h4><blockquote>
+<p>图中的每一行都是是一个查询的数据库执行时间</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/image-20220524155221182.png" alt="image"></p>
+<h4 id="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><a href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）" class="headerlink" title="从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"></a>从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</h4><p><img src="/images/951413iMgBlog/image.png" alt="image"></p>
+<h4 id="从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><a href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）" class="headerlink" title="从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）"></a>从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</h4><p><img src="/images/951413iMgBlog/image-20220524155217000.png" alt="image"></p>
+<h3 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h3><blockquote>
+<p>实际上通过抓包发现所有发往后面的SQL查询(请求链路：app -&gt; slb -&gt; drds -&gt; slb -&gt;rds) ，在app上抓包发现每个请求发出去到收到结果平均需要差不多100ms（无论SQL复杂与否），通过统计网络往返时间（rtt）发现rtt非常高，好多都是50ms以上。<br>降低压力比较rtt，发现rtt降到了20ms以内，同时SQL响应时间也相应地减短了。<br>已经排除了drds到rds响应慢的问题，问题应该在slb或者drds上，进一步发现drds（16Core 16GMem）绑定网卡中断的cpu用到了95%以上，尝试绑定到多个cpu内核，似乎ecs不支持，接下来将配置，增加多个低配置的drds来解决问题。</p>
+</blockquote>
+<p><strong>简单来说ecs默认网卡中断只能用到一个核，如果ecs配置太高，网卡中断会成为瓶颈，导致rtt变高、不稳定</strong></p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/performance/" rel="tag"># performance</a>
+          
+            <a href="/tags/TCP/" rel="tag"># TCP</a>
+          
+            <a href="/tags/network/" rel="tag"># network</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2017/01/01/top_linux_commands/" rel="next" title="最牛B的Linux Shell命令">
+                <i class="fa fa-chevron-left"></i> 最牛B的Linux Shell命令
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2017/03/24/物理机磁盘空间去哪了/" rel="prev" title="物理机磁盘空间都去哪里了">
+                物理机磁盘空间都去哪里了 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="twitter @plantegg">
+          <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">181</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">272</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#通过分析tcp包来确认服务调用的响应时间"><span class="nav-number">1.</span> <span class="nav-text">通过分析tcp包来确认服务调用的响应时间</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）-分析服务调用的响应时间"><span class="nav-number">1.1.</span> <span class="nav-text">不需要在应用中打点，不限定于具体语言（php、cpp、java都可以）, 分析服务调用的响应时间</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#案例"><span class="nav-number">1.2.</span> <span class="nav-text">案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#原因"><span class="nav-number">1.3.</span> <span class="nav-text">原因</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）"><span class="nav-number">1.3.1.</span> <span class="nav-text">数据库服务器网卡中断瓶颈导致rtt非常高，进一步导致每个Query的ResponseTime非常高（图中左边都是出问题、右边都是问题解决后的响应时间）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4-5毫秒"><span class="nav-number">1.3.1.1.</span> <span class="nav-text">问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）"><span class="nav-number">1.3.1.2.</span> <span class="nav-text">从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#从wireshark中也可以看到类似的rtt正常-99-都在10ms以内）"><span class="nav-number">1.3.1.3.</span> <span class="nav-text">从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#总结"><span class="nav-number">1.3.2.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
