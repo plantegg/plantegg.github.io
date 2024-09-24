@@ -1,0 +1,980 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="thread pool,">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="MySQL线程池卡顿重现by @wych42  起因为了激励大家多动手少空想，我在推特发起了白嫖我的知识星球活动：  白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧  参考现象：https://plant">
+<meta name="keywords" content="thread pool">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL线程池卡顿重现">
+<meta property="og:url" content="https://plantegg.github.io/2023/05/26/MySQL线程池卡顿重现/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="MySQL线程池卡顿重现by @wych42  起因为了激励大家多动手少空想，我在推特发起了白嫖我的知识星球活动：  白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧  参考现象：https://plant">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230517082106489.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/238557399-c92e2c4e-436f-4f89-ba87-48c49b5393ac.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/238557635-1209f057-0c3c-4cfd-9072-12bfc112b4c6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/238638548-c4161d72-b94c-43ef-b698-3acc1002eb43.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/238637635-323fca3b-edf1-4ae7-8d68-d9db9811c692.png">
+<meta property="og:updated_time" content="2024-09-09T08:28:05.443Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="MySQL线程池卡顿重现">
+<meta name="twitter:description" content="MySQL线程池卡顿重现by @wych42  起因为了激励大家多动手少空想，我在推特发起了白嫖我的知识星球活动：  白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧  参考现象：https://plant">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230517082106489.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2023/05/26/MySQL线程池卡顿重现/">
+
+
+
+
+
+  <title>MySQL线程池卡顿重现 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br>
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/05/26/MySQL线程池卡顿重现/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">MySQL线程池卡顿重现</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2023-05-26T17:30:03+08:00">
+                2023-05-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="MySQL线程池卡顿重现"><a href="#MySQL线程池卡顿重现" class="headerlink" title="MySQL线程池卡顿重现"></a>MySQL线程池卡顿重现</h1><p>by @wych42 </p>
+<h2 id="起因"><a href="#起因" class="headerlink" title="起因"></a>起因</h2><p>为了激励大家多动手少空想，我在推特发起了白嫖我的<a href="http://t.zsxq.com/0cz93XUPj" target="_blank" rel="noopener">知识星球活动</a>：</p>
+<blockquote>
+<p>白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧</p>
+</blockquote>
+<p>参考现象：<a href="https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/</a></p>
+<hr>
+<p>感谢推友<a href="https://twitter.com/wych42" target="_blank" rel="noopener">王鱼翅</a>同学，以下是他的教科书级的细致重现，你复制粘贴就能和他一样重现了</p>
+<h2 id="这个案例的重要性"><a href="#这个案例的重要性" class="headerlink" title="这个案例的重要性"></a>这个案例的重要性</h2><p>这个现象对应我们年度四大案例之一，如下图左下角</p>
+<p><img src="/images/951413iMgBlog/image-20230517082106489.png" alt="image-20230517082106489"></p>
+<p>重现后请思考：</p>
+<ol>
+<li>MySQL为什么要将多个线程分成小池子，小池子肯定容易局部资源不足</li>
+<li>Nginx 一个连接固定在一个worker上，那么同样多个Worker也会有不均衡(有的worker很闲，有的很卡)</li>
+<li>动手实验一下将多个小池子改成一个大线程池会怎么样</li>
+<li>Java ConcurrentHashMap为什么能够高性能</li>
+</ol>
+<p>由 @wych42 重现 </p>
+<h2 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h2><p>根据 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener">USE</a> 分析套路。看到服务端执行快，但是整体RT慢的现象，大概率是中间哪个位置有排队。根据文章里的描述，原因是在thread pool group中出现了排队。</p>
+<p>排队的主要原因是服务端拒绝创建新的thread（worker），导致新进来的SQL需要等待前面的执行完成。那么就需要重点分析thread(worker)的创建过程和约束条件。根据文章和文档的说明，重点在thread_pool_size, thread_pool_oversubscribe, thread_pool_max_threads, thread_pool_stall_limit这几个参数上。</p>
+<p>跟据文档分析和实际执行结果，这几个参数在MySQL不同的发型版中的行为逻辑是不尽相同的。核心差异在对创建新worker的限制条件上，后面复现也会根据两个发型版的特点分别执行。</p>
+<h2 id="mariadb"><a href="#mariadb" class="headerlink" title="mariadb"></a>mariadb</h2><p><a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="noopener">文档</a></p>
+<ul>
+<li>通常情况下，新worker由listener worker创建</li>
+<li>当timer worker检测到thread group 有stall时，可能会选择创建一个新的worker</li>
+<li>worker的数量上限由thread_pool_max_threads限制</li>
+<li>thread_pool_oversubscribe约束的是被额外创建出来的worker，在执行完任务后，最多能保留active状态的数量<blockquote>
+<p>To clarify, the thread_pool_oversubscribe system variable does not play any part in the creation of new worker threads. The thread_pool_oversubscribe system variable is only used to determine how many worker threads should remain active in a thread group, once a thread group is already oversubscribed due to stalls.</p>
+</blockquote>
+</li>
+</ul>
+<h2 id="percona"><a href="#percona" class="headerlink" title="percona"></a>percona</h2><p><a href="https://docs.percona.com/percona-server/8.0/performance/threadpool.html" target="_blank" rel="noopener">文档</a></p>
+<p>percona的行为更符合原文章里的说明：</p>
+<ul>
+<li>如果线程执行超过时间 thread_pool_stall_limit 的值，会被任务stalled，会创建一个新的线程执行排队的任务</li>
+<li>thread_pool_oversubscribe 约束了每个thread group的线程数上限。</li>
+</ul>
+<h2 id="尝试复现"><a href="#尝试复现" class="headerlink" title="尝试复现"></a>尝试复现</h2><h3 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h3><p>并发向DB发起请求，观察客户端耗时，这些请求应当符合这些条件：</p>
+<ul>
+<li>可控的并发数量：以对比数据库服务端不同参数值的情况</li>
+<li>有稳定的、相同的服务端执行耗时：以对比客户端在不同场景下的耗时</li>
+<li>对服务端的硬件压力较小：避免因为并发不同时，因IO、CPU资源占用，影响服务端执行耗时</li>
+</ul>
+<p>综合考虑使用 <code>select sleep(2); </code>作为测试SQL。并发控制使用下面的golang代码实现。</p>
+<p>再控制数据库服务端参数，运行同一个并发程序进行对比，mariadb和percona分析执行运行过程：</p>
+<h2 id="复现执行"><a href="#复现执行" class="headerlink" title="复现执行"></a>复现执行</h2><h3 id="mariadb-1"><a href="#mariadb-1" class="headerlink" title="mariadb"></a>mariadb</h3><p>由上面分析可以，mariadb 中造成排队的约束是thread_pool_max_threads。</p>
+<h4 id="执行方案"><a href="#执行方案" class="headerlink" title="执行方案"></a>执行方案</h4><ul>
+<li><p>DB配置</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">| thread_pool_max_threads                 | 6               |</span><br><span class="line">| thread_pool_oversubscribe               | 1               |</span><br><span class="line">| thread_pool_size                        | 1               |</span><br><span class="line">| thread_pool_stall_limit                 | 500             |</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(2)</code></p>
+</li>
+<li><p>执行并发：8</p>
+</li>
+</ul>
+<p>预期结果： 6个SQL执行的客户端观察耗时为2s；2个SQL为4s</p>
+<p>若调整 thread_pool_max_threads&#x3D;8，则8个SQL的执行客户端观察耗时都为2s</p>
+<h4 id="执行结果"><a href="#执行结果" class="headerlink" title="执行结果"></a>执行结果</h4><ol>
+<li><p>thread_pool_max_threads&#x3D;6;concurrency&#x3D;8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">go run ./main.go</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_3</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_1</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_6</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_4</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_0</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_7</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_2</span><br><span class="line">2023/05/16 13:34:51 starting taskId:task_5</span><br><span class="line">2023/05/16 13:34:53 taskId:task_0 exec cost : 2.021305666s</span><br><span class="line">2023/05/16 13:34:53 taskId:task_6 exec cost : 2.021421041s</span><br><span class="line">2023/05/16 13:34:53 taskId:task_3 exec cost : 2.021258917s</span><br><span class="line">2023/05/16 13:34:53 taskId:task_2 exec cost : 2.021275458s</span><br><span class="line">2023/05/16 13:34:53 taskId:task_4 exec cost : 2.021254083s</span><br><span class="line">2023/05/16 13:34:53 taskId:task_7 exec cost : 2.02146725s</span><br><span class="line">2023/05/16 13:34:55 taskId:task_5 exec cost : 4.021478584s</span><br><span class="line">2023/05/16 13:34:55 taskId:task_1 exec cost : 4.02192s</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>thread_pool_max_threads&#x3D;8;concurrency&#x3D;8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">go run ./main.go</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_7</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_3</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_1</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_5</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_0</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_6</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_4</span><br><span class="line">2023/05/16 13:36:17 starting taskId:task_2</span><br><span class="line">2023/05/16 13:36:19 taskId:task_6 exec cost : 2.045480167s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_2 exec cost : 2.045405667s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_7 exec cost : 2.045507334s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_1 exec cost : 2.04553075s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_3 exec cost : 2.04554975s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_0 exec cost : 2.045697375s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_4 exec cost : 2.046417375s</span><br><span class="line">2023/05/16 13:36:19 taskId:task_5 exec cost : 2.046453792s</span><br></pre></td></tr></table></figure></li>
+</ol>
+<p>均符合预期。</p>
+<h3 id="percona-1"><a href="#percona-1" class="headerlink" title="percona"></a>percona</h3><p>由上面分析可以，percona中造成排队的约束是thread_pool_oversubscribe。</p>
+<h4 id="执行方案-1"><a href="#执行方案-1" class="headerlink" title="执行方案"></a>执行方案</h4><ul>
+<li><p>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">| thread_pool_max_threads                 | 1000               |</span><br><span class="line">| thread_pool_oversubscribe               | 1               |</span><br><span class="line">| thread_pool_size                        | 1               |</span><br><span class="line">| thread_pool_stall_limit                 | 500             |</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(2)</code></p>
+</li>
+<li><p>执行并发：8</p>
+</li>
+</ul>
+<p>预期结果： 客户端观察到的耗时分四个批次输出，每个批次2个SQL，耗时分别为2s,4s,6s,8s.</p>
+<p>若调整 thread_pool_oversubscribe&#x3D;2，则三个批次输出，分别为3条SQL耗时均为2s，3条SQL耗时均为4s，2条SQL耗时均为6s</p>
+<h4 id="执行结果-1"><a href="#执行结果-1" class="headerlink" title="执行结果"></a>执行结果</h4><ol>
+<li><p>thread_pool_oversubscribe&#x3D;1,concurrency&#x3D;8</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">go run ./main.go</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_2</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_4</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_3</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_5</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_6</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_0</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_1</span><br><span class="line">2023/05/16 13:39:35 starting taskId:task_7</span><br><span class="line">2023/05/16 13:39:37 taskId:task_7 exec cost : 2.063547416s</span><br><span class="line">2023/05/16 13:39:37 taskId:task_0 exec cost : 2.064091541s</span><br><span class="line">2023/05/16 13:39:39 taskId:task_5 exec cost : 4.06672125s</span><br><span class="line">2023/05/16 13:39:39 taskId:task_6 exec cost : 4.066822583s</span><br><span class="line">2023/05/16 13:39:41 taskId:task_3 exec cost : 6.067720292s</span><br><span class="line">2023/05/16 13:39:41 taskId:task_2 exec cost : 6.069995s</span><br><span class="line">2023/05/16 13:39:43 taskId:task_4 exec cost : 8.069296042s</span><br><span class="line">2023/05/16 13:39:43 taskId:task_1 exec cost : 8.071391709s</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>thread_pool_oversubscribe&#x3D;2,concurrency&#x3D;8 </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">go run ./main.go</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_7</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_1</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_3</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_2</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_5</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_6</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_4</span><br><span class="line">2023/05/16 13:41:02 starting taskId:task_0</span><br><span class="line">2023/05/16 13:41:04 taskId:task_1 exec cost : 2.057093667s</span><br><span class="line">2023/05/16 13:41:04 taskId:task_3 exec cost : 2.057156334s</span><br><span class="line">2023/05/16 13:41:04 taskId:task_5 exec cost : 2.057170667s</span><br><span class="line">2023/05/16 13:41:06 taskId:task_6 exec cost : 4.066917041s</span><br><span class="line">2023/05/16 13:41:06 taskId:task_7 exec cost : 4.066944125s</span><br><span class="line">2023/05/16 13:41:06 taskId:task_2 exec cost : 4.066976875s</span><br><span class="line">2023/05/16 13:41:08 taskId:task_4 exec cost : 6.070653125s</span><br><span class="line">2023/05/16 13:41:08 taskId:task_0 exec cost : 6.070612083s</span><br></pre></td></tr></table></figure></li>
+</ol>
+<p>均符合预期。</p>
+<h3 id="real-world-模拟（percona）版本"><a href="#real-world-模拟（percona）版本" class="headerlink" title="real-world 模拟（percona）版本"></a>real-world 模拟（percona）版本</h3><p>现实场景中，很少会有大批量的2s在SQL在生产环境执行（限互联网业务)，上述的分析过程能否在真实场景中验证呢？尝试用一个执行200ms的SQL来模拟下：</p>
+<ul>
+<li><p>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">| thread_pool_max_threads                 | 1000               |</span><br><span class="line">| thread_pool_oversubscribe               | 1               |</span><br><span class="line">| thread_pool_size                        | 1               |</span><br><span class="line">| thread_pool_stall_limit                 | 500             |</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>执行SQL <code>select sleep(0.2)</code></p>
+</li>
+<li><p>执行并发：10</p>
+</li>
+</ul>
+<p>从执行结果中可以看到，只有第一条SQL按照预期的时间执行完成了。<br>从抓包结果中可以看到，所有SQL几乎是同时发出。观察最慢的一条SQL,但是从客户端发包到服务端响应包发出的耗时，与客户端观察到的耗时也能对应上。</p>
+<p>可以验证上述分析过程。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">2023/05/16 14:47:47 taskId:task_1 exec cost : 239.34925ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_9 exec cost : 239.560833ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_5 exec cost : 453.795084ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_3 exec cost : 458.0005ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_6 exec cost : 659.441541ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_8 exec cost : 659.660917ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_0 exec cost : 862.526375ms</span><br><span class="line">2023/05/16 14:47:47 taskId:task_7 exec cost : 864.450042ms</span><br><span class="line">2023/05/16 14:47:48 taskId:task_2 exec cost : 1.063766875s</span><br><span class="line">2023/05/16 14:47:48 taskId:task_4 exec cost : 1.066266041s</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/238557399-c92e2c4e-436f-4f89-ba87-48c49b5393ac.png" alt="send_sql"></p>
+<p><img src="/images/951413iMgBlog/238557635-1209f057-0c3c-4cfd-9072-12bfc112b4c6.png" alt="response_delay"></p>
+<h3 id="复现文章中部分线程池卡的现象"><a href="#复现文章中部分线程池卡的现象" class="headerlink" title="复现文章中部分线程池卡的现象"></a>复现文章中部分线程池卡的现象</h3><p>配置两个线程池，在其中一个线程池上,通过<code>select sleep()</code>较长时间模拟线程池被慢SQL或者大量任务堵塞的情况，具体配置方案如下：</p>
+<ul>
+<li>thread_pool_size&#x3D;2: 保留两个线程池，验证一个卡顿，一个不卡</li>
+<li>thread_pool_oversubscribe&#x3D;1: 允许多创建一个线程，每个线程池中可以同时运行1+1&#x3D;2个线程</li>
+<li>thread_pool_max_threads&#x3D;2: 每个线程池的线程数量上限，为thread_pool_oversubscribe的配置约束加一个硬限制，每个线程池中最多允许运行2个线程</li>
+</ul>
+<p>操作步骤如下:</p>
+<ul>
+<li>通过mysql client在终端发起链接，通过 <code>show processlist</code>语句获取到链接Id, 该链接会分配到 id%2 的线程池中。</li>
+<li>用偶数id的链接验证卡顿线程池，用奇数id的链接验证不卡的线程池，链接情况如下:</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">  show processlist;</span><br><span class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</span><br><span class="line">| Id  | User            | Host           | db   | Command | Time  | State                  | Info             | Time_ms  | Rows_sent | Rows_examined |</span><br><span class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</span><br><span class="line">|   5 | event_scheduler | localhost      | NULL | Daemon  | 23664 | Waiting on empty queue | NULL             | 23663650 |         0 |             0 |</span><br><span class="line">| 404 | root            | _gateway:51310 | NULL | Sleep   |  7256 |                        | NULL             |  7256057 |         1 |             1 |</span><br><span class="line">| 405 | root            | _gateway:48860 | NULL | Sleep   |  7295 |                        | NULL             |  7295342 |         1 |             1 |</span><br><span class="line">| 406 | root            | _gateway:41144 | NULL | Sleep   |  7254 |                        | NULL             |  7254236 |         1 |             1 |</span><br><span class="line">| 410 | root            | _gateway:46794 | NULL | Sleep   |  7196 |                        | NULL             |  7196042 |         1 |             1 |</span><br><span class="line">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>在 id&#x3D;404, id&#x3D;406的链接上，执行 <code>select sleep(30)</code>，再到 id&#x3D;410 的链接上执行 <code>select 1</code>，预计 <code>select &#39;slow&#39;</code>会直接卡顿约30s再执行完成。</li>
+<li>同时，在id&#x3D;405的链接上，反复执行 <code>select &#39;fast&#39;</code>,都可以很快执行完成。</li>
+</ul>
+<p>执行结果:</p>
+<ul>
+<li>id&#x3D;410 上的语句执行约25s返回结果（终端操作手速影响导致了5s误差）,语句执行时数据库实例输出报错日志，提示线程不足:<blockquote>
+<p>2023-05-16T11:27:09.997916Z 406 [ERROR] [MY-000000] [Server] Threadpool could not create additional thread to handle queries, because the number of allowed threads was reached. Increasing ‘thread_pool_max_threads’ parameter can help in this situation.  If ‘admin_port’ parameter is set, you can still connect to the database with superuser account (it must be TCP connection using admin_port as TCP port) and troubleshoot the situation. A likely cause of pool blocks are clients that lock resources for long time. ‘show processlist’ or ‘show engine innodb status’ can give additional hints.</p>
+</blockquote>
+</li>
+<li>id&#x3D;405链接上的执行都行快。可参考下面抓包截图。</li>
+</ul>
+<p>抓包结果:</p>
+<p>id&#x3D;410 上的阻塞SQL,可以看到:</p>
+<ol>
+<li>三条语句在3s内接连发出,但是由于线程池阻塞， <code>select &#39;slow&#39;</code>原本应该很快返回结果，被卡住</li>
+<li>在30s时，第一个<code>select sleep(30)</code>语句执行完成，空出的线程立刻执行了 <code>select &#39;slow&#39;</code>并返回结果<br><img src="/images/951413iMgBlog/238638548-c4161d72-b94c-43ef-b698-3acc1002eb43.png" alt="slow query"></li>
+</ol>
+<p>id&#x3D;405链接上的执行结果可以看到，每条语句执行都很快。<br><img src="/images/951413iMgBlog/238637635-323fca3b-edf1-4ae7-8d68-d9db9811c692.png" alt="fast query"></p>
+<h1 id="参数合理值-已知参数的容量评估"><a href="#参数合理值-已知参数的容量评估" class="headerlink" title="参数合理值&#x2F;已知参数的容量评估"></a>参数合理值&#x2F;已知参数的容量评估</h1><p>percona 的默认配置中，thread_pool_size&#x3D;核心数，thread_pool_oversubscribe&#x3D;3.假设在一台 16core 的服务器上运行percona，默认配置下最多可以有 16*(1+3)&#x3D;64个worker同时接受请求。也就是最大可并行处理的SQL数量为 64 个。</p>
+<p>假设同时有65个执行耗时为10ms的SQL到达服务端，理论上，会有一个进入排队。排查网络、解析等阶段，在客户端观察到的64个SQL执行耗时10ms，1个SQL执行耗时约20ms。这也会导致耗时监控中出现毛刺、耗时分布不符合正态分布。</p>
+<p>反之，根据硬件配置、查询的量、耗时等特点，也可以推算合理的参数值。</p>
+<h1 id="附录"><a href="#附录" class="headerlink" title="附录"></a>附录</h1><h2 id="过程回顾"><a href="#过程回顾" class="headerlink" title="过程回顾"></a>过程回顾</h2><h3 id="阶段一-确定原因"><a href="#阶段一-确定原因" class="headerlink" title="阶段一 确定原因"></a>阶段一 确定原因</h3><p>看到文章时，基本确认问题根源在执行线程(worker)不够，导致排队，出于以下几点分析:</p>
+<ul>
+<li>开头提到的 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener">USE</a> 分析套路，结合排查过类似问题(非SQL)的经验</li>
+<li>看到文章作者调大thread_pool_oversubscribe便解决问题, 结合文章中对该参数作用的文档引用，基本可以确定</li>
+</ul>
+<h3 id="阶段二-走上弯路"><a href="#阶段二-走上弯路" class="headerlink" title="阶段二 走上弯路"></a>阶段二 走上弯路</h3><p>尝试复现时，要先启动一个DB实例，便查询文档该参数如何在配置文件中配置，查了MySQL的文档，似乎只在enterprise版本中才有该配置项，便转头去看mariadb的配置说明(这一步给走弯路埋下了伏笔)。</p>
+<p>用docker在本地启动了mariadb实例(thread_pool_size&#x3D;2 thread_pool_oversubscribe&#x3D;1)</p>
+<p>先尝试用 <code>select sleep(30)</code> 模拟阻塞，用 sysbench 模拟正常流量，结果失败：</p>
+<ol>
+<li>正常流量中有慢的，但是整体还符合正态分布，没有出现都卡的情况。</li>
+<li>加大了  <code>select sleep(30)</code> 查询的并发量，现象同上。</li>
+</ol>
+<p>又翻阅了一些文档，看到DB在调度时，对不同类型的SQL调度优先级会有所区别，类似sleep这种啥也不干的SQL，会不会被降低调度优先级，才导致了没有复现呢？(走上了弯路)</p>
+<p>尝试人工制造慢查询:</p>
+<ol>
+<li>用 sysbench 制造百万量级的表</li>
+<li>执行 offset limit 的排序查询，并且不走索引</li>
+</ol>
+<p>复现结果仍不满意：</p>
+<ol>
+<li>整体耗时上升了，出现几笔长尾的耗时特别长的请求</li>
+<li>但是整体仍然符合正态分布</li>
+</ol>
+<p>此时分析了下，整体耗时上升是人工制造的慢查询，占用了过多IO和CPU资源，影响了sysbench SQL执行的效率。</p>
+<h3 id="阶段三-柳岸花明"><a href="#阶段三-柳岸花明" class="headerlink" title="阶段三 柳岸花明"></a>阶段三 柳岸花明</h3><p>回头又仔细看了下 mariadb关于线程池的<a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="noopener">文档</a>，注意到文档中提到 thread_pool_oversubscribe 不决定同时有多少线程池被创建出来并执行任务，这个行为逻辑与文章中作者引用的并不相同。<br>又去查看了另一个MySQL发行版 percona 的文档，对该配置的行为描述与文章中的相符，基本就确定前面复现失败的原因了。</p>
+<p>确定了前面提到的复现思路：用有稳定服务端执行耗时、并且不消耗大量硬件资源的SQL,用可控的并发进行模拟流量，到具体执行时：</p>
+<ul>
+<li>SQL就用 <code>select sleep(N)</code></li>
+<li>可控的并发就用 golang写个小脚本(事后看直接在终端手动操作也是可以的,不过写个脚本也不费事就是了)</li>
+</ul>
+<h2 id="mariadb-启动命令和配置"><a href="#mariadb-启动命令和配置" class="headerlink" title="mariadb 启动命令和配置"></a>mariadb 启动命令和配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">mkdir mariadb</span><br><span class="line">cat &gt; mariadb/my.cnf &lt;&lt; EOF</span><br><span class="line">[mariadb]</span><br><span class="line">#thread pool</span><br><span class="line">thread_handling=pool-of-threads</span><br><span class="line">thread_pool_oversubscribe=1</span><br><span class="line">thread_pool_size=1</span><br><span class="line">thread_pool_max_threads=6</span><br><span class="line">EOF</span><br><span class="line"></span><br><span class="line">docker run --name mariadb -v ./mariadb:/etc/mysql/conf.d -e MYSQL_ROOT_PASSWORD=password -p3306:3306 mariadb:10.3</span><br></pre></td></tr></table></figure>
+
+<h2 id="percona-启动命令和配置"><a href="#percona-启动命令和配置" class="headerlink" title="percona 启动命令和配置"></a>percona 启动命令和配置</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">mkdir percona</span><br><span class="line">cat &gt; percona/my.cnf &lt;&lt; EOF</span><br><span class="line">[mysqld]</span><br><span class="line">#thread pool</span><br><span class="line">thread_handling=pool-of-threads</span><br><span class="line">thread_pool_oversubscribe=1</span><br><span class="line">thread_pool_size=1</span><br><span class="line">thread_pool_max_threads=1000</span><br><span class="line">default_authentication_plugin=mysql_native_password</span><br><span class="line">EOF</span><br><span class="line">docker run --name percona -v ./percona:/etc/my.cnf.d -e MYSQL_ROOT_PASSWORD=123 -p33060:3306 percona:ps-8</span><br></pre></td></tr></table></figure>
+
+<p>注：Mac M1启动percona时，需要在 docker run 后面添加 <code>--platform linux/x86_64</code> 参数。(percona 未提供arm架构的image)</p>
+<h2 id="其他人的重现和分析"><a href="#其他人的重现和分析" class="headerlink" title="其他人的重现和分析"></a>其他人的重现和分析</h2><p><a href="https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/" target="_blank" rel="noopener">https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/</a>  从源代码debug上来分析</p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/thread-pool/" rel="tag"># thread pool</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2023/05/10/程序员案例星球介绍/" rel="next" title="程序员案例星球介绍">
+                <i class="fa fa-chevron-left"></i> 程序员案例星球介绍
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2023/06/08/Nginx reuseport 导致偶发性卡顿/" rel="prev" title="Nginx reuseport 导致偶发性卡顿">
+                Nginx reuseport 导致偶发性卡顿 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="twitter @plantegg">
+          <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">181</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">272</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL线程池卡顿重现"><span class="nav-number">1.</span> <span class="nav-text">MySQL线程池卡顿重现</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#起因"><span class="nav-number">1.1.</span> <span class="nav-text">起因</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#这个案例的重要性"><span class="nav-number">1.2.</span> <span class="nav-text">这个案例的重要性</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#原因分析"><span class="nav-number">1.3.</span> <span class="nav-text">原因分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#mariadb"><span class="nav-number">1.4.</span> <span class="nav-text">mariadb</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#percona"><span class="nav-number">1.5.</span> <span class="nav-text">percona</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#尝试复现"><span class="nav-number">1.6.</span> <span class="nav-text">尝试复现</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#思路"><span class="nav-number">1.6.1.</span> <span class="nav-text">思路</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#复现执行"><span class="nav-number">1.7.</span> <span class="nav-text">复现执行</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#mariadb-1"><span class="nav-number">1.7.1.</span> <span class="nav-text">mariadb</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#执行方案"><span class="nav-number">1.7.1.1.</span> <span class="nav-text">执行方案</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#执行结果"><span class="nav-number">1.7.1.2.</span> <span class="nav-text">执行结果</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#percona-1"><span class="nav-number">1.7.2.</span> <span class="nav-text">percona</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#执行方案-1"><span class="nav-number">1.7.2.1.</span> <span class="nav-text">执行方案</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#执行结果-1"><span class="nav-number">1.7.2.2.</span> <span class="nav-text">执行结果</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#real-world-模拟（percona）版本"><span class="nav-number">1.7.3.</span> <span class="nav-text">real-world 模拟（percona）版本</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#复现文章中部分线程池卡的现象"><span class="nav-number">1.7.4.</span> <span class="nav-text">复现文章中部分线程池卡的现象</span></a></li></ol></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#参数合理值-已知参数的容量评估"><span class="nav-number">2.</span> <span class="nav-text">参数合理值/已知参数的容量评估</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#附录"><span class="nav-number">3.</span> <span class="nav-text">附录</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#过程回顾"><span class="nav-number">3.1.</span> <span class="nav-text">过程回顾</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#阶段一-确定原因"><span class="nav-number">3.1.1.</span> <span class="nav-text">阶段一 确定原因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#阶段二-走上弯路"><span class="nav-number">3.1.2.</span> <span class="nav-text">阶段二 走上弯路</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#阶段三-柳岸花明"><span class="nav-number">3.1.3.</span> <span class="nav-text">阶段三 柳岸花明</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#mariadb-启动命令和配置"><span class="nav-number">3.2.</span> <span class="nav-text">mariadb 启动命令和配置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#percona-启动命令和配置"><span class="nav-number">3.3.</span> <span class="nav-text">percona 启动命令和配置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#其他人的重现和分析"><span class="nav-number">3.4.</span> <span class="nav-text">其他人的重现和分析</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

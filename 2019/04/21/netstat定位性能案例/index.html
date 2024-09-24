@@ -1,0 +1,832 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="recv-q,netstat,send-q,timer(keepalive),">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="netstat定位性能案例netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。ss用法见这里 下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了） netstat 命令netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是Listen状态的话，Recv-Q">
+<meta name="keywords" content="recv-q,netstat,send-q,timer(keepalive)">
+<meta property="og:type" content="article">
+<meta property="og:title" content="netstat定位性能案例">
+<meta property="og:url" content="https://plantegg.github.io/2019/04/21/netstat定位性能案例/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="netstat定位性能案例netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。ss用法见这里 下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了） netstat 命令netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是Listen状态的话，Recv-Q">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png">
+<meta property="og:updated_time" content="2024-09-09T08:28:05.997Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="netstat定位性能案例">
+<meta name="twitter:description" content="netstat定位性能案例netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。ss用法见这里 下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了） netstat 命令netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是Listen状态的话，Recv-Q">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2019/04/21/netstat定位性能案例/">
+
+
+
+
+
+  <title>netstat定位性能案例 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br>
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/04/21/netstat定位性能案例/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">netstat定位性能案例</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-04-21T17:30:03+08:00">
+                2019-04-21
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="netstat定位性能案例"><a href="#netstat定位性能案例" class="headerlink" title="netstat定位性能案例"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/">ss用法见这里</a></p>
+<p>下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了）</p>
+<h2 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p> netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><blockquote>
+<p>Recv-Q<br>Established: The count of bytes not copied by the user program connected to this socket.<br>Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</p>
+<p>Send-Q<br>Established: The count of bytes not acknowledged by the remote host.<br>Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. </p>
+</blockquote>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;">
+
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat-s-统计数据"><a href="#netstat-s-统计数据" class="headerlink" title="netstat -s 统计数据"></a>netstat -s 统计数据</h2><p>所有统计信息基本都有</p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/recv-q/" rel="tag"># recv-q</a>
+          
+            <a href="/tags/netstat/" rel="tag"># netstat</a>
+          
+            <a href="/tags/send-q/" rel="tag"># send-q</a>
+          
+            <a href="/tags/timer-keepalive/" rel="tag"># timer(keepalive)</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2019/01/24/Linux Module/" rel="next" title="Linux Module and make debug">
+                <i class="fa fa-chevron-left"></i> Linux Module and make debug
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2019/05/15/就是要你懂网络--一个网络包的旅程/" rel="prev" title="就是要你懂网络--一个网络包的旅程">
+                就是要你懂网络--一个网络包的旅程 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="twitter @plantegg">
+          <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">181</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">272</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#netstat定位性能案例"><span class="nav-number">1.</span> <span class="nav-text">netstat定位性能案例</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#netstat-命令"><span class="nav-number">1.1.</span> <span class="nav-text">netstat 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Recv-Q-和-Send-Q-的说明"><span class="nav-number">1.1.1.</span> <span class="nav-text">Recv-Q 和 Send-Q 的说明</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#通过-netstat-发现问题的案例"><span class="nav-number">1.2.</span> <span class="nav-text">通过 netstat 发现问题的案例</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><span class="nav-number">1.2.0.1.</span> <span class="nav-text">自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><span class="nav-number">1.2.0.2.</span> <span class="nav-text">下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netstat-s-统计数据"><span class="nav-number">1.3.</span> <span class="nav-text">netstat -s 统计数据</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>

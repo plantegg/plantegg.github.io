@@ -1,0 +1,862 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next mist use-motion" lang="zh-Hans">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform">
+<meta http-equiv="Cache-Control" content="no-siteapp">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css">
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Lato:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css">
+
+<link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
+
+
+  <meta name="keywords" content="performance,Linux,TCP,network,">
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.1.1">
+
+
+
+
+
+
+<meta name="description" content="一次春节大促性能压测不达标的瓶颈推演本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。 场景描述某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 1">
+<meta name="keywords" content="performance,Linux,TCP,network">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一次春节大促性能压测不达标的瓶颈推演">
+<meta property="og:url" content="https://plantegg.github.io/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="一次春节大促性能压测不达标的瓶颈推演本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。 场景描述某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 1">
+<meta property="og:locale" content="zh-Hans">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/e239a12a1c3612263736256c8efc06e4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627164250973.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220630101036341.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/6a289d1bba1e875d215032b6fdc7b084.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220623003026351.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/938ce314d19b47cba99e2a09c753f606.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/a479bad250c03aee41d58850afab9c14.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/2f3b76be63d331510eb6f2cecd91747f.png">
+<meta property="og:updated_time" content="2024-09-09T08:28:08.012Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="一次春节大促性能压测不达标的瓶颈推演">
+<meta name="twitter:description" content="一次春节大促性能压测不达标的瓶颈推演本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。 场景描述某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 1">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Mist',
+    sidebar: {"position":"left","display":"post","offset":12,"offset_float":0,"b2t":false,"scrollpercent":false},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: '0',
+      author: '博主'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://plantegg.github.io/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/">
+
+
+
+
+
+  <title>一次春节大促性能压测不达标的瓶颈推演 | plantegg</title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  
+
+  <div class="container sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta custom-logo">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">plantegg</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <h1 class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</h1>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br>
+            
+            首页
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-categories"></i> <br>
+            
+            分类
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br>
+            
+            归档
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br>
+            
+            标签
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-sitemap">
+          <a href="/sitemap.xml" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-sitemap"></i> <br>
+            
+            站点地图
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br>
+            
+            关于
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">一次春节大促性能压测不达标的瓶颈推演</h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-23T11:30:03+08:00">
+                2020-11-23
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="page-pv"><i class="fa fa-file-o"></i>
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>次
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="一次春节大促性能压测不达标的瓶颈推演"><a href="#一次春节大促性能压测不达标的瓶颈推演" class="headerlink" title="一次春节大促性能压测不达标的瓶颈推演"></a>一次春节大促性能压测不达标的瓶颈推演</h1><p>本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
+<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 10万+</p>
+<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个容器运行tomcat监听9108端口上） -&gt; slb -&gt; 数据库代理服务集群 -&gt; RDS集群</p>
+<p>性能不达标，怀疑数据库代理服务或者RDS性能不行，作为数据库需要自证清白，所以从RDS和数据库代理服务开始分析问题在哪里。</p>
+<p>略过一系列在数据库代理服务、RDS上分析数据和监控图表都证明数据库代理服务和RDS没问题的过程。</p>
+<p>在明确给出证据数据库代理服务和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
+<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析：</h2><p><img src="/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
+<p>数据库代理服务每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 &#x3D; 6万 ， 跟压测看到基本一致</p>
+<p>300个容器，每个容器 10个连接到数据库代理服务</p>
+<p>如果300个容器上的并发压力不够的话就没法将3000个连接跑满，所以看到的QPS是5万。</p>
+<p><strong>从300个容器可以计算得到这个集群能支持的tps： 300*10（10个连接）* 1000&#x2F;15(每秒钟每个连接能处理的请求数）&#x3D;20万个tps （关键分析能力）</strong></p>
+<p>也就是说通过单QPS 15ms，我们计算可得整个后端的吞吐能力在20万QPS。所以目前问题不在后端，而是压力没有打到后端就出现瓶颈了。</p>
+<h2 id="9108的HTTP服务端口上的抓包分析"><a href="#9108的HTTP服务端口上的抓包分析" class="headerlink" title="9108的HTTP服务端口上的抓包分析"></a>9108的HTTP服务端口上的抓包分析</h2><p><img src="/images/oss/e239a12a1c3612263736256c8efc06e4.png" alt="image.png"></p>
+<p>9108服务的每个HTTP response差不多都是15ms（<strong>这个响应时间基本符合预期</strong>），一个HTTP连接上在45秒的抓包时间范围只收到23个HTTP Request。</p>
+<p>或者下图：</p>
+<img src="/images/951413iMgBlog/image-20220627164250973.png" alt="image-20220627164250973" style="zoom:50%;">
+
+<img src="/images/951413iMgBlog/image-20220630101036341.png" alt="image-20220630101036341" style="zoom:50%;">
+
+<p>统计9108端口在45秒总共收到的HTTP请求数量是6745（如下图），也就是每个app每秒钟收到的请求是150个，300*150&#x3D;4.5万（理论值，300个app可能压力分布不一样？），<strong>从这里看app收到的压力还不够</strong>，所以压力还没有打到应用容器中的app，还在更前面</p>
+<p><img src="/images/oss/6a289d1bba1e875d215032b6fdc7b084.png" alt="image.png"></p>
+<p>后来从容器app监控也确认了这个响应时间和抓包看到的一致，所以从抓包分析http响应时间也基本得到15ms的rt关键结论</p>
+<p>从wireshark IO Graphs 也能看到RT 和 QPS</p>
+<p><img src="/images/951413iMgBlog/image-20220623003026351.png" alt="image-20220623003026351"></p>
+<h2 id="从应用容器上的netstat统计来看，也是压力端回复太慢"><a href="#从应用容器上的netstat统计来看，也是压力端回复太慢" class="headerlink" title="从应用容器上的netstat统计来看，也是压力端回复太慢"></a>从应用容器上的netstat统计来看，也是压力端回复太慢</h2><p><img src="/images/oss/938ce314d19b47cba99e2a09c753f606.png" alt="image.png"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack</p>
+<h2 id="ARMS监控分析9108端口上的RT"><a href="#ARMS监控分析9108端口上的RT" class="headerlink" title="ARMS监控分析9108端口上的RT"></a>ARMS监控分析9108端口上的RT</h2><p>后来PTS的同学说ARMS可以捞到监控数据，如下是对rt时间降序排</p>
+<p><img src="/images/oss/a479bad250c03aee41d58850afab9c14.png" alt="image.png"></p>
+<p>中的rt平均时间，可以看到http的rt确实14.4ms，表现非常平稳，从这个监控也发现实际app是330个而不是用户自己描述的300个，这也就是为什么实际是tps是5万，但是按300个去算的话tps是4.5万（不要纠结客户为什么告诉你是300个容器而不是330个，有时候他们也搞不清楚，业务封装得太好了）</p>
+<p><img src="/images/oss/2f3b76be63d331510eb6f2cecd91747f.png" alt="image.png"></p>
+<p>5分钟时间，QPS是5万+，HTTP的平均rt是15ms， HTTP的最大rt才79ms，和前面抓包分析一致。</p>
+<h2 id="从后端分析的总结"><a href="#从后端分析的总结" class="headerlink" title="从后端分析的总结"></a>从后端分析的总结</h2><p><strong>从9108端口响应时间15ms来看是符合预期的，为什么PTS看到的RT是900ms+，所以压力还没有打到APP上（也就是9108端口）</strong></p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>最后发现是 eip 带宽不足，只有200M，调整到1G后 tps 也翻了5倍到了25万。</p>
+<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS</p>
+<p>这个案例有意思的地方是可以通过抓包就能分析出集群能扛的QPS20万（实际只有5万），那么可以把这个分析原则在每个角色上挨个分析一下，来看瓶颈出在了哪个环节。</p>
+<p>应用端看到的rt是900ms，从后段开始往前面应用端来撸，看看每个环节的rt数据。</p>
+<h2 id="教训"><a href="#教训" class="headerlink" title="教训"></a>教训</h2><ul>
+<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS </li>
+<li>压不上去得从发压力端开始往后端撸，撸每个产品的rt，每个产品给出自己的rt来自证清白</li>
+<li>应用有arms的话学会看arms对平均rt和QPS的统计，不要纠结个别请求的rt抖动，看平均rt</li>
+<li>通过抓包完全可以分析出来系统能扛多少并发，以及可能的瓶颈位置</li>
+</ul>
+<p>一包在手 万事无忧</p>
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/performance/" rel="tag"># performance</a>
+          
+            <a href="/tags/Linux/" rel="tag"># Linux</a>
+          
+            <a href="/tags/TCP/" rel="tag"># TCP</a>
+          
+            <a href="/tags/network/" rel="tag"># network</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2020/11/18/TCP连接为啥互串了/" rel="next" title="活久见，TCP连接互串了">
+                <i class="fa fa-chevron-left"></i> 活久见，TCP连接互串了
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2020/11/30/一台机器上最多能创建多少个TCP连接/" rel="prev" title="到底一台服务器上最多能创建多少个TCP连接">
+                到底一台服务器上最多能创建多少个TCP连接 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image" src="/images/avatar.gif" alt="twitter @plantegg">
+          <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+           
+              <p class="site-description motion-element" itemprop="description"></p>
+           
+        </div>
+        <nav class="site-state motion-element">
+
+          
+            <div class="site-state-item site-state-posts">
+              <a href="/archives">
+                <span class="site-state-item-count">181</span>
+                <span class="site-state-item-name">日志</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-categories">
+              <a href="/categories/index.html">
+                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-name">分类</span>
+              </a>
+            </div>
+          
+
+          
+            
+            
+            <div class="site-state-item site-state-tags">
+              <a href="/tags/index.html">
+                <span class="site-state-item-count">272</span>
+                <span class="site-state-item-name">标签</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+        </div>
+
+        
+        
+
+        
+        
+
+        
+
+
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#一次春节大促性能压测不达标的瓶颈推演"><span class="nav-number">1.</span> <span class="nav-text">一次春节大促性能压测不达标的瓶颈推演</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#场景描述"><span class="nav-number">1.1.</span> <span class="nav-text">场景描述</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#链路："><span class="nav-number">1.1.1.</span> <span class="nav-text">链路：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析："><span class="nav-number">1.2.</span> <span class="nav-text">在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析：</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#9108的HTTP服务端口上的抓包分析"><span class="nav-number">1.3.</span> <span class="nav-text">9108的HTTP服务端口上的抓包分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#从应用容器上的netstat统计来看，也是压力端回复太慢"><span class="nav-number">1.4.</span> <span class="nav-text">从应用容器上的netstat统计来看，也是压力端回复太慢</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ARMS监控分析9108端口上的RT"><span class="nav-number">1.5.</span> <span class="nav-text">ARMS监控分析9108端口上的RT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#从后端分析的总结"><span class="nav-number">1.6.</span> <span class="nav-text">从后端分析的总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#结论"><span class="nav-number">1.7.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#教训"><span class="nav-number">1.8.</span> <span class="nav-text">教训</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2024</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+</div>
+
+
+<div class="powered-by">
+  由 <a class="theme-link" href="https://hexo.io">Hexo</a> 强力驱动
+</div>
+
+<div class="theme-info">
+  主题 -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Mist
+  </a>
+</div>
+
+<span id="busuanzi_container_site_pv">
+    本站总访问量<span id="busuanzi_value_site_pv_footer"></span>次
+</span>
+<span id="busuanzi_container_site_uv">
+  本站访客数<span id="busuanzi_value_site_uv_footer"></span>人次
+</span>
+
+
+        
+<div class="busuanzi-count">
+  <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="site-uv">
+      <i class="fa fa-user"></i> 访问人数
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+      人
+    </span>
+  
+
+  
+    <span class="site-pv">
+      <i class="fa fa-eye"></i>
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+      次
+    </span>
+  
+</div>
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.1"></script>
+
+
+
+  
+  
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.1"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https') {
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';        
+    }
+    else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
+})();
+</script>
+
+
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
