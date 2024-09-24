@@ -4,8 +4,9 @@ sh download_img.sh
 echo "replace to local"
 #替换图片地址到oss地址，快，爽的一逼
 #sh replace_img.sh
-#替换markdown中img到相对地址, 比如蹭github存储图片
-sh replace_to_local_url.sh
+#替换markdown中img到jsdelivr cdn
+#sh replace_to_local_url.sh
+sh replace_to_jsdeliver_cdn.sh
 
 #hexo 一个静态博客发布系统，将markdown生成静态页面并上传
 hexo g -d

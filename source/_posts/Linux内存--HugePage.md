@@ -168,7 +168,7 @@ MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位�
 
 16K VS 4K 性能对比（4K接近翻倍）
 
-![img](/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png)
 
 4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。
 
@@ -192,9 +192,9 @@ Page太大，更容易造成Page跨Numa/CPU 分布。
 
 从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，`Array A`和`Array B`大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此`Array B`就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。
 
-![img](/images/951413iMgBlog/false_sharing.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/false_sharing.png)
 
-### Java进程开启HugePage
+### [Java进程开启HugePage](https://kstefanj.github.io/2021/05/19/large-pages-and-java.html)
 
 从perf数据来看压满后tlab miss比较高，得想办法降低这个值
 
@@ -226,13 +226,44 @@ hugepage的在减少page_fault上和thp效果一样第二个作用是，他只�
 
 **如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。**
 
-## THP
+### code_hugepage 代码大页
+
+代码大页特性主要为大代码段业务服务，可以降低程序的iTLB miss，从而提升程序性能。针对倚天这一类跨numa访存开销大的芯片有比较好的性能提升效果
+
+```
+// 1 表示仅打开二进制和动态库大页  2 仅打开可执行匿名大页 3 相当于1+2，0 表示关闭
+echo 1 > /sys/kernel/mm/transparent_hugepage/hugetext_enabled //1 可以改成2/3
+```
+
+是否启用代码大页，可以查看/proc//smaps中FilePmdMapped字段可确定是否使用了代码大页。 扫描进程代码大页使用数量（**单位KB**）：
+
+```
+cat /proc/<pid>/smaps | grep FilePmdMapped | awk '{sum+=$2}END{print"Sum= ",sum}'
+```
+
+
+
+## [THP](https://ata.atatech.org/articles/11000208718)
 
 Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时**每次写命令引起的复制内存页单位放大了512倍**，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  
 
 THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。
 
-#### THP 原理
+大页在使用的时候需要清理512个4K页面，再返回给用户，这里的清理动作可能会导致卡顿。另外碎片化严重的时候触发内存整理造成卡顿
+
+
+
+大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.﻿
+
+1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k**hugepage**d 动态为vma分配大页(内存回收，内存归整)
+
+2.madvise系统调用只是给VMA加了VM_**HUGEPAGE,用来**标记这段虚拟地址需要使用大页
+
+![image-20240116134744487](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240116134744487.png)
+
+
+
+### THP 原理
 
 大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.
 
@@ -291,10 +322,10 @@ HugePages_Free:        1
 
 ### THP和perf
 
-thp on后比off性能稳定好 10-15%
+thp on后比off性能稳定好 10-15%，开启THP最显著的指标是 iTLB命中率显著提升了
 
 ```
-//on 419， thp off
+//on 419+E5-2682， thp never
 9,145,128,732      branch-instructions       #  229.068 M/sec                    (10.65%)
        555,518,878      branch-misses             #    6.07% of all branches          (14.24%)
      3,951,535,475      bus-cycles                #   98.979 M/sec                    (14.29%)
@@ -303,16 +334,7 @@ thp on后比off性能稳定好 10-15%
    114,521,174,305      cpu-cycles                #    2.869 GHz                      (14.36%)
     48,969,565,344      instructions              #    0.43  insn per cycle           (17.93%)
     98,728,666,922      ref-cycles                # 2472.967 M/sec                    (21.52%)
-                 0      alignment-faults          #    0.000 K/sec
-            12,187      context-switches          #    0.305 K/sec
          39,922.47 msec cpu-clock                 #    7.898 CPUs utilized
-               147      cpu-migrations            #    0.004 K/sec
-                 0      dummy                     #    0.000 K/sec
-                 0      emulation-faults          #    0.000 K/sec
-                 0      major-faults              #    0.000 K/sec
-             1,727      minor-faults              #    0.043 K/sec
-             1,768      page-faults               #    0.044 K/sec
-         39,923.84 msec task-clock                #    7.898 CPUs utilized
      1,848,336,574      L1-dcache-load-misses     #   13.31% of all L1-dcache hits    (21.51%)
     13,889,399,043      L1-dcache-loads           #  347.903 M/sec                    (21.51%)
      7,055,617,648      L1-dcache-stores          #  176.730 M/sec                    (21.50%)
@@ -329,12 +351,8 @@ thp on后比off性能稳定好 10-15%
      6,992,863,588      dTLB-stores               #  175.158 M/sec                    (14.26%)
        170,555,902      iTLB-load-misses          #  107.90% of all iTLB cache hits   (14.24%)
        158,070,998      iTLB-loads                #    3.959 M/sec                    (14.24%)
-        68,973,832      node-load-misses          #    1.728 M/sec                    (14.24%)
-        20,207,143      node-loads                #    0.506 M/sec                    (14.24%)
-        93,216,790      node-store-misses         #    2.335 M/sec                    (7.10%)
-        73,871,126      node-stores               #    1.850 M/sec                    (7.08%)
 
-//on 419， thp on
+//on 419+E5-2682， thp always
     12,958,974,094      branch-instructions       #  227.392 M/sec                    (10.68%)
        850,468,837      branch-misses             #    6.56% of all branches          (14.27%)
      5,639,495,284      bus-cycles                #   98.957 M/sec                    (14.29%)
@@ -343,16 +361,7 @@ thp on后比off性能稳定好 10-15%
    163,419,436,811      cpu-cycles                #    2.868 GHz                      (14.33%)
     68,638,583,038      instructions              #    0.42  insn per cycle           (17.90%)
    140,882,455,768      ref-cycles                # 2472.076 M/sec                    (21.48%)
-                 0      alignment-faults          #    0.000 K/sec
-            18,171      context-switches          #    0.319 K/sec
          56,987.52 msec cpu-clock                 #    7.932 CPUs utilized
-                68      cpu-migrations            #    0.001 K/sec
-                 0      dummy                     #    0.000 K/sec
-                 0      emulation-faults          #    0.000 K/sec
-                 0      major-faults              #    0.000 K/sec
-             2,323      minor-faults              #    0.041 K/sec
-             2,362      page-faults               #    0.041 K/sec
-         56,991.53 msec task-clock                #    7.932 CPUs utilized
      2,471,392,118      L1-dcache-load-misses     #   12.69% of all L1-dcache hits    (21.47%)
     19,480,914,771      L1-dcache-loads           #  341.833 M/sec                    (21.48%)
     10,059,893,871      L1-dcache-stores          #  176.522 M/sec                    (21.46%)
@@ -369,17 +378,41 @@ thp on后比off性能稳定好 10-15%
     10,047,511,003      dTLB-stores               #  176.305 M/sec                    (14.28%)
        194,902,860      iTLB-load-misses          #   61.23% of all iTLB cache hits   (14.27%)
        318,292,771      iTLB-loads                #    5.585 M/sec                    (14.26%)
-       100,512,054      node-load-misses          #    1.764 M/sec                    (14.27%)
-        28,144,120      node-loads                #    0.494 M/sec                    (14.27%)
-       128,218,262      node-store-misses         #    2.250 M/sec                    (7.14%)
-       103,892,078      node-stores               #    1.823 M/sec                    (7.11%) 
+
+//on 310+8269 thp never
+        90,790,778      dTLB-load-misses          #    0.67% of all dTLB cache hits   (16.66%)
+    13,639,069,352      dTLB-loads                                                    (16.66%)
+         6,553,693      dTLB-store-misses                                             (16.63%)
+     6,494,274,815      dTLB-stores                                                   (20.28%)
+        76,175,883      iTLB-load-misses          #   40.53% of all iTLB cache hits   (20.80%)
+       187,932,292      iTLB-loads                                                    (20.76%)
+
+//on 310+8269 thp always
+     7,199,483,512      branch-instructions       #  338.269 M/sec                    (11.46%)
+        81,893,729      branch-misses             #    1.14% of all branches          (14.95%)
+       532,919,206      bus-cycles                #   25.039 M/sec                    (14.85%)
+       253,267,167      cache-misses              #   11.507 % of all cache refs      (14.81%)
+     2,201,001,946      cache-references          #  103.414 M/sec                    (14.15%)
+    63,971,073,336      cpu-cycles                #    3.006 GHz                      (14.55%)
+    37,214,341,673      instructions              #    0.58  insns per cycle          (18.09%)
+    52,209,823,072      ref-cycles                # 2453.086 M/sec                    (17.23%)
+     1,098,964,315      L1-dcache-load-misses     #   10.17% of all L1-dcache hits    (14.22%)
+    10,808,109,191      L1-dcache-loads           #  507.820 M/sec                    (14.31%)
+     5,092,652,478      L1-dcache-stores          #  239.279 M/sec                    (14.38%)
+     4,338,580,209      L1-icache-load-misses     #  203.849 M/sec                    (14.40%)
+        60,262,584      LLC-load-misses           #   21.81% of all LL-cache hits     (14.35%)
+       276,321,779      LLC-loads                 #   12.983 M/sec                    (14.31%)
+        62,982,184      LLC-store-misses          #    2.959 M/sec                    (10.76%)
+       105,448,227      LLC-stores                #    4.954 M/sec                    (8.08%)
+        81,163,187      branch-load-misses        #    3.813 M/sec                    (11.67%)
+     7,111,481,940      branch-loads              #  334.134 M/sec                    (14.37%)
+         4,527,406      dTLB-load-misses          #    0.04% of all dTLB cache hits   (14.30%)
+    10,726,725,791      dTLB-loads                #  503.997 M/sec                    (17.33%)
+         1,066,097      dTLB-store-misses         #    0.050 M/sec                    (17.37%)
+     5,090,008,144      dTLB-stores               #  239.155 M/sec                    (17.34%)
+        18,715,797      iTLB-load-misses          #   18.97% of all iTLB cache hits   (17.33%)
+        98,684,189      iTLB-loads                #    4.637 M/sec                    (14.29%)
        
-         7,599,757      dTLB-load-misses          #    0.09% of all dTLB cache hits   (15.59%)
-     8,425,208,450      dTLB-loads                #  528.778 M/sec                    (15.62%)
-         1,288,979      dTLB-store-misses         #    0.081 M/sec                    (15.67%)
-     3,989,148,957      dTLB-stores               #  250.365 M/sec                    (15.27%)
-        21,578,944      iTLB-load-misses          #   15.23% of all iTLB cache hits   (14.42%)
-       141,697,584      iTLB-loads                #    8.893 M/sec                    (14.34%)
 ```
 
 
@@ -400,11 +433,11 @@ x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右�
 
 刚开始运行的时候perf各项数据:
 
-![img](/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png)
 
 长时间运行后：
 
-![img](/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png)
 
 内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。
 
@@ -432,7 +465,7 @@ cat /sys/kernel/debug/tracing/trace_stat/function20
 
 这个时候就会打印出在各个函数上花费的时间，比如:
 
-![img](/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png)
 
 经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).
 
@@ -450,7 +483,7 @@ cat /sys/kernel/debug/tracing/trace_stat/function20
 
 compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。
 
-![image-20210628144121108](/images/951413iMgBlog/image-20210628144121108.png)
+![image-20210628144121108](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210628144121108.png)
 
 一次THP compact堆栈：
 

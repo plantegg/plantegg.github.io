@@ -27,7 +27,9 @@ client -> Tomcat -> LVS -> MySQL（32 个 MySQLD实例集群，每个实例8Core
 
 ## 场景描述
 
-通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。
+业务按照 个人分库+单位分表: 32个RDS * 8个分库   * 4张分表=1024分表， 也就是 256个分库，每个分库4张表
+
+通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL 实例（每个MySQL 实例上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。
 
 业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）
 
@@ -49,7 +51,7 @@ client -> Tomcat -> LVS -> MySQL（32 个 MySQLD实例集群，每个实例8Core
 
 > 加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里
 
-![image-20221026145848312](/images/951413iMgBlog/image-20221026145848312.png)
+![image-20221026145848312](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221026145848312.png)
 
 **到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。**
 
@@ -64,7 +66,7 @@ client -> Tomcat -> LVS -> MySQL（32 个 MySQLD实例集群，每个实例8Core
 首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的
 
 pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
-![image.png](/images/oss/b84245c17e213de528f2ad8090d504f6.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b84245c17e213de528f2ad8090d504f6.png)
 
 …………（省略巨长的分析、拉人、扯皮过程）
 
@@ -78,7 +80,7 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：
 
-![image.png](/images/oss/ffd66d9a6098979b555dfb00d3494255.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ffd66d9a6098979b555dfb00d3494255.png)
 
 上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。
 
@@ -93,10 +95,10 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。
 
 这是Tomcat上监控到的MySQL状态：
-![image.png](/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png)
 
 同时在MySQL机器上通过vmstat也可以看到这种飙升：
-![image.png](/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
 
 以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。
 
@@ -108,15 +110,15 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 
 直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：
 
-![image.png](/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png)
 
 展开看一下，基本是在优化器中做索引命中行数的选择：
 
-<img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;" />
 
 跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：
 
-<img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;" />
 
 这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。
 
@@ -127,16 +129,16 @@ pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
 ## 最终的性能
 
 调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS
-![image.png](/images/oss/48c976f989747266f9892403794996c0.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/48c976f989747266f9892403794996c0.png)
 
 再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%
-![image.png](/images/oss/fdb459972926cff371f5f5ab703790bb.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/fdb459972926cff371f5f5ab703790bb.png)
 
 再看看调整前压测的时候的vmstat和tsar --cpu，可以看到process running抖动明显
-![image.png](/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png)
 
 对比修改delay后的process running就很稳定了，即使QPS大了3倍
-![image.png](/images/oss/ed46d35161ea28352acd4289a3e9ddad.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ed46d35161ea28352acd4289a3e9ddad.png)
 
 ## 事后思考和分析
 
@@ -229,13 +231,13 @@ MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间�
 
 E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：
 
-![image-20221026153750159](/images/951413iMgBlog/image-20221026153750159.png)
+![image-20221026153750159](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221026153750159.png)
 
 
 
 Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：
 
-![image-20221026153813774](/images/951413iMgBlog/image-20221026153813774.png)
+![image-20221026153813774](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221026153813774.png)
 
 ==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==
 
@@ -273,7 +275,81 @@ Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL inno
 
 
 
+## [ARM](https://stackoverflow.com/questions/70810121/why-does-hintspin-loop-use-isb-on-aarch64)
 
+ARM 指令集中有 nop 来让流水线空转一个时钟周期，汇编里面的 yield 命令底层就是执行 nop 来达到目的，但是这还不够好，在64位的ARM 指令集里面增加了 [ISB (instruction synchronization barrier)](https://developer.arm.com/documentation/ddi0596/2021-06/Base-Instructions/ISB--Instruction-Synchronization-Barrier-) 来[实现类似 Pause 的作用](https://github.com/rust-lang/rust/commit/c064b6560b7ce0adeb9bbf5d7dcf12b1acb0c807) ：
+
+> On arm64 we have seen on several databases that ISB (instruction synchronization barrier) is better to use than yield in a spin loop. The yield instruction is a nop. The isb instruction puts the processor to sleep for some short time. isb is a good equivalent to the pause instruction on x86.
+
+### [对比](https://github.com/rust-lang/rust/commit/c064b6560b7ce0adeb9bbf5d7dcf12b1acb0c807)
+
+Below is an experiment that shows the effects of yield and isb on Arm64 and the
+time of a pause instruction on x86 Intel processors.  The micro-benchmarks use
+https://github.com/google/benchmark.git
+
+测试代码
+
+```
+$ cat a.cc
+static void BM_scalar_increment(benchmark::State& state) {
+  int i = 0;
+  for (auto _ : state)
+    benchmark::DoNotOptimize(i++);
+}
+BENCHMARK(BM_scalar_increment);
+static void BM_yield(benchmark::State& state) {
+  for (auto _ : state)
+    asm volatile("yield"::);
+}
+BENCHMARK(BM_yield);
+static void BM_isb(benchmark::State& state) {
+  for (auto _ : state)
+    asm volatile("isb"::);
+}
+BENCHMARK(BM_isb);
+BENCHMARK_MAIN();
+```
+
+测试结果
+
+```
+$ g++ -o run a.cc -O2 -lbenchmark -lpthread
+$ ./run
+--------------------------------------------------------------
+Benchmark                    Time             CPU   Iterations
+--------------------------------------------------------------
+
+AWS Graviton2 (Neoverse-N1) processor:
+BM_scalar_increment      0.485 ns        0.485 ns   1000000000
+BM_yield                 0.400 ns        0.400 ns   1000000000
+BM_isb                    13.2 ns         13.2 ns     52993304
+
+AWS Graviton (A-72) processor:
+BM_scalar_increment      0.897 ns        0.874 ns    801558633
+BM_yield                 0.877 ns        0.875 ns    800002377
+BM_isb                    13.0 ns         12.7 ns     55169412
+
+Apple Arm64 M1 processor:
+BM_scalar_increment      0.315 ns        0.315 ns   1000000000
+BM_yield                 0.313 ns        0.313 ns   1000000000
+BM_isb                    9.06 ns         9.06 ns     77259282
+
+static void BM_pause(benchmark::State& state) {
+  for (auto _ : state)
+    asm volatile("pause"::);
+}
+BENCHMARK(BM_pause);
+
+Intel Skylake processor:
+BM_scalar_increment      0.295 ns        0.295 ns   1000000000
+BM_pause                  41.7 ns         41.7 ns     16780553
+
+Tested on Graviton2 aarch64-linux with `./x.py test`.
+```
+
+依照如上测试结果可以看出在 ARM 指令集下一次 yield 基本耗费一个时钟周期，但是一次 isb 需要 20-30 个时钟周期，而在intel Skylate 下一次Pause 需要140个时钟周期
+
+所以MySQL 的 [aarch64 版本在2020年也终于进行了改进](https://bugs.mysql.com/bug.php?id=100664#:~:text=better%20user%20experience.-,isb,-%3A%0AThe%20pause%20instruction) 
 
 ## 参考文章
 
@@ -287,7 +363,7 @@ https://cloud.tencent.com/developer/article/1005284
 
 [Intel PAUSE指令变化影响到MySQL的性能，该如何解决？](https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q)
 
-[ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield来代替Pause
+[ARM软硬件协同设计：锁优化](https://topic.atatech.org/articles/173194), arm不同于x86，用的是yield、ISB 来代替Pause
 
 http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html
 

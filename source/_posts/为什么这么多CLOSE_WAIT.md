@@ -14,13 +14,13 @@ tags:
 
 应用发布新版本上线后，业务同学发现业务端口上的TCP连接处于CLOSE_WAIT状态的数量有积压，多的时候能堆积到几万个，有时候应用无法响应了
 
-> 从这个案例要获取：怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。
+> 这个案例目标：怎么样才能获取举三反一的秘籍， 普通人为什么要案例来深化对理论知识的理解。
 
 ## 检查机器状态
 
-![img](/images/oss/418b94ee-18ee-4976-857b-69f3016af2b0.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/418b94ee-18ee-4976-857b-69f3016af2b0.png)
 
-![img](/images/oss/160490c8-56e9-46f2-9c48-713944b94a5c.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/160490c8-56e9-46f2-9c48-713944b94a5c.png)
 
 从上述两个图中可以看到磁盘 sdb压力非常大，util经常会到 100%，这个时候对应地从top中也可以看到cpu wait%很高（这个ECS cpu本来竞争很激烈），st%一直非常高，所以整体留给应用的CPU不多，碰上磁盘缓慢的话，这时如果业务写日志是同步刷盘那么就会导致程序卡顿严重。
 
@@ -28,7 +28,7 @@ tags:
 
 再看看实际上应用同步写日志到磁盘比较猛，平均20-30M，高的时候能到200M每秒。如果输出的时候磁盘卡住了那么就整个卡死了
 
-```
+```shell
 #dstat
 ----total-cpu-usage---- -dsk/total- -net/total- ---paging-- ---system--
 usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
@@ -57,17 +57,17 @@ usr sys idl wai hiq siq| read  writ| recv  send|  in   out | int   csw
  11   4  84   1   0   0|6116k   29M|3079k   99k|  28k    0 | 263k 6605
 ```
 
-磁盘util 100%和CLOSE_WAIT强相关，也和理论比较符合，CLOSE_WAIT就是连接被动关闭端的应用没调socket.close
+磁盘util 100%和CLOSE_WAIT强相关，也和理论比较符合，CLOSE_WAIT就是连接被动关闭端的应用没调 socket.close
 
-![img](/images/oss/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3b7dedca-1c79-4317-8042-bb9ba8c957b9.png)
 
-大概的原因推断是：
+原因推断：
 
 1）新发布的代码需要消耗更多的CPU，代码增加了新的逻辑 //这只是一个微小的诱因
 
-2）机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个业务节点，重启会触发业务节点之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是tcp buffer中的数据也不读走、连接也不close，连接大量堆积在close_wait状态
+2）机器本身资源(CPU /IO）很紧张 这两个条件下导致应用响应缓慢。 目前看到的稳定重现条件就是重启一个业务节点，重启会触发业务节点之间重新同步数据，以及重新推送很多数据到客户端的新连接上，这两件事情都会让应用CPU占用飙升响应缓慢，响应慢了之后会导致更多的心跳失效进一步加剧数据同步，然后就雪崩恶化了。最后表现就是看到系统卡死了，也就是 tcp buffer 中的数据也不读走、连接也不 close，连接大量堆积在 close_wait状态
 
-![img](/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/227c69f1-0467-425c-a19d-26c03d50c36c.png)
 
 CLOSE_WAIT的原因分析
 
@@ -75,17 +75,17 @@ CLOSE_WAIT的原因分析
 
 这是网络、书本上凡是描述TCP状态一定会出现的状态图，理论上看这个图能解决任何TCP状态问题。
 
-![image.png](/images/951413iMgBlog/b3d075782450b0c8d2615c5d2b75d923.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b3d075782450b0c8d2615c5d2b75d923.png)
 
 反复看这个图的右下部分的CLOSE_WAIT ，从这个图里可以得到如下结论：
 
-> **CLOSE_WAIT是被动关闭端在等待应用进程的关闭**
+> **CLOSE_WAIT 是被动关闭端在等待应用进程的关闭**
 
 基本上这一结论要能帮助解决所有CLOSE_WAIT相关的问题，如果不能说明对这个知识点理解的不够。
 
 ## 案例1结论
 
-机器超卖严重、IO卡顿，导致应用线程卡顿，来不及调用socket.close()
+机器超卖严重、IO卡顿，导致应用线程卡顿，来不及调用 socket.close()
 
 
 
@@ -95,21 +95,21 @@ CLOSE_WAIT的原因分析
 
 ### 问题描述：
 
-> 服务端出现大量CLOSE_WAIT ，并且个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）
+> 服务端出现大量CLOSE_WAIT ，并且个数正好 等于 somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）
 
 根据这个描述先不要往下看，自己推理分析下可能的原因。
 
 我的推理如下：
 
-从这里看起来，client跟server成功建立了somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这个连接，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时Server上这个连接变成了CLOSE_WAIT .
+从这里看起来，client跟server成功建立了 somaxconn个连接（somaxconn小于backlog，所以accept queue只有这么大），但是应用没有accept这些连接(连接建立三次握手不需要应用参与)，导致这些连接一直在accept queue中。但是这些连接的状态已经是ESTABLISHED了，也就是client可以发送数据了，数据发送到server 后OS ack了，并放在os的tcp buffer中，应用一直没有accept也就没法读取数据。client 于是发送fin（可能是超时、也可能是简单发送数据任务完成了得结束连接），这时 Server上这个连接变成了CLOSE_WAIT .
 
-也就是从开始到结束这些连接都在accept queue中，没有被应用accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。
+也就是从开始到结束这些连接都在 accept queue中，没有被应用 accept，很快他们又因为client 发送 fin 包变成了CLOSE_WAIT ，所以始终看到的是服务端出现大量 CLOSE_WAIT 并且个数正好等于somaxconn（调整somaxconn后 CLOSE_WAIT 也会跟着变成一样的值）。
 
-如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到server是否accept()了，只是发了数据后server的os代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。
+如下图所示，在连接进入accept queue后状态就是ESTABLISED了，也就是可以正常收发数据和fin了。client是感知不到 server是否accept()了，只是发了数据后server的 OS 代为保存在OS的TCP buffer中，因为应用没来取自然在CLOSE_WAIT 后应用也没有close()，所以一直维持CLOSE_WAIT 。
 
 得检查server 应用为什么没有accept。
 
-![Recv-Q和Send-Q](/images/951413iMgBlog/20190706093602331.png)
+![Recv-Q和Send-Q](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/20190706093602331.png)
 
 
 
@@ -119,11 +119,11 @@ CLOSE_WAIT的原因分析
 
 如果没有任何实战经验，只看上面的状态图的学霸应该是这样推理的：
 
-看到server上有大量的CLOSE_WAIT说明client主动断开了连接，server的OS收到client 发的fin，并回复了ack，这个过程不需要应用感知，进而连接从ESTABLISHED进入CLOSE_WAIT，此时在等待server上的应用调用close连关闭连接（处理完所有收发数据后才会调close()） ---- 结论：server上的应用一直卡着没有调close().
+看到server上有大量的CLOSE_WAIT说明 client主动断开了连接，server的OS收到client 发的fin，并回复了ack，这个过程不需要应用感知，进而连接从ESTABLISHED进入CLOSE_WAIT，此时在等待server上的应用调用close连关闭连接（处理完所有收发数据后才会调close()） ---- 结论：server上的应用一直卡着没有调close().
 
 ## CLOSE_WAIT 状态拆解
 
-通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着被动关闭的一方没有及时发出 FIN 包，一般有如下几种可能：
+通常，CLOSE_WAIT 状态在服务器停留时间很短，如果你发现大量的 CLOSE_WAIT 状态，那么就意味着**被动关闭**的一方没有及时发出 FIN 包，一般有如下几种可能：
 
 - **程序问题**：如果代码层面忘记了 close 相应的 socket 连接，那么自然不会发出 FIN 包，从而导致 CLOSE_WAIT 累积；或者代码不严谨，出现死循环之类的问题，导致即便后面写了 close 也永远执行不到。
 - 响应太慢或者超时设置过小：如果连接双方不和谐，一方不耐烦直接 timeout，另一方却还在忙于耗时逻辑，就会导致 close 被延后。响应太慢是首要问题，不过换个角度看，也可能是 timeout 设置过小。
@@ -151,9 +151,10 @@ CLOSE_WAIT的原因分析
 
 ### CLOSE_WAIT与TIME_WAIT
 
-简单说就是CLOSE_WAIT出现在被动断开连接端，一般过多就不太正常；TIME_WAIT出现在主动断开连接端，是正常现象，多出现在短连接场景下
+- 简单说就是CLOSE_WAIT出现在被动断开连接端，一般过多就不太正常；
+- TIME_WAIT出现在主动断开连接端，是正常现象，多出现在短连接场景下
 
-### openfiles和accept()的关系是？
+### openfiles 和 accept()的关系是？
 
 答：accept()的时候才会创建文件句柄，消耗openfiles
 
@@ -165,7 +166,7 @@ CLOSE_WAIT的原因分析
 
 答：对
 
-### 如果通过gdb attach 应用进程，故意让进程accept，这个时候client还能连上应用吗？
+### 如果通过gdb attach 应用进程，故意让进程 accept，这个时候client还能连上应用吗？
 
 
 答： 能，这个时候在client和server两边看到的连接状态都是 ESTABLISHED，只是Server上的全连接队列占用加1。连接握手并切换到ESTABLISHED状态都是由OS来负责的，应用不参与，ESTABLISHED后应用才能accept，进而收发数据。也就是能放入到全连接队列里面的连接肯定都是 ESTABLISHED 状态的了

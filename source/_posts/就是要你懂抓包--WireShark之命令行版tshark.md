@@ -19,11 +19,23 @@ tags:
 
 ## wireshark问题
 
+### 配置文件路径
+
+MacOS 下
+
+```
+~/.config/wireshark
+```
+
+查看有哪些plugins 以及路径
+
+![image-20240614105158403](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240614105158403.png)
+
 ### 不再展示协议内容
 
 比如，info列不再显示mysql 的request、response，但是下方的二进制解析能看到select等语句，这种一般是配置文件中 disable 了mysql协议。 
 
-配置文件名：C:\Users\xijun.rxj\AppData\Roaming\Wireshark\disabled_protos
+配置文件名：C:\Users\admin\AppData\Roaming\Wireshark\disabled_protos
 
 如果抓包缺失很大（比如进出走两个网卡，实际只抓了一个网卡），那么协议解析后也不会正确显示。
 
@@ -37,7 +49,7 @@ tags:
 
 这个时候可以试试将指定协议的reassembled属性关掉
 
-![image.png](/images/oss/1fc544dcd6e064f967481472f6688be9.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1fc544dcd6e064f967481472f6688be9.png)
 
 [PDU：Protocol Data Unit](https://www.wireshark.org/docs/wsug_html_chunked/ChAdvReassemblySection.html)
 
@@ -75,6 +87,12 @@ sudo tshark -i eth0 -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'
 sudo tshark -i eth0 -R "ip.addr==11.163.182.137" -d tcp.port==3306,mysql -T fields -e mysql.query 'port 3306'
 sudo tshark -i eth0 -R "tcp.srcport==62877" -d tcp.port==3001,mysql -T fields -e tcp.srcport -e mysql.query 'port 3001'
 
+#直接展示，省掉wireshark
+$tshark -i bond0 port 3306 -T fields -e frame.number -e frame.time_delta -e col.Source -e col.Destination -e col.Protocol -e ip.len  -e col.Info -e mysql.query
+$tshark -i bond0 port 3306 -T fields -e frame.number -e frame.time_delta -e tcp.srcport -e tcp.dstport -e col.Info -e mysql.query
+$tshark -i bond0 port 3306  -T fields -E separator=, -E quote=d -e frame.number -e frame.time_delta  -e tcp.srcport -e tcp.dstport   -e col.Info
+"1","0.000000000","1620","3306","faxportwinport > mysql [SYN] Seq=0 Win=42340 Len=0 MSS=1460 SACK_PERM=1 WS=512"
+"2","0.000026993","3306","1620","mysql > faxportwinport [SYN, ACK] Seq=0 Ack=1 Win=29200 Len=0 MSS=1460 SACK_PERM=1 WS=128"
 ```
 
 
@@ -270,7 +288,33 @@ tshark -r 0623.pcap -Y 'http.time>0 ' -T fields -e frame.number -e frame.time_ep
 四  6/23 14:20:40 2022 time= 165596524  	 count=54   	 avg=2.886536
 ```
 
+## 解析已知协议与IP域名映射
 
+以下技巧抄自：https://www.ilikejobs.com/posts/wireshark/
+
+![wireshark](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/wireshark8.png)
+
+
+
+## 查询当前已经解析了哪些域名
+
+![wireshark](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/wireshark9.png)
+
+## 设置私有IP名称
+
+先确认下图红框选项是选上的：
+
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240315110305420.png" alt="image-20240315110305420" style="zoom:50%;" />
+
+![wireshark](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/wireshark10.png)
+
+查看刚设置自定义的名称：
+
+![wireshark](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/wireshark11.png)
+
+## 保存文件（含host对应名称）
+
+![wireshark](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/wireshark12.png)
 
 ## 分析包的总概览
 
@@ -665,18 +709,18 @@ tshark分析抓包文件数据库服务器网卡中断瓶颈导致rtt非常高�
 
 下面两个图是吧tshark解析结果丢到了数据库中好用SQL可以进一步分析
 
-![image.png](/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d99665729dbc0ccbcbebd5176900ce6c.png)
 
 ** 问题修复后数据库每个查询的平均响应时间从47毫秒下降到了4.5毫秒 **
 
-![image.png](/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3a80fa647b634e1671a0ebfd40a468bd.png)
 
 #### 从wireshark中也可以看到类似的rtt不正常（超过150ms的比较多）
-![image.png](/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/52cb9d61ce948f9b64737b7be88ac84e.png)
 
 #### 从wireshark中也可以看到类似的rtt正常(99%都在10ms以内）
 
-![image.png](/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/196033f267c33c08a4ca6b6fdb957cf3.png)
 
 
 

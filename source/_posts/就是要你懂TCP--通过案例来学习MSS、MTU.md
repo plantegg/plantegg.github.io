@@ -27,7 +27,7 @@ tags:
 
 
 #### 在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）
-![screenshot](http://img4.tbcdn.cn/L1/461/1/1d010b9937198aee9e798bb02913603874f19ddc)
+![image-20240506090810608](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506090810608.png)
 
 
 #### 从抓包中可以得到这样一些结论：
@@ -110,11 +110,11 @@ centos或者ubuntu下：
 
 [TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。](https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04)
 
-![image.png](/images/oss/23df36d95295c839722627b5d63bac48.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/23df36d95295c839722627b5d63bac48.png)
 
 一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 
 
-![image-20221125133218008](/images/951413iMgBlog/image-20221125133218008.png)
+![image-20221125133218008](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221125133218008.png)
 
 上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。
 

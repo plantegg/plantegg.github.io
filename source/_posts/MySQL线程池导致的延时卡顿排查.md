@@ -12,7 +12,7 @@ tags:
     - 卡顿
 ---
 
-# MySQL 线程池导致的延时卡顿排查
+# MySQL 线程池导致的卡顿
 
 ## 问题描述
 
@@ -36,17 +36,17 @@ tags:
 
 经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：
 
-![image.png](/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png)
 
 以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。
 
 慢的SQL的response按时间排序基本都在3秒以上：
 
-<img src="/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;" />
 
 或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询
 
-<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
 
 
 
@@ -54,11 +54,11 @@ tags:
 
 同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图
 
-![image.png](/images/oss/d129dfe1a50b182f4d100ac7147f9099.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d129dfe1a50b182f4d100ac7147f9099.png)
 
 别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL
 
-![image.png](/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png)
 
 ## MySQL相关参数
 
@@ -114,7 +114,7 @@ mysql> show variables like '%thread%';
 
 18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：
 
-<img src="/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
 
 当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）
 
@@ -134,19 +134,32 @@ thread_pool_stall_limit 会控制一个SQL过长时间（默认60ms）占用线�
 
 
 
-![image-20230308214801877](/images/951413iMgBlog/image-20230308214801877.png)
+![image-20230308214801877](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308214801877.png)
 
 调整前的 thread pool 配置：
 
-![image-20230308222538102](/images/951413iMgBlog/image-20230308222538102.png)
+![image-20230308222538102](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308222538102.png)
 
 出问题时候的线程池 32个 group状态，有两个group queue count、active thread都明显到了瓶颈：select * from information_schema.THREAD_POOL_STATUS;
 
-![image-20230308222416238](/images/951413iMgBlog/image-20230308222416238.png)
+![image-20230308222416238](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308222416238.png)
+
+- id 线程组id
+- thread_count // 当前线程组中的线程数量
+- active_thread_count //当前线程组中活跃线程数量，这个不包含dump线程
+- waiting_thread_count // 当前线程组中处于waiting状态的线程数量
+- dump_thread_count // dump类线程数量
+- slow_thread_timeout_count // 目前仅对DDL生效
+- connection_count // 当前线程组中的连接数量
+- low_queue_count // 低优先级队列中的请求数量
+- high_queue_count // 高优先级队列中的请求数量
+- waiting_thread_timeout_count // 处于waiting状态并且超时的线程数量
+
+
 
 调整 thread_pool_oversubscribe由10到20后不卡了，这时的 pool status(重点注意 ACTIVE_THREAD_COUNT 数字没有任何变化)：
 
-![image-20230308223126774](/images/951413iMgBlog/image-20230308223126774.png)
+![image-20230308223126774](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308223126774.png)
 
 看起来像是 ACTIVE_THREAD 全假死了，没有跑任务也不去take新任务一直卡在那里，类似线程泄露。查看了一下所有MySQLD 线程都是 S 的正常状态，并无异常。
 
@@ -204,7 +217,7 @@ mysql> select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,
 
 ## [Thread Pool原理](https://dbaplus.cn/news-11-1989-1.html)
 
-![image.png](/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png)
 
 MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。
 
@@ -226,27 +239,27 @@ group中又有多个队列，用来区分优先级的，事务中的语句会放
 
 应用出现大量1秒超时报错：
 
-![image.png](/images/951413iMgBlog/52dbeb1c1058e6dbff0a790b4b4ba477.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/52dbeb1c1058e6dbff0a790b4b4ba477.png)
 
-![image-20211104130625676](/images/951413iMgBlog/image-20211104130625676.png)
+![image-20211104130625676](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211104130625676.png)
 
 分析代码，这个Druid报错堆栈是数据库连接池在创建到MySQL的连接后或者从连接池取一个连接给业务使用前会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明TCP连接创建成功，但是MySQL 超过一秒钟都没有响应这个 ping，说明 MySQL处理指令缓慢。
 
 继续分析MySQL的参数：
 
-![image.png](/images/oss/8987545cc311fdd3ae232aee8c3f855a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8987545cc311fdd3ae232aee8c3f855a.png)
 
 可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。
 
-![image.png](/images/oss/114b5b71468b33128e76129bbc7fb8f4.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/114b5b71468b33128e76129bbc7fb8f4.png)
 
 这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是Druid给MySQL发一个ping指令，一般都很快，同时Druid对这个valid操作设置了1秒的超时时间，从实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。
 
-### MySQL ping和MySQL协议相关知识
+### MySQL ping 和 MySQL 协议相关知识
 
 > [Ping](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368) use the JDBC method [Connection.isValid(int timeoutInSecs)](http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int)). Digging into the MySQL Connector/J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.
 
-MySQL ping protocol是发送了一个 `0e` 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会testOnBorrow，所以每个连接使用前都会先做ping。
+MySQL ping protocol是发送了一个 `0e` 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会 testOnBorrow，所以每个连接使用前都会先做ping。
 
 ```
 public class MySQLPingPacket implements CommandPacket {
@@ -263,7 +276,7 @@ public class MySQLPingPacket implements CommandPacket {
 }
 ```
 
-![image.png](/images/oss/7cf291546a167b0ca6a017e98db5a821.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7cf291546a167b0ca6a017e98db5a821.png)
 
 也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。
 
@@ -399,19 +412,19 @@ public final static String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =
 
 这种线程池打满特别容易在分布式环境下出现，除了以上案例比如还有:
 
-> drds-server线程池，接收一个逻辑SQL，如果需要查询1024分片的sort merge join，相当于派生了一批子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
+> 分库分表业务线程池，接收一个逻辑 SQL，如果需要查询1024分片的sort merge join，相当于派生了一批子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
 >
 > 
 >
 > 比如并行执行的SQL MPP线程池也有这个问题，多个查询节点收到SQL，拆分出子任务做并行，互相等待资源
 
-## DRDS对分布式任务打挂线程池的优化
+## X应用对分布式任务打挂线程池的优化
 
 对如下这种案例：
 
-> drds-server线程池，接收一个逻辑SQL，如果需要查询1024分片的sort merge join，相当于派生了1024个子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
+> X 应用通过线程池来接收一个逻辑SQL并处理，如果需要查询1024分片的sort merge join，相当于派生了1024个子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁
 
-首先DRDS对执行SQL 的线程池分成了多个bucket，每个SQL只跑在一个bucket里面的线程上，同时通过滑动窗口向线程池提交任务数，来控制并发量，进而避免线程池的死锁、活锁问题。
+首先X对执行SQL 的线程池分成了多个bucket，每个SQL只跑在一个bucket里面的线程上，同时通过滑动窗口向线程池提交任务数，来控制并发量，进而避免线程池的死锁、活锁问题。
 
 ```java
     public static final ServerThreadPool create(String name, int poolSize, int deadLockCheckPeriod, int bucketSize) {
@@ -451,7 +464,7 @@ public final static String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =
 
 另外DRDS上线程池拆分后性能也有提升：
 
-![image-20211104163732499](/images/951413iMgBlog/image-20211104163732499.png)
+![image-20211104163732499](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211104163732499.png)
 
 测试结果说明：(以全局线程池为基准，分别关注：关日志、分桶线程池、协程)
 
@@ -590,7 +603,7 @@ http://mysql.taobao.org/monthly/2016/02/09/
 
 https://dbaplus.cn/news-11-1989-1.html
 
-[慢查询触发kill后导致集群卡死](https://kb.aliyun-inc.com/repo/921/article?id=G71264)
+[慢查询触发kill后导致集群卡死](https://kb.aliyun-inc.com/repo/921/article?id=G71264) **把queryTimeout换成socketTimeout，这个不会发送kill，只会断开连接**
 
 [青海湖、天津医保 RDS线程池过小导致DRDS查询卡顿问题排查 ](https://kb.aliyun-inc.com/repo/921/article?id=G56753)
 

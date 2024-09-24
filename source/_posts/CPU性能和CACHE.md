@@ -42,7 +42,7 @@ tags:
 
 [飞腾ARM芯片(FT2500)的性能测试](/2021/05/15/飞腾ARM芯片-FT2500的性能测试/)
 
-![image-20210802161558248](/images/951413iMgBlog/image-20210802161558248.png)
+![image-20210802161558248](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210802161558248.png)
 
 ## CPU中为什么要L1/L2等各级cache
 
@@ -50,35 +50,35 @@ tags:
 
 cpu的速度大概50-60%每年的增长率，内存只有7%每年增长率：
 
-![A 1000× Improvement of the Processor-Memory Gap | SpringerLink](/images/951413iMgBlog/476909_1_En_15_Fig3_HTML.png)
+![A 1000× Improvement of the Processor-Memory Gap | SpringerLink](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/476909_1_En_15_Fig3_HTML.png)
 
 CPU访问内存慢的案例参考：[Gallery of Processor Cache Effects](http://igoro.com/archive/gallery-of-processor-cache-effects/)
 
 在数据使用前加载到CPU内更快的缓存中，最快的一级缓存等待时间是1~3个时钟周期。限制在于对于不在缓存中的数据，还是要等待数十上百个周期——按50周期算的话，不考虑并发和指令执行时间，缓存命中率达到98%，才能发挥一半的理论性能。然而实际情况中，大部分应用都无法达到这个命中率。
 
-![image-20211110174606037](/images/951413iMgBlog/image-20211110174606037.png)
+![image-20211110174606037](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211110174606037.png)
 
 ## CPU中的cache变迁历史
 
 80486(1989), 8K的L1 cache第一次被集成在CPU中:
 
-![486 motherboard with CPU location and 2nd level cache marked](/images/951413iMgBlog/42gg2.png)
+![486 motherboard with CPU location and 2nd level cache marked](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/42gg2.png)
 
 **80686**(1995) ，[L2被放入到CPU的Package](https://superuser.com/questions/196143/where-exactly-l1-l2-and-l3-caches-located-in-computer)上，但是是一个独立的Die，可以看到L2大小和一个Die差不多:
 
-![Picture of a pentium Pro CPU, 256KB cache model](/images/951413iMgBlog/eAvLK.png)
+![Picture of a pentium Pro CPU, 256KB cache model](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/eAvLK.png)
 
 以酷睿为例，现在的CPU集成了L1/L2/L3等各级CACHE，**CACHE面积能占到CPU的一半**:
 
-![modernCPUwithL3.png](/images/951413iMgBlog/4Z1nU.png)
+![modernCPUwithL3.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/4Z1nU.png)
 
 从上图可以看到L3的大小快到die的一半，L1/L2由每个core独享，L3是所有core共享，3级CACHE总面积跟所有core差不多大了。
 
-![image-20211110174810752](/images/951413iMgBlog/image-20211110174810752.png)
+![image-20211110174810752](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211110174810752.png)
 
 下图是目前一个主流的Die中CACHE的构成：
 
-![img](/images/951413iMgBlog/cache.architecture.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/cache.architecture.png)
 
 cache对速度的影响：
 
@@ -109,7 +109,7 @@ cache 大小查看
 numactl --membind=0 --cpunodebind=0 ./bin/lat_mem_rd 2000 64 //从结果看L3/memory latency不符合常识
 ```
 
-![image-20220304104859770](/images/951413iMgBlog/image-20220304104859770.png)
+![image-20220304104859770](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220304104859770.png)
 
 调整测试参数，增加 -t 参数
 
@@ -119,7 +119,7 @@ numactl -C 0 -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 2000M
 
 > 内存基准测试命令 lat_mem_rd 的 -t 参数指定测试集以制造 TLB miss, Cache miss的压力场景，以测试 TLB miss,Cache miss对内存访问延迟的影响
 
-![image-20220304152056740](/images/951413iMgBlog/image-20220304152056740.png)
+![image-20220304152056740](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220304152056740.png)
 
 从上图可以看到的一些测试结论
 
@@ -133,6 +133,236 @@ numactl -C 0 -m 0 ./bin/lat_mem_rd -W 5 -N 5 -t 2000M
 
 E5机器内存速度为2133 MT/S, 8163和8269则是2666 MT/S, 所以说E5的时延表现很优秀
 
+## [矩阵乘法案例](https://quick-bench.com/q/mmCA_YqPBiGsE8vY8POpSvYzwCo)
+
+不做任何处理，最直白的矩阵乘法运算，在Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 运行情况 
+
+```
+#cat simple.c
+#include <stdlib.h>
+#include <stdio.h>
+#include <emmintrin.h>
+#define N 2000
+double res[N][N] __attribute__ ((aligned (64)));
+double mul1[N][N] __attribute__ ((aligned (64)));
+double mul2[N][N] __attribute__ ((aligned (64)));
+#define SM (CLS / sizeof (double))
+
+//compile:gcc -o simd -DCLS=$(getconf LEVEL1_DCACHE_LINESIZE) ./simd.c
+//
+int main (void)
+{
+  // ... Initialize mul1 and mul2
+  int i, i2, j, j2, k, k2;
+
+  for (i = 0; i < N; ++i)
+	  for (j = 0; j < N; ++j)
+		  for (k = 0; k < N; ++k)
+			  res[i][j] += mul1[i][k] * mul2[k][j]; //mul2[k][j]是先列后行，对cache不友好；
+
+  // ... use res matrix
+  return 0;
+}
+```
+
+如果现将矩阵转置一下
+
+```
+#include <stdlib.h>
+#include <stdio.h>
+#include <emmintrin.h>
+#define N 2000
+double res[N][N] __attribute__ ((aligned (64)));
+double mul1[N][N] __attribute__ ((aligned (64)));
+double mul2[N][N] __attribute__ ((aligned (64)));
+double tmp[N][N] __attribute__ ((aligned (64)));
+#define SM (CLS / sizeof (double))
+
+//compile:gcc -o simd -DCLS=$(getconf LEVEL1_DCACHE_LINESIZE) ./simd.c
+//
+int main (void)
+{
+  // ... Initialize mul1 and mul2
+  int i, i2, j, j2, k, k2;
+
+  for (i = 0; i < N; ++i)
+	    for (j = 0; j < N; ++j)
+			    tmp[i][j] = mul2[j][i]; //先转置
+  for (i = 0; i < N; ++i)
+	    for (j = 0; j < N; ++j)
+			    for (k = 0; k < N; ++k)
+					      res[i][j] += mul1[i][k] * tmp[j][k]; //转置后按行访问，对内存友好
+
+  // ... use res matrix
+  return 0;
+}
+```
+
+执行结果
+
+```
+//未做任何优化，直接矩阵乘法
+#taskset -c 1 perf stat ./simple
+      47192.640339      task-clock (msec)         #    1.001 CPUs utilized
+                88      context-switches          #    0.002 K/sec
+                 1      cpu-migrations            #    0.000 K/sec
+            31,392      page-faults               #    0.665 K/sec
+   117,866,224,774      cycles                    #    2.498 GHz
+   <not supported>      stalled-cycles-frontend
+   <not supported>      stalled-cycles-backend
+   264,254,238,724      instructions              #    2.24  insns per cycle
+     8,052,145,218      branches                  #  170.623 M/sec
+         4,573,572      branch-misses             #    0.06% of all branches
+
+      47.151498977 seconds time elapsed
+      
+//转置后都是按行取数据，但是需要额外的空间
+#taskset -c 0 perf stat ./simp2
+      30457.259168      task-clock (msec)         #    1.001 CPUs utilized
+               137      context-switches          #    0.004 K/sec
+                 7      cpu-migrations            #    0.000 K/sec
+            86,081      page-faults               #    0.003 M/sec
+    76,068,232,551      cycles                    #    2.498 GHz
+   <not supported>      stalled-cycles-frontend
+   <not supported>      stalled-cycles-backend
+   264,385,818,470      instructions              #    3.48  insns per cycle
+     8,072,001,639      branches                  #  265.027 M/sec
+         4,414,867      branch-misses             #    0.05% of all branches
+
+      30.437018792 seconds time elapsed
+
+//按cache line 运算
+#taskset -c 1 perf stat ./s3
+      29767.847109      task-clock (msec)         #    1.001 CPUs utilized
+                41      context-switches          #    0.001 K/sec
+                 1      cpu-migrations            #    0.000 K/sec
+            31,454      page-faults               #    0.001 M/sec
+    74,346,857,277      cycles                    #    2.498 GHz
+   <not supported>      stalled-cycles-frontend
+   <not supported>      stalled-cycles-backend
+   253,099,702,393      instructions              #    3.40  insns per cycle
+    11,450,804,877      branches                  #  384.670 M/sec
+        16,043,642      branch-misses             #    0.14% of all branches
+
+      29.742025067 seconds time elapsed   
+
+//使用simd指令，按理应该最快，实际效果很差 :( 
+#taskset -c 1 perf stat ./simd
+     140224.550539      task-clock (msec)         #    1.001 CPUs utilized
+               243      context-switches          #    0.002 K/sec
+                 2      cpu-migrations            #    0.000 K/sec
+            70,569      page-faults               #    0.503 K/sec
+   350,218,614,852      cycles                    #    2.498 GHz
+   <not supported>      stalled-cycles-frontend
+   <not supported>      stalled-cycles-backend
+   717,191,577,191      instructions              #    2.05  insns per cycle
+    25,161,922,136      branches                  #  179.440 M/sec
+        54,411,349      branch-misses             #    0.22% of all branches
+
+     140.101635085 seconds time elapsed      
+```
+
+On ARM Kunpeng 920-4826:
+
+```
+#taskset -c 1 perf stat ./simple
+        150,242.52 msec task-clock                #    1.000 CPUs utilized
+               943      context-switches          #    0.006 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            31,289      page-faults               #    0.208 K/sec
+   390,626,613,178      cycles                    #    2.600 GHz
+   432,396,482,134      instructions              #    1.11  insn per cycle
+   <not supported>      branches
+        11,348,599      branch-misses
+
+     150.249408485 seconds time elapsed
+     
+#taskset -c 1 perf stat ./simp2
+         69,008.66 msec task-clock                #    1.000 CPUs utilized
+               426      context-switches          #    0.006 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            39,104      page-faults               #    0.567 K/sec
+   179,417,225,187      cycles                    #    2.600 GHz
+   432,409,078,894      instructions              #    2.41  insn per cycle
+   <not supported>      branches
+        11,122,131      branch-misses
+
+      69.014491453 seconds time elapsed     
+      
+#taskset -c 1 perf stat ./s3
+			   50,251.34 msec task-clock                #    1.000 CPUs utilized
+               315      context-switches          #    0.006 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            31,289      page-faults               #    0.623 K/sec
+   130,652,187,736      cycles                    #    2.600 GHz
+   291,261,746,765      instructions              #    2.23  insn per cycle
+   <not supported>      branches
+       160,585,583      branch-misses
+
+      50.254025852 seconds time elapsed      
+```
+
+如果在aarch编译开启gcc -O3 优化选项：
+
+```
+//aarch gcc -O3 on
+#taskset -c 1 perf stat ./simple //开O3后 优化器走了simd指令
+         67,897.93 msec task-clock                #    1.000 CPUs utilized
+               414      context-switches          #    0.006 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            31,289      page-faults               #    0.461 K/sec
+   176,532,812,062      cycles                    #    2.600 GHz
+    28,214,139,367      instructions              #    0.16  insn per cycle
+   <not supported>      branches
+         3,250,598      branch-misses
+
+      
+#perf stat ./s2 //s2代码直接按行访问mul2,不考虑结果对错，运算量一样，相当于整体转置
+         15,963.30 msec task-clock                #    1.000 CPUs utilized
+                20      context-switches          #    0.001 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            31,288      page-faults               #    0.002 M/sec
+    41,504,239,031      cycles                    #    2.600 GHz
+    56,108,176,644      instructions              #    1.35  insn per cycle
+   <not supported>      branches
+         4,586,197      branch-misses
+     
+      
+#taskset -c 1 perf stat ./s3
+          5,695.85 msec task-clock                #    1.000 CPUs utilized
+                35      context-switches          #    0.006 K/sec
+                 0      cpu-migrations            #    0.000 K/sec
+            31,289      page-faults               #    0.005 M/sec
+    14,808,977,314      cycles                    #    2.600 GHz
+    24,281,358,553      instructions              #    1.64  insn per cycle
+   <not supported>      branches
+         2,006,221      branch-misses
+
+       
+s3.c反编译后的汇编：
+  bc:	913a0060 	add	x0, x3, #0xe80
+  c0:	eb04001f 	cmp	x0, x4
+  c4:	1f584010 	fmadd	d16, d0, d24, d16
+  c8:	1f571c07 	fmadd	d7, d0, d23, d7 //参数 d7-精度，d0 
+  cc:	1f561806 	fmadd	d6, d0, d22, d6
+  d0:	1f551405 	fmadd	d5, d0, d21, d5
+  d4:	1f541004 	fmadd	d4, d0, d20, d4
+  d8:	1f530c03 	fmadd	d3, d0, d19, d3
+  dc:	1f520802 	fmadd	d2, d0, d18, d2
+  e0:	1f510401 	fmadd	d1, d0, d17, d1
+  e4:	54fffd81 	b.ne	94 <main+0x94>
+  e8:	91400c22 	add	x2, x1, #0x3, lsl #12
+  ec:	fd000030 	str	d16, [x1]
+```
+
+[FMADD指令](https://developer.arm.com/documentation/ddi0596/2021-12/SIMD-FP-Instructions/FMADD--Floating-point-fused-Multiply-Add--scalar--)
+
+> Floating-point fused Multiply-Add (scalar). This instruction multiplies the values of the first two SIMD&FP source registers, adds the product to the value of the third SIMD&FP source register, and writes the result to the SIMD&FP destination register.
+
+一些对比解释：
+
+> 编译优化选项设置-O2 级别及以上时，Kunpeng 处理器将对连续的浮点数乘法、加法融 合为乘加运算，以提升性能和精度。在-O2 级以上编译选项，x86 处理器不会将乘法和 加法做融合乘加运算，因此两种处理器在连续的浮点数乘法、加法运算后，小数点后 16 位存在差异。
+
 ## cache对CPU性能的影响
 
 CPU访问内存是非常慢的，所以我们在CPU中增加了多级缓存来**匹配**CPU和内存的速度。主频这20年基本都没怎么做高了，但是工艺提升了两个数量级，也就是集成的晶体管数量提升了2个数量级，工艺提升的能力主要给了cache，从而整体CPU性能提升了很多。
@@ -141,7 +371,7 @@ CPU访问内存是非常慢的，所以我们在CPU中增加了多级缓存来**
 
 以下测试数据主要来源于真实的业务场景：OB/MySQL/ODPS
 
-![img](/images/951413iMgBlog/bb29ac99-3645-4482-8473-c55b190af777.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/bb29ac99-3645-4482-8473-c55b190af777.png)
 
 x86 Skylake之前，L1 I/D 32KB, L2 256KB, L3 2.5MB/core， 2.5MB/core的L3（LLC）芯片面积相当于1/2 CPU core 的尺寸
 
@@ -155,17 +385,17 @@ x86 Skylake之前，L1 I/D 32KB, L2 256KB, L3 2.5MB/core， 2.5MB/core的L3（LL
 
 2014年的 Broadwell 的第五代智能酷睿处理器，是 Haswell 的 14nm 升级版（$1745.00 - $1749.00）：
 
-![image-20210719102039296](/images/951413iMgBlog/image-20210719102039296.png)
+![image-20210719102039296](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210719102039296.png)
 
 E5一个Die有16个物理core（上面截图是两个Socket, 每个Socket一个Die，每个物理core两个超线程），所以每core的L3大小：40M/16=2.5M/core
 
 2015年则推出 SkyLake 架构的Platinum 8269CY（$4702.00）, 每core的L3大小：36M/26=1.38M/core：
 
-![image-20210719102112331](/images/951413iMgBlog/image-20210719102112331.png)
+![image-20210719102112331](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210719102112331.png)
 
 Intel 2015年 发表论文[《High Performing Cache Hierarchies for Server Workloads》](https://people.csail.mit.edu/emer/papers/2015.02.hpca.cache_hierarchy.pdf)证明了阿里提出的建议的正确性，从Skylake架构开始将L2 cache 由 256KB 升级到 1MB， L3由2.5MB /core 压缩到 1.375MB / core， Intel之所以没有完全去掉L3的原因是希望这样设计的CPU对于 使用 CPU2006的workload性能仍然能够做到不受影响。
 
-![image-20210716102624566](/images/951413iMgBlog/image-20210716102624566.png)
+![image-20210716102624566](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210716102624566.png)
 
 上图是不同业务场景下，CPI 随cache大小的变化，可以看到随着cache增加性能基本不增加了。
 
@@ -173,7 +403,7 @@ Intel 2015年 发表论文[《High Performing Cache Hierarchies for Server Workl
 
 Last Level Cache(L3) 在2016年之前都是2MB/core 或者 2.5MB/core, 这个原因取决于在此之前行业都是使用CPU2006作为设计CPU的benchmark，如下图所示：
 
-![img](/images/951413iMgBlog/141f4ccd-37ce-41e5-b404-101e6b9acf5d.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/141f4ccd-37ce-41e5-b404-101e6b9acf5d.png)
 
 根据上图中CPU2006的MPKI数据显示如果LLC在4MB的时候非常好，LLC在2.5MB之后MKPI提升10%性能只有1～3%的提升，2.5MB LLC cache是 CPU core 1/2 的芯片面积，因此若将LLC 由2.5MB升级到4MB，换算成CPU core的芯片面积是增长30%（1/2 * 1.5M/2.5M），但性能仅仅提升最多3%，这就是为什么基于CPU2006的benchmark条件下，intel将LLC设定为2~2.5MB的原因。
 
@@ -201,19 +431,19 @@ y = 1                 r2 = x
 
 如果该`litmus test`的执行顺序一致，则只有六种可能的交替:
 
-[![img](/images/951413iMgBlog/mem-litmus.png)](https://colobu.com/2021/06/30/hwmm/mem-litmus.png)
+[![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/mem-litmus.png)](https://colobu.com/2021/06/30/hwmm/mem-litmus.png)
 
 因为没有交替执行的结果会产生`r1 = 1, r2 = 0`,所以这个结果是不允许的。也就是说，在顺序执行的硬件上，litmus test执行结果出现`r1 = 1, r2 = 0`是不可能的。
 
 顺序一致性的一个很好的思维模型是想象所有处理器直接连接到同一个共享内存，它可以一次处理一个线程的读或写请求。 不涉及缓存，因此每次处理器需要读取或写入内存时，该请求都会转到共享内存。 一次使用一次的共享内存对所有内存访问的执行施加了顺序顺序：顺序一致性。
 
-[![img](/images/951413iMgBlog/mem-sc.png)](https://colobu.com/2021/06/30/hwmm/mem-sc.png)
+[![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/mem-sc.png)](https://colobu.com/2021/06/30/hwmm/mem-sc.png)
 
 ### [x86 Total Store Order (x86-TSO) 总存储有序](https://research.swtch.com/hwmm#x86)
 
 所有处理器仍然连接到一个共享内存，但是每个处理器都将对该内存的写入(`write`)放入到本地写入队列中。处理器继续执行新指令，同时写操作(`write`)会更新到这个共享内存。一个处理器上的内存读取在查询主内存之前会查询本地写队列，但它看不到其他处理器上的写队列。其效果就是当前处理器比其他处理器会先看到自己的写操作。但是——这一点非常重要——==所有处理器都保证写入(存储`store`)到共享内存的(总)顺序，所以给这个模型起了个名字:总存储有序，或`TSO`==。当一个写操作到达共享内存时，任何处理器上的任何未来读操作都将看到它并使用该值(直到它被以后的写操作覆盖，或者可能被另一个处理器的缓冲写操作覆盖)。
 
-![img](/images/951413iMgBlog/mem-tso.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/mem-tso.png)
 
 针对前文的litmus test案例，写队列保证线程1在y之前将x写入内存，关于内存写入顺序(总存储有序)的系统级协议保证线程2在读y的新值之前读x的新值。因此，`r1 = y`在`r2 = x`看不到新的x之前不可能看到新的y。存储顺序至关重要:线程1在写入y之前先写入x，因此线程2在看到x的写入之前不可能看到y的写入。
 
@@ -245,7 +475,7 @@ r1 = y                r2 = x
 
 ARM和POWER系统的概念模型是，每个处理器从其自己的完整内存副本中读取和向其写入，每个写入独立地传播到其他处理器，随着写入的传播，允许重新排序。
 
-![img](/images/951413iMgBlog/mem-weak.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/mem-weak.png)
 
 这里没有总存储顺序。虽然没有描述，但是每个处理器都被允许推迟读取(`read`)，直到它等到它需要结果:读取(`read`)可以被延迟到稍后的写入(`write`)之后。在这个宽松的(`relaxed`)模型中，我们迄今为止所看到的每一个litmus test的答案都是“yes，这真的可能发生。”
 
@@ -283,13 +513,13 @@ SSD 随机读取耗时为 150us
 
 ## 内存和cache的latency对比
 
-![latency](/images/951413iMgBlog/latency.png)
+![latency](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/latency.png)
 
 
 
 [各级cache的Latency](http://www.webstersystems.co.uk/threads.htm)：
 
-![Cycle times](/images/951413iMgBlog/cycle_times.jpg)
+![Cycle times](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/cycle_times.jpg)
 
 **2012 年延迟数字对比表：**
 
@@ -300,6 +530,7 @@ SSD 随机读取耗时为 150us
 | L2 cache reference                 | 7 ns           |
 | Mutex lock/unlock                  | 25 ns          |
 | Main memory reference              | 100 ns         |
+| 持久内存                           | 300 ns         |
 | Compress 1K bytes with Zippy       | 3,000 ns       |
 | Send 1K bytes over 1 Gbps network  | 10,000 ns      |
 | Read 4K randomly from SSD*         | 150,000 ns     |
@@ -312,39 +543,41 @@ SSD 随机读取耗时为 150us
 
 一个比较有体感的比较：如果 CPU 访问 寄存器需要 1 秒，那么访问主存需要 3 分钟、从 SSD 中随机读取数据需要 3.4 天、磁盘寻道需要 2 个月，网络传输可能需要 1 年多的时间。
 
-![img](/images/951413iMgBlog/1460000039103606.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1460000039103606.png)
 
 当然更古老一点的年代给出来的数据可能又不一样一点，但是基本比例差异还是差不多的：
 
-![Memory Hierarchy](/images/951413iMgBlog/cache-hierarchy-1.jpg)
+![Memory Hierarchy](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/cache-hierarchy-1.jpg)
+
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/0d31418e-78e9-46ac-ac8e-0fcc295f1050.png)
 
 测试Inte E5 L1 、L2、L3的cache延时图来加深印象，可以看到在每级cache大小附近时延有个跳跃(纵坐标是纳秒，横坐标是大小 M)：
 
 
 
-![image-20220321172431647](/images/951413iMgBlog/image-20220321172431647.png)
+![image-20220321172431647](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220321172431647.png)
 
 
 
 [推荐从这里看延时，拖动时间轴可以看到随着技术、工艺的改变Latency每一年的变化](https://colin-scott.github.io/personal_website/research/interactive_latency.html)
 
-![image-20210613123006681](/images/951413iMgBlog/image-20210613123006681.png)
+![image-20210613123006681](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210613123006681.png)
 
 查看cpu cache数据
 
 	cat /proc/cpuinfo |grep -i cache
 
-<img src="/images/951413iMgBlog/ad19b92ccc97763aa7f78d8d1d514c84.jpg" alt="image.png" style="zoom:50%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/ad19b92ccc97763aa7f78d8d1d514c84.jpg" alt="image.png" style="zoom:50%;" />
 
 ### L1C、L2C、L3C、DDR 的Latency测试数据
 
 [下图从左至右响应时间分别是L1C、L2C、L3C、DDR](https://topic.atatech.org/articles/100065)，可以看出这四个Latency变化还是非常明显的，泾渭分明。
 
-![img](/images/951413iMgBlog/58286da947132f269cb26ff3eda25c68.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/58286da947132f269cb26ff3eda25c68.png)
 
-![image-20210511160107225](/images/951413iMgBlog/image-20210511160107225.png)
+![image-20210511160107225](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210511160107225.png)
 
-![image.png](/images/951413iMgBlog/f5728a2afb29c653a3e1bf21f4d56056.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/f5728a2afb29c653a3e1bf21f4d56056.png)
 
 ## 测试memory latency
 
@@ -588,7 +821,7 @@ L3用的还是SRAM，但是在考虑换成STT-MRAM，这样容量更大。
 
 DRAM 的一个比特，只需要一个晶体管和一个电容就能存储。所以，DRAM 在同样的物理空间下，能够存储的数据也就更多，也就是存储的"密度"更大。DRAM 的数据访问电路和刷新电路都比 SRAM 更复杂，所以访问延时也就更长。
 
-![img](/images/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/d39b0f2b3962d646133d450541fb75a6.png)
 
 SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是在空闲状态）。 因此**SRAM**首选用于带宽要求高，或者功耗要求低，或者二者兼而有之。 **SRAM**比起**DRAM**更为容易控制，也更是随机访问。 由于复杂的内部结构，**SRAM**比**DRAM**的占用面积更大，因而不适合用于更高储存密度低成本的应用，如PC内存。
 
@@ -596,7 +829,7 @@ SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是�
 
 [简单说DRAM只有一个晶体管和一个电容，SRAM就复杂多了，需要6个晶体管](https://mp.weixin.qq.com/s?__biz=MzI2NDYwMDAxOQ==&mid=2247483772&idx=1&sn=d7c188247b9851f7985676e2f9dd9a0e&chksm=eaab61c0dddce8d62bdb521de1ada13142264882feae1ff06d6dcd81430a0063377e4b34cedb&scene=178&cur_album_id=1368835510680272898#rd)
 
-![What is the difference between SRAM and DRAM](/images/951413iMgBlog/image-20210603114550646.png)
+![What is the difference between SRAM and DRAM](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210603114550646.png)
 
 图左边的 DRAM 的状态是保持在电容器C中。晶体管M用来控制访问。如果要读取状态，拉升访问线AL，这时，可能会有电流流到数据线DL上，也可能没有，取决于电容器是否有电。如果要写入状态，先设置DL，然后升起AL一段时间，直到电容器充电或放电完毕。
 
@@ -608,7 +841,7 @@ SRAM是比**DRAM**更为昂贵，但更为快速、非常低功耗（特别是�
 
 DRAM 主要靠电容充放电来识别0和1，**但是充放电是一个持续过程，需要耗时，这也是导致内存延时大的主要原因**
 
-![image-20220730161825538](/images/951413iMgBlog/image-20220730161825538.png)
+![image-20220730161825538](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220730161825538.png)
 
 不像SRAM可以即刻读取数据，当要读取DRAM的时候，必须花一点时间来等待电容的冲放电完全。这一点点的时间最终限制了DRAM的速度。
 
@@ -623,7 +856,7 @@ SRAM也有其它形式，不那么费电，但比较慢。由于我们需要的�
 
 详细比较：
 
-![Difference Between SRAM and DRAM - YouTube](/images/951413iMgBlog/maxresdefault.jpg)
+![Difference Between SRAM and DRAM - YouTube](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/maxresdefault.jpg)
 
 SRAM 也有其它形式，不那么费电，但比较慢。由于我们需要的是快速RAM，因此其它形式的 SRAM 不在关注范围内。这些较慢的SRAM的主要优点在于接口简单，比动态RAM更容易使用。CPU cache用的是快速 SRAM，本文提到的 SRAM 都是指快速 SRAM
 
@@ -649,7 +882,7 @@ BIOS中内存刷新速率选项提供了auto选项，可以根据工作温度自
 
 左边是在32G物理内存的基础上挂了128G pmem, 然后系统通过free能看到 154G内存，用 `lat_mem_rd` 实际测试速度可以看到左边的机器抖动比较大
 
-![image-20220607154156826](/images/951413iMgBlog/image-20220607154156826.png)
+![image-20220607154156826](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220607154156826.png)
 
 ## 系列文章
 
@@ -683,5 +916,5 @@ BIOS中内存刷新速率选项提供了auto选项，可以根据工作温度自
 
 [业务与芯片垂直整合的一点思考](https://mp.weixin.qq.com/s/FC-bPwHUT7EpTydxDk5btQ)
 
- [What Every Programmer Should Know About Main Memory](http://www.akkadia.org/drepper/cpumemory.pdf) by Ulrich Drepper 
+ [What Every Programmer Should Know About Main Memory](http://www.akkadia.org/drepper/cpumemory.pdf) by Ulrich Drepper  中文版：https://zhuanlan.zhihu.com/p/611133924
 

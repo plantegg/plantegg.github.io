@@ -46,12 +46,12 @@ nohup ssh -qTfnN -D 127.0.0.1:38080 root@1.1.1.1 "vmstat 10" 2>&1 >/dev/null &
 
 127.0.0.1:38080  socks5 就是要填入到你的浏览器中的代理服务器，什么都不需要装，非常简单
 
-![image.png](/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e4a2fdad5b04542dc657b96e195a2b45.png)
 
 
 
 原理图如下(灰色矩形框就是你本地ssh命令，ssh 线就是在穿墙， 国外服务器就是命令中的1.1.1.1)：
-![undefined](/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
+![undefined](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1561367815573-0b793473-67fa-4edc-ae58-04e7c4c51b87.png) 
 
 ### 科学上网之http特殊代理--利用ssh 本地转发是HTTP协议
 
@@ -195,7 +195,7 @@ UserKnownHostsFile /dev/null
 
 然后在笔记本上的浏览器中输入： 127.0.0.1:8088 就看到了如下界面：
 
-![image.png](/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1acbd09b4b45dbd478ddabc0e001a15e.png)
 
 反过来，**也可以让隔离环境机器通过代理上网，比如安装yum**
 
@@ -219,13 +219,13 @@ ssh免密码的原理是将本机的pub key复制到目标机器的 ~/.ssh/autho
 
 如果有100台机器，互相两两打通还是比较费事（大概需要100*99次copy key）。 下面通过 expect 来解决输入密码，然后配合shell脚本来批量解决这个问题。
 
-![](/images/951413iMgBlog/S9jLW7B.png)
+![](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/S9jLW7B.png)
 
 这个脚本需要四个参数：目标IP、用户名、密码、home目录，也就是ssh到一台机器的时候帮我们自动填上yes，和密码，这样就不需要人肉一个个输入了。
 
 再在外面写一个循环对每个IP执行如下操作：
 
-![](/images/951413iMgBlog/4SZcnvc.png)
+![](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/4SZcnvc.png)
 
 if代码部分检查本机~/.ssh/下有没有id_rsa.pub，也就是是否以前生成过密钥对，没生成的话就帮忙生成一次。
 
@@ -458,7 +458,7 @@ $(tput sgr0)"
 
 以上脚本运行结果
 
-![image-20210902224011450](/images/951413iMgBlog/image-20210902224011450.png)
+![image-20210902224011450](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210902224011450.png)
 
 ### sshd Banner
 
@@ -488,7 +488,7 @@ Banner /etc/ssh/my_banner
 
 ### github 上你的公钥
 
-github可以取到你的公钥，如果别人让你查看他的服务器，直接给 https://github.com/plantegg.keys这个链接，让他把下载的key 加到 ~/.ssh/authorized_keys 里面就行了
+github可以取到你的公钥，如果别人让你查看他的服务器，直接给 https://github.com/plantegg.keys 这个链接，让他把下载的key 加到 ~/.ssh/authorized_keys 里面就行了
 
 ### [ssh-keygen](https://superuser.com/questions/1416315/how-can-i-convert-a-public-key-generated-by-putty-to-rfc-4716-format)
 
@@ -689,7 +689,7 @@ Unable to negotiate with server port 22: no matching key exchange method found. 
 表示服务端支持 diffie-hellman-group1-sha1,diffie-hellman-group14-sha1 加密，但是client端不支持，那么可以指定算法来强制client端使用某种和server一致的加密方式
 
 ```
-ssh  -oKexAlgorithms=+diffie-hellman-group14-sha1 -l user
+ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 -l user
 
 或者config中配置：
 host server_ip
@@ -736,7 +736,7 @@ SSH能够做动态转发、本地转发、远程转发。先简要概述下他�
 
 动态转发常用来科学上网，本地转发用来打洞，这两种转发启动的端口都是在本地；远程转发也是打洞的一种，只不过启用的端口在远程机器上。
 
-![img](/images/951413iMgBlog/ssh-tunnels.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/ssh-tunnels.png)
 
 ### 动态转发 (-D)   SOCKS5 协议
 
@@ -754,7 +754,7 @@ nohup ssh -qTfnN -D *:13658 root@jump vmstat 10  >/dev/null 2>&1
 
 注意，这种转发采用了 SOCKS5 协议。访问外部网站时，需要把 HTTP 请求转成 SOCKS5 协议，才能把本地端口的请求转发出去。`-N`参数表示，这个 SSH 连接不能执行远程命令，只能充当隧道。
 
-![image-20210913143129749](/images/951413iMgBlog/image-20210913143129749.png)
+![image-20210913143129749](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210913143129749.png)
 
 下面是 ssh 隧道建立后的一个**使用实例**。
 
@@ -793,7 +793,7 @@ $ ssh -L :local-port:target-host:target-port ssh-server  //target-host是ssh-ser
 
 上面命令中，`-L`参数表示本地转发，`local-port`是本地端口，`target-host`是你想要访问的目标服务器，`target-port`是目标服务器的端口，`ssh-server`是 SSH 跳板机。当你访问localhost:local-port 的时候会通过ssh-server把请求转给target-host:target-port
 
-![img](/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/vgaakWbKC9OPXugAR9oPnotTq1L4jBRDEg.JPG)
 
 上图对应的命令是：
 
@@ -830,7 +830,7 @@ ssh -fNR 30.1.2.3:30081:166.100.64.1:3128 root@30.1.2.3 -p 2728
 
 上面的命令，首先需要注意，**不是在30.1.2.3 或者166.100.64.1 上执行的，而是找一台能联通 30.1.2.3 和166.100.64.1的机器来执行**，在执行前Remote clients能连上 30.1.2.3 但是 30.1.2.3 和 166.100.64.1 不通，所以需要一个中介将 30.1.2.3 和166.100.64.1打通，这个中介就是下图中的MobaXterm所在的机器，命令在MobaXterm机器上执行
 
-![image-20210913163036410](/images/951413iMgBlog/image-20210913163036410.png)
+![image-20210913163036410](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210913163036410.png)
 
 执行上面的命令以后，跳板机30.1.2.3 到166.100.64.1的隧道已经建立了，这个隧道是依赖两边都能连通的MobaXterm机器。然后，就可以从Remote Client访问目标服务器了，即在Remote Client上执行下面的命令。
 
@@ -917,7 +917,7 @@ X.509 只是一种常用的证书格式，一般以PEM编码，PEM 编码的证�
 
 通过命令 cat /etc/kubernetes/pki/ca.crt | openssl x509 -text  也可以得到下图信息
 
-![image](/images/951413iMgBlog/step-certificate-inspect.png)
+![image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/step-certificate-inspect.png)
 
 ### 公钥、私钥常见扩展名
 

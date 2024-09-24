@@ -65,7 +65,7 @@ Step-by-step communication from **Pod 1** to **Pod 6**:
 7. *Package leaves* ***cni0\*** *and is redirected to the* ***veth6\*** *virtual interface;*
 8. *Package leaves the* ***root netns\*** *through* ***veth6\*** *and reaches the* ***Pod 6 netns\*** *though the* ***eth6\*** *interface;*
 
-![image-20220115124747936](/images/951413iMgBlog/image-20220115124747936.png)
+![image-20220115124747936](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220115124747936.png)
 
 > **cni0** is a Linux network bridge device, all **veth** devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in **Kubernetes Network Model** and the hotel analogy above.
 
@@ -94,7 +94,7 @@ Flannel 工作原理
 5. 然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0/24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（**这里会过宿主机iptables**）
 6. cni0将包送给POD4
 
-![img](/images/951413iMgBlog/Flannel.jpg)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/Flannel.jpg)
 
 flannel容器启动的时候会给自己所在的node注入一些信息：
 
@@ -142,7 +142,7 @@ f2:64:e3:49:4c:c8 dev cni0 master cni0 permanent
 
 包流程：
 
-![image-20220915113511706](/images/951413iMgBlog/image-20220915113511706.png)
+![image-20220915113511706](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220915113511706.png)
 
 [ARP 和 FDB:](https://blog.michaelfmcnamara.com/2008/02/what-are-the-arp-and-fdb-tables/)
 
@@ -245,7 +245,7 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
 
 这个流转流程如下图：
 
-![flannel-network-flow](/images/951413iMgBlog/flannel-network-flow.jpg)
+![flannel-network-flow](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/flannel-network-flow.jpg)
 
 对应宿主机查询到的ip、路由信息（和上图不是对应的）
 
@@ -267,7 +267,7 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
 
 包流转[示意图](https://blog.laputa.io/kubernetes-flannel-networking-6a1cb1f8ec7c)
 
-![image-20220119114929034](/images/951413iMgBlog/image-20220119114929034.png)
+![image-20220119114929034](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220119114929034.png)
 
 
 
@@ -281,7 +281,7 @@ tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 byt
 
 下图中正常的icmp是直接ping 物理机ip
 
-![image-20211228203650921](/images/951413iMgBlog/image-20211228203650921.png)
+![image-20211228203650921](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211228203650921.png)
 
 > The "admin prohibited filter" seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn't want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.
 
@@ -414,6 +414,16 @@ kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip-
 kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip=192.168.0.1
 ```
 
+## 容器调试
+
+可以起一个容器，里面带有各种工具，然后attach 到目标容器 ：https://github.com/zeromake/docker-debug/blob/master/README-zh-Hans.md
+
+```
+./docker-debug-linux-amd64 --image=CentOS8 nginx top -Hp 12 //可以先把工具安装在CentOS8，然后attach 到被调试的 nginx容器
+```
+
+
+
 ## 抓包和调试 -- nsenter
 
 ```
@@ -434,7 +444,7 @@ nsenter --target 17277 --net
  1026  [2021-04-14 15:54:11] ip netns list
  1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig
  
- //nsenter调试网络
+ //nsenter 调试网络
  Get the pause container's sandboxkey: 
 root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey
             "SandboxKey": "/var/run/docker/netns/82ec9e32d486",
@@ -651,7 +661,7 @@ void sock_net_set(struct sock *sk, struct net *net)
 
 内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。
 
-![Image](/images/951413iMgBlog/640-5304524.)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-5304524.)
 
 每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等
 

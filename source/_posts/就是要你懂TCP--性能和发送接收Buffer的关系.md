@@ -33,7 +33,7 @@ tags:
 
 > 应用通过专线跨网络访问云上的服务，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这太慢了，不正常。
 >
-> 如果通过云上client访问云上服务那么1-2秒就返回了（不跨网络服务是正常的，说明服务本身没有问题）。
+> 如果通过云上client访问云上服务执行这个SQL那么1-2秒就返回了（不跨网络服务是正常的，说明服务本身没有问题）。
 >
 > 如果通过http或者scp从云下向云上传输这22M的数据大概两秒钟也传送完毕了（说明网络带宽不是瓶颈），
 >
@@ -43,15 +43,15 @@ tags:
 
 抓包分析这22M的数据传输，如下图（wireshark 时序图），横轴是时间，纵轴是sequence number：
 
-![image.png](/images/oss/d188530df31712e8341f5687a960743a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d188530df31712e8341f5687a960743a.png)
 
 粗一看没啥问题，因为时间太长掩盖了问题。把这个图形放大，只看中间50ms内的传输情况（横轴是时间，纵轴是sequence number，一个点代表一个包）
 
-<img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png" style="zoom: 80%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png" style="zoom: 80%;" />
 
 可以看到传输过程总有一个20ms的等待平台，这20ms没有发送任何包，换个角度，看看窗口尺寸图形：
 
-![image.png](/images/oss/7ae26e844629258de173a05d5ad595f9.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7ae26e844629258de173a05d5ad595f9.png)
 
 从bytes in flight也大致能算出来总的传输速度 16K*1000/20=800Kb/秒
 
@@ -63,13 +63,13 @@ tags:
 
 ## 原理解析
 
-如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]
+如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，在这等ack的20ms 的时间内应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]
 
 
 
 比如下图，wmem大小是8，发出1-8后，buffer不能释放，等到收到ack1-4后，释放1-4，buffer也就是释放了一半，这一半可以填充新的发送数据进来了。 上面的问题在于ack花了很久，导致buffer一直不能释放。
 
-![image.png](/images/oss/3d9e77f8c9b0cab1484c870d2c0d2473.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3d9e77f8c9b0cab1484c870d2c0d2473.png)
 
 **sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立即腾出来发新的货物，而是要等对方确认收到了(ack)才能腾出来发新的货物。 传输速度取决于发送仓库（sendbuffer）、接收仓库（recvbuffer）、路宽（带宽）的大小，如果发送仓库（sendbuffer）足够大了之后接下来的瓶颈就会是高速公路了（带宽、拥塞窗口）。而实际上这个案例中带宽够、接收仓库也够，但是发送仓库太小了，导致发送过程断断续续，所以非常慢。**
 
@@ -105,7 +105,7 @@ net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只�
 
 继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，继续调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了握手和慢启动阶段），这基本上是理论上最快速度了
 
-![image.png](/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png)
 
 如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。
 
@@ -119,7 +119,7 @@ net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只�
 
 BDP=rtt*(带宽/8)
 
-这个 buffer 调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以 ***SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大也没有什么实际意义了** 。也就是前面所说的仓库足够后瓶颈在带宽上了。
+这个 buffer 调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100Mb/8)=250KB  所以 ***SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大也没有什么实际意义了** 。也就是前面所说的仓库足够后瓶颈在带宽上了。
 
 因为这里根据带宽、rtt计算得到的BDP是250K，BDP跑满后拥塞窗口（带宽、接收窗口和rt决定的）即将成为新的瓶颈，所以调大buffer没意义了。
 
@@ -127,7 +127,7 @@ BDP=rtt*(带宽/8)
 >
 > Product of data link’s capacity and its end-to-end delay. The result is the maximum amount of unacknowledged data that can be in flight at any point in time.
 
-![Figure 2-7. Transmission gaps due to low congestion window size](/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg)
+![Figure 2-7. Transmission gaps due to low congestion window size](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg)
 
 ## 接下来看看接收buffer(rmem)和接收窗口的关系
 
@@ -139,21 +139,21 @@ BDP=rtt*(带宽/8)
 
 如果rtt是40ms，总共需要5-6秒钟：
 
-![image.png](/images/oss/4af4765c045e9eed2e36d9760d4a2aba.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4af4765c045e9eed2e36d9760d4a2aba.png)
 
 基本可以看到server一旦空出来点窗口，client马上就发送数据，由于这点窗口太小，rtt是40ms，也就是一个rtt才能传3456字节的数据，整个带宽才用到80-90K，完全没跑满。
 
-![image.png](/images/oss/1984258c0300921799476777f5f0a38a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1984258c0300921799476777f5f0a38a.png)
 
 比较明显间隔 40ms 一个等待台阶，台阶之间两个包大概3K数据，总的传输效率如下：
 
-![image.png](/images/oss/5ec50ecf25444e96d81fab975b5a79e6.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5ec50ecf25444e96d81fab975b5a79e6.png)
 
 **斜线越陡表示速度越快，从上图看整体SQL上传花了5.5秒，执行0.5秒。**
 
 此时对应的窗口尺寸：
 
-![image.png](/images/oss/05d6357ed53c1c16f0dd0454251916ef.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/05d6357ed53c1c16f0dd0454251916ef.png)
 
 窗口由最开始28K(20个1448）很快降到了不到4K的样子，然后基本游走在即将满的边缘，虽然读取慢，幸好rtt也大，导致最终也没有满。（这个是3.1的Linux，应用SO_RCVBUF设置的是8K，用一半来做接收窗口）
 
@@ -161,31 +161,31 @@ BDP=rtt*(带宽/8)
 
 如果同样的语句在 rtt 是0.1ms的话
 
-![image.png](/images/oss/67f280a1cf499ae388fc44d6418869a7.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/67f280a1cf499ae388fc44d6418869a7.png)
 
 虽然明显看到接收窗口经常跑满，但是因为rtt很小，一旦窗口空出来很快就通知到对方了，所以整个过小的接收窗口也没怎么影响到整体性能
 
-![image.png](/images/oss/15b7d6852e44fc179d60d76f322695c7.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/15b7d6852e44fc179d60d76f322695c7.png)
 
 如上图11.4秒整个SQL开始，到11.41秒SQL上传完毕，11.89秒执行完毕（执行花了0.5秒），上传只花了0.01秒
 
 接收窗口情况：
 
-![image.png](/images/oss/0f3050cd98db40a352410a11a521e8b2.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0f3050cd98db40a352410a11a521e8b2.png)
 
 如图，接收窗口由最开始的28K降下来，然后一直在5880和满了之间跳动
 
-![image.png](/images/oss/0db5c3684a9314907f9158ac15b6ac71.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0db5c3684a9314907f9158ac15b6ac71.png)
 
 从这里可以得出结论，接收窗口的大小对性能的影响，rtt越大影响越明显，当然这里还需要应用程序配合，如果应用程序一直不读走数据即使接收窗口再大也会堆满的。
 
 ## SO_RCVBUF和tcp window full的坏case 
 
-![image.png](/images/oss/55cf9875d24d76a077c442327d54fa34.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/55cf9875d24d76a077c442327d54fa34.png)
 
 上图中红色平台部分，停顿了大概6秒钟没有发任何有内容的数据包，这6秒钟具体在做什么如下图所示，可以看到这个时候接收方的TCP Window Full，同时也能看到接收方（3306端口）的TCP Window Size是8192（8K），发送方（27545端口）是20480.
 
-![image.png](/images/oss/da48878ce0c01bcdedb1e6d6a6cc6d1c.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/da48878ce0c01bcdedb1e6d6a6cc6d1c.png)
 
 这个状况跟前面描述的recv buffer太小不一样，8K是很小，但是因为rtt也很小，所以server总是能很快就ack收到了，接收窗口也一直不容易达到full状态，但是一旦接收窗口达到了full状态，居然需要惊人的6秒钟才能恢复，这等待的时间有点太长了。这里应该是应用读取数据太慢导致了耗时6秒才恢复，所以最终这个请求执行会非常非常慢（时间主要耗在了上传SQL而不是执行SQL）.
 
@@ -205,11 +205,11 @@ BDP=rtt*(带宽/8)
 - 应用代码逻辑上在做其它事情（比如Server将SQL分片到多个DB上，Server先读取第一个分片，如果第一个分片数据很大很大，处理也慢，那么即使第二个分片数据都返回到了TCP 的recv buffer，应用也没去读取其它分片的结果集，直到第一个分片读取完毕。如果SQL带排序，那么Server会轮询读取多个分片，造成这种卡顿的概率小了很多）
 
 
-![image.png](/images/oss/49e2635a7c4025d44b915a1f17dd272a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/49e2635a7c4025d44b915a1f17dd272a.png)
 
 上图这个流因为应用层不读取TCP数据，导致TCP接收Buffer满，进而接收窗口为0，server端不能再发送数据而卡住，但是ZeroWindow的探测包，client都有正常回复，所以1903秒之后接收方窗口不为0后（window update）传输恢复。
 
-![image.png](/images/oss/2e493d8dc32bb63f2126375de6675351.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2e493d8dc32bb63f2126375de6675351.png)
 
 这个截图和前一个类似，是在Server上(3003端口)抓到的包，不同的是接收窗口为0后，server端多次探测（Server上抓包能看到），但是client端没有回复 ZeroWindow（也有可能是回复了，但是中间环节把ack包丢了,或者这个探测包client没收到），造成server端认为client死了、不可达之类，进而反复重传，重传超过15次之后，server端认为这个连接死了，粗暴单方面断开（没有reset和fin,因为没必要，server认为网络连通性出了问题）。
 
@@ -315,11 +315,11 @@ tcp_adv_win_scale 的取值
 
 一般来说一次中断基本都会将 buffer 中的包都取走。
 
-![image.png](/images/oss/d7d3af2c03653e6cf8ae2befa0022832.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d7d3af2c03653e6cf8ae2befa0022832.png)
 
 绿线是最大接收窗口动态调整的过程，最开始是1460\*10，握手完毕后略微调整到1472*10（可利用body增加了12），随着数据的传输开始跳涨
 
-![image.png](/images/oss/d0e12e8bad8764385549f9b391c62ab0.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d0e12e8bad8764385549f9b391c62ab0.png)
 
 上图是四个batch insert语句，可以看到绿色接收窗口随着数据的传输越来越大，图中蓝色竖直部分基本表示SQL上传，两个蓝色竖直条的间隔代表这个insert在服务器上真正的执行时间。这图非常陡峭，表示上传没有任何瓶颈.
 
@@ -327,7 +327,7 @@ tcp_adv_win_scale 的取值
 
 下图是设置了 SO_RCVBUF 为8192的实际情况：
 
-![image.png](/images/oss/d0e12e8bad8764385549f9b391c62ab0.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d0e12e8bad8764385549f9b391c62ab0.png)
 
 从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值
 
@@ -339,9 +339,9 @@ tcp_adv_win_scale 的取值
 
 为什么server 设置 wmem=4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延
 
-![image-20230414092751721](/images/951413iMgBlog/image-20230414092751721.png)
+![image-20230414092751721](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230414092751721.png)
 
-![img](/images/951413iMgBlog/1460000039103606.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1460000039103606.png)
 
 # 从kernel来看buffer相关信息
 
@@ -365,7 +365,7 @@ tcp_adv_win_scale 的取值
 
 需要特别注意：**tcp_wmem 和 tcp_rmem 的单位是字节，而 tcp_mem 的单位的页面**
 
-![image.png](/images/oss/ea04e40acda986675bf0ad0ea7b9b8ff.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ea04e40acda986675bf0ad0ea7b9b8ff.png)
 
 
 
@@ -373,7 +373,7 @@ tcp_adv_win_scale 的取值
 
 从内核代码来看如果应用代码设置了sndbuf(比如java代码中：socket.setOption(sndbuf, socketSendBuffer))那么实际会分配socketSendBuffer*2的大小出来
 
-![image.png](/images/oss/1de3f2916346e390be55263d59f5730d.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1de3f2916346e390be55263d59f5730d.png)
 
 比如应用代码有如下设置：
 
@@ -400,11 +400,11 @@ tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,
 
 为什么kernel要double 接收和发送buffer可以[参考man7中的socket帮助信息](https://man7.org/linux/man-pages/man7/socket.7.html)
 
-![image.png](/images/oss/4e2b2e12c754f01a2f99f9f47dd5fd8e.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4e2b2e12c754f01a2f99f9f47dd5fd8e.png)
 
 ## tcp包发送流程
 
-![image.png](/images/oss/d385a7dad76ec4031dfb6c096bca434b.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d385a7dad76ec4031dfb6c096bca434b.png)
 
 
 
@@ -431,7 +431,7 @@ tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,
 
 如下是tcp_sendmsg流程，sk_stream_wait_memory就是tcp_wmem不够的时候触发等待：
 
-![image.png](/images/oss/ff025f076a4a2bc2b1b13d11f32a97d3.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ff025f076a4a2bc2b1b13d11f32a97d3.png)
 
 如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：
 
@@ -514,7 +514,21 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 ## 在2 MiB buffer下rt和 throughput的关系
 
-![img](/images/951413iMgBlog/image10-5.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image10-5.png)
+
+## [wmem 和send_buffer的关系](https://unix.stackexchange.com/questions/551444/what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued)
+
+设置 net.ipv4.tcp_wmem=4096 4096 4096（单位是bytes），目的是想控制wmem很小，实际测试发现bytes in flight(发走还没有ack的数据）超过了4096，那么tcp_wmem和 send_buffer/bytes in flight 到底是什么关系呢？
+
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/lQLPJwQZZ7TDbHrNBTTNBdCwIxliw-QP0oQEMVPcZwCyAA_1488_1332.png)
+
+应用write->wmem/snd_buffer->wmem_queued(在这里等ack，ack没来queued不释放)->client
+
+![image-20231007152649201](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231007152649201.png)
+
+skmem:(r0,rb369280,t0,tb4096,f6000,w157840,o0,bl0
+
+w157840--这个对应我们理解的send buffer. 也就是wmem 不负责等ack，send完就释放，wmem_queued负责等
 
 # 总结
 
@@ -533,6 +547,18 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 # 相关和参考文章
 
+2024 Netflix： [Investigation of a Cross-regional Network Performance Issue](https://netflixtechblog.medium.com/investigation-of-a-cross-regional-network-performance-issue-422d6218fdf1)  因为内核升级去掉了内核参数 sysctl_tcp_adv_win_scale，换了一个新的计算方式，导致原来30秒 内能传输完毕的请求在新内核机制下传输不完，从而导致了业务端的请求超时  [This commit](https://lore.kernel.org/netdev/20230717152917.751987-1-edumazet@google.com/T/) obsoleted *sysctl_tcp_adv_win_scale* and introduced a *scaling_ratio* that can more accurately calculate the overhead or window size, which is the right thing to do. With the change, the window size is now *rcvbuf \* scaling_ratio*. 简而言之，内核升级后，接收缓存大小减半。因此，吞吐量也减半，导致数据传输时间翻倍。
+
+Netflix 这次业务问题是Kafka， 其代码里不应该设置TCP 接收buffer 大小，而是要让kernel来自动调节
+
+
+
+2022 https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think 你设置的rmem 不会全部用来存放数据，每个包还有一些meta数据需要存放，元数据的大小会有很大的差异，导致内核需要来保守预估
+
+> receive window is not fully opened immediately. Linux keeps the receive window small, as it tries to predict the metadata cost and avoid overshooting the memory budget, therefore hitting TCP collapse. By default, with the net.ipv4.tcp_adv_win_scale=1, the upper limit for the advertised window is 50% of "free" memory. rcv_ssthresh starts up with 64KiB and grows linearly up to that limit.
+
+
+
 [用stap从内核角度来分析buffer、rt和速度](https://blog.csdn.net/dog250/article/details/113020804)
 
 [The story of one latency spike][https://blog.cloudflare.com/the-story-of-one-latency-spike/] : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点
@@ -547,21 +573,21 @@ tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f17
 
 [What is rcv_space in the 'ss --info' output, and why it's value is larger than net.core.rmem_max][28]
 
-[1]: /images/oss/1558603861745-190dadd2-cff2-49c9-8bc3-5856fdfb2d44.png#align=left&display=inline&height=627&originHeight=627&originWidth=1251&size=0&status=done&width=1251
-[2]: /images/oss/1558603861610-e9b14af0-2400-4207-8bec-dfc96430ca58.png#align=left&display=inline&height=591&originHeight=591&originWidth=508&size=0&status=done&width=508
-[3]: /images/oss/1558603861781-2e236663-2909-44eb-84a3-82ddf5f3af9d.png#align=left&display=inline&height=755&originHeight=755&originWidth=1285&size=0&status=done&width=1285
-[8]: /images/oss/1558603861595-39197d54-4e04-4a61-8687-f549bdaa883b.png#align=left&display=inline&height=855&originHeight=855&originWidth=1395&size=0&status=done&width=1395
-[9]: /images/oss/1559025761962-cf422801-1d67-4665-a12e-8419ffb1e27a.png#align=left&display=inline&height=447&name=image.png&originHeight=559&originWidth=1367&size=137942&status=done&width=1093.6 "image.png"
-[10]: /images/oss/1559025983487-bf6bde7b-6cb1-4d18-b0a0-ea63ddf538e4.png#align=left&display=inline&height=421&name=image.png&originHeight=526&originWidth=435&size=11128&status=done&width=348 "image.png"
-[11]: /images/oss/1559026080137-38bd9712-eb07-4fc1-82e7-649cde233cfd.png#align=left&display=inline&height=474&name=image.png&originHeight=593&originWidth=389&size=22197&status=done&width=311.2 "image.png"
-[12]: /images/oss/1559027684431-4b47d1be-6bf9-4a5a-b041-bf675ff36f4a.png#align=left&display=inline&height=594&name=image.png&originHeight=743&originWidth=1178&size=54428&status=done&width=942.4 "image.png"
-[13]: /images/oss/1559026228698-b5749b94-6083-451a-ac1e-a95150d93b82.png#align=left&display=inline&height=440&name=image.png&originHeight=550&originWidth=1176&size=122888&status=done&width=940.8 "image.png"
-[14]: /images/oss/1559027225308-61d25bd1-9270-4762-b0cf-721a34d8689a.png#align=left&display=inline&height=646&name=image.png&originHeight=807&originWidth=430&size=30452&status=done&width=344 "image.png"
-[15]: /images/oss/1559027854127-2049facb-7708-49b5-a165-141549cc7e6b.png#align=left&display=inline&height=636&name=image.png&originHeight=795&originWidth=474&size=20034&status=done&width=379.2 "image.png"
-[16]: /images/oss/1559028098375-d1e8ab50-d3c0-47c3-8326-53afe8ba0116.png#align=left&display=inline&height=681&name=image.png&originHeight=851&originWidth=748&size=42765&status=done&width=598.4 "image.png"
-[17]: /images/oss/1558922856836-92aca189-2b5c-46b9-ae06-cbb0db50baf4.png#align=left&display=inline&height=522&name=image.png&originHeight=653&originWidth=1007&size=48934&status=done&width=805.6 "image.png"
-[18]: /images/oss/1558923047361-de371658-b656-4566-9e20-5958919ee1fe.png#align=left&display=inline&height=422&name=image.png&originHeight=528&originWidth=982&size=112809&status=done&width=785.6 "image.png"
-[19]: /images/oss/1559030833230-72b44e6d-5c3c-413b-91ff-26074bd2bdbe.gif#align=left&display=inline&height=144&originHeight=103&originWidth=289&size=0&status=done&width=404
+[1]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558603861745-190dadd2-cff2-49c9-8bc3-5856fdfb2d44.png#align=left&display=inline&height=627&originHeight=627&originWidth=1251&size=0&status=done&width=1251
+[2]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558603861610-e9b14af0-2400-4207-8bec-dfc96430ca58.png#align=left&display=inline&height=591&originHeight=591&originWidth=508&size=0&status=done&width=508
+[3]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558603861781-2e236663-2909-44eb-84a3-82ddf5f3af9d.png#align=left&display=inline&height=755&originHeight=755&originWidth=1285&size=0&status=done&width=1285
+[8]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558603861595-39197d54-4e04-4a61-8687-f549bdaa883b.png#align=left&display=inline&height=855&originHeight=855&originWidth=1395&size=0&status=done&width=1395
+[9]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559025761962-cf422801-1d67-4665-a12e-8419ffb1e27a.png#align=left&display=inline&height=447&name=image.png&originHeight=559&originWidth=1367&size=137942&status=done&width=1093.6 "image.png"
+[10]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559025983487-bf6bde7b-6cb1-4d18-b0a0-ea63ddf538e4.png#align=left&display=inline&height=421&name=image.png&originHeight=526&originWidth=435&size=11128&status=done&width=348 "image.png"
+[11]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559026080137-38bd9712-eb07-4fc1-82e7-649cde233cfd.png#align=left&display=inline&height=474&name=image.png&originHeight=593&originWidth=389&size=22197&status=done&width=311.2 "image.png"
+[12]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559027684431-4b47d1be-6bf9-4a5a-b041-bf675ff36f4a.png#align=left&display=inline&height=594&name=image.png&originHeight=743&originWidth=1178&size=54428&status=done&width=942.4 "image.png"
+[13]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559026228698-b5749b94-6083-451a-ac1e-a95150d93b82.png#align=left&display=inline&height=440&name=image.png&originHeight=550&originWidth=1176&size=122888&status=done&width=940.8 "image.png"
+[14]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559027225308-61d25bd1-9270-4762-b0cf-721a34d8689a.png#align=left&display=inline&height=646&name=image.png&originHeight=807&originWidth=430&size=30452&status=done&width=344 "image.png"
+[15]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559027854127-2049facb-7708-49b5-a165-141549cc7e6b.png#align=left&display=inline&height=636&name=image.png&originHeight=795&originWidth=474&size=20034&status=done&width=379.2 "image.png"
+[16]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559028098375-d1e8ab50-d3c0-47c3-8326-53afe8ba0116.png#align=left&display=inline&height=681&name=image.png&originHeight=851&originWidth=748&size=42765&status=done&width=598.4 "image.png"
+[17]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558922856836-92aca189-2b5c-46b9-ae06-cbb0db50baf4.png#align=left&display=inline&height=522&name=image.png&originHeight=653&originWidth=1007&size=48934&status=done&width=805.6 "image.png"
+[18]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1558923047361-de371658-b656-4566-9e20-5958919ee1fe.png#align=left&display=inline&height=422&name=image.png&originHeight=528&originWidth=982&size=112809&status=done&width=785.6 "image.png"
+[19]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559030833230-72b44e6d-5c3c-413b-91ff-26074bd2bdbe.gif#align=left&display=inline&height=144&originHeight=103&originWidth=289&size=0&status=done&width=404
 
-[20]: /images/oss/1559043502992-97c4c823-8cd1-4ae7-9883-203e553604ff.png#align=left&display=inline&height=720&name=image.png&originHeight=900&originWidth=958&size=48144&status=done&width=766.4 "image.png"
-[21]: /images/oss/1559097931609-28c0fc94-09ca-4564-8f47-432f9b5e2c5b.png#align=left&display=inline&height=682&name=image.png&originHeight=853&originWidth=760&size=41904&status=done&width=608 "image.png"
+[20]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559043502992-97c4c823-8cd1-4ae7-9883-203e553604ff.png#align=left&display=inline&height=720&name=image.png&originHeight=900&originWidth=958&size=48144&status=done&width=766.4 "image.png"
+[21]: https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1559097931609-28c0fc94-09ca-4564-8f47-432f9b5e2c5b.png#align=left&display=inline&height=682&name=image.png&originHeight=853&originWidth=760&size=41904&status=done&width=608 "image.png"

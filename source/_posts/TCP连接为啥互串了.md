@@ -24,13 +24,13 @@ tags:
 
 在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：
 
-![image.png](/images/oss/dd657fee9d961a786c05e8d3cccbc297.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/dd657fee9d961a786c05e8d3cccbc297.png)
 
 粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）
 
 于是我过滤了一下端口61902上的所有包：
 
-![image.png](/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png)
 
 可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。
 
@@ -66,7 +66,7 @@ tags:
 4. 这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs
 5. lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client
 
-![image.png](/images/oss/94d55b926b5bb1573c4cab8353428712.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/94d55b926b5bb1573c4cab8353428712.png)
 
 **注意上图中绿色的进包和红色的出包他们的地址变化**
 
@@ -100,7 +100,9 @@ MySQL端看到的两个连接四元组一模一样了：
 >
 > client-ip:61902 ->  10.112.61.163:3269 (直连) 
 
-总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了。
+总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了
+
+> 这个时候用 netstat 看到的应该是两个连接(vtoa 没有替换), 一个是client->rs, 一个是lvs->rs, 内核层面看到的还是两个连接, 只是get_peername接口被toa hook修改后, 两个连接返回的srcip是同一个 
 
 实际两个连接建立的情况：
 
@@ -108,12 +110,18 @@ MySQL端看到的两个连接四元组一模一样了：
 
 ## 问题出现的条件
 
-- fulnat模式的LVS，RS上装有slb_toa内核模块（RS上会将LVS ip还原成client ip）
+- fulnat模式的LVS，RS上装有ip转换模块（RS上会将LVS ip还原成client ip）
 - client端正好重用一个相同的本地端口分别和RS以及LVS建立了两个连接
 
 这个时候这两个连接在MySQL端就会变成一个，然后两个连接的内容互串，必然导致rst
 
 这个问题还挺有意思的，估计没几个程序员一辈子能碰上一次。推荐另外一个好玩的连接：[如何创建一个自己连自己的TCP连接](/2020/07/01/如何创建一个自己连自己的TCP连接/)
+
+## 其他场景
+
+比如在 HA 场景下，需要通过直连节点去做心跳检查(B链路)；同时又要走A链路去跨机房检测，这两个链路下连接的目标IP一直、端口不一样，但是经过转换后都是MySQL-Server+3306端口，容易出现两条连接转换后变成一条连接
+
+![image-20240723203828093](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240723203828093.png)
 
 
 

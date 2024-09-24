@@ -87,6 +87,7 @@ extern u32 sysctl_tcp_init_cwnd;
 #define TCP_NAGLE_CORK          2       /* Socket is corked         */
 #define TCP_NAGLE_PUSH          4       /* Cork is overridden for already queued data */
 
+//对应time_wait, alios 增加了tcp_tw_timeout 参数可以来设置这个值，当前网络质量更好了这个值可以减小一些
 #define TCP_TIMEWAIT_LEN (60*HZ) /* how long to wait to destroy TIME-WAIT
                                   * state, about 60 seconds     */
                                   
@@ -107,7 +108,7 @@ extern u32 sysctl_tcp_init_cwnd;
                                  */                                  
 ```
 
-rto不能设置，而是根据到不同server的rtt计算得到，即使RTT很小（比如0.8ms），但是因为RTO有下限，最小必须是200ms，所以这是RTT再小也白搭；RTO最小值是内核编译是决定的，socket程序中无法修改，Linux TCP也没有任何参数可以改变这个值。
+rto 不能设置，而是根据到不同server的rtt计算得到，即使RTT很小（比如0.8ms），但是因为RTO有下限，最小必须是200ms，所以这是RTT再小也白搭；RTO最小值是内核编译是决定的，socket程序中无法修改，Linux TCP也没有任何参数可以改变这个值。
 
 ### delay ack
 
@@ -133,17 +134,17 @@ default via 10.0.207.253 dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickac
 
 默认开启delay ack的抓包情况如下，可以清晰地看到有几个40ms的ack
 
-![image.png](/images/oss/7f4590cccf73fd672268dbf0e6a1b309.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7f4590cccf73fd672268dbf0e6a1b309.png)
 
 第一个40ms 的ack对应的包， 3306收到 update请求后没有ack，而是等了40ms update也没结束，就ack了
 
-![image.png](/images/oss/b06d3148450fc24fa26b2a9cdfe07831.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b06d3148450fc24fa26b2a9cdfe07831.png)
 
 同样的机器，执行quick ack后的抓包
 
 > sudo ip route change default via 10.0.207.253  dev eth0 proto dhcp src 10.0.200.23 metric 1024 quickack 1
 
-![image.png](/images/oss/9fba9819e769494bc09a2a11245e4769.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9fba9819e769494bc09a2a11245e4769.png)
 
 **同样场景下，改成quick ack后基本所有的ack都在0.02ms内发出去了。**
 

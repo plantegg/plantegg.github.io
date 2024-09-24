@@ -7,7 +7,7 @@ tags:
     - kernel
 ---
 
-# 定制Linux Kernel
+# 定制 Linux Kernel
 
 Linux 里面有一个工具，叫 Grub2，全称 Grand Unified Bootloader Version 2。顾名思义，就是搞系统启动的。
 
@@ -100,15 +100,19 @@ dd if=/data/uniontechos-server-20-1040d-amd64.iso of=/dev/sdn1 status=progress
 
 ## [iommu passthrough](https://bbs.huaweicloud.com/blogs/291576)
 
+在内核参数中加上iommu.passthrough=1 可以关闭iommu，iommu.strict=0是nostrict模式，iommu.strict=1是strict模式(这种性能较差)，也是默认的模式。Strict和nostrict主要是处理 无效TLB中缓存的页表项 的方法不同， 一种是批量处理， 一种是一次处理一个。
+
+在X86中加 intel_iommu=off 去关闭的。
+
 ### IOMMU 硬件单元
 
 DMA Remapping Feature 的工作是通过 CPU 硬件平台的 IOMMU（I/O MMU，Input/Output Memory Management Unit，I/O 内存管理硬件单元）来完成的。IOMMU 的出现，实现了地址空间上的隔离，使设备只能访问规定的内存区域。
 
-![image-20220718111233654](/images/951413iMgBlog/image-20220718111233654.png)
+![image-20220718111233654](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220718111233654.png)
 
 参考资料：https://lenovopress.lenovo.com/lp1467.pdf
 
-![image-20220729162624318](/images/951413iMgBlog/image-20220729162624318.png)
+![image-20220729162624318](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220729162624318.png)
 
 ```
 /*
@@ -123,6 +127,14 @@ DMA Remapping Feature 的工作是通过 CPU 硬件平台的 IOMMU（I/O MMU，I
 说明配置了iommu=pt 的话函数iommu_no_mapping返回1，那么驱动就直接return paddr，并不会真正调用到domain_pfn_mapping，直接用了物理地址少了一次映射性能当然会高一些。如果是跑KVM建议 passthrough=0，物理机场景 passthrough=1
 
 iommu=pt并不会影响kvm/dpdk/spdk的性能，这三者本质上都是用户态驱动，iommu=pt只会影响内核驱动，能让内核驱动设备性能更高。
+
+SMMU:
+
+> ChatGPT:SMMU代表的是"System MMU"，是一种硬件单元，通常用于处理设备DMA（直接内存访问）请求，以允许安全而有效地使用设备，同时保护系统内存不受意外访问和恶意攻击。SMMU的主要功能是将设备发出的DMA请求映射到正确的物理内存地址，同时确保设备无法访问不属于其权限范围的内存区域。SMMU通常与ARM和其他芯片架构一起使用，以提高系统安全性和性能。
+>
+> Google: SMMU（System Memory Management Unit）是Arm平台的IOMMU， SMMU为设备提供用设备可见的IOVA地址来访问物理内存的能力，体系结构中可能存在多个设备使用IOVA经过IOMMU来访问物理内存，IOMMU需要能够区分不同的设备，从而为每个设备引入了一个Stream ID，指向对应的STE（Stream Table Entry），所有的STE在内存中以数组的形式存在，SMMU记录STE数组的首地址。在操作系统扫描设备的时候会为其分配独有的Stream ID简称sid，设备通过IOMMU进行访存的所有配置都写在对应sid的STE中。
+
+在非虚拟化场景下使能IOMMU/SMMU会带来性能衰减，主要是因为在DMA场景下要iova 到 pa的翻译，带来开销。当前集团的ARM机型，在非云化环境下都是SMMU OFF的，云化机型才是开启SMMU。
 
 ## 定制内存
 
@@ -252,11 +264,11 @@ Memory Device
 
 左边两列是同一种机型和CPU、内存，只是最左边的开了numa，他们的内存Speed: 2400 MT/s，但是实际运行速度是2133；最右边的是另外一种CPU，内存速度更快，用mlc测试他们的延时、带宽。可以看到V52机型带宽能力提升特别大，时延变化不大
 
-![image-20220123094155595](/images/951413iMgBlog/image-20220123094155595.png)
+![image-20220123094155595](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220123094155595.png)
 
-![image-20220123094928794](/images/951413iMgBlog/image-20220123094928794.png)
+![image-20220123094928794](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220123094928794.png)
 
-![image-20220123100052242](/images/951413iMgBlog/image-20220123100052242.png)
+![image-20220123100052242](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220123100052242.png)
 
 对比一下V62，intel8269 机型
 
@@ -328,7 +340,7 @@ Writer Numa Node     0       1
             0      -   175.8
             1  176.7       -
 
-[root@numaopen.cloud.et93 /home/xijun.rxj]
+[root@numaopen.cloud.et93 /home/admin]
 #lscpu
 Architecture:          x86_64
 CPU op-mode(s):        32-bit, 64-bit

@@ -42,7 +42,7 @@ tags:
 
 ## DR模型(Director Routing--直接路由)
 
-![image.png](/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png)
 
 如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：
 
@@ -59,7 +59,7 @@ tags:
 
 RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。
 
-![image.png](/images/oss/739447baddd120ca23c68ac85c0ea36d.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/739447baddd120ca23c68ac85c0ea36d.png)
 
 
 优点：
@@ -88,7 +88,7 @@ RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则�
 
 ### 总结下 DR的结构
 
-![image.png](/images/oss/bb209bc08a21a28e99703e700acc82e4.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/bb209bc08a21a28e99703e700acc82e4.png)
 
 绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。
 
@@ -96,7 +96,7 @@ RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则�
 
 nat模式的结构图如下：
 
-![image.png](/images/oss/b806e1615d99f6a018c537a18addc464.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b806e1615d99f6a018c537a18addc464.png)
 
 
 基本流程：
@@ -108,7 +108,7 @@ nat模式的结构图如下：
 5. 但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip
 6. 网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client
 
-![image.png](/images/oss/bd311051c55f08c8d0add3cb329b87bf.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/bd311051c55f08c8d0add3cb329b87bf.png)
 
 
 优点：
@@ -131,7 +131,7 @@ nat模式的结构图如下：
 
 ### 总结下NAT结构
 
-![image.png](/images/oss/51b694409882318d5acd6a1422afce03.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/51b694409882318d5acd6a1422afce03.png)
 
 注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。
 
@@ -161,11 +161,11 @@ nat模式的结构图如下：
 
 ### 为什么full NAT后RS看不见cip了
 
-因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的toa模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。
+因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的 toa(Tcp Option as Address)模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。
 
 ### 总结下full NAT的结构
 
-![image.png](/images/oss/94d55b926b5bb1573c4cab8353428712.png) 
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/94d55b926b5bb1573c4cab8353428712.png) 
 
 **注意上图中绿色的进包和红色的出包他们的地址变化**
 
@@ -210,7 +210,7 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 ### 为什么ENAT的回复包不需要走回LVS了
 
-因为之前full NAT模式下要走回去是需要LVS再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了
+因为之前full NAT模式下要走回去是需要LVS 再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了
 
 ### 为什么ENAT的LVS和RS可以在不同的vlan
 
@@ -218,7 +218,7 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 ### 总结下 ENAT的结构
 
-![image.png](/images/oss/5b498ed88c3233977a592f924affc43a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5b498ed88c3233977a592f924affc43a.png)
 
 最后说一下不太常用的 TUN模型
 
@@ -256,15 +256,15 @@ ENAT模式在内部也会被称为 三角模式或者DNAT/SNAT模式
 
 ### 总结下 IP TUN的结构
 
-![image.png](/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png)
 
 图中红线是再次封装过的包，ipip是操作系统的一个内核模块。
 
 DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。
 
-## 阿里云slb的fnat
+## 阿里云 SLB 的 FNAT
 
-本质就是前面所讲的fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)
+本质就是前面所讲的 fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机/宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)
 
 这个进出的替换过程在物理机/宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。
 
@@ -278,7 +278,7 @@ DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、
 
 下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。
 
-![NGLB_pic.png](/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png)
+![NGLB_pic.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png)
 
 ### SLB模块简介
 
@@ -308,7 +308,7 @@ SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态�
 正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1/27这条路由。从而实现流量主要在主机房，备机房冷备的效果。
 当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的/27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。
 
-![image.png](/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png)
 
 ### LVS节点之间的均衡
 

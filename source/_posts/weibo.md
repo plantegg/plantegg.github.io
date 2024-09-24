@@ -280,7 +280,7 @@ app业务方也尝试过增加app容器对性能没啥提升，所以怀疑问�
 
 
 
-![image.png](/images/951413iMgBlog/82489e801d8f7bd455053315d760614b.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/82489e801d8f7bd455053315d760614b.png)
 
 教科书和实践很容易脱节
 
@@ -351,7 +351,7 @@ CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验
 
 
 
-![data f1](/images/951413iMgBlog/dataf1-1372099277050.jpg)
+![data f1](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/dataf1-1372099277050.jpg)
 
 20年前Intel为了搞多核，开始将两个Die封装成一块CPU售卖
 
@@ -659,7 +659,7 @@ JBoss启动失败，没有太多错误信息，唯一有一行LogFactory.release
 
 重新翻了公司10年前的经典案例排查过程，用10年后的姿势水平看当时的过程十分曲折。
 
-现在看都是非常直白的知识点：比如JVM YGC耗时只和存活对象数有关和新生代大小无关（结果我看到10年前的工程师反复试验得到了这个结论）；比如TCP全连接队列是否爆了用 ss 看下就知道了没必要netty代码分析来去（10年前花了3天时间也搞定了）-- 他们都厉害在没有知识也能解决问题![[中国赞]](/images/951413iMgBlog/2018new_zhongguozan_org.png)，比我厉害1万倍
+现在看都是非常直白的知识点：比如JVM YGC耗时只和存活对象数有关和新生代大小无关（结果我看到10年前的工程师反复试验得到了这个结论）；比如TCP全连接队列是否爆了用 ss 看下就知道了没必要netty代码分析来去（10年前花了3天时间也搞定了）-- 他们都厉害在没有知识也能解决问题![[中国赞]](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2018new_zhongguozan_org.png)，比我厉害1万倍
 
 财新网等媒体眼中的著名专家 [@逮獭科技](https://weibo.com/n/逮獭科技)  曾说过：
 我觉得这个是时代的变化，每一代人中的佼佼者，其知识系统在下一代人看都平平；二战之后真正开挂的是全球的教育产业，几何级数膨胀受教育人口，而且，知识更迭很快，能追上前沿很不容易
@@ -830,7 +830,9 @@ bash$ tc qdisc del dev eth0 root
 设置1%丢包率
 tc qdisc add dev eth0 root netem loss 1%
 
-高级版，指定ip和端口延时，见图片
+高级版，指定ip和端口延时
+
+
 
 智商过滤器：0）等额本金比等额本息更合算；1）相互宝好不好；2）如何看待中医中药，中成药、中药注射剂好不好？
 
@@ -855,7 +857,7 @@ tc qdisc add dev eth0 root netem loss 1%
 
 [Do More， Do Better， Do exercise](https://www.zhihu.com/question/39430220/answer/81648584)（**口号和实践**）
 
-![image.png](/images/951413iMgBlog/dd8b77138555d5a23563f5691a60e2dd.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/dd8b77138555d5a23563f5691a60e2dd.png)
 
 
 有个 Nginx 间歇性卡死的分析案例我追着看了三年，作者三年后也进步一更新的最根本的原因和优美的fix方法，简直太过瘾了。三年前就找到原因了，以及很多很多疑问点，剩下两三个小疑问，三年后终于也填补完美了。可惜不能分享。比如卡死的那个阶段所有 rt 都不对了容易导致分析跑偏
@@ -930,7 +932,7 @@ https://plantegg.github.io/2017/01/01/top_linux_commands/
 
 还行吧，2个小时把一个系统优化性能翻了一倍，主要还是CPU、网络都比较了解，容易出成绩
 
-![image-20220813173113345](/images/951413iMgBlog/image-20220813173113345.png)
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220813173113345.png" alt="image-20220813173113345" style="zoom:50%;" />
 
 优化前 800MB
 1 开numa
@@ -963,3 +965,27 @@ Flannel yaml配置中指定网卡：--iface=enp33s0f0
 
 
 比较不忍看到大多新同事刚一进来被丢到了错误的位置上，新同事还不敢拒绝。第一种是要面对新公司一大坨内部产品和术语，没有人带，这种太不人道；第二种因为错配而要面对新技术领域，大体还是能 Google 到，不过对他们压力太大，这种我一般会带一次，再多也没精力，毕竟跨了团队；几个月下来新同事肯定觉得被 PUA了
+
+
+
+这次看了一篇排查分析两条TCP流互窜的问题。我两年前碰到过，一抓包就把问题KO了，但这只是老法师的经验丰富而已，再看新同学抓包、会话分析、IPVS debug等一套组合拳下来也把问题解决了，我更喜欢这种清纯、处男手法。油腻老法师反而不值得学习， #无招胜有招 
+
+
+
+最近看了几个 golang 的排查分析，一个是DNS，一个是延时增大。golang 挺能整事的，自己新搞了一堆DNS 解析逻辑，结果带来一堆问题。延时增大分析那个我看老法师把golang 的pprof 使用的真流畅，废了一大波力气终于找到了延时增加是某个同步写日志等待时间太久了，难道 golang 就没有 arthas 之类的工具吗？
+
+
+
+CRUD Boy 最喜欢说我的日志没问题！但是你的线程不会被调度到你怎么记时间？就连 Nginx 记录的access time都不可靠，不出问题的时候一个个贼精确，一出问题全完蛋。Nginx 经常出现worker卡了导致这个worker不去更新时间最终输出的 RT 比实际小很多
+
+也有你抓了包确实慢，但是 CRUD 头铁：可能是网卡坏了、机器故障，反正我的日志没问题。给了两个选择：要不切换一台机器；要不调用方重启一下。都被我否决了，我就是不相信你的日志，最后发现是业务线程排队了，日志还没机会开始记。如果真切换机器(100%问题恢复)、业务重启(小概率问题恢复) CRUD 下次还头铁，这次被我坚决按住并全网广而告之你的日志不可靠！这是解决这个问题的最大价值
+
+
+
+三年前碰到过一次MySQL线程池某个group卡顿的问题，当时调大 thread_pool_oversubscribe 就恢复了，最近又碰到了，同样是调大问题就解决了。但这次经过分析后我认为不是 thread_pool_oversubscribe 太小，而是 group 里的线程有泄漏 
+
+
+
+几乎所有互联网公司对内想把员工当小偷一样的安全管控都是幌子，除了老板自我感觉良好、给员工带来麻烦外，墙都能翻还弄不了你这点安全把戏
+
+比如菊花司，早年物理隔离，工作本不能连外网，要连外网请换个本本，或者买一块硬盘，物理切换

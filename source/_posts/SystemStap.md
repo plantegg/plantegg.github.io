@@ -20,7 +20,7 @@ SystemTap 是一个 tracing 系统，**简单来说，它提供了一种领域�
 
 `perf` 是 Linux 上的最重要的性能分析工具之一。它和内核出自同一个源码树（source tree），但编译需要针对指定的内核版本。`perf` 可以跟踪内核，也可以跟踪用户程序， 还可用于采样或者设置跟踪点。**可以把它想象成开销更低，但功能更强大的 `strace`**。 本文只会使用非常简单的 `perf` 命令。想了解更多，强烈建议访问 [Brendan Gregg](http://www.brendangregg.com/perf.html)的博客。
 
-![图片](/images/951413iMgBlog/640-4652000.png)
+![图片](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-4652000.png)
 
 ## 安装
 
@@ -186,8 +186,9 @@ https://sourceware.org/systemtap/examples/network/tcp_retransmission.stp
     ​    	    quit = 1
     ​        }
     ​    }
-    
-    
+
+
+​    
 
 
 
@@ -216,7 +217,7 @@ probe kernel.trace("kfree_skb")
 }
 ```
 
-![img](/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/719d8f43-b1c8-487e-9392-55d855c6f87b.png)
 
 以上systemtap输出可以看出包进了tcp_v4_rcv, 所以继续分析tcp_v4_rcv函数：
 
@@ -227,19 +228,19 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 }
 ```
 
-![img](/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/010da11f-aa14-479e-8965-19568010295b.png)
 
 以上输出对应的代码如下：
 
-![img](/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/76675981-05c2-43eb-b14b-7fc2de5f291d.png)
 
 ## 网络重传
 
-![image.png](/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/be6ac944fb72b089dc0357298a47dc37.png)
 
-![image.png](/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/e9efaffe357a2d1ac72806ce36066532.png)
 
-![image.png](/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/9340023fac65d9c1d0aeda8e73557792.png)
 
 ## 网络包大小分布
 
@@ -254,7 +255,7 @@ probe kernel.statement("tcp_v4_rcv@net/ipv4/tcp_ipv4.c:*")
 	    @rxstat=stats(args->len);
 	}'
 
-![image.png](/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/297eb625b1e157d85a29754108871c08.png)
 
 或者，采集10秒中的网络包大小直方图
 
@@ -329,7 +330,7 @@ Attaching 2 probes...
 
 ## 产看网络流量由哪个进程发出，或者说哪个进程在发包
 
-![image.png](/images/oss/74b0a393a6334421957a032f1f141a9c.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/74b0a393a6334421957a032f1f141a9c.png)
 
 ## 网络连接创建rt？
 
@@ -373,26 +374,26 @@ bpftrace工具包
 
 	cat tcpsynbl_example.txt
 	Demonstrations of tcpsynbl, the Linux bpftrace/eBPF version.
+	​	This tool shows the TCP SYN backlog size during SYN arrival as a histogram.
+	​	This lets you see how close your applications are to hitting the backlog limit
+	​	and dropping SYNs (causing performance issues with SYN retransmits). For
+	​	example:
+	​	
+	​	# ./tcpsynbl.bt 
+	​	Attaching 4 probes...
+	​	Tracing SYN backlog size. Ctrl-C to end.
+	​	^C
+	​	@backlog[backlog limit]: histogram of backlog size
+	
+	
+	​	
+	​	@backlog[500]: 
+	​	[0]                 2266 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+	​	[1]                    3 |                                                    |
+	​	[2, 4)                 1 |                                                    |
 
 
 ​	
-​	This tool shows the TCP SYN backlog size during SYN arrival as a histogram.
-​	This lets you see how close your applications are to hitting the backlog limit
-​	and dropping SYNs (causing performance issues with SYN retransmits). For
-​	example:
-​	
-​	# ./tcpsynbl.bt 
-​	Attaching 4 probes...
-​	Tracing SYN backlog size. Ctrl-C to end.
-​	^C
-​	@backlog[backlog limit]: histogram of backlog size
-
-
-​	
-​	@backlog[500]: 
-​	[0]                 2266 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-​	[1]                    3 |                                                    |
-​	[2, 4)                 1 |                                                    |
 
 
 	$sudo bpftrace ./tcpsynbl.bt
@@ -401,14 +402,14 @@ bpftrace工具包
 	
 	^C
 	@backlog[backlog limit]: histogram of backlog size
+	@backlog[10]:
+	​	[0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+	​	
+	​	@backlog[256]:
+	​	[0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
 
 
 ​	
-​	@backlog[10]:
-​	[0]                    3 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-​	
-​	@backlog[256]:
-​	[0]                   59 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
 
 
 或者 bpftrace tcpaccept.bt
@@ -1015,7 +1016,7 @@ pid 30530和129041 分别指两个mysqld 进程，怀疑IO问题
 
 io逻辑以及涉及到的 perf 事件
 
-![image.png](/images/951413iMgBlog/perf_block_event.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/perf_block_event.png)
 
 如果想要准确知道是不是硬件设备的问题，可以抓取block layer层和device driver层之间的rt，也就是以下两个事件：
 
@@ -1049,6 +1050,15 @@ swapper     0 [000] 3630658.631612: block:block_rq_complete: 259,2 WS ()       3
 mysqld 117330 [002] 3630658.631462: block:block_rq_issue: 259,2    WS 0 () 3536833536 + 512 [mysqld]
 ```
 
+## bpftrace 同时 trace 多个事件
+
+```
+bpftrace -e 'k:tcp_bpf_recvmsg /comm=="nc"/ { printf("%s", kstack); } k:tcp_recvmsg /comm=="nc"/ { printf("%s", kstack); }'
+
+//trace bash, uprobe 不存在 kstack
+bpftrace -e 'uretprobe:/usr/bin/bash:readline{printf("User %d executed \"%s\" command\n", uid, str(retval));}'
+```
+
 
 
 ## 参考资料
@@ -1066,3 +1076,5 @@ Demo集锦：[openresty systemtap demo](https://github.com/openresty/openresty-s
 [使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)](http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/)
 
 [使用ftrace分析函数性能](https://mp.weixin.qq.com/s/yEMp70FmFYn6qL8kCZgS8A)
+
+[eBPF学习笔记（二）—— eBPF开发工具](https://blog.csdn.net/qq_41988448/article/details/127813132)  主要是关于 bpftrace 的使用实例

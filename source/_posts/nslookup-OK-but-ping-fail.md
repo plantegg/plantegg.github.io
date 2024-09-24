@@ -21,7 +21,7 @@ tags:
 Google到的帖子大概有如下原因：
 
 - 域名最后没有加 . 然后被自动追加了 tbsite.net aliyun.com alidc.net，自然 ping不到了
-- /etc/resolv.conf 配置的nameserver要保证都是正常服务的
+- /etc/resolv.conf 配置的nameserver 要保证都是正常服务的
 - /etc/nsswitch.conf 中的这行：hosts: files dns 配置成了 hosts: files mdns dns，而server不支持mdns
 - 域名是单标签的（domain 单标签； domain.com 多标签），单标签在windows下走的NBNS而不是DNS协议
 
@@ -38,7 +38,7 @@ Google到的帖子大概有如下原因：
 
 这里要多解释一下我们的环境， /etc/resolv.conf 配置了2台 nameserver，第一台负责解析内部域名，另外一台负责解析其它域名，如果内部域名的解析请求丢到了第二台上自然会解析不到。
 
-所以这个问题的根本原因是挑选的nameserver不对，按照 /etc/resolv.conf 的逻辑都是使用第一个nameserver，失败后才使用第二、第三个备用nameserver。
+所以这个问题的根本原因是挑选的nameserver 不对，按照 /etc/resolv.conf 的逻辑都是使用第一个nameserver，失败后才使用第二、第三个备用nameserver。
 
 比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS /etc/resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。
 
@@ -48,7 +48,7 @@ Google到的帖子大概有如下原因：
 
 看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：
 
-![image.png](/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ca466bb6430f1149958ceb41b9ffe591.png)
 
 ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。
 
@@ -88,19 +88,45 @@ glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 
 
 这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：
 
-![image.png](/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png)
 
 在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了
 
-![image.png](/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png)
 
-![image.png](/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png)
 
 也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大
 
 [参考 glibc bug](https://sourceware.org/bugzilla/show_bug.cgi?id=19570)
 
 [Linux内核与glibc](https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc)
+
+> `getaddrinfo()` is a newer function that was introduced to replace `gethostbyname()` and provides a more flexible and robust way of resolving hostnames. `getaddrinfo()` can resolve both IPv4 and IPv6 addresses, and it supports more complex name resolution scenarios, such as service name resolution and name resolution with specific protocol families.
+
+linux主要是基于glibc，分析glibc源码（V2.17）getaddrinfo 逻辑如下：
+
+```
+// search1、search2等是resolv.conf中配置的search域，会根据resolv.conf中ndots配置和qname的级数来决定
+// 先查加search域的域名还是后查加search域的域名，除没有配置nameserver外，任何错误都会重试下一个
+foreach domain(qname、qname.search1、qname.search2...) 
+  foreach retry // resolv.conf中配置的retry数目
+    foreach ns // resolv.conf中配置的nameserver，最多有效的只有前三个，增加rotate 的option后，会从                         
+               //nameserver中（最多前三个）随机选择一个进行请求
+      foreach qtype（A、AAAA）
+      // 根据请求显试指定和系统是双栈还是单栈v4、or单栈v6来决定，如果两个
+      // 类型的话会同时并发请求，不会等另外一个返回。如果在resov.conf中指定
+      // single-request-reopen，则会每个类型请求新建一个链接，否则复用同一个
+        foreach (without_edns0, with_edns0 ) 
+        // 注意：默认不支持edns0，如果要支持的话需要设置宏RES_USE_EDNS0，并重编译
+           if (timeout || rcode == servfail 
+                || rcode == notimp || rcode == refuse) 
+                // timeout时间第一次为resolv.conf中配置，后面的依据下面公式
+                //计算：(timeout<<index_of_dns_server)/num_of_dns_server
+              conftinue;
+```
+
+
 
 ## 还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server
 

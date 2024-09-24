@@ -51,17 +51,17 @@ tc qdisc add dev eth0 root netem loss 1%
 
 ## 指定ip和端口延时
 
-指定 eth0 网卡，来源 ip 是 10.0.1.1，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms 
+指定 eth0 网卡，来源 ip 是 10.0.1.1，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms  100.100.146.3
 
 ```
 # 指定 eth0 网卡，来源 ip 是 10.0.1.1，目的端口是 3306 的访问延迟 20ms，上下浮动 2ms
 tc qdisc add dev eth0 root handle 1: prio bands 4
 tc qdisc add dev eth0 parent 1:4 handle 40: netem delay 20ms 2ms
-tc filter add dev eth0 parent 1: protocol ip prio 4 basic match "cmp(u16 at 2 layer transport eq 3306)
-                            and cmp(u8 at 16 layer network eq 10)
-                            and cmp(u8 at 17 layer network eq 0)
-                            and cmp(u8 at 18 layer network eq 1)
-                            and cmp(u8 at 19 layer network eq 1)" flowid 1:4
+tc filter add dev bond0 parent 1: protocol ip prio 4 basic match "cmp(u16 at 2 layer transport eq 80)
+                            and cmp(u8 at 16 layer network eq 100)
+                            and cmp(u8 at 17 layer network eq 100)
+                            and cmp(u8 at 18 layer network eq 146)
+                            and cmp(u8 at 19 layer network eq 3)" flowid 1:4
                             
 # 删除过滤
 sudo tc filter del dev eth0 parent 1: prio 4 basic
@@ -94,21 +94,21 @@ sudo tc qdisc add dev bond0 parent 1: handle 2: tbf rate 1mbit burst 32kbit late
 tc qdisc change dev eth0 root netem reorder 50% gap 3 delay 1ms
 tc qdisc change dev eth0 root netem delay 1ms reorder 15%
 
-
 //在eth0上设置一个tbf队列，网络带宽为200kbit，延迟10ms以内，超出的包会被drop掉，缓冲区为1540个字节
 sudo /sbin/tc qdisc add dev eth0 root tbf rate 200kbit latency 10ms burst 15kb
 sudo /sbin/tc qdisc ls dev eth0
 ```
 
 在eth0上设置一个tbf队列，网络带宽为200kbit，延迟10ms以内，超出的包会被drop掉，缓冲区为1540个字节
-rate表示令牌的产生速率, *sustained maximum rate*
-latency表示数据包在队列中的最长等待时间, *packets with higher latency get dropped*
-burst参数表示  maximum allowed burst：
-  burst means the maximum amount of bytes that tokens can be available for instantaneously.
-  如果数据包的到达速率与令牌的产生速率一致，即200kbit，则数据不会排队，令牌也不会剩余
-  如果数据包的到达速率小于令牌的产生速率，则令牌会有一定的剩余。
-  如果后续某一会数据包的到达速率超过了令牌的产生速率，则可以一次性的消耗一定量的令牌。
-  burst就是用于限制这“一次性”消耗的令牌的数量的，以字节数为单位。
+
+> rate表示令牌的产生速率, *sustained maximum rate*
+> latency表示数据包在队列中的最长等待时间, *packets with higher latency get dropped*
+> burst参数表示  maximum allowed burst：
+>   burst means the maximum amount of bytes that tokens can be available for instantaneously.
+>   如果数据包的到达速率与令牌的产生速率一致，即200kbit，则数据不会排队，令牌也不会剩余
+>   如果数据包的到达速率小于令牌的产生速率，则令牌会有一定的剩余。
+>   如果后续某一会数据包的到达速率超过了令牌的产生速率，则可以一次性的消耗一定量的令牌。
+>   burst就是用于限制这“一次性”消耗的令牌的数量的，以字节数为单位。
 
 tbf: *use* the *token buffer filter to manipulate traffic rates*
 
@@ -122,21 +122,55 @@ sudo tc qdisc add dev eth0 root tbf rate 80mbit burst 1mbit latency 100ms
 sudo tc qdisc add dev eth0 root tbf rate 80mbps burst 1mbps latency 100ms
 ```
 
-或者：
+### 乱序
 
 ```
-//Server: 4 Mbit 50 ms
-tc qdisc add dev eth0 handle 1: root htb default 11
-tc class add dev eth0 parent 1: classid 1:1 htb rate 1000Mbps
-tc class add dev eth0 parent 1:1 classid 1:11 htb rate 4Mbit
-tc qdisc add dev eth0 parent 1:11 handle 10: netem delay 50ms
+ 1001  [2024-08-08 15:12:01] sudo tc qdisc add dev bond0 root handle 1: prio
+ 1004  [2024-08-08 15:12:44] sudo tc filter add dev bond0 parent 1: protocol ip prio 1 u32 match ip dst 1.2.3.7 flowid 1:1
+ 1005  [2024-08-08 15:13:17] tc qdisc add dev bond0 parent 1:1 handle 10: netem delay 10ms reorder 5% 10%
+```
 
-//Client: 512 kbit 50 ms
-tc qdisc add dev vmnet1 handle 1: root htb default 11
-tc class add dev vmnet1 parent 1: classid 1:1 htb rate 1000Mbps
-tc class add dev vmnet1 parent 1:1 classid 1:11 htb rate 512kbit
-tc qdisc add dev vmnet1 parent 1:11 handle 10: netem delay 50ms
 
+
+## 两地三中心模拟
+
+针对不同的ip地址可以限制不同的带宽和网络延时，htb较prio多了一个带宽控制
+
+通过htb 只限制带宽和延时
+
+```
+//对10.0.3.228、229延时1ms，对 10.0.3.232延时30ms 两地三中心限制延时和带宽
+tc qdisc add dev eth0 root handle 1: htb
+
+tc class add dev eth0 parent 1: classid 1:1 htb rate 600Gbps
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 flowid 1:1 match ip dst 10.0.3.228
+tc qdisc add dev eth0 parent 1:1 handle 10: netem delay 1ms
+
+tc class add dev eth0 parent 1: classid 1:2 htb rate 600Gbps
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 flowid 1:2 match ip dst 10.0.3.229
+tc qdisc add dev eth0 parent 1:2 handle 20: netem delay 1ms
+
+tc class add dev eth0 parent 1: classid 1:3 htb rate 600Gbps
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 flowid 1:3 match ip dst 10.0.3.232
+tc qdisc add dev eth0 parent 1:3 handle 30: netem delay 30ms
+```
+
+![image-20230607152951762](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230607152951762.png)
+
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/TX_path_tc_mqprio-1.png)
+
+通过prio 只限制延时
+
+```
+//两地三中心限制不同的延时，htb才可以加带宽限制
+tc qdisc add dev eth0 root handle 1: prio
+
+//10.0.3.228/10.0.3.229 延时1ms
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 flowid 1:1 match ip dst 10.0.3.228/31
+tc qdisc add dev eth0 parent 1:1 handle 10: netem delay 1ms
+
+tc filter add dev eth0 parent 1: protocol ip prio 1 u32 flowid 1:2 match ip dst 10.0.3.232
+tc qdisc add dev eth0 parent 1:2 handle 20: netem delay 30ms
 ```
 
 
@@ -145,16 +179,6 @@ tc qdisc add dev vmnet1 parent 1:11 handle 10: netem delay 50ms
 
 QDisc(排队规则)是queueing discipline的简写，它是理解流量控制(traffic control)的基础。无论何时，内核如果需要通过某个网络接口发送数据包，它都需要按照为这个接口配置的qdisc(排队规则)把数据包加入队列。然后，内核会尽可能多地从qdisc里面取出数据包，把它们交给网络适配器驱动模块。最简单的QDisc是pfifo它不对进入的数据包做任何的处理，数据包采用先入先出的方式通过队列。不过，它会保存网络接口一时无法处理的数据包。
 
-- CLASSLESS QDisc(不可分类QDisc)
-
-  - [p|b]fifo： 使用最简单的qdisc，纯粹的先进先出。只有一个参数：limit，用来设置队列的长度,pfifo是以数据包的个数为单位；bfifo是以字节数为单位。
-  - pfifo_fast： 在编译内核时，如果打开了高级路由器(Advanced Router)编译选项，pfifo_fast就是系统的标准QDISC。它的队列包括三个波段(band)。在每个波段里面，使用先进先出规则。而三个波段(band)的优先级也不相同，band 0的优先级最高，band 2的最低。如果band0里面有数据包，系统就不会处理band 1里面的数据包，band 1和band 2之间也是一样。数据包是按照服务类型(Type of Service,TOS)被分配多三个波段(band)里面的。
-  - red： red是Random Early Detection(随机早期探测)的简写。如果使用这种QDISC，当带宽的占用接近于规定的带宽时，系统会随机地丢弃一些数据包。它非常适合高带宽应用。
-  - sfq： sfq是Stochastic Fairness Queueing的简写。它按照会话(session--对应于每个TCP连接或者UDP流)为流量进行排序，然后循环发送每个会话的数据包。
-  - tbf： tbf是Token Bucket Filter的简写，适合于把流速降低到某个值。
-
-  
-
 
 一个网络接口上如果没有设置QDisc，pfifo_fast就作为缺省的QDisc。
 
@@ -162,7 +186,7 @@ CLASSFUL QDISC(分类QDisc)，可分类的qdisc包括：
 
 - CBQ： CBQ是Class Based Queueing(基于类别排队)的缩写。它实现了一个丰富的连接共享类别结构，既有限制(shaping)带宽的能力，也具有带宽优先级管理的能力。带宽限制是通过计算连接的空闲时间完成的。空闲时间的计算标准是数据包离队事件的频率和下层连接(数据链路层)的带宽。
 - HTB： HTB是Hierarchy Token Bucket的缩写。通过在实践基础上的改进，它实现了一个丰富的连接共享类别体系。使用HTB可以很容易地保证每个类别的带宽，它也允许特定的类可以突破带宽上限，占用别的类的带宽。HTB可以通过TBF(Token Bucket Filter)实现带宽限制，也能够划分类别的优先级。
-- PRIO： PRIO QDisc不能限制带宽，因为属于不同类别的数据包是顺序离队的。使用PRIO QDisc可以很容易对流量进行优先级管理，只有属于高优先级类别的数据包全部发送完毕，才会发送属于低优先级类别的数据包。为了方便管理，需要使用iptables或者ipchains处理数据包的服务类型(Type Of Service,ToS)。
+- PRIO： PRIO QDisc 不能限制带宽，因为属于不同类别的数据包是顺序离队的。使用PRIO QDisc可以很容易对流量进行优先级管理，只有属于高优先级类别的数据包全部发送完毕，才会发送属于低优先级类别的数据包。为了方便管理，需要使用iptables或者ipchains处理数据包的服务类型(Type Of Service,ToS)。
 
 ### htb分类 qdisc
 
@@ -211,7 +235,7 @@ sudo tc filter show dev eth0
 
 限流100MB后的实际监控效果
 
-![image-20211031205539407](/images/951413iMgBlog/image-20211031205539407.png)
+![image-20211031205539407](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211031205539407.png)
 
 
 
@@ -247,7 +271,7 @@ tc qdisc add dev ${DEVICE_NAME} parent 1:2 sfq perturb 10
 
 # 加过滤规则
 #1.队列1是和跳板机交互的网络，需要保持通畅
-tc filter add dev ${DEVICE_NAME} protocol ip parent 1: prio 10 u32 match ip dst 11.136.106.200/32 flowid 1:1
+tc filter add dev ${DEVICE_NAME} protocol ip parent 1: prio 10 u32 match ip dst 10.0.0.200/32 flowid 1:1
 
 
 #2.其他所有主机走队列2，实现网络模拟
@@ -300,3 +324,5 @@ tc qdisc del dev ${DEVICE_NAME} root handle 1
 ## 参考资料
 
 https://netbeez.net/blog/how-to-use-the-linux-traffic-control/
+
+https://bootlin.com/blog/multi-queue-improvements-in-linux-kernel-ethernet-mvneta/

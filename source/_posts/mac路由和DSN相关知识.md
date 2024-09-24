@@ -2,7 +2,7 @@
 title: mac 路由和DSN相关知识
 date: 2021-01-03 17:30:03
 categories:
-    - 其它
+    - others
 tags:
     - Mac
     - route

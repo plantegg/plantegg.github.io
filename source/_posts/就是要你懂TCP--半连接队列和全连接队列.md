@@ -41,7 +41,7 @@ tags:
 
 ### 正常TCP建连接三次握手过程：
 
-![image.png](/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png)
 
 - 第一步：client 发送 syn 到server 发起握手；
 - 第二步：server 收到 syn后回复syn+ack给client；
@@ -59,7 +59,7 @@ tags:
     # cat /proc/sys/net/ipv4/tcp_abort_on_overflow
     0
 
-**tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）**
+**tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么 server 扔掉 client 发过来的ack（在server端认为连接还没建立起来）**
 
 为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。
 
@@ -73,7 +73,7 @@ tags:
 
 ## 深入理解TCP握手过程中建连接的流程和队列
 
-![image.png](/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/bcf463efeb677d5749d8d7571274ee79.png)
 
 如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）
 
@@ -93,17 +93,31 @@ tags:
 
 ## 如果TCP连接队列溢出，有哪些指标可以看呢？
 
-上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？
+上述解决过程有点绕，听起来蒙，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？
 
-（*通过具体的、感性的东西来强化我们对知识点的理解和吸收*）
+（*通过具体的、可见的东西来强化我们对知识点的理解和吸收*）
 
 ### netstat -s
 
     [root@server ~]#  netstat -s | egrep "listen|LISTEN" 
-    667399 times the listen queue of a socket overflowed
-    667399 SYNs to LISTEN sockets ignored
+    667399 times the listen queue of a socket overflowed  //全连接队列溢出
+    //以下两行是一个意思， netstat版本不同，新版本显示为 dropped
+    667399 SYNs to LISTEN sockets ignored                 //含全连接/半连接队列溢出+PAWSPassive 等
+    905080 SYNs to LISTEN sockets dropped                 //含全连接/半连接队列溢出+PAWSPassive 等
+     
+    //和本文无关的一些其它指标 
+    919614 passive connections rejected because of time stamp //tcp_recycle 丢 syn 包，对应/proc/net/netstat 中 PAWSPassive
+    TCPTimeWaitOverflow: 65000                                //tcp_max_tw_buckets 溢出
 
-比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。
+比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了
+
+ignored 和 dropped：
+
+![image-20240807112156872](/Users/ren/case/951413iMgBlog/image-20240807112156872.png)
+
+这些指标都是从 /proc/net/netstat 中采集，含义可以参考 [net-tool 工具(netstat 命令来源)中的源码](https://github.com/ecki/net-tools.git)：
+
+![image-20240807112356787](/Users/ren/case/951413iMgBlog/image-20240807112356787.png)
 
 ### ss 命令
 
@@ -200,7 +214,7 @@ netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话�
 比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：
 
 
-![image.png](/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png)
 
 #### netstat看到的listen状态的Recv-Q/Send-Q
 
@@ -222,16 +236,16 @@ netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全
 
 ## 案列：如果TCP连接队列溢出，抓包是什么现象呢？
 
-![image.png](/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/c0849615ae52531887ce6b0313d7d2d1.png)
 
 如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传
     
 
 ### 通过ss和netstat所观察到的状态
 
-![image.png](/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png)
 
-![image.png](/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png)
 
 [另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因](/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/)
 
@@ -282,7 +296,7 @@ Nginx默认是511
 
 因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   
 
-![image.png](/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/01dc036aca4b445ed86e3e295bf245b8.png)
 
 ## 进一步思考 client fooling 问题
 
@@ -290,11 +304,11 @@ Nginx默认是511
 
 先来看一个例子：
 
-![image.png](/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9179e08ac24ce3d53e74b92dbd044906.png)
 
 如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）
 
-![image.png](/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png)
 
 这个问题也叫client fooling，可以看这个patch在4.10后修复了：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。
 
@@ -306,21 +320,20 @@ Nginx默认是511
 
     [root@server ~]# date; netstat -s | egrep "listen|LISTEN" 
     Fri May  5 15:39:58 CST 2017
-    1641685 times the listen queue of a socket overflowed
-    1641685 SYNs to LISTEN sockets ignored
+    1641685 times the listen queue of a socket overflowed  # 全连接队列溢出
+    1641685 SYNs to LISTEN sockets ignored                 # 半连接队列溢出
     
     [root@server ~]# date; netstat -s | egrep "listen|LISTEN" 
     Fri May  5 15:39:59 CST 2017
     1641906 times the listen queue of a socket overflowed
     1641906 SYNs to LISTEN sockets ignored
 
-
 如上所示：
-overflowed和ignored居然总是一样多，并且都是同步增加，overflowed表示全连接队列溢出次数，socket ignored表示半连接队列溢出次数，没这么巧吧。
+overflowed和ignored 总是一样多，并且都是同步增加，overflowed 表示全连接队列溢出次数，SYNs to LISTEN socket ignored 表示半连接队列溢出等等指标的次数，没这么巧吧。
 
 翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：
 
-![image.png](/images/oss/a5616904df3a505572d99d557b534db2.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a5616904df3a505572d99d557b534db2.png)
 
 可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。
 
@@ -344,13 +357,15 @@ overflowed和ignored居然总是一样多，并且都是同步增加，overflowe
     984932 times the listen queue of a socket overflowed
     988003 SYNs to LISTEN sockets dropped
 
+总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接/半连接队列溢出以及PAWSPassive 等造成的 SYN 丢包
+
 ## 那么全连接队列满了会影响半连接队列吗？
 
 来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：
 
-![image.png](/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png)
 
-TCP三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
+TCP 三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：
 
 
     tcp_v4_do_rcv->tcp_rcv_state_process->tcp_v4_conn_request
@@ -391,7 +406,7 @@ max_qlen_log = max(3, log2(nr_table_entries))
 max_queue_length = 2^max_qlen_log
 ```
 
-![](/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png)
+![](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png)
 
 没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了
 
@@ -408,9 +423,40 @@ Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK
 
 另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。
 
+
+
+## 为什么 netstat 看到的 listen 状态的 SEND-Q 总是0
+
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e7073830cc8b52ef3df7dd150e4dac7706e0e104
+
+```
+#netstat -ntap | grep 8000
+Proto Recv-Q Send-Q Local Address           Foreign Address         State
+tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- //第三列总是0
+tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    -
+tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    -
+tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -
+```
+
+如下图代码，最开始 2 边一起支持了 LISTEN socket 显示 accept 队列当前长度，后来右边支持显示最大长度时，左边没有加。netstat 是读取的 /proc/net/tcp，然后 ss 走了 diag 接口去拿的：
+
+![image-20240506134119413](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506134119413.png)
+
 ----------
 
+也就是改了 tcp_diag_get_info ，但是忘了改 get_tcp4_sock，但是写 man netstat 自己也没验证过就以讹传讹
+
+d31d2480d9840f0d88739941bed0654d5b581dcb ?
+
 ## 参考文章
+
+星球同学最详细的实践(代码、抓包等等，共13篇，含[演示代码](https://github.com/xiaodongQ/prog-playground/tree/main/network)) https://xiaodongq.github.io/2024/05/30/tcp_syn_queue/  https://xiaodongq.github.io/2024/06/26/libbpf-trace-tcp_connect/
+
+X推友实验：https://wgzhao.github.io/notes/troubleshooting/deep-in-tcp-connect/
+
+张师傅：https://juejin.cn/post/6844904071367753736
+
+详细的实验以及分析，附Go 实验代码：https://www.51cto.com/article/687595.html 
 
 http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html
 
@@ -462,5 +508,113 @@ Date:   Thu Oct 27 00:27:57 2016
                    NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);
                    goto drop;
            }
+```
+
+Client 不断地 connect 建新连接：
+
+```
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<errno.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<unistd.h>
+#define MAXLINE 4096
+
+int main(int argc, char** argv)
+{
+    int sockfd, n;
+    char recvline[4096], sendline[4096];
+    struct sockaddr_in servaddr;
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(6666);
+    inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
+
+    for (n = 0; n < 100; n++)
+    {
+        if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+            printf("create socket error: %s(errno: %d)\n", strerror(errno),errno);
+            return 0;
+        }
+
+        //客户端不停的向服务端发起新连接，成功之后继续发，没成功会阻塞在这里        //--------------
+        if(connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0)
+        {
+            printf("connect error: %s(errno: %d)\n",strerror(errno),errno);
+            return 0;
+        }
+
+        printf("connected to server: %d\n", n);
+        close(sockfd);
+    }
+
+    return 0;
+}
+```
+
+server 故意不accept：
+
+```
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<errno.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<netinet/in.h>
+#include<unistd.h>
+
+#define MAXLINE 4096
+
+int main(int argc, char* argv[])
+{
+    int listenfd, connfd;
+    struct sockaddr_in servaddr;
+    char buff[4096];
+    int  n;
+
+    if( (listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1 )
+    {
+        printf("create socket error: %s(errno: %d)\n", strerror(errno), errno);
+        return 0;
+    }
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(6666);
+
+    if(bind(listenfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1)
+    {
+        printf("bind socket error: %s(errno: %d)\n", strerror(errno), errno);
+        return 1;
+    }
+    //全连接队列设置为10    //--------------
+    if(listen(listenfd, 10) == -1)
+    {
+        printf("listen socket error: %s(errno: %d)\n", strerror(errno), errno);
+        return 2;
+    }
+
+    if( (connfd = accept(listenfd, (struct sockaddr*)NULL, NULL)) == -1)
+    {
+        printf("accept socket error: %s(errno: %d)", strerror(errno), errno);
+        return 3;
+    }
+
+    printf("accepet a socket\n");
+    
+    //服务端仅accept一次，之后就不再accept，此时全连接队列会被堆满    //----------------------------------
+    sleep(1000);
+        
+    close(connfd);
+    close(listenfd);
+    return 0;
+}
 ```
 

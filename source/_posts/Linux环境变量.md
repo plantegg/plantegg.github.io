@@ -36,7 +36,7 @@ sudo有一个参数 -E （--preserver-env）就是为了解决这个问题的。
 
 我也特意去测试了一下官方的Docker容器，也有同样的问题，/etc/profile.d/dockerenv.sh 中的脚本没有生效，然后debug看了看，主要是因为bashrc中的 . 和 source 不同导致的，不能说没有生效，而是加载 /etc/profile.d/dockerenv.sh 是在一个独立的bash 进程中，加载完毕进程结束，所有加载过的变量都完成了生命周期释放了，类似我文章中的export部分提到的。我尝试把 ~/.bashrc 中的 .  /etc/bashrc 改成 source /etc/bashrc , 同时也把 /etc/bashrc 中的 . 改成 source，就可以了，再次进到容器不需要任何操作就能看到所有：/etc/profile.d/dockerenv.sh 中的变量了，所以我们制作镜像的时候考虑改改这里
 
-![crontab](/images/951413iMgBlog/crontab-7372074.png)
+![crontab](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/crontab-7372074.png)
 
 ### docker 容器中admin取不到env参数
 
@@ -105,7 +105,7 @@ cat /etc/profile :
 这几行代码就是把 /usr/sbin 添加到 PATH 变量中，正是他们的区别决定了这里的环境变量不一样。
 
 **用一张图来表述他们的结构，箭头代表加载顺序，红框代表不同的shell的初始入口**：
-![image.png](/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ae3095f063dede80a8c1ee79ec25685c.png)
 
 像 ansible 这种自动化工具，或者我们自己写的自动化脚本，底层通过ssh这种non-login的方式来执行的话，那么都有可能碰到这个问题，如何修复呢？
 
@@ -151,7 +151,7 @@ cat /etc/profile :
 #!/bin/bash --login
 ```
 
-![image-20220505213833017](/images/951413iMgBlog/image-20220505213833017.png)
+![image-20220505213833017](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220505213833017.png)
 
 ### BASH
 
@@ -206,6 +206,80 @@ $ENV
 4、非交互式的非登录shell
 载入的信息：
 nothing
+
+## history 为什么没有输出
+
+```
+#cat test.sh
+echo $$
+pwd
+echo "abc"
+history | tail -5
+```
+
+执行如上测试文件，为什么pwd 的内容有输出，但是第五行的 history 确是空的？效果如下：
+
+```
+#bash test.sh  //为什么这样 history 没有输出
+31147
+/root
+abc
+
+#./test.sh       //这样 history 有输出
+31151
+/root
+abc
+ 8596  17/04/24 16:02:35 strace -p 30643
+ 8597  17/04/24 16:15:18 cat test.sh
+ 8598  17/04/24 16:15:22 vi test.sh
+ 8599  17/04/24 16:15:44 bash test.sh
+ 8600  17/04/24 16:15:48 ./test.sh
+
+#source ./test.sh  //这样 history 有输出
+25179
+/root
+abc
+ 8589  17/04/24 16:15:18 cat test.sh
+ 8590  17/04/24 16:15:22 vi test.sh
+ 8591  17/04/24 16:15:44 bash test.sh
+ 8592  17/04/24 16:15:48 ./test.sh
+ 8593  17/04/24 16:15:56 source ./test.sh
+```
+
+history 是 bash 的内部命令，在非交互环境里默认关闭，可以通过 set -o history 开启。bash test.sh 执行的时候是新启动了一个非交互的bash，然后读入test.sh再执行，在这个新的bash 执行环境下 history 默认是关闭的
+
+```
+#echo "set -o | grep history" | bash
+history        	off
+
+#set -o |grep history
+history        	on
+```
+
+如果上面的脚本修改一下：
+
+```
+#cat test.sh
+set -o history #打开history 功能
+echo $$
+pwd
+echo "abc"
+history | tail -5
+```
+
+然后即使用 bash ./test.sh 也能看到history 的输出了
+
+```
+#bash test.sh
+31463
+/root
+abc
+    1  17/04/24 16:24:25 echo $$
+    2  17/04/24 16:24:25 echo "abc"
+    3  17/04/24 16:24:25 history | tail -5
+```
+
+
 
 ### export命令的作用 
 

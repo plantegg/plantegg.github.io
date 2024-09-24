@@ -16,7 +16,7 @@ tags:
 
 ##  port range
 
-我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range中随机取一个可用的
+我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range 中随机取一个可用的
 
 ```
 # cat /proc/sys/net/ipv4/ip_local_port_range 
@@ -55,11 +55,11 @@ tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED
 - 如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。
 - 另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。
 
-我们在创建连接前，经常会先调bind，bind后可以调listen当做服务端监听，也可以直接调connect当做client来连服务端。
+我们在创建连接前，经常会先调bind，bind后可以调 listen当做服务端监听，也可以直接调connect当做client来连服务端。
 
-bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。
+bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接这个socket 是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的(得local port 唯一)，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。
 
-比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 
+比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 nginx的修改 http://hg.nginx.org/nginx/rev/2c7b488a61fb
 
 > Linux 4.2后的内核增加了IP_BIND_ADDRESS_NO_PORT 这个socket option来解决这个问题，将src port的选择延后到connect的时候
 >
@@ -70,7 +70,7 @@ bind(ip,port=0) 的时候是让系统绑定到某个网卡和自动分配的端�
 
 bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。
 
-![Image](/images/951413iMgBlog/640-20220224103024676.png)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220224103024676.png)
 
 **是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？**
 
@@ -82,7 +82,7 @@ bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，
 
 从这段文档中我们可以知道三个事：
 
-1. 使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，也就是两个本地地址，如果有任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。
+1. 使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，如果机器有两个本地ip，那么任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。
 2. 当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。
 3. 当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。
 
@@ -348,9 +348,6 @@ local port: 1029
 local port: 1031
 local port: 1033
 local port: 1025
-local port: 1027
-local port: 1029
-local port: 1031
 ```
 
 之所以都是偶数端口，是因为port_range 从偶数开始, 每次从++变到+2的[原因](https://github.com/plantegg/linux/commit/1580ab63fc9a03593072cc5656167a75c4f1d173)，connect挑选随机端口时都是在起始端口的基础上+2，而bind挑选随机端口的起始端口是系统port_range起始端口+1（这样和connect错开），然后每次仍然尝试+2，这样connect和bind基本一个用偶数另外一个就用奇数，一旦不够了再尝试使用另外一组
@@ -388,6 +385,14 @@ tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的�
 > tcp_max_tw_buckets - INTEGER
 > 	Maximal number of timewait sockets held by system simultaneously.If this number is exceeded time-wait socket is immediately destroyed and warning is printed. This limit exists only to prevent simple DoS attacks, you _must_ not lower the limit artificially, but rather increase it (probably, after increasing installed memory), if network conditions require more than default value.
 
+监控指标：
+
+```
+netstat -s | grep TCPTimeWaitOverflow
+```
+
+
+
 ## [SO_LINGER](https://notes.shichao.io/unp/ch7/)
 
 SO_LINGER选项**用来设置延迟关闭的时间，等待套接字发送缓冲区中的数据发送完成**。 没有设置该选项时，在调用close() 后，在发送完FIN后会立即进行一些清理工作并返回。 如果设置了SO_LINGER选项，并且等待时间为正值，则在清理之前会等待一段时间。
@@ -402,7 +407,7 @@ SO_LINGER 有三种情况
 2. l_onoff 为true（非0），  l_linger 为0，主动调用close的一方也是立刻返回，但是这时TCP会丢弃发送缓冲中的数据，而且不是按照正常流程关闭连接（不发送FIN包），直接发送`RST`，连接不会进入 time_wait 状态，对端会收到 `java.net.SocketException: Connection reset`异常
 3. l_onoff 为true（非0），  l_linger 也为非 0，这表示 `SO_LINGER`选项生效，并且超时时间大于零，这时调用close的线程被阻塞，TCP会发送缓冲区中的残留数据，这时有两种可能的情况：
    - 数据发送完毕，收到对方的ACK，然后进行连接的正常关闭（交换FIN-ACK）
-   - 超时，未发送完成的数据被丢弃，连接发送`RST`进行非正常关闭
+   - 超时，未发送完(指没收到对端的 ACK)的数据被丢弃，发送`RST`进行非正常关闭
 
 ```
 struct linger {
@@ -421,17 +426,17 @@ SocketChannel.setOption(SocketOption.SO_LINGER, 1000)
 
 `SO_LINGER`的单位为`秒`！在网络环境比较好的时候，例如客户端、服务器都部署在同一个机房，close虽然会被阻塞，但时间极短可以忽略。但当网络环境不那么好时，例如存在丢包、较长的网络延迟，buffer中的数据一直无法发送成功，那么问题就出现了：`close会被阻塞较长的时间，从而直接或间接引起NIO的IO线程被阻塞`，服务器会不响应，不能处理accept、read、write等任何IO事件。也就是应用频繁出现挂起现象。解决方法就是删掉这个设置，close时立即返回，由操作系统接手后面的工作。
 
-这时会看到如下连接状态
+被阻塞时会看到如下连接状态：
 
-![image-20220721100246598](/images/951413iMgBlog/image-20220721100246598.png)
+![image-20220721100246598](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100246598.png)
 
 以及对应的堆栈
 
-![image-20220721100421130](/images/951413iMgBlog/image-20220721100421130.png)
+![image-20220721100421130](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100421130.png)
 
-查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行`preClose0`，就是在这里等待连接的关闭![image-20220721100446521](/images/951413iMgBlog/image-20220721100446521.png)
+查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行`preClose0`，就是在这里等待连接的关闭![image-20220721100446521](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100446521.png)
 
-每次HTTP线程在关闭连接被阻塞时，同时持有了`SocketChannelImpl`的对象锁，而IO线程在把这个连接移除出它的selector管理队列时，也要获得同一个`SocketChannelImpl`的对象锁。IO线程就这么一次次的被阻塞，悲剧的无以复加。有些NIO框架会让IO线程去做close，这时候就更加悲剧了。
+每次HTTP线程在关闭连接被阻塞时，同时持有了`SocketChannelImpl`的对象锁，而 IO线程在把这个连接移除出它的 selector管理队列时，也要获得同一个`SocketChannelImpl`的对象锁。IO 线程就这么一次次的被阻塞，悲剧的无以复加。有些 NIO框架会让 IO线程去做close，这时候就更加悲剧了。
 
 **总之这里的错误原因有两点：1）网络状态不好；2）错误理解了l_linger 的单位，是秒，不是毫秒。 在这两个原因的共同作用下导致了数据迟迟不能发送完毕，l_linger 超时又需要很久，所以服务会出现一直阻塞的状态。**
 
@@ -439,33 +444,33 @@ SocketChannel.setOption(SocketOption.SO_LINGER, 1000)
 
 > TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.
 
-![alt text](/images/951413iMgBlog/image-20220721093116395.png)
+![alt text](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721093116395.png)
 
 ## [由Nginx SY CPU高负载引发内核探索之旅](https://mp.weixin.qq.com/s/njpdTW5TndO4-H7nbEpXAA)  
 
 这个案例来自腾讯7层网关团队，网关用的Nginx，请求转发给后面的被代理机器(RS:real server)，发现 sys CPU异常高，CPU都用在搜索可用端口.
 
-![Image](/images/951413iMgBlog/640-8259033.png)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-8259033.png)
 
-![Image](/images/951413iMgBlog/640-20221112211814567.png)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20221112211814567.png)
 
- local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）
+![Figure 4: This is a flame graph of the connect syscall in Linux.](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image7.png) 
 
-核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪 如果你对
+local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）
 
-我的看法，这个分奇偶数的实现就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！
+核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪
+
+对这个把端口分成奇偶数我的看法：这个做法就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！
 
 ## [从STGW流量下降探秘内核收包机制](https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&mid=2649745268&idx=1&sn=f72f164847060d7b19cba272a38485e5&scene=21#wechat_redirect)
 
 listen port search消耗CPU异常高
 
-![图片](/images/951413iMgBlog/640-9840722.jpeg)
+![图片](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-9840722.jpeg)
 
 在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。
 
 然而在内核支持了reuseport并且被广泛使用后，情况就不一样了，**在多进程架构里，listen port对应的socket数量，是会被几十倍的放大的。**以应用层监听了5000个端口，reuseport 使用了50个cpu核心为例，5000*50/32约等于7812，意味着每次握手包到来时，光是查找listen socket，就需要遍历7800多次。随着机器硬件性能越来越强，应用层使用的cpu数量增多，这个问题还会继续加剧。
-
-
 
 **正因为上述原因，并且我们现网机器开启了reuseport，在端口数量较多的机器里，inet_lookup_listener的哈希桶大小太小，遍历过程消耗了cpu，导致出现了函数热点。**
 
@@ -473,11 +478,11 @@ listen port search消耗CPU异常高
 
 用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3/4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万
 
-![image-20220627154822263](/images/951413iMgBlog/image-20220627154822263.png)
+![image-20220627154822263](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png)
 
 再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万
 
-![image-20220627154931495](/images/951413iMgBlog/image-20220627154931495.png)
+![image-20220627154931495](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png)
 
 
 
@@ -485,7 +490,7 @@ listen port search消耗CPU异常高
 
 主要是内存开销(如图，来源见水印)，另外就是每个连接都会占用一个文件句柄，可以通过参数来设置：fs.nr_open、nofile（其实 nofile 还分 soft 和 hard） 和 fs.file-max
 
-![Image](/images/951413iMgBlog/640-20220413134252639)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220413134252639)
 
 从上图可以看到：
 
@@ -503,14 +508,53 @@ listen port search消耗CPU异常高
 - 发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0
 - 其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象
 
-## [可用 local port 不够导致对端time_wait 连接重用进而卡顿案例](https://ata.alibaba-inc.com/articles/251853)
+或者看这篇分析：https://zhuanlan.zhihu.com/p/25241630 
 
-A进程选择某个端口，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象
+## [不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够](https://ata.alibaba-inc.com/articles/251853)
+
+A进程选择某个端口当local port 来connect，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象；超频繁的端口复用在LVS 场景下会产生问题，导致建连异常；或者syn包被 RST 触发1秒钟重传 syn
+
+这个A、B进程共同跑在一台宿主机上很多年了，只因为之前是3.10内核，这次升级到了4.19后因为奇偶数放大了问题
+
+当A进程已经开启了 SO_REUSEADDR 对外建联，此时 B 进程同样开启 SO_REUSEADDR 可以bind 此端口成功，当前端口就被设置为bind 状态，其他非 SO_REUSEADDR 的建联无法选到此端口
+
+### 验证端口被connect 和 listen 同时使用
+
+尝试先用 connect 把18181 端口用掉，然后在18181端口上起一个listen 服务，再从其他地方连这个listen的 18181端口
+
+![image-20240522103927360](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240522103927360.png)
+
+抓包，本机 ip 是 172.17.151.5 ：
+
+![image-20240522103407831](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240522103407831.png)
+
+抓包里的 stream 1 对应上图的connect to baidu.com:80 
+
+抓包里的 stream 2 对应其它客户端连listen 18181上的服务，对应的netstat 信息：
+
+```
+#netstat -anpo |grep 18181
+0.0.0.0:18181           0.0.0.0:*               LISTEN      2732449/nc           off (0.00/0/0)
+172.17.151.5:18181      19.12.59.7:56166        ESTABLISHED 2732449/nc           off (0.00/0/0) (stream2)
+172.17.151.5:18181      110.242.68.66:80        ESTABLISHED 2732445/python       keepalive (4.96/0/0)（stream1）
+172.17.151.5:18181      10.143.33.49:123        ESTABLISHED 624/chronyd          off (0.00/0/0)
+```
+
+可以得出如下结论：
+
+- 两个TCP 连接四元组不一样，互相不干涉
+
+- 先connect(SO_REUSEADDR) 用掉A端口后，还可以在上面继续使用A 端口来 listen(nc -l 18181)
+
+- 先 listen 再connect 是不行的，报：Cannot assign requested address
+
+  
 
 ## 结论
 
 - 在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的
 - SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误
+- 先起一个listen 的端口设置了 SO_REUSEADDR，在其它进程 connect 的时候也不会从 port range 里再被选出来重用
 - SO_REUSEPORT主要用来解决惊群、性能等问题
 - 全局范围可以用 net.ipv4.tcp_max_tw_buckets = 50000 来限制总 time_wait 数量，但是会掩盖问题
 - local port的选择是递增搜索的，搜索起始port随时间增加也变大
@@ -530,3 +574,7 @@ https://idea.popcount.org/2014-04-03-bind-before-connect/
 [对应4.19内核代码解析](https://github.com/plantegg/linux/commit/9b3312bf18f6873e67f1f51dab3364c95c9dc54c)
 
 [How to stop running out of ephemeral ports and start to love long-lived connections](https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/)
+
+https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/
+
+connect() why you so slow?https://blog.cloudflare.com/linux-transport-protocol-port-selection-performance  https://lpc.events/event/17/contributions/1593/attachments/1208/2472/lpc-2023-connect-why-you-so-slow.pdf?file=lpc-2023-connect-why-you-so-slow.pdf 

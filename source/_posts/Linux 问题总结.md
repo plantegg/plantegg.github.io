@@ -28,7 +28,7 @@ crond第一次加载的时候（刚启动）会去检查文件属性，不是644
 
 问题原因：https://access.redhat.com/solutions/30316
 
-![image.png](/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/63a4ac6669f820156bff035e7dc49ac2.png)
 
 如上图去掉 admin nproc限制就可以了
 
@@ -103,7 +103,7 @@ ulimit, limits.conf 和 pam_limits模块 的关系，大致是这样的：
 
 ## pam 权限报错
 
-![image.png](/images/oss/b646979272e71e015de4a47c62b89747.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b646979272e71e015de4a47c62b89747.png)
 
 从debug信息看如果是pam权限报错的话，需要将 required 改成 sufficient
 
@@ -255,6 +255,10 @@ crond[246590]: (/usr/bin/ssh) ERROR (getpwnam() failed)
 
 `lsof +L1` 或者` lsof | grep delete` 发现有被删除的文件，且占用大量磁盘空间
 
+更多 lsof 用法：https://mp.weixin.qq.com/s?__biz=MzAwNTM5Njk3Mw==&mid=2247518966&idx=1&sn=6ebf794b9743abb04c9ed20d30c90746
+
+lsof /path/file 列出打开文件的进程，也可以是路径，还可以通过参数 "+D" 来递归路径 
+
 ## No route to host
 
 如果ping ip能通,但是curl/telnet 访问 ip+port 报not route to host 错误,这肯定不是route问题(因为ping能通), 一般都是目标机器防火墙的问题
@@ -269,7 +273,7 @@ success
 
 ## 强制重启系统
 
-![image.png](/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ee2e438907fa72c70d5393a651dc9113.png)
 
 ## hostname
 
@@ -279,19 +283,19 @@ getHostName获取的机器名如果对应的ip不是127.0.0.1，那么就用这�
 
 ## tsar Floating point execption
 
-![image.png](/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/72197d600425656ec9a8ed18bcc5853b.png)
 
 因为 /etc/localtime 是deleted状态
 
 ## 奇怪的文件大小 [sparse file](https://unix.stackexchange.com/questions/259932/strange-discrepancy-of-file-sizes-from-ls)
 
-![img](/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/720f618d-2911-4bfd-a63e-33399532b6e5.png)
 
 如上图 gc.log 实际为5.6M，但是通过 ls -lh 就变成74G了，但实际上总文件夹才63M。因为写文件的时候lseek了74G的地方写入5.6M的内容就看到是这个样子了，而前面lseek的74G是不需要从磁盘上分配出来的.
 
 [而 ls -s 中的 -s就是只看实际大小](https://www.lisenet.com/2014/so-what-is-the-size-of-that-file/)
 
-![img](/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/19b5f6cc-6fc4-4ad6-854c-6164705d343a.png)
 
 [图片来源](https://www.systutorials.com/handling-sparse-files-on-linux/)
 
@@ -382,7 +386,11 @@ PROCESS STATE CODES
 
 ### [D状态的进程](https://gohalo.me/post/linux-kernel-hang-task-panic-introduce.html)
 
-D： Disk sleep（task_uninterruptible)--比如，磁盘满，导致进程D，无法kill
+>  Process D是指进程处于不可中断状态。即uninterruptible sleep，通常我们比较常遇到的就是进程自旋等到进入竞争区等，刷脏页，进程同步等
+>
+> D： Disk sleep（task_uninterruptible)--比如，磁盘满，导致进程D，无法kill
+
+相关设置
 
 ```
 echo 1 >  /proc/sys/kernel/hung_task_panic  
@@ -407,6 +415,14 @@ $ cat /proc/sys/kernel/hung_task_warnings
 如果配置了 `hung_task_panic` ，则会直接发起 panic 操作，然后结合 kdump 可以搜集到相关的 vmcore 文件，用于定位分析。
 
 其基本原理也很简单，系统启动时会创建一个内核线程 `khungtaskd`，定期遍历系统中的所有进程，检查是否存在处于 D 状态且超过 120s 的进程，如果存在，则打印相关警告和进程堆栈，并根据参数配置决定是否发起 panic 操作。
+
+查看D进程出现的原因：
+
+![image-20230814112500971](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230814112500971.png)
+
+这个堆栈能看到进程在哪里 D 住了，但不一定是根本原因，有可能是被动进入 D 状态的
+
+![image-20230814112742429](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230814112742429.png)
 
 ### T 状态进程
 
@@ -476,15 +492,15 @@ tty都在 /dev 下，通过 ps -ax 可以看到进程的tty；通过tty 可以�
 
 远古时代tty是物理形态的存在
 
-![img](/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/v2-7aa6997d017d876543671e4113048a62_1440w.jpg)
 
 PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，pseudo tty, 简称pty），相对kernel增加了shell，这是terminal和shell容易混淆，他们的含义
 
-![img](/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/v2-63cdd117f1026c2bbf455920b29c4454_1440w.jpg)
 
 实际像如下图的工作协作:
 
-![Diagram](/images/951413iMgBlog/case3.png)
+![Diagram](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/case3.png)
 
 ## [rsync](https://wangdoc.com/ssh/rsync.html)
 
@@ -493,7 +509,9 @@ PC时代，物理上的terminal已经没有了（用虚拟的伪终端代替，p
 rsync -arv ./yum/ root@11.167.60.150:/data/yum/
 
 走ssh的8022端口把目录备份到本地
-rsync -e 'ssh -p 8022' -arv gcsql@10.237.3.100:/home/gcsql/doc/ ./
+rsync -e 'ssh -p 8022' -arv gcsql@10.2.3.4:/home/gcsql/doc/ ./
+
+rsync -arv -e "ssh -i /home/admin/.ssh/id_dsa.per  " root@1.1.20.24:/home/xijun.rxj/ /home/admin/bak/
 ```
 
 `-a`、`--archive`参数表示存档模式，保存所有的元数据，比如修改时间（modification time）、权限、所有者等，并且软链接也会同步过去。
@@ -645,13 +663,13 @@ echo noop > /sys/block/${SSD_DEV_NAME}/queue/scheduler
 
 ## Unix Linux关系
 
-![image-20211210085124387](/images/951413iMgBlog/image-20211210085124387.png)
+![image-20211210085124387](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211210085124387.png)
 
-![img](/images/951413iMgBlog/G2Xri.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/G2Xri.png)
 
 ### [linux 发行版关系](https://blog.51cto.com/wangyafei/1881605)
 
-![细数各家linux之间的区别_软件应用_什么值得买](/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
+![细数各家linux之间的区别_软件应用_什么值得买](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/5cc164f5d79a11261.jpg_fo742.jpg)
 
 Fedora：基于Red Hat Linux，在Red Hat Linux终止发行后，红帽公司计划以Fedora来取代Red Hat Linux在个人领域的应用，而另外发行的Red Hat Enterprise Linux取代Red Hat Linux在商业应用的领域。Fedora的功能对于用户而言，它是一套功能完备、更新快速的免费操作系统，而对赞助者Red Hat公司而言，它是许多新技术的测试平台，被认为可用的技术最终会加入到Red Hat Enterprise Linux中。Fedora大约每六个月发布新版本。
 

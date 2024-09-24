@@ -32,16 +32,17 @@ ipvsadm -a -t 172.26.137.117:9376 -r 172.20.22.196:9376 -m //往lvs中添加另�
 ipvsadm -ln
 
 //删除realserver
-ipvsadm -a -t 100.81.131.221:18507 -r 100.81.131.237:8507 -m
+ipvsadm -d -t 100.81.131.221:18507 -r 100.81.131.237:8507 -m
 
-//服务状态查看
-#ipvsadm -L -n --stats|--rate
-IP Virtual Server version 1.2.1 (size=4096)
-Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes
-  -> RemoteAddress:Port
-TCP  11.197.140.20:18089                 5       48       48     2951     6938
-  -> 11.197.140.20:28089                 3       33       33     1989     4938
-  -> 11.197.141.110:28089                2       15       15      962     2000
+//连接状态查看
+#ipvsadm -L -n --connection
+IPVS connection entries
+pro expire state       source             virtual            destination
+TCP 15:00  ESTABLISHED 127.0.0.1:40630    127.0.0.1:3001     127.0.0.1:3306
+TCP 14:59  ESTABLISHED 127.0.0.1:40596    127.0.0.1:3001     127.0.0.1:3306
+TCP 14:59  ESTABLISHED 127.0.0.1:40614    127.0.0.1:3001     127.0.0.1:3307
+TCP 15:00  ESTABLISHED 127.0.0.1:40598    127.0.0.1:3001     127.0.0.1:3307
+
 #流量统计
 ipvsadm -L -n --stats -t 192.168.1.10:28080 //-t service-address
 Prot LocalAddress:Port               Conns   InPkts  OutPkts  InBytes OutBytes
@@ -304,13 +305,13 @@ ipvsadm -a -t 192.168.0.1:0 -r 192.168.1.3 -w 2 -g
 
 5.最后经由POSTROUTING链发往后端服务器。
 
-![image.png](/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/08cb9d37f580b03f37fcace92e21d2e3.png)
 
 ## netfilter 原理
 
 Netfilter 由多个表(table)组成，每个表又由多个链(chain)组成(此处可以脑补二维数组的矩阵了)，链是存放过滤规则的“容器”，里面可以存放一个或多个iptables命令设置的过滤规则。目前的表有4个：`raw table`, `mangle table`, `nat table`, `filter table`。Netfilter 默认的链有：`INPUT`, `OUTPUT`, `FORWARD`, `PREROUTING`, `POSTROUTING`，根据`表`的不同功能需求，不同的表下面会有不同的链，链与表的关系可用下图直观表示：
 
-![image.png](/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1039cdda7040f20582f36a6a560e4e2e.png)
 
 ## OSPF + LVS
 

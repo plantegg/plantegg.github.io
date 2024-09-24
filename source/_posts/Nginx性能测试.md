@@ -30,7 +30,7 @@ The table and graph below show the number of HTTP requests for varying numbers o
 |  32  | 3,019,182 | 1,316,362 | 774,567 | 91,640 |
 |  36  | 3,298,511 | 1,309,358 | 764,744 | 91,655 |
 
-[![img](/images/951413iMgBlog/NGINX-HTTP-RPS.png)](https://www.nginx.com/wp-content/uploads/2017/08/NGINX-HTTP-RPS.png)
+[![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/NGINX-HTTP-RPS.png)](https://www.nginx.com/wp-content/uploads/2017/08/NGINX-HTTP-RPS.png)
 
 ### RPS for HTTPS Requests
 
@@ -91,15 +91,24 @@ http {
         listen       80 default_server;
         listen       [::]:80 default_server;
         server_name  _;
-        root         /usr/share/nginx/html;
+        root         /apt/uos.aarch;
 
         # Load configuration files for the default server block.
         include /etc/nginx/default.d/*.conf;
+
+
+        location /{
+                #root /polarx/apt/uos.aarch;
+                index index.html;
+                autoindex on;
+        }
 
         location / {
         		#return 200 'a';
         		#root   /usr/share/nginx/html;
         		#index  index.html index.htm;
+        		#autoindex 目录文件浏览模式
+        		autoindex on;
         }
 
         error_page 404 /404.html;
@@ -110,6 +119,7 @@ http {
             location = /50x.html {
         }
     }
+}    
 ```
 
 ### https 配置
@@ -240,11 +250,11 @@ nginx on M 8核，http 长连接，访问极小的静态页面（AMD 上测试�
 
 从抓包来看，sendfile on的时候每次 http get都是回复两个包：1) http 包头（len：288）2）http body(len: 58) 
 
-![image-20221008100922349](/images/951413iMgBlog/image-20221008100922349.png)
+![image-20221008100922349](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221008100922349.png)
 
 sendfile off的时候每次 http get都是回复一个包： http 包头+body（len：292=288+4）
 
-![image-20221008100808480](/images/951413iMgBlog/image-20221008100808480.png)
+![image-20221008100808480](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221008100808480.png)
 
 在这个小包场景，如果sendfile=off 后，回包在http层面就已经合并从1个了，导致内核没机会再次 cork（合并包）；如果sendfile=on 则是每次请求回复两个tcp包，如果设置了  nopush 会在内核层面合并一次。
 
@@ -321,15 +331,15 @@ Time               bytin  bytout   pktin  pktout  pkterr  pktdrp
 
 tcp_nopush=off：(QPS 37万)
 
-![image-20220930143920567](/images/951413iMgBlog/image-20220930143920567.png)
+![image-20220930143920567](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220930143920567.png)
 
 tcp_nopush=on：(QPS 46万)
 
-![image-20220930143419304](/images/951413iMgBlog/image-20220930143419304.png)
+![image-20220930143419304](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220930143419304.png)
 
-对比一下，在sendfile on的时候，用不同而push 参数对应的 tcp 栈
+对比一下，在sendfile on的时候，用不同的push 参数对应的 tcp 栈
 
-![image-20221009093842151](/images/951413iMgBlog/image-20221009093842151.png)
+![image-20221009093842151](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221009093842151.png)
 
 
 
@@ -337,11 +347,11 @@ tcp_nopush=on：(QPS 46万)
 
 16核 perf top
 
-![image-20220916174106821](/images/951413iMgBlog/image-20220916174106821.png)
+![image-20220916174106821](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916174106821.png)
 
 32核 perf top
 
-![image-20220916174234039](/images/951413iMgBlog/image-20220916174234039.png)
+![image-20220916174234039](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916174234039.png)
 
 从以上两个perf top 对比可以看到内核锁消耗增加非常明显
 
@@ -391,7 +401,7 @@ Other:		0
 Combined:	32
 ```
 
-![image-20220916202347245](/images/951413iMgBlog/image-20220916202347245.png)
+![image-20220916202347245](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916202347245.png)
 
 ### 文件锁的竞争
 
@@ -399,13 +409,13 @@ Nginx 在M 上使用 16 core的时候完全压不起来，都是内核态锁竞�
 
 从下图可以看到 sys 偏高，真正用于 us 的 CPU 太少，而内核态 CPU 消耗过高的是 osq_lock(写日志文件锁相关)
 
-![image-20220916151006533](/images/951413iMgBlog/image-20220916151006533.png)
+![image-20220916151006533](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916151006533.png)
 
-![image-20220916151310488](/images/951413iMgBlog/image-20220916151310488.png)
+![image-20220916151310488](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916151310488.png)
 
-![img](/images/951413iMgBlog/1663329200304-4f4b615b-8507-47c8-87ff-7e92939f12bc.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1663329200304-4f4b615b-8507-47c8-87ff-7e92939f12bc.png)
 
-![image-20220916151613388](/images/951413iMgBlog/image-20220916151613388.png)
+![image-20220916151613388](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220916151613388.png)
 
 16核对应的perf状态
 
@@ -433,19 +443,47 @@ Nginx 在M 上使用 16 core的时候完全压不起来，都是内核态锁竞�
 
 软中断和 nginx 在同一个node，这时基本看不到多少 si% 
 
-![image-20220919180725510](/images/951413iMgBlog/image-20220919180725510.png)
+![image-20220919180725510](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220919180725510.png)
 
-![image-20220919180758887](/images/951413iMgBlog/image-20220919180758887.png)
+![image-20220919180758887](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220919180758887.png)
 
 
 
 软中断和 nginx 跨node（性能相当于同node的70-80%）, 软中断几乎快打满 8 个核了，同时性能还差
 
-![image-20220919180916190](/images/951413iMgBlog/image-20220919180916190.png)
+![image-20220919180916190](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220919180916190.png)
 
 ### 网络描述符、数据缓冲区，设备的关系
 
 网络描述符的内存分配跟着设备走（设备插在哪个node 就就近在本 node 分配描述符的内存）， 数据缓冲区内存跟着队列(中断)走， 如果队列绑定到DIE0， 而设备在DIE1上，这样在做DMA通信时， 会产生跨 DIE 的交织访问.
+
+## **Nginx处理HTTP的生命周期**
+
+Nginx将HTTP处理分成了11个阶段。下面的阶段，按顺序执行
+
+| **阶段名称**                    | **阶段作用**                                                 | **涉及的模块Moduel** | **Moduel作用**                                         |
+| ------------------------------- | ------------------------------------------------------------ | -------------------- | ------------------------------------------------------ |
+| POST_READ                       | 接收到完整的http头部后处理的阶段，在uri重写之前。一般跳过    | realip               | 读取客户端真实IP信息，用于限流等                       |
+| SERVER_RERITE                   | location匹配前，修改uri的阶段，用于重定向，location块外的重写指令（多次执行） | rewrite              | 重定向                                                 |
+| FIND_CONFIG                     | uri寻找匹配的location块配置项（多次执行）                    | find_config          | 根据URI寻找匹配的localtion块配置                       |
+| REWRITE                         | 找到location块后再修改uri，location级别的uri重写阶段（多次执行） | rewrite              | 重定向                                                 |
+| POST_WRITE                      | 防死循环，跳转到对应阶段                                     | /                    | /                                                      |
+| PREACCESS                       | 权限预处理                                                   | limt_conn            | 限制处理请求的速率，还可以设置桶的大小，是否延迟等参数 |
+| limit_req                       | 限制连接和请求数                                             |                      |                                                        |
+| ACCESS                          | 判断是否允许这个请求进入                                     | auth_basic           | 实现简单的用户名、密码登录                             |
+| access                          | 支持配置allow\deny等指令                                     |                      |                                                        |
+| auth_request                    | 将请求转发到第三方认证服务器上                               |                      |                                                        |
+| POST_ACCESS                     | 向用户发送拒绝服务的错误码，用来响应上一阶段的拒绝           | /                    | /                                                      |
+| PRECONTENT                      | 服务器响应内容之前向响应内容添加一些额外的内容。             | try_files            | 匹配配置的多个url地址                                  |
+| mirrors                         | 复制一个相同的子请求，例如生产流量复制                       |                      |                                                        |
+| CONTENT                         | 内容生成阶段，该阶段产生响应，并发送到客户端                 | concat               | 如果访问多个小文件，可在一次请求上返回多个小文件内容   |
+| random_index，index, auto_index | 显示location下目录或目录下的index.html文件的配置             |                      |                                                        |
+| static                          | 通过absolute_redirect等指令设置重定向的Location等            |                      |                                                        |
+| LOG                             | 记录访问日志                                                 | log                  | 配置日志格式，存储位置等                               |
+
+也可以通过源码ngx_module.c 中，查看到ngx_module_name，其中包含了在编译 Nginx 的时候的 with 指令所包含的所有模块，它们之间的顺序非常关键，在数组中顺序是相反的。
+
+![image-20231117103535342](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231117103535342.png)
 
 ## 总结
 

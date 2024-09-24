@@ -19,7 +19,7 @@ tags:
 
 正好有机会用到一个san存储设备，跑了一把性能数据，记录一下
 
-![image.png](/images/oss/d57a004c846e193126ca01398e394319.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d57a004c846e193126ca01398e394319.png)
 
 所使用的测试命令：
 
@@ -41,13 +41,13 @@ ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排
 
 ## NVMe SSD 和 HDD的性能比较
 
-![image.png](/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
+![image.png](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png)
 
 表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。
 
 **HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。**
 
-![img](/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1ab661ee2d3a71f54bae3ecf62982e7e.png)
 
 从上图可以看出如果是随机读写HDD性能极差，但是如果是顺序读写HDD和SDD、内存差异就不那么大了。
 
@@ -916,9 +916,30 @@ Disk stats (read/write):
   nvme2n1: ios=0/610060, merge=0/0, ticks=0/4216, in_queue=4134, util=13.74% 
 ```
 
+### 倚天 PL3 VS SSD
+
+测试环境倚天裸金属，4.18 CentOS fio-3.7
+
+| 类型      | 参数                                                         | nvme SSD单盘                      | PL3+倚天裸金属                   |
+| --------- | ------------------------------------------------------------ | --------------------------------- | -------------------------------- |
+| randread  | fio -bs=4k -buffered=1                                       | IOPS=17.7K                        | IOPS=2533                        |
+| randread  | fio -ioengine=libaio -bs=4k -direct=1 -buffered=0            | IOPS=269k                         | IOPS=24k                         |
+| randwrite | fio -bs=4k -direct=1 -buffered=0                             | IOPS=68.5k                        | IOPS=3275                        |
+| randwrite | fio -ioengine=libaio -bs=4k -buffered=1                      | IOPS=253k                         | IOPS=250k                        |
+| randrw    | fio -ioengine=libaio -bs=4k -buffered=1 rwmixread=70         | write:IOPS=8815, read:IOPS=20.5K  | write:IOPS=1059，read:IOPS=2482  |
+| randrw    | fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 rwmixread=70 | write:IOPS=8754, read: IOPS=20.4K | write: IOPS=940, read: IOPS=2212 |
+
+测试命令
+
+```
+fio -ioengine=libaio -bs=4k -buffered=1  -thread -rw=randrw -rwmixread=70  -size=16G -filename=./fio.test -name="essd-pl3" -iodepth=64 -runtime=30
+```
+
+ 
+
 ### HDD性能测试数据
 
-![img](/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/0868d560-067f-4302-bc60-bffc3d4460ed.png)
 
 从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，~~应该是cache、磁盘阵列在起作用。~~
 
@@ -958,7 +979,7 @@ ESSD的latency基本是13-16us。
 
 我们来一起看一下具体的数据。首先来看NVＭe如何减小了协议栈本身的时间消耗，我们用*blktrace*工具来分析一组传输在应用程序层、操作系统层、驱动层和硬件层消耗的时间和占比，来了解AHCI和NVMe协议的性能区别：
 
-![img](/images/951413iMgBlog/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg)
 
 硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。
 
@@ -994,11 +1015,11 @@ time taskset -c 0 dd if=/dev/zero of=./tempfile2 bs=1M count=40240 &
 
 下图上面两块nvme做的LVM，下面两块nvme做成RAID0，同时开始测试，可以看到RAID0的两块盘写入速度更快
 
-![image-20211231205730735](/images/951413iMgBlog/image-20211231205730735.png)
+![image-20211231205730735](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211231205730735.png)
 
 测试结果
 
-![image-20211231205842753](/images/951413iMgBlog/image-20211231205842753.png)
+![image-20211231205842753](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211231205842753.png)
 
 实际单独写一块nvme也比写两块nvme做的LVM要快一倍，对dd这样的顺序读写，软RAID0还是能提升一倍速度的
 
@@ -1052,13 +1073,13 @@ RAID0是使用mdadm做的软raid，系统层面还是有消耗，没法和RAID�
 fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101104145331](/images/951413iMgBlog/image-20220101104145331.png)
+![image-20220101104145331](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220101104145331.png)
 
 从观察来看，RAID0的两块盘读写、iops都非常均衡，LVM的两块盘
 
 三个测试分开跑，独立nvme性能最好，LVM最差并且不均衡
 
-![image-20220101110016074](/images/951413iMgBlog/image-20220101110016074.png)
+![image-20220101110016074](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220101110016074.png)
 
 三个测试分开跑，去掉 aio，性能都只有原来的一半
 
@@ -1066,7 +1087,7 @@ fio -ioengine=libaio -bs=4k -buffered=1 -thread -rw=randwrite -rwmixread=70 -siz
 fio  -bs=4k -direct=1 -buffered=0 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=./fio.test -name="EBS 4K randwrite test" -iodepth=64 -runtime=60
 ```
 
-![image-20220101110708888](/images/951413iMgBlog/image-20220101110708888.png)
+![image-20220101110708888](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220101110708888.png)
 
 修改fio参数，用最快的 direct=0 buffered=1 aio 结论是raid0最快，直接写nvme略慢，LVM只有raid0的一半
 
@@ -1230,7 +1251,7 @@ Disk stats (read/write):
 
 raid6开buffer性能比raid0还要好10-20%，实际是将刷盘延迟异步在做，如果用-buffer=0 raid6的性能只有raid0的一半
 
-![image-20220105173206915](/images/951413iMgBlog/image-20220105173206915.png)
+![image-20220105173206915](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220105173206915.png)
 
 ```
 [root@hygon33 17:19 /md6]
@@ -1365,6 +1386,8 @@ direct和buffered参数是冲突的，用一个就行，应该是direct=0性能�
 
 ## [iostat 结果解读](linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html)
 
+ iostat输出的数据来源diskstat (/proc/diskstats)，推荐：https://bean-li.github.io/dive-into-iostat/
+
 Dm-0就是lvm
 
 ```
@@ -1387,15 +1410,19 @@ dm-0              0.00     0.00    0.00 62231.00     0.00 248944.80     8.00   1
 
 avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表示有大量IO在处理或等待，但是这还不足以说明后端的存储系统达到了处理极限。例如后端存储的并发能力是4096，客户端并发发送了256个IO下去，那么队列长度就是256。即使长时间队列长度是256，也不能说明什么，仅仅表明队列长度是256，有256个IO在处理或者排队。
 
+avgrq-sz：请求是大IO还是小IO
+
+rd_ticks和wr_ticks是把每一个IO消耗时间累加起来，但是硬盘设备一般可以并行处理多个IO，因此，rd_ticks和wr_ticks之和一般会比自然时间（wall-clock time）要大
+
 那么怎么判断IO是在调度队列排队等待，还是在设备上处理呢？iostat有两项数据可以给出一个大致的判断。svctime，这项数据的指的是IO在设备处理中耗费的时间。另外一项数据await，指的是IO从排队到完成的时间，包括了svctime和排队等待的时间。那么通过对比这两项数据，如果两项数据差不多，则说明IO基本没有排队等待，耗费的时间都是设备处理。如果await远大于svctime，则说明有大量的IO在排队，并没有发送给设备处理。
 
 ## 不同厂家SSD性能对比
 
 国产SSD指的是AliFlash
 
-![img](/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1638359029693-73b42c13-2649-4f20-9112-a7c4c5dd5432.png)
 
-![img](/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1638358969626-507f34aa-201b-4fd3-91de-66c88c6ce04a.png)
 
 ## rq_affinity
 
@@ -1435,7 +1462,94 @@ RunFio 10 64 4k randwrite filename
 
 对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)
 
-![image-20210607113709945](/images/951413iMgBlog/image-20210607113709945.png)
+![image-20210607113709945](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210607113709945.png)
+
+## scheduler 算法
+
+如下，选择了bfq，ssd的话推荐用none或者mq-deadline
+
+```
+#cat /sys/block/nvme{0,1,2,3}n1/queue/scheduler
+mq-deadline kyber [bfq] none
+```
+
+bfq（Budget Fair Queueing），该调度算法令存储设备公平的对待每个线程，为各个进程服务相同数量的扇区。通常bfq适用于多媒体应用、桌面环境，对于很多IO压力很大的场景，例如IO集中在某些进程上的场景，bfq并不适用。
+
+mq-deadline算法并不限制每个进程的 IO 资源，是一种以提高机械硬盘吞吐量为出发点的调度算法，该算法适用于IO压力大且IO集中在某几个进程的场景，比如大数据、数据库等场景
+
+磁盘队列的主要目的是对磁盘的I/O进行合并和排序，以提高磁盘的整理性能，对于传统的机械硬盘而言，由于其读写头需要进行物理寻址，因此请求排序和合并调度是非常必要的。但对于SSD硬盘，由于其不需要进行物理寻址，因此磁盘队列的最用相对于小一点
+
+### 修改
+
+- 临时修改全部磁盘的I/O调度算法，以mq-deadline为例（临时生效）：
+
+echo mq-deadline > /sys/block/sd*/queue/scheduler
+
+- 永久修改I/O调度算法，以mq-deadline为例（重启后生效）：
+
+vim /lib/udev/rules.d/60-block-scheduler.rules
+
+![img](data:image/png;base64,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)
+
+将图中的bfq改为none或者mq-deadline。
+
+- 验证查看磁盘使用的调度算法：
+
+使用lsblk -t查看SCHED列。
+
+```
+# lsblk -t
+NAME              ALIGNMENT MIN-IO OPT-IO PHY-SEC LOG-SEC ROTA SCHED       RQ-SIZE   RA WSAME
+sda                       0    512      0     512     512    0 mq-deadline      64 2048    0B
+├─sda1                    0    512      0     512     512    0 mq-deadline      64 2048    0B
+├─sda2                    0    512      0     512     512    0 mq-deadline      64 2048    0B
+└─sda3                    0    512      0     512     512    0 mq-deadline      64 2048    0B
+  ├─klas-root             0    512      0     512     512    0                 128 4096    0B
+  ├─klas-swap             0    512      0     512     512    0                 128 4096    0B
+  └─klas-backup           0    512      0     512     512    0                 128 4096    0B
+nvme3n1                   0    512      0     512     512    0 bfq             256 2048    0B
+└─vgpolarx-polarx         0 131072 524288     512     512    0                 128 4096    0B
+nvme0n1                   0    512      0     512     512    0 bfq             256 2048    0B
+└─vgpolarx-polarx         0 131072 524288     512     512    0                 128 4096    0B
+nvme2n1                   0    512      0     512     512    0 bfq             256 2048    0B
+└─vgpolarx-polarx         0 131072 524288     512     512    0                 128 4096    0B
+nvme1n1                   0    512      0     512     512    0 bfq             256 2048    0B
+└─vgpolarx-polarx         0 131072 524288     512     512    0                 128 4096    0B
+```
+
+
+
+#### 修改bfq调度器的idle时间（临时生效，重启后失效。）
+
+bfq的idle时间默认是8ms，[将默认值修改为0](https://support.huawei.com/enterprise/zh/doc/EDOC1100063071/7aa11aeb)。
+
+1. 执行如下命令修改idle值。此处以sdb举例，修改idle为0。
+
+   ```
+   echo 0 > /sys/block/sdb/queue/iosched/slice_idle
+   ```
+
+### none VS bfq
+
+ 从下图可以看到 iops 减少到 none 的20-40%之间，并且抖动很大
+
+![image-20231011090249159](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231011090249159.png)
+
+用sysbench write only 场景下 压鲲鹏机器+麒麟(4块nvme做条带LVM )+官方MySQL 也看到了QPS 很差且长期跌0，红框是改成none，红框之前的部分是bfq
+
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/lQLPJwdVC35hlSDNBrrNCHawFhZ_xVTrMXIFGKolRUBPAA_2166_1722.png)
+
+下图是 sysbench write only 场景不同 scheduler 算法的 QPS，可以看到 bfq 很差，mq-deadline 和 none 几乎差不多
+
+![image-20231011095227886](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231011095227886.png)
+
+对应的 iotop
+
+![image-20231011090609546](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231011090609546.png)
+
+![image-20231011090625857](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231011090625857.png)
+
+
 
 ## 磁盘挂载参数
 
@@ -1465,7 +1579,7 @@ ext4还有一个配置项叫挂载方式，有`ordered`和`writeback`两个选�
 
 整个方案是：原始文件切割成小分片，喂给24个worker；每个worker读数据，处理数据，定期批量写索引出去；最后查询会去读每个worker生成的所有索引文件，通过跳表快速seek。
 
-![img](/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/586fef765e3f08f6183907f311a76259.png)
 
 ## LVM性能对比
 

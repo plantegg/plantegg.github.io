@@ -12,11 +12,11 @@ tags:
 
 ## 结构
 
-![image-20220608093532338](/images/951413iMgBlog/image-20211116101345648.png)
+![image-20220608093532338](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211116101345648.png)
 
 [包流](https://stuffphilwrites.com/wp-content/uploads/2014/09/FW-IDS-iptables-Flowchart-v2019-04-30-1.png)
 
-![img](/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png)
+![img](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/FW-IDS-iptables-Flowchart-v2019-04-30-1.png)
 
 ## iptables监控reset的连接信息
 
@@ -32,21 +32,21 @@ tags:
 :INPUT ACCEPT [557:88127]
 :FORWARD ACCEPT [0:0]
 :OUTPUT ACCEPT [527:171711]
-# 不监听3406上的reset，日志前面添加 [drds] 
--A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix "[drds] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
-# -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix "[drds] " --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options
--A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix "[drds] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
+# 不监听3406上的reset，日志前面添加 [plantegg] 
+-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
+# -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options
+-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix "[plantegg] " --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options
 COMMIT
 # Completed on Wed Apr  1 11:39:31 2020
 
 ```
 
-将如上配置保存在 drds_filter.conf中，设置开机启动:
+将如上配置保存在 plantegg_filter.conf中，设置开机启动:
 
 ```
 //注意，tee 命令的 "-a" 选项的作用等同于 ">>" 命令，如果去除该选项，那么 tee 命令的作用就等同于 ">" 命令。
 //echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入
-echo "sudo iptables-restore < drds_filter.conf" | sudo tee -a /etc/rc.d/rc.local
+echo "sudo iptables-restore < plantegg_filter.conf" | sudo tee -a /etc/rc.d/rc.local
 ```
 
 ### 单独记录到日志文件中
@@ -54,17 +54,17 @@ echo "sudo iptables-restore < drds_filter.conf" | sudo tee -a /etc/rc.d/rc.local
 默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：
 
 ```
-# cat /etc/rsyslog.d/drds_filter_log.conf
-:msg, startswith, "[drds]" -/home/admin/logs/drds-tcp.log
+# cat /etc/rsyslog.d/plantegg_filter_log.conf
+:msg, startswith, "[plantegg]" -/home/admin/logs/plantegg-tcp.log
 ```
 
-将 [drds] 开头的日志存到对应的文件
+将 [plantegg] 开头的日志存到对应的文件
 
 将如上配置放到： /etc/rsyslog.d/ 目录下， 重启 rsyslog 就生效了
 
 ```
-sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf
-sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf
+sudo cp /home/admin/plantegg-worker/install/plantegg_filter_log.conf /etc/rsyslog.d/plantegg_filter_log.conf
+sudo chown -R root:root /etc/rsyslog.d/plantegg_filter_log.conf
 sudo systemctl restart rsyslog
 ```
 
@@ -265,6 +265,9 @@ iptables -A drds_rule -m set --match-set block_ips src -p tcp  -j REJECT --rejec
 ```
 iptables -I INPUT -m state --state NEW -j LOG --log-prefix "Connection In: "
 iptables -I OUTPUT -m state --state NEW -j LOG --log-prefix "Connection Out: "
+
+//检查包，记录invalid包到日志中
+iptables -A INPUT -m conntrack --ctstate INVALID -m limit --limit 1/sec   -j LOG --log-prefix "invalid: " --log-level 7
 ```
 
 在宿主机上执行，然后在dmesg中能看到包的传递流程。只有raw有TRACE能力，nat、filter、mangle都没有。这个方式对性能影响非常大，时延高（增加1秒左右）
@@ -290,7 +293,16 @@ iptables -t nat -A PREROUTING -p tcp --dport 8507 -j REDIRECT --to-ports 3307
 
 #将本机的端口转发到其他机器
 iptables -t nat -A PREROUTING -d 192.168.172.130 -p tcp --dport 8000 -j DNAT --to-destination 192.168.172.131:80
+#将192.168.172.131:80 端口将数据返回给客户端时，将源ip改为192.168.172.130
 iptables -t nat -A POSTROUTING -d 192.168.172.131 -p tcp --dport 80 -j SNAT --to 192.168.172.130
+
+#ip 转发，做完转发后netstat能看到两条连接
+sudo iptables -t nat -A OUTPUT -d 100.69.170.27 -j DNAT --to-destination 127.0.0.1
+
+/sbin/iptables -t nat -I PREROUTING -d 23.27.6.15 -j DNAT --to-destination 45.61.255.176
+/sbin/iptables -t nat -I POSTROUTING -d 45.61.255.176 -j SNAT --to-source 23.27.6.15
+/sbin/iptables -t nat -I POSTROUTING -s 45.61.255.176 -j SNAT --to-source 23.27.6.15
+
 
 #清空nat表的所有链
 iptables -t nat -F PREROUTING
@@ -299,9 +311,9 @@ iptables -t nat -F PREROUTING
 iptables -A OUTPUT -p tcp --dport 31165 -j DROP
 ```
 
-iptables工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5
+iptables 工作图如下，进来的包走1、2；出去的包走4、5；转发的包走1、3、5
 
-![Image](/images/951413iMgBlog/640-7027461.)
+![Image](https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-7027461.)
 
 ### ncat端口转发
 
@@ -331,6 +343,9 @@ grep "Failed" /var/log/auth.log | \
      sort | uniq -c | sort -n | \
      awk '{if ($1>100) print $2}' | \
      xargs -I {} iptables -A INPUT -s {} -j DROP
+     
+iptables -A INPUT  -p tcp --sport 3306 -j DROP
+iptables -A OUTPUT -p tcp --dport 3306 -j DROP
 ```
 
 [Per-IP rate limiting with iptables](https://making.pusher.com/per-ip-rate-limiting-with-iptables/index.html)
@@ -392,7 +407,7 @@ If you would rather deny all connections and manually specify which ones you wan
 
 蓝色是iptables规则数量，不过如果规则内容差不多，只是ip不一样，完全可以用ipset将他们合并到一条或者几条规则，从而提升性能
 
-<img src="/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220521141020452.png" alt="image-20220521141020452" style="zoom:50%;" />
 
 ## 参考资料
 
@@ -401,3 +416,5 @@ If you would rather deny all connections and manually specify which ones you wan
 [NAT - 网络地址转换（2016）](http://arthurchiao.art/blog/nat-zh/)
 
 [通过iptables 来控制每个ip的流量](https://making.pusher.com/per-ip-rate-limiting-with-iptables/)
+
+[iptables 实用教程](https://lotabout.me/2022/Horrible-Iptables-tutorials/)

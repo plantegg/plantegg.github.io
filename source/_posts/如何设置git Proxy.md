@@ -16,19 +16,19 @@ tags:
 
 > 首先你要有一个socks5代理服务器，从 github.com 拉代码的话海外的代理速度才快，可以用阿里郎的网络加速，也可以自己配置shadowsocks这样的代理。
 > 
-> Windows阿里郎会在本地生成socks5代理：127.0.0.1:13658
+> Windows 阿里郎会在本地生成socks5代理：127.0.0.1:13658
 
 下面的例子假设你的socks5代理是： 127.0.0.1:13658
 
 ### 配置git http proxy
 
-    git config --global http.proxy socks5://127.0.0.1:13658
+    git config --global http.proxy socks5h://127.0.0.1:13658 //或者 socks5://127.0.0.1:13658
 
 上面的命令实际上是修改了 .gitconfig：
 
     $cat ~/.gitconfig   
     [http]
-    	proxy = socks5://127.0.0.1:13658
+    	proxy = socks5h://127.0.0.1:13658
 
 现在git的http代理就配置好了， git clone https://github.com/torvalds/linux.git 速度会快到你流泪（取决于你的代理速度），我这里是从每秒10K到了3M 。
 
@@ -36,6 +36,7 @@ tags:
 
 - http.proxy就可以了，不需要配置https.proxy
 - 这个http代理仅仅针对 git clone **https://** 的方式生效
+- socks5 本地解析域名；socks5h 将域名也发到远程代理来解析(推荐使用，比如 github.com 在 2024 走 socks5 都无法拉取)
 
 ## 配置git ssh proxy
 
@@ -69,7 +70,7 @@ ProxyCommand  /usr/bin/nc -X 5 -x 127.0.0.1:12368 %h %p  //走本地socks5端口
 #ProxyCommand ssh -l root jump exec /usr/bin/nc %h %p    //这个是走 jump
 ```
 
-nc代理参数-X proxy_version 指定 nc 请求时使用代理服务的协议
+nc 代理参数-X proxy_version 指定 nc 请求时使用代理服务的协议
 
 - `proxy_version` 为 `4` : 表示使用的代理为 SOCKS4 代理
 - `proxy_version` 为 `5` : 表示使用的代理为 SOCKS5 代理

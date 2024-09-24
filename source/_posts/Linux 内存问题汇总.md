@@ -35,11 +35,11 @@ tags:
 
 其中，[cached 列表示当前的页缓存（Page Cache）占用量](https://spongecaptain.cool/SimpleClearFileIO/1.%20page%20cache.html)，buffers 列表示当前的块缓存（buffer cache）占用量。用一句话来解释：**Page Cache 用于缓存文件的页数据，buffer cache 用于缓存块设备（如磁盘）的块数据。**页是逻辑上的概念，因此 Page Cache 是与文件系统同级的；块是物理上的概念，因此 buffer cache 是与块设备驱动程序同级的。
 
-<img src="/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f8d944e2c7a8611384acb820c4471007.png" alt="image.png" style="zoom:80%;" />
 
 **上图中-/+ buffers/cache: -是指userd去掉buffers/cached后真正使用掉的内存; +是指free加上buffers和cached后真正free的内存大小。**
 
-## free
+## [free](https://aleiwu.com/post/linux-memory-monitring/)
 
 free是从 /proc/meminfo 读取数据然后展示：
 
@@ -126,6 +126,51 @@ cache回收：
 	 Directories: 2
 	 Touched Pages: 468992 (1G)
 	 Elapsed: 13.274 seconds
+### vmtouch 清理目录
+
+如下脚本传入一个指定目录(业务方来确认哪些目录占用 pagecache 较大, 且可以清理)，然后用vmtouch 遍历排序最大的几个清理掉，可能会造成业务的卡度
+
+```
+#!/bin/bash
+#
+#echo "*/2 * * * * root bash /root/cron/os_pagecache_clean.sh -n 5 -e > /root/cron/os_pagecache_clean.out 2>&1" > /etc/cron.d/os_pagecache_clean
+
+function usage(){
+cat << EOF
+usage:
+    $0 -n topN [-l|-e]
+option:
+    -l list top n redis_dir
+    -e list and evict top n redis_dir
+    -n top n
+EOF
+exit 1
+}
+
+while getopts "n:leh" opt; do
+  case $opt in
+    l) list=1 ;;
+    e) list=1 && evict=1 ;;
+    n) n=${OPTARG} ;;
+    h) usage ;;
+  esac
+done
+
+[[ -z $n ]] && usage
+[[ -z $list && -z $evict ]] && usage
+
+# list must = 1
+cd /root && ls | while read dirname ; do
+    page=$(vmtouch $dirname |  grep "Resident Pages")
+    echo -e "$dirname\t$page"
+done | tr "/" " " |   sort -nr -k4 | head -n $n | awk '{print $1,$6}' | while read dirname cache_size; do
+    echo -e "$dirname\t$cache_size"
+    [[ $evict == 1 ]] && vmtouch -e $dirname
+done
+```
+
+
+
 ## 消失的内存
 
 OS刚启动后就报内存不够了，什么都没跑就500G没了，cached和buffer基本没用，纯粹就是used占用高，top按内存排序没有超过0.5%的进程
