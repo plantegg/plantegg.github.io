@@ -77,7 +77,7 @@
 <link href="/css/main.css?v=5.1.1" rel="stylesheet" type="text/css">
 
 
-  <meta name="keywords" content="Linux,network,LVS,LoadBalance,wrr,wlc,">
+  <meta name="keywords" content="Linux,LVS,network,LoadBalance,wrr,wlc,">
 
 
 
@@ -96,20 +96,20 @@
 
 
 <meta name="description" content="LVS 20倍的负载不均衡，原来是内核的这个Bug姊妹篇：就是要你懂负载均衡–lvs和转发模式 问题由来最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。 前面是啰嗦的基础知识部分，bug直达文章">
-<meta name="keywords" content="Linux,network,LVS,LoadBalance,wrr,wlc">
+<meta name="keywords" content="Linux,LVS,network,LoadBalance,wrr,wlc">
 <meta property="og:type" content="article">
 <meta property="og:title" content="LVS 20倍的负载不均衡，原来是内核的这个Bug">
 <meta property="og:url" content="https://plantegg.github.io/2019/07/19/就是要你懂负载均衡--负载均衡调度算法和为什么不均衡/index.html">
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="LVS 20倍的负载不均衡，原来是内核的这个Bug姊妹篇：就是要你懂负载均衡–lvs和转发模式 问题由来最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。 前面是啰嗦的基础知识部分，bug直达文章">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png">
-<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210422171155401.png">
-<meta property="og:updated_time" content="2024-09-09T08:28:07.052Z">
+<meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png">
+<meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171155401.png">
+<meta property="og:updated_time" content="2024-10-12T03:17:06.974Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="LVS 20倍的负载不均衡，原来是内核的这个Bug">
 <meta name="twitter:description" content="LVS 20倍的负载不均衡，原来是内核的这个Bug姊妹篇：就是要你懂负载均衡–lvs和转发模式 问题由来最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。 前面是啰嗦的基础知识部分，bug直达文章">
-<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png">
+<meta name="twitter:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png">
 
 
 
@@ -408,16 +408,19 @@ LVS： Linux Virtual Server
 <p>批量重启所有RS（升级等，多个RS进入服务状态肯定有先后），第一个起来的RS最容易获取到更多的连接，压力明显比其它RS要大，这肯定也是不符合预期的。</p>
 <p><strong>总之wrr&#x2F;rr算法因为不考虑已存在的连接问题，在长连接的情况下对RS重启、扩容（增加新的RS）十分不友好，容易导致长连接的不均衡。</strong></p>
 <p>当然对于短连接不存在这个问题，所以可以考虑让应用端的连接不要那么长，比如几个小时候断开重新连接一下。升级的时候等所有RS都启动好后再让LVS开始工作等</p>
-<h4 id="权值相等的WRR算法是否与RR算法等效？"><a href="#权值相等的WRR算法是否与RR算法等效？" class="headerlink" title="权值相等的WRR算法是否与RR算法等效？"></a>权值相等的WRR算法是否与RR算法等效？</h4><p>不等效。原因是由于RR调试算法加入了<strong>初始随机因子</strong>，而WRR由于算法的限制没有此功能。因此在新建连接数少，同时并发连接少，也没有预热的情况下，RR算法会有更好的均衡性表现。</p>
+<h4 id="LVS-集群下不均衡"><a href="#LVS-集群下不均衡" class="headerlink" title="LVS 集群下不均衡"></a>LVS 集群下不均衡</h4><p>一般一个负载均衡由多个（4个）LVS 机器组成。</p>
+<p>假设每批请求发来四个新连接，经过4台负载均衡机器每个机器一个连接，这一个连接都打到了 RS 的第一个节点上。主要是4台负载均衡机器之间没有协商机制，互相没有同步信息。</p>
+<p>可以的解决方案：LVS 机器加入随机因子，让每个LVS 认为的第一个节点不一样</p>
+<h5 id="权值相等的WRR算法是否与RR算法等效？"><a href="#权值相等的WRR算法是否与RR算法等效？" class="headerlink" title="权值相等的WRR算法是否与RR算法等效？"></a>权值相等的WRR算法是否与RR算法等效？</h5><p>不等效。原因是由于RR调试算法加入了<strong>初始随机因子</strong>，而WRR由于算法的限制没有此功能。因此在新建连接数少，同时并发连接少，也没有预热的情况下，RR算法会有更好的均衡性表现。</p>
 <p> WRR在每一次健康检查抖动的时候，会重置调度器，从头开始WRR的逻辑，因此可能会导致调度部分调度不均匀。</p>
 <h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>比如如下这个负载不均衡，因为第一个RS CPU特别忙，QPS的不均衡大致能说明工作连接的差异</p>
-<p><img src="/images/951413iMgBlog/image-20210422171244718.png" alt="image-20210422171244718"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png" alt="image-20210422171244718"></p>
 <ol>
 <li>连接数差距大有一部分是因为机器忙，断开慢。lvs监控的累积连接数是200:250的差距, 流量差距是1:2</li>
-<li>wrr会经常重置调度逻辑，经常从第一台开始轮询，导致第一台压力</li>
+<li>wrr会经常重置调度逻辑，经常从第一台开始轮询，导致第一台压力更大</li>
 </ol>
 <p>和lvs负载监控数据对比来看是一致的：</p>
-<p><img src="/images/951413iMgBlog/image-20210422171155401.png" alt="image-20210422171155401"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171155401.png" alt="image-20210422171155401"></p>
 <h3 id="wlc算法"><a href="#wlc算法" class="headerlink" title="wlc算法"></a>wlc算法</h3><p>针对wrr对长连接的上述不均衡，所以wlc算法考虑当前已存在的连接数，尽量把新连接发送到连接数较少的RS上，看起来比较完美地修复了wrr的上述不均衡问题。</p>
 <p>wlc将连接分成active（ESTABLISHED）和inactive(syn&#x2F;fin等其它状态），收到syn包后LVS按照如下算法判定该将syn发给哪个RS</p>
 <pre><code>static inline int
@@ -438,7 +441,7 @@ ip_vs_dest_conn_overhead(struct ip_vs_dest *dest)
 <p>主要是因为这里对inactive 连接的判定比较糙，active连接的权重直接<em>256就更糙了（作者都说了是拍脑袋的）。实际握手阶段的连接直接都判定为active比较妥当，挥手阶段的连接判定为inactive是可以的，但是active的权重取</em>4或者8就够了，256有点夸张。</p>
 <p>这个不均衡场景可以通过 sysbench 稳定重现，<strong>如果两个RS的rt差异大一点会更明显</strong>。</p>
 <p>RS到LVS之间的时延差异会放大这个不均衡，这个差异必然会存在，再就是vpc网络环境下首包延时很大（因为overlay之类的网络，连接的首包都会去网关拉取路由信息，所以首包都很慢），差异会更明显，因为这些都会影响第一个active连接的建立。</p>
-<h4 id="What-is-an-ActiveConn-InActConn-Active-Inactive-connnection"><a href="#What-is-an-ActiveConn-InActConn-Active-Inactive-connnection" class="headerlink" title="What is an ActiveConn&#x2F;InActConn (Active&#x2F;Inactive) connnection?"></a>What is an ActiveConn&#x2F;InActConn (Active&#x2F;Inactive) connnection?</h4><ul>
+<h4 id="What-is-an-ActiveConn-x2F-InActConn-Active-x2F-Inactive-connnection"><a href="#What-is-an-ActiveConn-x2F-InActConn-Active-x2F-Inactive-connnection" class="headerlink" title="What is an ActiveConn&#x2F;InActConn (Active&#x2F;Inactive) connnection?"></a>What is an ActiveConn&#x2F;InActConn (Active&#x2F;Inactive) connnection?</h4><ul>
 <li>ActiveConn in ESTABLISHED state</li>
 <li>InActConn any other state</li>
 </ul>
@@ -480,6 +483,7 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
 </ol>
 <h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
 <li>wrr&#x2F;rr在长连接下，RS比较害怕动态扩容、重启机器、升级应用等场景</li>
+<li>wrr会因为没有随机因子在小流量、探活失败重置场景下导致第一个RS 压力大，总的来说推荐rr而不是wrr</li>
 <li>wlc&#x2F;lc在长连接下，如果同时创建的大量连接（比如sysbench压测），因为内核的lvs逻辑对active和inactive判定不太合理导致了这种场景下连接会严重不均衡。</li>
 <li>如果是druid这种连接池一个个创建的连接在wlc&#x2F;lc算法是不会触发不均衡</li>
 <li>如果lvs到两个RS的rt差异越大会加剧wlc&#x2F;lc的不平衡（rt差异肯定是会存在的）</li>
@@ -516,9 +520,9 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
           
             <a href="/tags/Linux/" rel="tag"># Linux</a>
           
-            <a href="/tags/network/" rel="tag"># network</a>
-          
             <a href="/tags/LVS/" rel="tag"># LVS</a>
+          
+            <a href="/tags/network/" rel="tag"># network</a>
           
             <a href="/tags/LoadBalance/" rel="tag"># LoadBalance</a>
           
@@ -683,7 +687,7 @@ ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
             
 
             
-              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#LVS-20倍的负载不均衡，原来是内核的这个Bug"><span class="nav-number">1.</span> <span class="nav-text">LVS 20倍的负载不均衡，原来是内核的这个Bug</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#问题由来"><span class="nav-number">1.1.</span> <span class="nav-text">问题由来</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#几个术语和缩写"><span class="nav-number">1.2.</span> <span class="nav-text">几个术语和缩写</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#负载均衡调度算法"><span class="nav-number">1.3.</span> <span class="nav-text">负载均衡调度算法</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#rr轮询调度-Round-Robin-Scheduling"><span class="nav-number">1.3.1.</span> <span class="nav-text">rr轮询调度(Round-Robin Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wrr加权轮询调度-Weighted-Round-Robin-Scheduling"><span class="nav-number">1.3.2.</span> <span class="nav-text">wrr加权轮询调度(Weighted Round-Robin Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#lc最小连接调度-Least-Connection-Scheduling"><span class="nav-number">1.3.3.</span> <span class="nav-text">lc最小连接调度(Least-Connection Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wlc加权最小连接调度-Weighted-Least-Connection-Scheduling"><span class="nav-number">1.3.4.</span> <span class="nav-text">wlc加权最小连接调度(Weighted Least-Connection Scheduling)</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么会不均衡"><span class="nav-number">1.4.</span> <span class="nav-text">为什么会不均衡</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#wrr算法"><span class="nav-number">1.4.1.</span> <span class="nav-text">wrr算法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#长连接"><span class="nav-number">1.4.1.1.</span> <span class="nav-text">长连接</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#权值相等的WRR算法是否与RR算法等效？"><span class="nav-number">1.4.1.2.</span> <span class="nav-text">权值相等的WRR算法是否与RR算法等效？</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#案例"><span class="nav-number">1.4.2.</span> <span class="nav-text">案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wlc算法"><span class="nav-number">1.4.3.</span> <span class="nav-text">wlc算法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#What-is-an-ActiveConn-InActConn-Active-Inactive-connnection"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">What is an ActiveConn/InActConn (Active/Inactive) connnection?</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#slb下的wlc"><span class="nav-number">1.4.3.2.</span> <span class="nav-text">slb下的wlc</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#sysbench验证wlc均衡逻辑"><span class="nav-number">1.4.4.</span> <span class="nav-text">sysbench验证wlc均衡逻辑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Session-Persistence-导致的负载不均衡"><span class="nav-number">1.4.5.</span> <span class="nav-text">Session Persistence 导致的负载不均衡</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.5.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章"><span class="nav-number">1.6.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#LVS-20倍的负载不均衡，原来是内核的这个Bug"><span class="nav-number">1.</span> <span class="nav-text">LVS 20倍的负载不均衡，原来是内核的这个Bug</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#问题由来"><span class="nav-number">1.1.</span> <span class="nav-text">问题由来</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#几个术语和缩写"><span class="nav-number">1.2.</span> <span class="nav-text">几个术语和缩写</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#负载均衡调度算法"><span class="nav-number">1.3.</span> <span class="nav-text">负载均衡调度算法</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#rr轮询调度-Round-Robin-Scheduling"><span class="nav-number">1.3.1.</span> <span class="nav-text">rr轮询调度(Round-Robin Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wrr加权轮询调度-Weighted-Round-Robin-Scheduling"><span class="nav-number">1.3.2.</span> <span class="nav-text">wrr加权轮询调度(Weighted Round-Robin Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#lc最小连接调度-Least-Connection-Scheduling"><span class="nav-number">1.3.3.</span> <span class="nav-text">lc最小连接调度(Least-Connection Scheduling)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wlc加权最小连接调度-Weighted-Least-Connection-Scheduling"><span class="nav-number">1.3.4.</span> <span class="nav-text">wlc加权最小连接调度(Weighted Least-Connection Scheduling)</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#为什么会不均衡"><span class="nav-number">1.4.</span> <span class="nav-text">为什么会不均衡</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#wrr算法"><span class="nav-number">1.4.1.</span> <span class="nav-text">wrr算法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#长连接"><span class="nav-number">1.4.1.1.</span> <span class="nav-text">长连接</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#LVS-集群下不均衡"><span class="nav-number">1.4.1.2.</span> <span class="nav-text">LVS 集群下不均衡</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#权值相等的WRR算法是否与RR算法等效？"><span class="nav-number">1.4.1.2.1.</span> <span class="nav-text">权值相等的WRR算法是否与RR算法等效？</span></a></li></ol></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#案例"><span class="nav-number">1.4.2.</span> <span class="nav-text">案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#wlc算法"><span class="nav-number">1.4.3.</span> <span class="nav-text">wlc算法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#What-is-an-ActiveConn-x2F-InActConn-Active-x2F-Inactive-connnection"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">What is an ActiveConn/InActConn (Active/Inactive) connnection?</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#slb下的wlc"><span class="nav-number">1.4.3.2.</span> <span class="nav-text">slb下的wlc</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#sysbench验证wlc均衡逻辑"><span class="nav-number">1.4.4.</span> <span class="nav-text">sysbench验证wlc均衡逻辑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Session-Persistence-导致的负载不均衡"><span class="nav-number">1.4.5.</span> <span class="nav-text">Session Persistence 导致的负载不均衡</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.5.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考文章"><span class="nav-number">1.6.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
             
 
           </div>
