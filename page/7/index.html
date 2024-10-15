@@ -292,6 +292,338 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/12/logback日志异步化输出对性能的影响/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/09/12/logback日志异步化输出对性能的影响/" itemprop="url">logback 日志异步化输出对性能的影响</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-12T12:30:03+08:00">
+                2019-09-12
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="logback-日志异步化输出对性能的影响"><a href="#logback-日志异步化输出对性能的影响" class="headerlink" title="logback 日志异步化输出对性能的影响"></a>logback 日志异步化输出对性能的影响</h1><h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p>Java在每次请求结束后都会输出日志记录每次请求的相关信息，一个QPS对应一次日志的输出。</p>
+<p>异步化基本百利而无一害，特定的场景、机器下可以数倍提升效率</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
+<li>异步化对性能的影响取决于日志的多少和机器CPU的核数</li>
+<li>logback日志异步化主要是写日志逻辑变成了单线程，没有锁</li>
+<li>异步化后性能有10-15%的提升(Profiling看到日志相关的CPU占比从13%降到6.5%)</li>
+<li>异步输出条件下，日志多少对性能的影响有，但是不明显（15%以内）</li>
+<li>如果是同步输出日志，开启延迟flush log（<immediateflush>false</immediateflush> &#x2F;&#x2F;flush policy）能有5%的性能提升</li>
+<li>异步化后再开启延迟flush log对性能提升不明显(Profiling看到log flush的CPU从1.2%降到0.4%)</li>
+<li>slf4j只是个接口框架，JUL&#x2F;log4j2和logback是具体实现，logback是log4j的升级版</li>
+<li>如果一秒钟日志输出达到6M（主要取决于条数），那么异步化能提升一倍的性能（日志太多的时候同步下CPU跑不满）</li>
+<li>同步日志输出场景下瓶颈主要在同步锁而不是磁盘写日志（顺序写磁盘）</li>
+<li>从Profiler堆栈来看异步后锁和日志输出部分占比明显降低</li>
+<li>CPU核数越多意味着并发越多，那么同步异步和immediateFlush的影响越明显</li>
+<li>异步化输出日志后对avg rt 和 rt 95%线下降影响非常明显，也更稳定</li>
+<li>immediateFlush 对同步影响比较明显（一倍），主要是因为每次刷盘慢导致别的线程等锁时间长，在异步场景下基本不明显</li>
+<li>immediateFlush为false有丢日志的风险，异步后没有必要再设immediateFlush为false</li>
+<li>延迟Flush的cache取决于JDK的BufferedOutputStream缓冲大小，默认8K，不可更改</li>
+<li>异步后日志输出的瓶颈在于单核能力，Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 输出能力大概是每秒20万条日志</li>
+</ul>
+<h2 id="测试数据"><a href="#测试数据" class="headerlink" title="测试数据"></a>测试数据</h2><h3 id="4核的机器下性能提升没这么明显，因为锁争抢没这么激烈"><a href="#4核的机器下性能提升没这么明显，因为锁争抢没这么激烈" class="headerlink" title="4核的机器下性能提升没这么明显，因为锁争抢没这么激烈"></a>4核的机器下性能提升没这么明显，因为锁争抢没这么激烈</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d38fecd4932266209c6a1ca0265f98aa.png" alt="image.png"></p>
+<p>4.9内核下, 异步对rt影响明显, 似乎是4.9对锁的处理更好：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1566290324749-86d349a5-b647-439c-ac19-f7b772f9e575.png" alt="image.png"></p>
+<p>2.6.32下异步对rt影响不是很大</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1566291069825-24063e55-20e8-4689-a0af-b8a7083ca806.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1566291122368-e60ca95a-ae36-47f8-957c-747f35834233.png" alt="image.png"></p>
+<p>加大120线程并发，可以看到tps提升明显但是rt仍然不明显</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1566292019098-60f15294-a001-452e-8ecb-626aada11837.png" alt="image.png"></p>
+<p>如果将 sql.log 改为error级别，tps上升到30000，rt比info也有将近10%的提升，这个rt的提升是因为tps提升导致的。（都是异步输出的场景下）</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1566294041222-153fbe62-e503-4d35-b99a-bd2517332592.png" alt="image.png"></p>
+<h3 id="同步情况下的profiler"><a href="#同步情况下的profiler" class="headerlink" title="同步情况下的profiler"></a>同步情况下的profiler</h3><p>recordSQL: 12.9%<br>logback.doAppend: 10%</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4e0595c173522e37edf87b568eab6e7f.png" alt="image.png"></p>
+<h3 id="异步情况下的profiler"><a href="#异步情况下的profiler" class="headerlink" title="异步情况下的profiler:"></a>异步情况下的profiler:</h3><p>recordSQL:  3.7%<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a88a3595d386be2ffeb0652ba2fdeea1.png" alt="image.png"></p>
+<p>logback.doAppend: 2.63%</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e3d0200c0edf97540d422252fb23a4c2.png" alt="image.png"></p>
+<h3 id="在16个core的机器上锁争抢更明显"><a href="#在16个core的机器上锁争抢更明显" class="headerlink" title="在16个core的机器上锁争抢更明显"></a>在16个core的机器上锁争抢更明显</h3><p><a href="https://yuque.antfin-inc.com/preview/lark/0/2019/svg/33359/1568184395734-ff64a8ee-8b24-45ec-8fc3-024e14b8e7f0.svg" target="_blank" rel="noopener">99.8%的锁都是doApend</a> </p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/15879d15dbe876b5ee3bed02dfa18894.png" alt="image.png"></p>
+<h3 id="同步和异步以及immediateFlush的影响"><a href="#同步和异步以及immediateFlush的影响" class="headerlink" title="同步和异步以及immediateFlush的影响"></a>同步和异步以及immediateFlush的影响</h3><p>16core的机器</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f0e39a66b63fe00877b6663f8857a739.png" alt="image.png"></p>
+<p>结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）<br>异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显</p>
+<h3 id="一个业务逻辑稍微慢点的场景"><a href="#一个业务逻辑稍微慢点的场景" class="headerlink" title="一个业务逻辑稍微慢点的场景"></a>一个业务逻辑稍微慢点的场景</h3><p>异步输出日志点查场景tps11万+，同步输出日志后点查tps4万+，同时jstack堆栈也能看到333个BLOCKED堆栈：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br></pre></td><td class="code"><pre><span class="line">#[ 210s] threads: 400, tps: 0.00, reads/s: 115845.43, writes/s: 0.00, response time: 7.57ms (95%)</span><br><span class="line">#[ 220s] threads: 400, tps: 0.00, reads/s: 116453.12, writes/s: 0.00, response time: 7.28ms (95%)</span><br><span class="line">#[ 230s] threads: 400, tps: 0.00, reads/s: 116400.31, writes/s: 0.00, response time: 7.33ms (95%)</span><br><span class="line">#[ 240s] threads: 400, tps: 0.00, reads/s: 116025.35, writes/s: 0.00, response time: 7.48ms (95%)</span><br><span class="line">#[ 250s] threads: 400, tps: 0.00, reads/s: 45260.97, writes/s: 0.00, response time: 29.57ms (95%)</span><br><span class="line">#[ 260s] threads: 400, tps: 0.00, reads/s: 41598.41, writes/s: 0.00, response time: 29.07ms (95%)</span><br><span class="line">#[ 270s] threads: 400, tps: 0.00, reads/s: 41939.98, writes/s: 0.00, response time: 28.96ms (95%)</span><br><span class="line">#[ 280s] threads: 400, tps: 0.00, reads/s: 40875.48, writes/s: 0.00, response time: 29.16ms (95%)</span><br><span class="line">#[ 290s] threads: 400, tps: 0.00, reads/s: 41053.73, writes/s: 0.00, response time: 29.07ms (95%)</span><br><span class="line"></span><br><span class="line">--- 1687260767618 ns (100.00%), 91083 samples</span><br><span class="line"> [ 0] ch.qos.logback.classic.sift.SiftingAppender</span><br><span class="line"> [ 1] ch.qos.logback.core.AppenderBase.doAppend</span><br><span class="line"> [ 2] ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders</span><br><span class="line"> [ 3] ch.qos.logback.classic.Logger.appendLoopOnAppenders</span><br><span class="line"> [ 4] ch.qos.logback.classic.Logger.callAppenders</span><br><span class="line"> [ 5] ch.qos.logback.classic.Logger.buildLoggingEventAndAppend</span><br><span class="line"> [ 6] ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus</span><br><span class="line"> [ 7] ch.qos.logback.classic.Logger.info</span><br><span class="line"> [ 8] com.taobao.tddl.common.utils.logger.slf4j.Slf4jLogger.info</span><br><span class="line"> [ 9] com.taobao.tddl.common.utils.logger.support.FailsafeLogger.info</span><br><span class="line"> [10] com.alibaba.cobar.server.util.LogUtils.recordSql</span><br><span class="line"> [11] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line"> [12] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line"> [13] com.alibaba.cobar.server.ServerConnection$1.run</span><br><span class="line"> [14] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line"> [15] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line"> [16] java.util.concurrent.FutureTask.run</span><br><span class="line"> [17] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line"> [18] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line"> [19] java.lang.Thread.run</span><br><span class="line">  </span><br><span class="line">&quot;ServerExecutor-3-thread-480&quot; #753 daemon prio=5 os_prio=0 tid=0x00007f8265842000 nid=0x26f1 waiting for monitor entry [0x00007f82270bf000]</span><br><span class="line">  java.lang.Thread.State: BLOCKED (on object monitor)</span><br><span class="line">	at ch.qos.logback.core.AppenderBase.doAppend(AppenderBase.java:64)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	at ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders(AppenderAttachableImpl.java:48)</span><br><span class="line">	at ch.qos.logback.classic.Logger.appendLoopOnAppenders(Logger.java:282)</span><br><span class="line">	at ch.qos.logback.classic.Logger.callAppenders(Logger.java:269)</span><br><span class="line">	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:470)</span><br><span class="line">	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:424)</span><br><span class="line">	at ch.qos.logback.classic.Logger.info(Logger.java:628)</span><br><span class="line">	at com.taobao.tddl.common.utils.logger.slf4j.Slf4jLogger.info(Slf4jLogger.java:42)</span><br><span class="line">	at com.taobao.tddl.common.utils.logger.support.FailsafeLogger.info(FailsafeLogger.java:102)</span><br><span class="line">	at com.alibaba.cobar.server.util.LogUtils.recordSql(LogUtils.java:115)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection.innerExecute(ServerConnection.java:874)</span><br><span class="line">	- locked &lt;0x00007f87382cb108&gt; (a com.alibaba.cobar.server.ServerConnection)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection.innerExecute(ServerConnection.java:569)</span><br><span class="line">	- locked &lt;0x00007f87382cb108&gt; (a com.alibaba.cobar.server.ServerConnection)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection$1.run(ServerConnection.java:402)</span><br><span class="line">	at com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run(FlowControlThreadPool.java:480)</span><br><span class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</span><br><span class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</span><br><span class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1152)</span><br><span class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:627)</span><br><span class="line">	at java.lang.Thread.run(Thread.java:861)</span><br><span class="line"></span><br><span class="line">  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- locked &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br></pre></td></tr></table></figure>
+
+<h2 id="immediateFlush-true-x2F-false-以及同步异步对tps的影响"><a href="#immediateFlush-true-x2F-false-以及同步异步对tps的影响" class="headerlink" title="immediateFlush true&#x2F;false 以及同步异步对tps的影响"></a>immediateFlush true&#x2F;false 以及同步异步对tps的影响</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a4753f40c89640c4d86a54902b9ed691.png" alt="image.png"></p>
+<p>结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显</p>
+<h2 id="异步配置"><a href="#异步配置" class="headerlink" title="异步配置"></a>异步配置</h2><pre><code>    &lt;appender name=&quot;asyncROOT&quot; class=&quot;ch.qos.logback.classic.AsyncAppender&quot;&gt;
+        &lt;queueSize&gt;1000&lt;/queueSize&gt;
+        &lt;maxFlushTime&gt;3000&lt;/maxFlushTime&gt;
+                &lt;discardingThreshold&gt;0&lt;/discardingThreshold&gt;
+        &lt;neverBlock&gt;true&lt;/neverBlock&gt;
+        &lt;appender-ref ref=&quot;ROOT&quot;/&gt;
+        &lt;/appender&gt;
+</code></pre>
+<h2 id="JDK中BufferedOutputStream-Buffer大小"><a href="#JDK中BufferedOutputStream-Buffer大小" class="headerlink" title="JDK中BufferedOutputStream Buffer大小"></a>JDK中BufferedOutputStream Buffer大小</h2><pre><code>/** 
+ * Creates a new buffered output stream to write data to the 
+ * specified underlying output stream. 
+ * 
+ * @param   out   the underlying output stream. 
+ */  
+public BufferedOutputStream(OutputStream out) {  
+    this(out, 8192);  
+}  
+</code></pre>
+<p>尝试改大buffer基本没什么明显的影响</p>
+<h2 id="测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）"><a href="#测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）" class="headerlink" title="测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）"></a>测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）</h2><table>
+<thead>
+<tr>
+<th></th>
+<th>tps</th>
+<th>100秒每个节点输出日志大小</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不输出日志</td>
+<td>35097</td>
+<td></td>
+</tr>
+<tr>
+<td>sql.log+同步</td>
+<td>28891</td>
+<td>292M</td>
+</tr>
+<tr>
+<td>sql.log+异步</td>
+<td>32164</td>
+<td>292M</td>
+</tr>
+<tr>
+<td>sql.log+com.taobao&#x2F;trace+异步</td>
+<td>28894</td>
+<td>670M</td>
+</tr>
+<tr>
+<td>sql.log+com.taobao&#x2F;trace+同步</td>
+<td>13248</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>com.taobao&#x2F;trace 指的是将com.taobao.*设为trace输出，以增加输出日志量。</p>
+<h3 id="是否开启immediateFlush（默认true）"><a href="#是否开启immediateFlush（默认true）" class="headerlink" title="是否开启immediateFlush（默认true）"></a>是否开启immediateFlush（默认true）</h3><table>
+<thead>
+<tr>
+<th></th>
+<th>tps</th>
+<th>100秒每个节点输出日志大小</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同步+immediateFlush</td>
+<td>27610</td>
+<td>282M</td>
+</tr>
+<tr>
+<td>同步</td>
+<td>29554</td>
+<td>303M</td>
+</tr>
+<tr>
+<td>异步+immediateFlush</td>
+<td>31100</td>
+<td>245M</td>
+</tr>
+<tr>
+<td>异步</td>
+<td>31150</td>
+<td>260M</td>
+</tr>
+</tbody></table>
+<p>（这个表格和前面的表格整体tps不一致，前一个表格是晚上测试，这个表格是上午测试的，不清楚是否环境受到了影响）</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键结论见最前面，但是要结合自己场景输出日志的速度，日志输出越少影响越不明显，机器核数越多会越明显，总的原因就是logback的 AppenderBase的doAppend()函数需要同步</p>
+<pre><code>public synchronized void doAppend(E eventObject)
+</code></pre>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>Logback 异步日志处理能力分析</p>
+<h3 id="环境信息"><a href="#环境信息" class="headerlink" title="环境信息"></a>环境信息</h3><p>32C128G</p>
+<h3 id="单条日志较大-len-x3D-1137"><a href="#单条日志较大-len-x3D-1137" class="headerlink" title="单条日志较大 len&#x3D;1137"></a>单条日志较大 len&#x3D;1137</h3><p>top</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">13200 admin     20   0  128.6g  78.6g  22864 R 85.1 63.5  15:13.50 AsyncAppende //异步写日志</span><br><span class="line">13389 admin     20   0  128.6g  78.6g  22864 R 42.1 63.5   1:33.49 logback-5 --压缩</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">13200 admin     20   0  128.6g  78.5g  22864 R 85.1 63.5  15:54.71 AsyncAppender-W</span><br><span class="line">13456 admin     20   0  128.6g  78.5g  22864 R 73.5 63.5   1:49.45 logback-6</span><br></pre></td></tr></table></figure>
+
+<p>日志内容</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[len=1137] select 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/</span><br><span class="line"></span><br><span class="line">[ 408s] threads: 360, tps: 0.00, reads/s: 78817.18, writes/s: 0.00, response time: 15.55ms (95%)</span><br><span class="line">[ 409s] threads: 360, tps: 0.00, reads/s: 85020.78, writes/s: 0.00, response time: 12.70ms (95%)</span><br><span class="line">[ 410s] threads: 360, tps: 0.00, reads/s: 86073.08, writes/s: 0.00, response time: 12.83ms (95%)</span><br><span class="line">[ 411s] threads: 360, tps: 0.00, reads/s: 84357.86, writes/s: 0.00, response time: 12.90ms (95%)</span><br></pre></td></tr></table></figure>
+
+<p>平均每分钟输出日志内容 13个512MB日志文件，每秒100MB的输出能力</p>
+<h3 id="每条日志len-x3D-150"><a href="#每条日志len-x3D-150" class="headerlink" title="每条日志len&#x3D;150"></a>每条日志len&#x3D;150</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[len=150] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ </span><br><span class="line"></span><br><span class="line">[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)</span><br><span class="line">[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)</span><br><span class="line">[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)</span><br></pre></td></tr></table></figure>
+
+<p>减小日志</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[len=46] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ </span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W</span><br><span class="line">15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-5</span><br><span class="line">15664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W</span><br><span class="line">15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W</span><br><span class="line">15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-515664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W</span><br></pre></td></tr></table></figure>
+
+<h3 id="select-1日志"><a href="#select-1日志" class="headerlink" title="select 1日志"></a>select 1日志</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[len=8] SELECT 1 </span><br><span class="line"></span><br><span class="line">[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)</span><br><span class="line">[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)</span><br><span class="line">[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15646 admin     20   0  128.3g  78.1g  22976 R 81.5 63.2   3:37.77 AsyncAppender-W</span><br><span class="line">16849 admin     20   0  128.3g  78.1g  22976 R 37.7 63.2   0:26.85 logback-8</span><br><span class="line">16066 admin     20   0  128.3g  78.1g  22976 S 33.8 63.2   0:33.07 logback-7</span><br></pre></td></tr></table></figure>
+
+<h3 id="点查日志"><a href="#点查日志" class="headerlink" title="点查日志"></a>点查日志</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[len=43] SELECT *, pad FROM sbtest1 WHERE id=5000089</span><br><span class="line"></span><br><span class="line">[  31s] threads: 360, tps: 0.00, reads/s: 120084.93, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  32s] threads: 360, tps: 0.00, reads/s: 119897.70, writes/s: 0.00, response time: 3.21ms (95%)</span><br><span class="line">[  33s] threads: 360, tps: 0.00, reads/s: 120158.21, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  34s] threads: 360, tps: 0.00, reads/s: 119777.94, writes/s: 0.00, response time: 3.22ms (95%)</span><br><span class="line">[  35s] threads: 360, tps: 0.00, reads/s: 120047.95, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  36s] threads: 360, tps: 0.00, reads/s: 118585.32, writes/s: 0.00, response time: 3.23ms (95%)</span><br><span class="line">[  37s] threads: 360, tps: 0.00, reads/s: 119351.12, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15644 admin     20   0  128.5g  78.3g  22976 R 99.9 63.3   1:12.14 logback-1</span><br><span class="line">15646 admin     20   0  128.5g  78.3g  22976 R 65.6 63.3   8:46.11 AsyncAppender-W</span><br><span class="line">15659 admin     20   0  128.5g  78.3g  22976 R 25.5 63.3   2:53.82 Processor0-R</span><br><span class="line">15662 admin     20   0  128.5g  78.3g  22976 S 25.5 63.3   3:06.63 Processor1-W</span><br></pre></td></tr></table></figure>
+
+<p>后端RDS快打满了</p>
+<h3 id="案例总结"><a href="#案例总结" class="headerlink" title="案例总结"></a>案例总结</h3><p>len表示日志长度</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>len&#x3D;43 ，点查</th>
+<th>len&#x3D;8 select 1</th>
+<th>[len&#x3D;150] SELECT 1</th>
+<th>[len&#x3D;1137] select 1</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>QPS</td>
+<td>12万（rds瓶颈）</td>
+<td>18.6万(写日志单线程瓶颈)</td>
+<td>18.5万</td>
+<td>8.5万(磁盘瓶颈)</td>
+</tr>
+</tbody></table>
+<p>因为<strong>调度问题</strong> 异步写日志进程很难跑满CPU, 最多跑到80%左右</p>
+<p>单核按条输出能力在 18万条每秒左右（Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz）</p>
+<p>如果日志太大会受限于物理磁盘写出能力，测试环境最大输出能力是每秒 100MB</p>
+<h2 id="16core-VS-32-Core-案例比较"><a href="#16core-VS-32-Core-案例比较" class="headerlink" title="16core VS 32 Core 案例比较"></a>16core VS 32 Core 案例比较</h2><p>如果都是用一半超线程，32 Core基本能达到16Core的1.9倍性能</p>
+<p>下图上半部分是32C，下半部分是16C</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220810160155192.png" alt="image-20220810160155192"></p>
+<p>对应CPU状态</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220810160241298.png" alt="image-20220810160241298"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220810160249972.png" alt="image-20220810160249972"></p>
+<p>如果都改用物理核后，32Core VS 16Core是 25万 VS 15万，大概提升有1.67倍，不到2倍</p>
+<p>同时看到perf 也是打了7折，这应该是core太多后应用代码内部锁竞争太激励</p>
+<h2 id="横向比较"><a href="#横向比较" class="headerlink" title="横向比较"></a>横向比较</h2><p>logback、log4j2等横向关系和性能比较分析</p>
+<h3 id="日志框架"><a href="#日志框架" class="headerlink" title="日志框架"></a>日志框架</h3><p>紫色为接口类，蓝色为实现，白色为转换<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f8f589fd11e4d480162e24b02d95e511.png" alt="image.png"></p>
+<p>log4j-over-slf4j和slf4j-log4j12之所以不能共存，是因为它俩可以造成循环依赖！从图中可以看到，有不少会造成循环依赖的场景，比如jul-to-slf4j与slf4j-jdk14、jcl-over-slf4j与JCL等，有些jar的共存会让调用方产生困惑，不知道具体调用哪个</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220907151035617.png" alt="image-20220907151035617"></p>
+<h3 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/260fd07e702c1a0636d277bbf73607cb.png" alt="image.png"></p>
+<ul>
+<li>可见在同步日志模式下, Logback的性能是最糟糕的.</li>
+<li>而log4j2的性能无论在同步日志模式还是异步日志模式下都是最佳的.</li>
+</ul>
+<p>其根本原因在于log4j2使用了LMAX, 一个无锁的线程间通信库代替了, logback和log4j之前的队列. 并发性能大大提升。有兴趣的同学，可以深入探索。</p>
+<p>来自log4j2官方的比较数据（同步，在不同的瓶颈下）</p>
+<p><a href="https://logging.apache.org/log4j/2.x/performance.html" target="_blank" rel="noopener">https://logging.apache.org/log4j/2.x/performance.html</a>：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/46214ad5378ef5790ad167037a41149d.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ef794e63ba049e1fa76a1884a6e213a5.png" alt="image.png"></p>
+<h4 id="异步场景下的性能比较"><a href="#异步场景下的性能比较" class="headerlink" title="异步场景下的性能比较"></a>异步场景下的性能比较</h4><p>AsyncAppender to FileAppender<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/29c0786bbcecc092ca7c84cce203453d.png" alt="image.png"></p>
+<h3 id="Log4j2中的异步日志-AsyncAppender"><a href="#Log4j2中的异步日志-AsyncAppender" class="headerlink" title="Log4j2中的异步日志(AsyncAppender)"></a>Log4j2中的异步日志(AsyncAppender)</h3><p>默认用ArrayBlockingQueue.队列大小为128.</p>
+<h4 id="关于ArrayBlockingQueue"><a href="#关于ArrayBlockingQueue" class="headerlink" title="关于ArrayBlockingQueue"></a>关于ArrayBlockingQueue</h4><p>ArrayBlockingQueue是一种地节省了空间，对于记日志有很好的适用性，同时避免内存的伸缩产生波动，也降低了GC的负担。入队出队时由内部的重入锁来控制并发，同时默认采用非公平锁的性质来处理活跃线程的闯入(Barge)，从而提高吞吐量。<br>ArrayBlockingQueue在处理数据的入队提供了offer和put方法。两者的区别是：如果队列满了，offer直接返回给调用线程false, 而不用等待，这种场景较适合异步写日志，即使没有入队成功，仍然可以接受。而put方法则会让当前线程进入等待队列，并再次去竞争锁。<br>类似的，处理出队时提供了poll和take方法，区别也是是否阻塞调用线程。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.iteye.com/blog/k1280000-2265177" target="_blank" rel="noopener">flush cache 大小8K </a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/08/31/就是要你懂TCP队列--通过实战案例来展示问题/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5652,223 +5984,6 @@ IPv4 路由表
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/12/26/网络丢包/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/12/26/网络丢包/" itemprop="url">网络丢包</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-12-26T16:30:03+08:00">
-                2018-12-26
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="网络丢包"><a href="#网络丢包" class="headerlink" title="网络丢包"></a>网络丢包</h1><h2 id="查看网卡是否丢包，一般是ring-buffer太小"><a href="#查看网卡是否丢包，一般是ring-buffer太小" class="headerlink" title="查看网卡是否丢包，一般是ring buffer太小"></a>查看网卡是否丢包，一般是ring buffer太小</h2><pre><code>ethtool -S eth0 | grep rx_ | grep errors
-</code></pre>
-<p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer(由网卡驱动直接在内核中分配的内存，并存放数据包，供内核软中断的时候读取)，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 &#x2F;proc&#x2F;net&#x2F;dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
-<h2 id="查看ring-buffer的大小设置"><a href="#查看ring-buffer的大小设置" class="headerlink" title="查看ring buffer的大小设置"></a>查看ring buffer的大小设置</h2><pre><code>ethtool ‐g eth0  
-</code></pre>
-<h2 id="Socket-buffer太小导致的丢包（一般不多见）"><a href="#Socket-buffer太小导致的丢包（一般不多见）" class="headerlink" title="Socket buffer太小导致的丢包（一般不多见）"></a>Socket buffer太小导致的丢包（一般不多见）</h2><p>内核收到包后，会给对应的socket，每个socket会有 sk_rmem_alloc&#x2F;sk_wmem_alloc&#x2F;sk_omem_alloc、sk_rcvbuf(bytes)来存放包</p>
-<p>When sk_rmem_alloc &gt;<br>sk_rcvbuf the TCP stack will call a routine which “collapses” the receive queue</p>
-<p>查看collapses:</p>
-<pre><code>netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
-17671 packets pruned from receive queue because of socket buffer overrun
-18671 packets pruned from receive queue because of socket buffer overrun
-</code></pre>
-<p>测试发现在小包情况下，这两个值相对会增大且比较快。增大 net.ipv4.tcp_rmem 和 net.core.rmem_max、net.core.rmem_default 后没什么效果 – 需要进一步验证</p>
-<h2 id="net-core-netdev-budget"><a href="#net-core-netdev-budget" class="headerlink" title="net.core.netdev_budget"></a>net.core.netdev_budget</h2><p>sysctl net.core.netdev_budget &#x2F;&#x2F;默认300， The default value of the budget is 300. This will<br>cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU<br>如果 &#x2F;proc&#x2F;net&#x2F;softnet_stat 第三列一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值<br>net&#x2F;core&#x2F;dev.c-&gt;net_rx_action 函数中会按netdev_budget 执行softirq，budget每次执行都要减少，一直到没有了，就退出softirq</p>
-<p>一般默认软中断只绑定在CPU0上，如果包的数量巨大的话会导致 CPU0利用率 100%（主要是si），这个时候可以检查文件 &#x2F;proc&#x2F;net&#x2F;softnet_stat 的第三列 或者 RX overruns 是否在持续增大</p>
-<h2 id="net-core-netdev-max-backlog"><a href="#net-core-netdev-max-backlog" class="headerlink" title="net.core.netdev_max_backlog"></a>net.core.netdev_max_backlog</h2><p>enqueue_to_backlog函数中，会对CPU的softnet_data 实例中的接收队列（input_pkt_queue）进行判断，如果队列中的数据长度超过netdev_max_backlog ，那么数据包将直接丢弃，这就产生了丢包。</p>
-<p>参数net.core.netdev_max_backlog指定的，默认大小是 1000。</p>
-<p>netdev_max_backlog 接收包队列（网卡收到还没有进行协议的处理队列），每个cpu core一个队列,如果&#x2F;proc&#x2F;net&#x2F;softnet_stat第二列增加就表示这个队列溢出了，需要改大。 </p>
-<blockquote>
-<p>&#x2F;proc&#x2F;net&#x2F;softnet_stat：（第一列和第三列的关系？）<br>The 1st column is the number of frames received by the interrupt handler. （第一列是中断处理程序接收的帧数）<br>The 2nd column is the number of frames dropped due to netdev_max_backlog being exceeded. netdev_max_backlog<br>The 3rd column is the number of times ksoftirqd ran out of netdev_budget or CPU time when there was still work to be done   net.core.netdev_budget</p>
-</blockquote>
-<h2 id="rp-filter"><a href="#rp-filter" class="headerlink" title="rp_filter"></a>rp_filter</h2><p><a href="https://www.yuque.com/plantegg/weyi1s/uc7a5g" target="_blank" rel="noopener">https://www.yuque.com/plantegg/weyi1s/uc7a5g</a></p>
-<h2 id="关于ifconfig的种种解释"><a href="#关于ifconfig的种种解释" class="headerlink" title="关于ifconfig的种种解释"></a>关于ifconfig的种种解释</h2><ul>
-<li>RX errors: 表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
-<li>RX dropped: 表示数据包已经进入了 Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。</li>
-<li>RX overruns: 表示了 fifo 的 overruns，这是由于 Ring Buffer(aka Driver Queue) 传输的 IO 大于 kernel 能够处理的 IO 导致的，而 Ring Buffer 则是指在发起 IRQ 请求之前的那块 buffer。很明显，overruns 的增大意味着数据包没到 Ring Buffer 就被网卡物理层给丢弃了，而 CPU 无法及时地处理中断是造成 Ring Buffer 满的原因之一，上面那台有问题的机器就是因为 interruprs 分布的不均匀(都压在 core0)，没有做 affinity 而造成的丢包。</li>
-<li>RX frame: 表示 misaligned 的 frames。</li>
-</ul>
-<p><strong>dropped数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</strong></p>
-<p>txqueuelen:1000 对应着qdisc队列的长度（发送队列和网卡关联着）</p>
-<p>而对应的接收队列由内核参数来设置： </p>
-<pre><code>net.core.netdev_max_backlog
-</code></pre>
-<p>Adapter buffer defaults are commonly set to a smaller size than the maximum&#x2F;&#x2F;网卡进出队列大小调整 ethtool -G eth rx 8192 tx 8192</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5478d28fb7aaba3adeb4260bc15c0c65.png" alt="image.png"></p>
-<h2 id="核心流程"><a href="#核心流程" class="headerlink" title="核心流程"></a>核心流程</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/48fb8755f8e96b8df58c6c537650b81b.png" alt="image.png"></p>
-<p>接收数据包是一个复杂的过程，涉及很多底层的技术细节，但大致需要以下几个步骤：</p>
-<ol>
-<li>网卡收到数据包。</li>
-<li>将数据包从网卡硬件缓存转移到服务器内存中。</li>
-<li>通知内核处理。</li>
-<li>经过TCP&#x2F;IP协议逐层处理。</li>
-<li>应用程序通过read()从socket buffer读取数据。</li>
-</ol>
-<h2 id="通过-dropwatch来查看丢包点"><a href="#通过-dropwatch来查看丢包点" class="headerlink" title="通过 dropwatch来查看丢包点"></a>通过 dropwatch来查看丢包点</h2><p>dropwatch -l kas (-l 加载符号表） &#x2F;&#x2F; 丢包点位置等于 ip_rcv地址+ cf(偏移量）</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/04283745fd082003e5f77e78a55e0d67.png" alt="image.png"></p>
-<p>一个典型的接收包调用堆栈：</p>
-<pre><code> 0xffffffff8157af10 : tcp_may_send_now+0x0/0x160 [kernel]
- 0xffffffff815765f8 : tcp_fastretrans_alert+0x868/0xb50 [kernel]
- 0xffffffff8157729d : tcp_ack+0x8bd/0x12c0 [kernel]
- 0xffffffff81578295 : tcp_rcv_established+0x1d5/0x750 [kernel]
- 0xffffffff81582bca : tcp_v4_do_rcv+0x10a/0x340 [kernel]
- 0xffffffff81584411 : tcp_v4_rcv+0x831/0x9f0 [kernel]
- 0xffffffff8155e114 : ip_local_deliver_finish+0xb4/0x1f0 [kernel]
- 0xffffffff8155e3f9 : ip_local_deliver+0x59/0xd0 [kernel]
- 0xffffffff8155dd8d : ip_rcv_finish+0x7d/0x350 [kernel]
- 0xffffffff8155e726 : ip_rcv+0x2b6/0x410 [kernel]
- 0xffffffff81522d42 : __netif_receive_skb_core+0x582/0x7d0 [kernel]
- 0xffffffff81522fa8 : __netif_receive_skb+0x18/0x60 [kernel]
- 0xffffffff81523c7e : process_backlog+0xae/0x180 [kernel]
- 0xffffffff81523462 : net_rx_action+0x152/0x240 [kernel]
- 0xffffffff8107dfff : __do_softirq+0xef/0x280 [kernel]
- 0xffffffff8163f61c : call_softirq+0x1c/0x30 [kernel]
- 0xffffffff81016fc5 : do_softirq+0x65/0xa0 [kernel]
- 0xffffffff8107d254 : local_bh_enable_ip+0x94/0xa0 [kernel]
- 0xffffffff81634f4b : _raw_spin_unlock_bh+0x1b/0x40 [kernel]
- 0xffffffff8150d968 : release_sock+0x118/0x170 [kernel]
-</code></pre>
-<h2 id="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："><a href="#如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：" class="headerlink" title="如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）："></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
-<li>网络不通，诊断：ping ip</li>
-<li>端口不通,  诊断：telnet ip port</li>
-<li>rp_filter 命中(rp_filter&#x3D;1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
-<li>snat&#x2F;dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed &#x2F;&#x2F;有不为0的</li>
-<li>全连接队列满的情况，诊断： netstat -s | egrep “listen|LISTEN”  </li>
-<li>syn flood攻击, 诊断：同上</li>
-<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
-<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
-</ul>
-<h2 id="iptables和tcpdump"><a href="#iptables和tcpdump" class="headerlink" title="iptables和tcpdump"></a>iptables和tcpdump</h2><blockquote>
-<p>sudo iptables -A INPUT -p tcp –destination-port 8089 -j DROP</p>
-</blockquote>
-<p>tcpdump 是直接从网卡驱动拿包，也就是包还没进入内核tcpdump就拿到了，而iptables是工作在内核层，也就是即使被DROP还是能tcpdump到8089的packet。</p>
-<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a href="https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&mid=2651747704&idx=3&sn=cd76ad912729a125fd56710cb42792ba&chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&mpshare=1&scene=1&srcid=07047U4tN9Y3m97WQUJSLENt#rd" target="_blank" rel="noopener">https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd</a></p>
-<p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener">http://blog.hyfather.com/blog/2013/03/04/ifconfig/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5916,7 +6031,7 @@ IPv4 路由表
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">185</span>
+                <span class="site-state-item-count">186</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5938,7 +6053,7 @@ IPv4 路由表
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">273</span>
+                <span class="site-state-item-count">274</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
