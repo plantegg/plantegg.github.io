@@ -1,3 +1,5 @@
+source ~/.bashrc
+
 echo "download images"
 #从本地markdown 文档中捞取内网或者别的地址图片，下载到本地
 sh download_img.sh

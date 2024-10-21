@@ -10,6 +10,10 @@ find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "cdn.nlark.com
 
 find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E  "intranetproxy.alipay.com|oss-ata.alibaba.com" {} \; |grep "\!\[\](http" | grep "(" | awk -F "(" '{ print $NF }' | sed 's/)//g' >>img.list
 
+#down page
+#find /Users/ren/TeamFile/case/bak/一文理解\ K8S\ 容器网络虚拟化 -type f  -exec grep -E "ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor" {} \; | grep "\!\[\](http" | grep "("  | awk -F "(" '{ print $NF }' | sed 's/)//g' >>img.list
+#find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "ata2-img.oss-cn-zhangjiakou.aliyuncs.com/neweditor" {} \; | grep "img src=" | awk -F '"' '{ print $2 }' >>img.list
+
 #find /Users/ren/TeamFile/case/ -type f -name "*.md" -exec grep -E "https*:\/\/cdn.nlark.com/yuque/0/20[0-9][0-9]/.../162611"  {} \; | grep -v "img src=" | awk -F ":" '{ print $NF }' | sed 's/)//g' >>img.list
 
 dos2unix img.list
