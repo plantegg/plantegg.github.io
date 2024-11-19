@@ -292,6 +292,463 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/MySQL针对秒杀场景的优化/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/18/MySQL针对秒杀场景的优化/" itemprop="url">MySQL针对秒杀场景的优化</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-18T07:30:03+08:00">
+                2020-11-18
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL针对秒杀场景的优化"><a href="#MySQL针对秒杀场景的优化" class="headerlink" title="MySQL针对秒杀场景的优化"></a>MySQL针对秒杀场景的优化</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。</p>
+<h2 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h2><p>对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过新语法来消除网络rtt对加锁时间的控制这样达到了 4000 TPS。最后合并多个扣减到一个，累积比如10ms提交，能将TPS 能升到4万以上这个能力。</p>
+<h3 id="排队控制并发"><a href="#排队控制并发" class="headerlink" title="排队控制并发"></a>排队控制并发</h3><p>拍减模式在整个交易过程中只有一次扣减交互，所以是不需要付款减库存那样的判重逻辑，就是说，拍减的减库存sql只有一条update语句就搞定了。而付减有两条，一条insert判重+一条update减库存（双十一拍减接口在高峰的rt约为8ms，而付减接口在高峰的rt约为15ms）；</p>
+<p>其次，当大量请求（线程）落到mysql的同一条记录上进行减库存时，线程之间会存在竞争关系，因为要争夺InnoDB的行锁，当一个线程获得了行锁，其他并发线程就只能等待（InnoDB内部还有死锁检测等机制会严重影响性能），当并发度越高时，等待的线程就越多，此时tps会急剧下降，rt会飙升，性能就不能满足要求了。那如何减少锁竞争？答案是：排队！库存中心从几个层面做了排队策略。</p>
+<p>首先，在应用端进行排队，因为很多商品都是有sku的，当sku库存变化时item的库存也要做相应变化，所以需要根据itemId来进行排队，相同itemId的减库存操作会进入串行化排队处理逻辑，不过应用端的排队只能做到单机内存排队，当应用服务器数量过多时，落到db的并发请求仍然很多，所以最好的办法是在db端也加上排队策略，今年库存中心db部署了两个的排队patch，一个叫“并发控制”，是做在InnoDB层的，另一个叫“queue on pk”，是做在mysql的server层的，两个patch各有优缺点，前者不需要应用修改代码，db自动判断，后者需要应用程序写特殊的sql hint，前者控制的全局的sql，后者是根据hint来控制指定sql，两个patch的本质和应用端的排队逻辑是一致的，具体实现不同。双十一库存中心使用的是“并发控制”的patch。</p>
+<blockquote>
+<p>2013年的单减库存TPS最高记录是1381次每秒。</p>
+</blockquote>
+<p>对于秒杀热点场景，官方版本500tps每秒，问题在于同时涌入的请求太多，每次取锁都要检查其它等锁的线程（防止死锁），这个线程队列太长的话导致这个检查时间太长； 继续在前面增加能够进入到后面的并发数的控制，通过增加线程池、控制并发能到1400（no deadlock list check）；</p>
+<blockquote>
+<p><strong>热点更新下的死锁检测(<strong>no deadlock list check</strong>)</strong></p>
+<p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
+<p> 原生版本的MySQL对于正常业务链接没有拒绝机制（除了TDDL的链接池或者MySQL的user_connnection不够用），对于同一行记录到innodb层修改的时候，凡是到innodb层的任务都必须拿到innodb_thread_concurrency的槽位才能执行(当然这里也有很多细节，这里就说最主要的代码改动点)，举例来说：开启一个事务，对于id&#x3D;1的行记录更新，进到innodb层，占着1个innodb_thread_concurrency，等到id&#x3D;1的事务结束，会释放innodb_thread_concurrency,从而达到innodb_thread_concurrency的平衡；</p>
+<p>再进一步，开启一个事务，对id&#x3D;1的行记录更新进到innodb层，占着1个innodb_thread_concurrency，事务不提交（假设innodb_thread_concurrency&#x3D;32)，如果有下一个对id&#x3D;1记录来更新的话，进到innodb层，又占着1个innodb_thread_concurrency，检测发现是对id&#x3D;1的更新，排到第1个对id&#x3D;1的队列的后面，同时释放innodb_thread_concurrency;以此类推这个链表有可能会很长比如1024；执行的时候又需要做死锁检测等一系列工作，都需要用到一个叫做kernel_mutex的mutex（这是一个全局互斥量用来管理锁系统，事务系统，MVCC多版本控制），对于大并发，整个链表非常长的时候，可想而知kernel_metex的竞争多么激烈，从而在链表检测的时间变长。</p>
+</blockquote>
+<h3 id="缩短锁时间"><a href="#缩短锁时间" class="headerlink" title="缩短锁时间"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
+<p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
+<p>（1）begin;</p>
+<p>（2）insert 交易流水表; – 交易流水对账</p>
+<p>（3）update 库存明细表 where id in (sku_id，item_id);</p>
+<p>（4）select 库存明细表;</p>
+<p>（5）commit</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/TB1yvFqOpXXX.png" alt="Snip20161116_88.png"></p>
+<p>SQL case：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">4059550 Query   <span class="keyword">SET</span> autocommit=<span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> <span class="keyword">Query</span>   <span class="keyword">update</span> ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> trade <span class="keyword">set</span> <span class="keyword">version</span> = <span class="keyword">version</span>+<span class="number">3</span> ,gmt_modified = <span class="keyword">now</span>()    ,           optype = <span class="number">2</span>          ,      feature = <span class="string">';abc;'</span>  <span class="keyword">where</span> sub_biz_order_id = <span class="string">'15'</span> <span class="keyword">and</span> biz_order_type = <span class="number">1</span> <span class="keyword">and</span> <span class="keyword">id</span> = <span class="number">5</span> <span class="keyword">and</span> ti_id = <span class="number">1</span> <span class="keyword">and</span>      optype = <span class="number">3</span>          <span class="keyword">and</span>      root_id = <span class="number">11</span></span><br><span class="line"><span class="number">4059550</span> <span class="keyword">Query</span>   <span class="keyword">select</span>      <span class="keyword">id</span>,*     <span class="keyword">from</span>   <span class="keyword">update</span> COMMIT_ON_SUCCESS ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> invetory   <span class="keyword">set</span>                                           withholding_quantity = withholding_quantity + <span class="number">-1</span>,  flag=flag &amp;~ (<span class="number">1</span>&lt;&lt;<span class="number">10</span>) &amp;~ (<span class="number">1</span>&lt;&lt;<span class="number">11</span>) , <span class="keyword">version</span>=<span class="keyword">version</span>+<span class="number">3</span>,gmt_modified = <span class="keyword">now</span>()         <span class="keyword">WHERE</span>  root_id = <span class="number">11</span> <span class="keyword">and</span> <span class="keyword">status</span> = <span class="number">1</span> <span class="keyword">and</span> <span class="keyword">id</span> <span class="keyword">in</span>    (     <span class="number">1</span>    )  <span class="keyword">and</span> (withholding_quantity + <span class="number">-1</span>) &gt;= <span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> <span class="keyword">Query</span>   <span class="keyword">commit</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="批量提交"><a href="#批量提交" class="headerlink" title="批量提交"></a>批量提交</h3><p>其主要的核心思想是：针对应用层SQL做轻量化改造，带上”热点行SQL”的hint，当这种SQL进入内核后，在内存中维护一个hash表，将主键或唯一键相同的请求(一般也就是同一商品id)hash到同一个地方做请求的合并，经过一段时间后(默认100us)统一提交，从而实现了将串行处理变成了批处理，让每个热点行更新请求并不需要都去扫描和更新btree。</p>
+<ol>
+<li>热点的自动识别:前面已经讲过了，库存的扣减SQL都会有commit on success标记。mysql内部分为普通通道和热点扣减通道。普通通道里是正常的事务。热点通道里收集带有commit on success标记的事务。在一定的时间区间段内(0.1ms)，将收集到的热点按照主键或者唯一键进行hash; hash到同一个桶中为相同的sku; 分批组提交这0.1ms收集到的热点商品。</li>
+<li>轮询处理: 第一批进行提交时，第二批进行收集； 当第一批完成了提交开始收集时，第二批就可以进行提交了。不断轮询，提高效率</li>
+</ol>
+<p>通过内存合并库存减操作，干到100000（每个减库存操作生成一条独立的update binlog，不影响其他业务2016年双11），实际这里还可以调整批提交时间间隔来进一步提升扣减QPS</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png" alt="Snip20161116_87.png"></p>
+<p>超卖：付款减库存会超卖，拍减库存要防止恶意拍不付款。拍减的话可以通过增加SQL新语法来进一步优化DB响应(select update)</p>
+<p>innodb_buffer_pool_instance: 将buffer pool 分成几个（hash），避免高并发修改的时候一个大锁mutex导致性能不高</p>
+<p>批量提交的压测效果：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230814104356084.png" alt="image-20230814104356084"></p>
+<h3 id="业务优化"><a href="#业务优化" class="headerlink" title="业务优化"></a>业务优化</h3><p>延迟扣减item，一般一个item下会有多个sku（比如 iPhone14 不同的颜色、配置就是一个不同的sku），而库存会有总库存（item），也有sku 库存，sku库存加起来就是item库存</p>
+<p>导致扣减的时候 item库存更热</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/17/MySQL线程池导致的延时卡顿排查/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/17/MySQL线程池导致的延时卡顿排查/" itemprop="url">MySQL线程池导致的延时卡顿排查</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-17T07:30:03+08:00">
+                2020-11-17
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/MySQL/" itemprop="url" rel="index">
+                    <span itemprop="name">MySQL</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="MySQL-线程池导致的卡顿"><a href="#MySQL-线程池导致的卡顿" class="headerlink" title="MySQL 线程池导致的卡顿"></a>MySQL 线程池导致的卡顿</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。</p>
+<p>通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。</p>
+<p>所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，Tomcat实例规格 16C32g*8, MySQL  32c128g  *32 。</p>
+<p>5-28号现象复现，从监控图上CPU、内存、网络都没发现异常，MySQL侧查到的SQL依然执行很快，Tomcat侧记录12S执行时间，当时Tomcat节点的网络流量、CPU压力都很小。</p>
+<p>所以客户怀疑Tomcat有问题或者Tomcat上的代码写得有问题导致了这个问题，需要排查和解决掉。</p>
+<p>接下来我们会先分析这个问题出现的原因，然后会分析这类问题的共性同时拓展到其它场景下的类似问题。</p>
+<h2 id="Tomcat上抓包分析"><a href="#Tomcat上抓包分析" class="headerlink" title="Tomcat上抓包分析"></a>Tomcat上抓包分析</h2><h3 id="慢的连接"><a href="#慢的连接" class="headerlink" title="慢的连接"></a>慢的连接</h3><p>经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png" alt="image.png"></p>
+<p>以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。</p>
+<p>慢的SQL的response按时间排序基本都在3秒以上：</p>
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;">
+
+<p>或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询</p>
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;">
+
+
+
+<h3 id="快的连接"><a href="#快的连接" class="headerlink" title="快的连接"></a>快的连接</h3><p>同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d129dfe1a50b182f4d100ac7147f9099.png" alt="image.png"></p>
+<p>别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png" alt="image.png"></p>
+<h2 id="MySQL相关参数"><a href="#MySQL相关参数" class="headerlink" title="MySQL相关参数"></a>MySQL相关参数</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; show variables like &apos;%thread%&apos;;</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| Variable_name                              | Value           |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| innodb_purge_threads                       | 1               |</span><br><span class="line">| innodb_MySQL_thread_extra_concurrency        | 0               |</span><br><span class="line">| innodb_read_io_threads                     | 16              |</span><br><span class="line">| innodb_thread_concurrency                  | 0               |</span><br><span class="line">| innodb_thread_sleep_delay                  | 10000           |</span><br><span class="line">| innodb_write_io_threads                    | 16              |</span><br><span class="line">| max_delayed_threads                        | 20              |</span><br><span class="line">| max_insert_delayed_threads                 | 20              |</span><br><span class="line">| myisam_repair_threads                      | 1               |</span><br><span class="line">| performance_schema_max_thread_classes      | 50              |</span><br><span class="line">| performance_schema_max_thread_instances    | -1              |</span><br><span class="line">| pseudo_thread_id                           | 12882624        |</span><br><span class="line">| MySQL_is_dump_thread                         | OFF             |</span><br><span class="line">| MySQL_threads_running_ctl_mode               | SELECTS         |</span><br><span class="line">| MySQL_threads_running_high_watermark         | 50000           |</span><br><span class="line">| rocksdb_enable_thread_tracking             | OFF             |</span><br><span class="line">| rocksdb_enable_write_thread_adaptive_yield | OFF             |</span><br><span class="line">| rocksdb_signal_drop_index_thread           | OFF             |</span><br><span class="line">| thread_cache_size                          | 100             |</span><br><span class="line">| thread_concurrency                         | 10              |</span><br><span class="line">| thread_handling                            | pool-of-threads |</span><br><span class="line">| thread_pool_high_prio_mode                 | transactions    |</span><br><span class="line">| thread_pool_high_prio_tickets              | 4294967295      |</span><br><span class="line">| thread_pool_idle_timeout                   | 60              |</span><br><span class="line">| thread_pool_max_threads                    | 100000          |</span><br><span class="line">| thread_pool_oversubscribe                  | 10              |</span><br><span class="line">| thread_pool_size                           | 96              |</span><br><span class="line">| thread_pool_stall_limit                    | 30              |</span><br><span class="line">| thread_stack                               | 262144          |</span><br><span class="line">| threadpool_workaround_epoll_bug            | OFF             |</span><br><span class="line">| tokudb_cachetable_pool_threads             | 0               |</span><br><span class="line">| tokudb_checkpoint_pool_threads             | 0               |</span><br><span class="line">| tokudb_client_pool_threads                 | 0               |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">33 rows in set (0.00 sec)</span><br></pre></td></tr></table></figure>
+
+<h2 id="综上结论"><a href="#综上结论" class="headerlink" title="综上结论"></a>综上结论</h2><p>问题原因跟MySQL线程池比较相关，慢的连接总是慢，快的连接总是快。需要到MySQL Server下排查线程池相关参数。</p>
+<p>同一个慢的连接上的回包，所有 ack 就很快（OS直接回，不需要进到MySQL），但是set就很慢，基本理解只要进到MySQL的就慢了，所以排除了网络原因（流量本身也很小，也没看到乱序、丢包之类的）</p>
+<h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a>问题解决</h2><p>18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：</p>
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;">
+
+<p>当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）</p>
+<p>MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。</p>
+<p>thread_pool_stall_limit 会控制一个SQL过长时间（默认60ms）占用线程，如果出现stall_limit就放更多的SQL进入到thread pool中直到达到thread_pool_oversubscribe个</p>
+<blockquote>
+<p>The thread_pool_stall_limit affects executing statements. The value is the amount of time a statement has to finish after starting to execute before it becomes defined as stalled, at which point the thread pool permits the thread group to begin executing another statement. The value is measured in 10 millisecond units, so the default of 6 means 60ms. Short wait values permit threads to start more quickly. Short values are also better for avoiding deadlock situations. Long wait values are useful for workloads that include long-running statements, to avoid starting too many new statements while the current ones execute.</p>
+</blockquote>
+<h2 id="类似案例"><a href="#类似案例" class="headerlink" title="类似案例"></a>类似案例</h2><p>一个其它客户同样的问题的解决过程，最终发现是因为thread pool group中的active thread count 计数有泄漏，导致达到thread_pool_oversubscribe 的上限(实际没有任何线程运行)</p>
+<p>问题：1）为什么调整到20后 active_thread_count 没变，但是不卡了？那以前卡着的10个 thread在干嘛？</p>
+<p>​             2）卡住的根本原因是，升级能解决？</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308214801877.png" alt="image-20230308214801877"></p>
+<p>调整前的 thread pool 配置：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308222538102.png" alt="image-20230308222538102"></p>
+<p>出问题时候的线程池 32个 group状态，有两个group queue count、active thread都明显到了瓶颈：select * from information_schema.THREAD_POOL_STATUS;</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308222416238.png" alt="image-20230308222416238"></p>
+<ul>
+<li>id 线程组id</li>
+<li>thread_count &#x2F;&#x2F; 当前线程组中的线程数量</li>
+<li>active_thread_count &#x2F;&#x2F;当前线程组中活跃线程数量，这个不包含dump线程</li>
+<li>waiting_thread_count &#x2F;&#x2F; 当前线程组中处于waiting状态的线程数量</li>
+<li>dump_thread_count &#x2F;&#x2F; dump类线程数量</li>
+<li>slow_thread_timeout_count &#x2F;&#x2F; 目前仅对DDL生效</li>
+<li>connection_count &#x2F;&#x2F; 当前线程组中的连接数量</li>
+<li>low_queue_count &#x2F;&#x2F; 低优先级队列中的请求数量</li>
+<li>high_queue_count &#x2F;&#x2F; 高优先级队列中的请求数量</li>
+<li>waiting_thread_timeout_count &#x2F;&#x2F; 处于waiting状态并且超时的线程数量</li>
+</ul>
+<p>调整 thread_pool_oversubscribe由10到20后不卡了，这时的 pool status(重点注意 ACTIVE_THREAD_COUNT 数字没有任何变化)：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230308223126774.png" alt="image-20230308223126774"></p>
+<p>看起来像是 ACTIVE_THREAD 全假死了，没有跑任务也不去take新任务一直卡在那里，类似线程泄露。查看了一下所有MySQLD 线程都是 S 的正常状态，并无异常。</p>
+<p>继续分析统计了一下mysqld线程数量(157)，远小于 thread pool 中的active线程数量(202)，看起来像是计数器在线程异常(磁盘故障时)忘记 减减 了，导致计数器虚高进而无法新创建新线程：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">#top -H -b -n 1 -p 130650 |grep mysqld | wc -l</span><br><span class="line">157</span><br><span class="line"></span><br><span class="line"># mysql -e &quot;select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">|                71 |                      206 |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line"># mysql -e &quot;select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">|                75 |                      202 |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line"># mysql_secbox  --exe-path=mysql -A -uroot -h127.0.0.1 -P3054 -e  &quot;select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">|  0 |            3 |   7 | 13 |               0 |                0 |</span><br><span class="line">| 19 |            3 |  10 | 14 |               0 |                0 |</span><br><span class="line">| 20 |            3 |   8 | 13 |               0 |                0 |</span><br><span class="line">| 21 |            2 |   5 |  9 |               0 |                0 |</span><br><span class="line">| 28 |            2 |   6 |  6 |               0 |                0 |</span><br><span class="line">//增加了一个active count,执行完毕后active thread count会减下去</span><br><span class="line">| 29 |            2 |  12 | 14 |               0 |                0 | </span><br><span class="line">| 30 |            2 |   4 | 11 |               0 |                0 | </span><br><span class="line">| 31 |            2 |   8 | 10 |               0 |                0 |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br></pre></td></tr></table></figure>
+
+<p>正常的thread_pool状态, ACTIVE_THREAD_COUNT极小且小于 THREAD_COUNT：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT from information_schema.THREAD_POOL_STATUS;</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">|  0 |            2 |   0 |  3 |               0 |                0 |</span><br><span class="line">|  1 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  2 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  3 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  4 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">|  5 |            2 |   0 |  3 |               0 |                0 |</span><br><span class="line">|  6 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">|  7 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br></pre></td></tr></table></figure>
+
+<h2 id="Thread-Pool原理"><a href="#Thread-Pool原理" class="headerlink" title="Thread Pool原理"></a><a href="https://dbaplus.cn/news-11-1989-1.html" target="_blank" rel="noopener">Thread Pool原理</a></h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png" alt="image.png"></p>
+<p>MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。</p>
+<p>no-threads一般用于调试，生产环境一般用one-thread-per-connection方式。one-thread-per-connection 适合于低并发长连接的环境，而在高并发或大量短连接环境下，大量创建和销毁线程，以及线程上下文切换，会严重影响性能。另外 one-thread-per-connection 对于大量连接数扩展也会影响性能。</p>
+<p>为了解决上述问题，MariaDB、Percona、Aliyun RDS、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。</p>
+<p>线程池由一系列 worker 线程组成，这些worker线程被分为<code>thread_pool_size</code>个group。用户的连接按 round-robin 的方式映射到相应的group 中，一个连接可以由一个group中的一个或多个worker线程来处理。</p>
+<p>thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过<code>thread_pool_oversubscribe</code>时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了<code>thread_pool_max_threads</code>上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。<code>thread_pool_oversubscribe</code>控制group中活跃线程和等待中的线程总数，从而防止了上述情况。</p>
+<p><strong>MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。另外如果对每个Pool的 Worker做CPU 亲和性绑定也会对cache更友好、效果更高</strong></p>
+<p>group中又有多个队列，用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
+<p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
+<h3 id="thread-pool-size过小的案例"><a href="#thread-pool-size过小的案例" class="headerlink" title="thread_pool_size过小的案例"></a>thread_pool_size过小的案例</h3><p>应用出现大量1秒超时报错：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211104130625676.png" alt="image-20211104130625676"></p>
+<p>分析代码，这个Druid报错堆栈是数据库连接池在创建到MySQL的连接后或者从连接池取一个连接给业务使用前会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明TCP连接创建成功，但是MySQL 超过一秒钟都没有响应这个 ping，说明 MySQL处理指令缓慢。</p>
+<p>继续分析MySQL的参数：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
+<p>可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/114b5b71468b33128e76129bbc7fb8f4.png" alt="image.png"></p>
+<p>这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是Druid给MySQL发一个ping指令，一般都很快，同时Druid对这个valid操作设置了1秒的超时时间，从实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。</p>
+<h3 id="MySQL-ping-和-MySQL-协议相关知识"><a href="#MySQL-ping-和-MySQL-协议相关知识" class="headerlink" title="MySQL ping 和 MySQL 协议相关知识"></a>MySQL ping 和 MySQL 协议相关知识</h3><blockquote>
+<p><a href="https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368" target="_blank" rel="noopener">Ping</a> use the JDBC method <a href="http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int)" target="_blank" rel="noopener">Connection.isValid(int timeoutInSecs)</a>. Digging into the MySQL Connector&#x2F;J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.</p>
+</blockquote>
+<p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会 testOnBorrow，所以每个连接使用前都会先做ping。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">public class MySQLPingPacket implements CommandPacket &#123;</span><br><span class="line">    private final WriteBuffer buffer = new WriteBuffer();</span><br><span class="line">    public MySQLPingPacket() &#123;</span><br><span class="line">        buffer.writeByte((byte) 0x0e);</span><br><span class="line">    &#125;</span><br><span class="line">    public int send(final OutputStream os) throws IOException &#123;</span><br><span class="line">        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number</span><br><span class="line">        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1</span><br><span class="line">        os.flush();</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
+<p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）。</p>
+<h2 id="线程池卡死案例：show-stats导致集群3406监控卡死"><a href="#线程池卡死案例：show-stats导致集群3406监控卡死" class="headerlink" title="线程池卡死案例：show stats导致集群3406监控卡死"></a>线程池卡死案例：show stats导致集群3406监控卡死</h2><h3 id="现象"><a href="#现象" class="headerlink" title="现象"></a>现象</h3><p>应用用于获取监控信息的端口 3406卡死，监控脚本无法连接上3406，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。</p>
+<p>通过jstack看到应用进程的3406端口线程池都是这样: </p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">"ManagerExecutor-1-thread-1" #47 daemon prio=5 os_prio=0 tid=0x00007fe924004000 nid=0x15c runnable [0x00007fe9034f4000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">    at java.net.SocketInputStream.socketRead0(Native Method)</span><br><span class="line">    at java.net.SocketInputStream.socketRead(SocketInputStream.java:<span class="number">116</span>)</span><br><span class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:<span class="number">171</span>)</span><br><span class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:<span class="number">141</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:<span class="number">101</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:<span class="number">144</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:<span class="number">174</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x0000000722538b60</span>&gt; (a com.mysql.jdbc.util.ReadAheadInputStream)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:<span class="number">3005</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:<span class="number">3466</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:<span class="number">3456</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:<span class="number">3897</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:<span class="number">2524</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:<span class="number">2677</span>)</span><br><span class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:<span class="number">2545</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x00000007432e19c8</span>&gt; (a com.mysql.jdbc.JDBC4Connection)</span><br><span class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:<span class="number">2503</span>)</span><br><span class="line">    at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:<span class="number">1369</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x00000007432e19c8</span>&gt; (a com.mysql.jdbc.JDBC4Connection)</span><br><span class="line">    at com.alibaba.druid.pool.ValidConnectionCheckerAdapter.isValidConnection(ValidConnectionCheckerAdapter.java:<span class="number">44</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidAbstractDataSource.testConnectionInternal(DruidAbstractDataSource.java:<span class="number">1298</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnectionDirect(DruidDataSource.java:<span class="number">1057</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">997</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">987</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">103</span>)</span><br><span class="line">    at com.taobao.tddl.atom.AbstractTAtomDataSource.getConnection(AbstractTAtomDataSource.java:<span class="number">32</span>)</span><br><span class="line">    at com.alibaba.cobar.ClusterSyncManager$<span class="number">1</span>.run(ClusterSyncManager.java:<span class="number">60</span>)</span><br><span class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:<span class="number">511</span>)</span><br><span class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:<span class="number">266</span>)</span><br><span class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:<span class="number">511</span>)</span><br><span class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:<span class="number">266</span>)</span><br><span class="line">    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:<span class="number">1152</span>)</span><br><span class="line">    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:<span class="number">627</span>)</span><br><span class="line">    at java.lang.Thread.run(Thread.java:<span class="number">882</span>)</span><br></pre></td></tr></table></figure>
+
+<h3 id="原因"><a href="#原因" class="headerlink" title="原因"></a>原因</h3><ol>
+<li>用户监控采集数据通过访问3306端口上的show stats，这个show stats命令要访问集群下所有节点的3406端口来执行show stats，3406端口上是一个大小为8个的Manager 线程池在执行这些show stats命令，导致占满了manager线程池的8个线程，每个3306的show stats线程都在wait 所有节点3406上的子任务的返回</li>
+<li>每个子任务的线程，都在等待向集群所有节点3406端口的manager建立连接，建连接后会先执行testValidatation操作验证连接的有效性，这个验证操作会执行SQL Query：select 1，这个query请求又要申请一个manager线程才能执行成功</li>
+<li>默认isValidConnection操作没有超时时间，如果Manager线程池已满后需要等待至socketTimeout后才会返回，导致这里出现卡死，还不如快速返回错误，可以增加超时来改进</li>
+</ol>
+<p>从线程栈来说，就是出现了活锁</p>
+<h3 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h3><ul>
+<li>增加manager线程池大小</li>
+<li>代码逻辑上优化3406 jdbc连接池参数，修改jdbc默认的socketTimeout超时时间以及替换默认checker（一般增加一个1秒超时的checker）</li>
+</ul>
+<p>对于checker，参考druid的实现，com&#x2F;alibaba&#x2F;druid&#x2F;pool&#x2F;vendor&#x2F;MySqlValidConnectionChecker.java：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//druid的MySqlValidConnectionChecker设定了valid超时时间为1秒</span></span><br><span class="line">    <span class="function"><span class="keyword">public</span> <span class="keyword">boolean</span> <span class="title">isValidConnection</span><span class="params">(Connection conn, String validateQuery, <span class="keyword">int</span> validationQueryTimeout)</span> <span class="keyword">throws</span> Exception </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (conn.isClosed()) &#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (usePingMethod) &#123;</span><br><span class="line">            <span class="keyword">if</span> (conn <span class="keyword">instanceof</span> DruidPooledConnection) &#123;</span><br><span class="line">                conn = ((DruidPooledConnection) conn).getConnection();</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> (conn <span class="keyword">instanceof</span> ConnectionProxy) &#123;</span><br><span class="line">                conn = ((ConnectionProxy) conn).getRawObject();</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> (clazz.isAssignableFrom(conn.getClass())) &#123;</span><br><span class="line">                <span class="keyword">if</span> (validationQueryTimeout &lt;= <span class="number">0</span>) &#123;</span><br><span class="line">                    validationQueryTimeout = DEFAULT_VALIDATION_QUERY_TIMEOUT;<span class="comment">// 默认值1ms</span></span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                    ping.invoke(conn, <span class="keyword">true</span>, validationQueryTimeout * <span class="number">1000</span>); <span class="comment">//1秒</span></span><br><span class="line">                &#125; <span class="keyword">catch</span> (InvocationTargetException e) &#123;</span><br><span class="line">                    Throwable cause = e.getCause();</span><br><span class="line">                    <span class="keyword">if</span> (cause <span class="keyword">instanceof</span> SQLException) &#123;</span><br><span class="line">                        <span class="keyword">throw</span> (SQLException) cause;</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">throw</span> e;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        String query = validateQuery;</span><br><span class="line">        <span class="keyword">if</span> (validateQuery == <span class="keyword">null</span> || validateQuery.isEmpty()) &#123;</span><br><span class="line">            query = DEFAULT_VALIDATION_QUERY;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        Statement stmt = <span class="keyword">null</span>;</span><br><span class="line">        ResultSet rs = <span class="keyword">null</span>;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            stmt = conn.createStatement();</span><br><span class="line">            <span class="keyword">if</span> (validationQueryTimeout &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                stmt.setQueryTimeout(validationQueryTimeout);</span><br><span class="line">            &#125;</span><br><span class="line">            rs = stmt.executeQuery(query);</span><br><span class="line">            <span class="keyword">return</span> <span class="keyword">true</span>;</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            JdbcUtils.close(rs);</span><br><span class="line">            JdbcUtils.close(stmt);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//使用如上validation</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> String DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS =</span><br><span class="line">        <span class="string">"com.alibaba.druid.pool.vendor.MySqlValidConnectionChecker"</span>;</span><br><span class="line"></span><br><span class="line"> String validConnnectionCheckerClassName =</span><br><span class="line">                    TAtomConstants.DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS;</span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                    Class.forName(validConnnectionCheckerClassName);</span><br><span class="line">                    localDruidDataSource.setValidConnectionCheckerClassName(validConnnectionCheckerClassName);</span><br></pre></td></tr></table></figure>
+
+<p>这种线程池打满特别容易在分布式环境下出现，除了以上案例比如还有:</p>
+<blockquote>
+<p>分库分表业务线程池，接收一个逻辑 SQL，如果需要查询1024分片的sort merge join，相当于派生了一批子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁</p>
+<p>比如并行执行的SQL MPP线程池也有这个问题，多个查询节点收到SQL，拆分出子任务做并行，互相等待资源</p>
+</blockquote>
+<h2 id="X应用对分布式任务打挂线程池的优化"><a href="#X应用对分布式任务打挂线程池的优化" class="headerlink" title="X应用对分布式任务打挂线程池的优化"></a>X应用对分布式任务打挂线程池的优化</h2><p>对如下这种案例：</p>
+<blockquote>
+<p>X 应用通过线程池来接收一个逻辑SQL并处理，如果需要查询1024分片的sort merge join，相当于派生了1024个子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁</p>
+</blockquote>
+<p>首先X对执行SQL 的线程池分成了多个bucket，每个SQL只跑在一个bucket里面的线程上，同时通过滑动窗口向线程池提交任务数，来控制并发量，进而避免线程池的死锁、活锁问题。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> ServerThreadPool <span class="title">create</span><span class="params">(String name, <span class="keyword">int</span> poolSize, <span class="keyword">int</span> deadLockCheckPeriod, <span class="keyword">int</span> bucketSize)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> ServerThreadPool(name, poolSize, deadLockCheckPeriod, bucketSize); <span class="comment">//bucketSize可以设置</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">public</span> <span class="title">ServerThreadPool</span><span class="params">(String poolName, <span class="keyword">int</span> poolSize, <span class="keyword">int</span> deadLockCheckPeriod, <span class="keyword">int</span> bucketSize)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">this</span>.poolName = poolName;</span><br><span class="line">    <span class="keyword">this</span>.deadLockCheckPeriod = deadLockCheckPeriod;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">this</span>.numBuckets = bucketSize;</span><br><span class="line">    <span class="keyword">this</span>.executorBuckets = <span class="keyword">new</span> ThreadPoolExecutor[bucketSize];</span><br><span class="line">    <span class="keyword">int</span> bucketPoolSize = poolSize / bucketSize; <span class="comment">//将整个pool分成多个bucket</span></span><br><span class="line">    <span class="keyword">this</span>.poolSize = bucketPoolSize;</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> bucketIndex = <span class="number">0</span>; bucketIndex &lt; bucketSize; bucketIndex++) &#123;</span><br><span class="line">        ThreadPoolExecutor executor = <span class="keyword">new</span> ThreadPoolExecutor(bucketPoolSize,</span><br><span class="line">            bucketPoolSize,</span><br><span class="line">            <span class="number">0L</span>,</span><br><span class="line">            TimeUnit.MILLISECONDS,</span><br><span class="line">            <span class="keyword">new</span> LinkedBlockingQueue&lt;Runnable&gt;(),</span><br><span class="line">            <span class="keyword">new</span> NamedThreadFactory(poolName + <span class="string">"-bucket-"</span> + bucketIndex, <span class="keyword">true</span>));</span><br><span class="line"></span><br><span class="line">        executorBuckets[bucketIndex] = executor;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">this</span>.lastCompletedTaskCountBuckets = <span class="keyword">new</span> <span class="keyword">long</span>[bucketSize];</span><br><span class="line">    <span class="comment">// for check thread</span></span><br><span class="line">    <span class="keyword">if</span> (deadLockCheckPeriod &gt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="keyword">this</span>.timer = <span class="keyword">new</span> Timer(SERVER_THREAD_POOL_TIME_CHECK, <span class="keyword">true</span>);</span><br><span class="line">        buildCheckTask();</span><br><span class="line">        <span class="keyword">this</span>.timer.scheduleAtFixedRate(checkTask, deadLockCheckPeriod, deadLockCheckPeriod);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>通过bucketSize将一个大的线程池分成多个小的线程池，每个SQL 控制跑在一个小的线程池中，这里和MySQL的thread_pool是同样的设计思路，当然MySQL 的thread_pool主要是为了改进大锁的问题。</p>
+<p>另外DRDS上线程池拆分后性能也有提升：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20211104163732499.png" alt="image-20211104163732499"></p>
+<p>测试结果说明：(以全局线程池为基准，分别关注：关日志、分桶线程池、协程)</p>
+<blockquote>
+<ol>
+<li>关日志，整体性能提升在20%左右 (8core最好成绩在6.4w qps)</li>
+<li>协程，整体性能15%左右</li>
+<li>关日志+协程，整体提升在35%左右 (8core最好成绩在7w qps)</li>
+<li>分桶，整体性能提升在18%左右 </li>
+<li>分桶+关日志，整体提升在39%左右 (8core最好成绩在7.4w qps)</li>
+<li>分桶+协程，整体提升在36%左右</li>
+<li>分桶+关日志+协程，整体提升在60%左右 (8core最好成绩在8.3w qps)</li>
+</ol>
+</blockquote>
+<h3 id="线程池拆成多个bucket优化分析"><a href="#线程池拆成多个bucket优化分析" class="headerlink" title="线程池拆成多个bucket优化分析"></a>线程池拆成多个bucket优化分析</h3><p>拆分前锁主要是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line">Started [lock] profiling</span><br><span class="line">--- Execution profile ---</span><br><span class="line">Total samples:         <span class="number">496</span></span><br><span class="line"></span><br><span class="line">Frame buffer usage:    <span class="number">0.0052</span>%</span><br><span class="line"></span><br><span class="line">--- <span class="number">352227700</span> ns (<span class="number">53.09</span>%), <span class="number">248</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.util.Properties</span><br><span class="line">  [ <span class="number">1</span>] java.util.Hashtable.get</span><br><span class="line">  [ <span class="number">2</span>] java.util.Properties.getProperty</span><br><span class="line">  [ <span class="number">3</span>] com.taobao.tddl.common.properties.SystemPropertiesHelper.getPropertyValue</span><br><span class="line">  [ <span class="number">4</span>] com.taobao.tddl.executor.MatrixExecutor.configMppExecutionContext</span><br><span class="line">  [ <span class="number">5</span>] com.taobao.tddl.executor.MatrixExecutor.optimize</span><br><span class="line">  [ <span class="number">6</span>] com.taobao.tddl.matrix.jdbc.TConnection.optimizeThenExecute</span><br><span class="line">  [ <span class="number">7</span>] com.taobao.tddl.matrix.jdbc.TConnection.executeSQL</span><br><span class="line">  [ <span class="number">8</span>] com.taobao.tddl.matrix.jdbc.TPreparedStatement.executeSQL</span><br><span class="line">  [ <span class="number">9</span>] com.taobao.tddl.matrix.jdbc.TStatement.executeInternal</span><br><span class="line">  [<span class="number">10</span>] com.taobao.tddl.matrix.jdbc.TPreparedStatement.execute</span><br><span class="line">  [<span class="number">11</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [<span class="number">12</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [<span class="number">13</span>] com.alibaba.cobar.server.ServerConnection$<span class="number">1</span>.run</span><br><span class="line">  [<span class="number">14</span>] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line">  [<span class="number">15</span>] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line">  [<span class="number">16</span>] java.util.concurrent.FutureTask.run</span><br><span class="line">  [<span class="number">17</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [<span class="number">18</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [<span class="number">19</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">307781689</span> ns (<span class="number">46.39</span>%), <span class="number">243</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.util.Properties</span><br><span class="line">  [ <span class="number">1</span>] java.util.Hashtable.get</span><br><span class="line">  [ <span class="number">2</span>] java.util.Properties.getProperty</span><br><span class="line">  [ <span class="number">3</span>] com.taobao.tddl.common.properties.SystemPropertiesHelper.getPropertyValue</span><br><span class="line">  [ <span class="number">4</span>] com.taobao.tddl.config.ConfigDataMode.isDrdsMasterMode</span><br><span class="line">  [ <span class="number">5</span>] com.taobao.tddl.matrix.jdbc.TConnection.updatePlanManagementInfo</span><br><span class="line">  [ <span class="number">6</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [ <span class="number">7</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [ <span class="number">8</span>] com.alibaba.cobar.server.ServerConnection$<span class="number">1</span>.run</span><br><span class="line">  [ <span class="number">9</span>] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line">  [<span class="number">10</span>] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line">  [<span class="number">11</span>] java.util.concurrent.FutureTask.run</span><br><span class="line">  [<span class="number">12</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [<span class="number">13</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [<span class="number">14</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">3451038</span> ns (<span class="number">0.52</span>%), <span class="number">4</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.lang.Object</span><br><span class="line">  [ <span class="number">1</span>] sun.nio.ch.SocketChannelImpl.ensureReadOpen</span><br><span class="line">  [ <span class="number">2</span>] sun.nio.ch.SocketChannelImpl.read</span><br><span class="line">  [ <span class="number">3</span>] com.alibaba.cobar.net.AbstractConnection.read</span><br><span class="line">  [ <span class="number">4</span>] com.alibaba.cobar.net.NIOReactor$R.read</span><br><span class="line">  [ <span class="number">5</span>] com.alibaba.cobar.net.NIOReactor$R.run</span><br><span class="line">  [ <span class="number">6</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">4143</span> ns (<span class="number">0.00</span>%), <span class="number">1</span> sample</span><br><span class="line">  [ <span class="number">0</span>] com.taobao.tddl.common.IdGenerator</span><br><span class="line">  [ <span class="number">1</span>] com.taobao.tddl.common.IdGenerator.nextId</span><br><span class="line">  [ <span class="number">2</span>] com.alibaba.cobar.server.ServerConnection.genTraceId</span><br><span class="line">  [ <span class="number">3</span>] com.alibaba.cobar.server.ServerQueryHandler.query</span><br><span class="line">  [ <span class="number">4</span>] com.alibaba.cobar.net.FrontendConnection.query</span><br><span class="line">  [ <span class="number">5</span>] com.alibaba.cobar.net.handler.FrontendCommandHandler.handle</span><br><span class="line">  [ <span class="number">6</span>] com.alibaba.cobar.net.FrontendConnection$<span class="number">1</span>.run</span><br><span class="line">  [ <span class="number">7</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [ <span class="number">8</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [ <span class="number">9</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">          ns  percent  samples  top</span><br><span class="line">  ----------  -------  -------  ---</span><br><span class="line">   <span class="number">660009389</span>   <span class="number">99.48</span>%      <span class="number">491</span>  java.util.Properties</span><br><span class="line">     <span class="number">3451038</span>    <span class="number">0.52</span>%        <span class="number">4</span>  java.lang.Object</span><br><span class="line">        <span class="number">4143</span>    <span class="number">0.00</span>%        <span class="number">1</span>  com.taobao.tddl.common.IdGenerator</span><br></pre></td></tr></table></figure>
+
+<p>com.taobao.tddl.matrix.jdbc.TConnection.optimizeThenExecute调用对应代码逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (InsertSplitter.needSplit(sql, policy, extraCmd)) &#123;</span><br><span class="line">             executionContext.setDoingBatchInsertBySpliter(<span class="keyword">true</span>);</span><br><span class="line">             InsertSplitter insertSplitter = <span class="keyword">new</span> InsertSplitter(executor);</span><br><span class="line">                        <span class="comment">// In batch insert, update transaction policy in writing</span></span><br><span class="line">                        <span class="comment">// broadcast table is also needed.</span></span><br><span class="line">     resultCursor = insertSplitter.execute(sql,executionContext,policy,</span><br><span class="line">         (String insertSql) -&gt; optimizeThenExecute(insertSql, executionContext,trxPolicyModified));</span><br><span class="line">                    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">       resultCursor = optimizeThenExecute(sql, executionContext,trxPolicyModified);</span><br><span class="line">                    &#125;</span><br><span class="line">                    </span><br><span class="line"> 最终会访问到：</span><br><span class="line"> <span class="function"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title">configMppExecutionContext</span><span class="params">(ExecutionContext executionContext)</span> </span>&#123;</span><br><span class="line"></span><br><span class="line">        String instRole = (String) SystemPropertiesHelper.getPropertyValue(SystemPropertiesHelper.INST_ROLE);</span><br><span class="line">        SqlType sqlType = executionContext.getSqlType();</span><br><span class="line">        </span><br><span class="line"> 相当于执行每个SQL都要加锁访问HashMap(SystemPropertiesHelper.getPropertyValue)，这里排队比较厉害</span><br></pre></td></tr></table></figure>
+
+<p>实际以上测试结果显示bucket对性能有提升这么大是不对的，刚好这个版本把对HashMap的访问去掉了，这才是提升的主要原因，当然如果线程池入队出队有等锁的话改成多个肯定是有帮助的，但是从等锁观察是没有这个问题的。</p>
+<p>在这个代码基础上将bucket改成1，在4core机器下经过反复对比测试性能基本没有明显的差异，可能core越多这个问题会更明显些。总结</p>
+<p>回到最开始部分查询卡顿这个问题，本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。</p>
+<p>MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，类似ConcurrentHashmap的实现，当然这个设计带来的问题就是多个池子中的任务不能均衡了。</p>
+<p>同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。</p>
+<p><strong>类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，如果这个worker上的某个连接有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。</strong>Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。</p>
+<p>如果池子卡顿后，调用方有快速fail，比如druid的MySqlValidConnectionChecker，那么调用方从堆栈很快能发现这个问题，如果没有异常一直死等的话对问题的排查不是很友好。</p>
+<p>另外可以看到分布式环境下死锁、活锁还是很容易产生的，想要一次性提前设计好比较难，需要不断踩坑爬坑。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a href="https://www.atatech.org/articles/36343" target="_blank" rel="noopener">记一次诡异的数据库故障的排查过程</a></p>
+<p><a href="http://mysql.taobao.org/monthly/2016/02/09/" target="_blank" rel="noopener">http://mysql.taobao.org/monthly/2016/02/09/</a></p>
+<p><a href="https://dbaplus.cn/news-11-1989-1.html" target="_blank" rel="noopener">https://dbaplus.cn/news-11-1989-1.html</a></p>
+<p><a href="https://kb.aliyun-inc.com/repo/921/article?id=G71264" target="_blank" rel="noopener">慢查询触发kill后导致集群卡死</a> <strong>把queryTimeout换成socketTimeout，这个不会发送kill，只会断开连接</strong></p>
+<p><a href="https://kb.aliyun-inc.com/repo/921/article?id=G56753" target="_blank" rel="noopener">青海湖、天津医保 RDS线程池过小导致DRDS查询卡顿问题排查 </a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux内存--pagecache/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5339,620 +5796,6 @@ LISTEN    0     511              *:8085           *:*
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/24/如何制作本地yum repository/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/24/如何制作本地yum repository/" itemprop="url">如何制作本地yum repository</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-24T17:30:03+08:00">
-                2020-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何制作本地yum-repository"><a href="#如何制作本地yum-repository" class="headerlink" title="如何制作本地yum repository"></a>如何制作本地yum repository</h1><p>某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。</p>
-<h2 id="收集所有rpm包"><a href="#收集所有rpm包" class="headerlink" title="收集所有rpm包"></a>收集所有rpm包</h2><p>创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">-rwxr-xr-x 1 root root  73K 7月  12 14:22 audit-libs-python-2.8.4-4.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root 295K 7月  12 14:22 checkpolicy-2.5-8.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  23M 7月  12 14:22 containerd.io-1.2.2-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  26K 7月  12 14:22 container-selinux-2.9-4.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  37K 7月  12 14:22 container-selinux-2.74-1.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  14M 7月  12 14:22 docker-ce-cli-18.09.0-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  29K 7月  12 14:22 docker-ce-selinux-17.03.2.ce-1.el7.centos.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-2.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-1.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 154K 7月  12 14:23 PyYAML-3.10-11.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  29K 7月  12 14:23 python-six-1.9.0-2.el7.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 397K 7月  12 14:23 python-setuptools-0.9.8-7.el7.noarch.rpm</span><br></pre></td></tr></table></figure>
-
-<p>收集方法：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">//先安装yum工具</span><br><span class="line">yum install yum-utils -y</span><br><span class="line">//将 ansible 依赖包都下载下来</span><br><span class="line">repoquery --requires --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible</span><br><span class="line">//将ansible rpm自己下载回来</span><br><span class="line">yumdownloader --destdir=/tmp/ansible --resolve ansible</span><br><span class="line">//验证一下依赖关系是完整的</span><br><span class="line">//repotrack ansible</span><br></pre></td></tr></table></figure>
-
-<h2 id="创建仓库索引"><a href="#创建仓库索引" class="headerlink" title="创建仓库索引"></a>创建仓库索引</h2><p>需要安装工具 yum install createrepo -y：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"># createrepo ./public_yum/</span><br><span class="line">Spawning worker 0 with 6 pkgs</span><br><span class="line">Spawning worker 1 with 6 pkgs</span><br><span class="line">Spawning worker 23 with 5 pkgs</span><br><span class="line">Workers Finished</span><br><span class="line">Saving Primary metadata</span><br><span class="line">Saving file lists metadata</span><br><span class="line">Saving other metadata</span><br><span class="line">Generating sqlite DBs</span><br><span class="line">Sqlite DBs complete</span><br></pre></td></tr></table></figure>
-
-<p>会在yum文件夹下生成一个索引文件夹 repodata</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">drwxr-xr-x 2 root root 4.0K 7月  12 14:25 repodata</span><br><span class="line">[root@az1-drds-79 yum]# ls repodata/</span><br><span class="line">5e15c62fec1fe43c6025ecf4d370d632f4b3f607500016e045ad94b70f87bac3-filelists.xml.gz</span><br><span class="line">7a314396d6e90532c5c534567f9bd34eee94c3f8945fc2191b225b2861ace2b6-other.xml.gz</span><br><span class="line">ce9dce19f6b426b8856747b01d51ceaa2e744b6bbd5fbc68733aa3195f724590-primary.xml.gz</span><br><span class="line">ee33b7d79e32fe6ad813af92a778a0ec8e5cc2dfdc9b16d0be8cff6a13e80d99-filelists.sqlite.bz2</span><br><span class="line">f7e8177e7207a4ff94bade329a0f6b572a72e21da106dd9144f8b1cdf0489cab-primary.sqlite.bz2</span><br><span class="line">ff52e1f1859790a7b573d2708b02404eb8b29aa4b0c337bda83af75b305bfb36-other.sqlite.bz2</span><br><span class="line">repomd.xml</span><br></pre></td></tr></table></figure>
-
-<h2 id="生成iso镜像文件"><a href="#生成iso镜像文件" class="headerlink" title="生成iso镜像文件"></a>生成iso镜像文件</h2><p>非必要步骤，如果需要带到客户环境可以先生成iso，不过不够灵活。</p>
-<p>也可以不用生成iso，直接在drds.repo中指定 createrepo 的目录也可以，记得要先执行 yum clean all和yum update </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#mkisofs -r -o docker_ansible.iso ./yum/</span><br><span class="line">I: -input-charset not specified, using utf-8 (detected in locale settings)</span><br><span class="line">Using PYTHO000.RPM;1 for  /python-httplib2-0.7.7-3.el7.noarch.rpm (python-httplib2-0.9.1-3.el7.noarch.rpm)</span><br><span class="line">Using MARIA006.RPM;1 for  /mariadb-5.5.56-2.el7.x86_64.rpm (mariadb-libs-5.5.56-2.el7.x86_64.rpm)</span><br><span class="line">Using LIBTO001.RPM;1 for  /libtomcrypt-1.17-25.el7.x86_64.rpm (libtomcrypt-1.17-26.el7.x86_64.rpm)</span><br><span class="line">  6.11% done, estimate finish Sun Jul 12 14:26:47 2020</span><br><span class="line"> 97.60% done, estimate finish Sun Jul 12 14:26:48 2020</span><br><span class="line">Total translation table size: 0</span><br><span class="line">Total rockridge attributes bytes: 14838</span><br><span class="line">Total directory bytes: 2048</span><br><span class="line">Path table size(bytes): 26</span><br><span class="line">Max brk space used 21000</span><br><span class="line">81981 extents written (160 MB)</span><br></pre></td></tr></table></figure>
-
-<h2 id="将-生成的-iso挂载到目标机器上"><a href="#将-生成的-iso挂载到目标机器上" class="headerlink" title="将 生成的 iso挂载到目标机器上"></a>将 生成的 iso挂载到目标机器上</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># mkdir /mnt/iso</span><br><span class="line"># mount ./docker_ansible.iso /mnt/iso</span><br><span class="line">mount: /dev/loop0 is write-protected, mounting read-only</span><br></pre></td></tr></table></figure>
-
-<h2 id="配置本地-yum-源"><a href="#配置本地-yum-源" class="headerlink" title="配置本地 yum 源"></a>配置本地 yum 源</h2><p>yum repository不是必须要求iso挂载，直接指向rpm文件夹（必须要有 createrepo 建立索引了）也可以</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/yum.repos.d/drds.repo </span><br><span class="line">[drds]</span><br><span class="line">name=drds Extra Packages for Enterprise Linux 7 - $basearch</span><br><span class="line">enabled=1</span><br><span class="line">failovermethod=priority</span><br><span class="line">baseurl=file:///mnt/repo #baseurl=http://192.168.1.91:8000/ 本地内网</span><br><span class="line">priority=1  #添加priority=1，数字越小优先级越高，也可以修改网络源的priority的值</span><br><span class="line">gpgcheck=0</span><br><span class="line">#gpgkey=file:///mnt/cdrom/RPM-GPG-KEY-CentOS-5    #注：这个你cd /mnt/cdrom/可以看到这个key，这里仅仅是个例子， 因为gpgcheck是0 ，所以gpgkey不需要了</span><br></pre></td></tr></table></figure>
-
-<p>到此就可以在没有网络环境的机器上直接：yum install ansible docker -y 了 </p>
-<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>测试的话可以指定repo 源： yum install ansible –enablerepo&#x3D;drds （drds 优先级最高）</p>
-<p>本地会cache一些rpm的版本信息，可以执行 yum clean all 得到一个干净的测试环境</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">yum clean all</span><br><span class="line">yum list</span><br><span class="line">yum deplist ansible</span><br></pre></td></tr></table></figure>
-
-<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="noopener">Yum commands error “pycurl.so: undefined symbol”</a></p>
-<h2 id="xargs-作用"><a href="#xargs-作用" class="headerlink" title="xargs 作用"></a>xargs 作用</h2><p><code>xargs</code>命令的作用，是将标准输入转为命令行参数。因为有些命令是不接受标准输入的，比如echo</p>
-<p><code>xargs</code>的作用在于，大多数命令（比如<code>rm</code>、<code>mkdir</code>、<code>ls</code>）与管道一起使用时，都需要<code>xargs</code>将标准输入转为命令行参数。</p>
-<h2 id="dnf-使用"><a href="#dnf-使用" class="headerlink" title="dnf 使用"></a>dnf 使用</h2><p><strong>DNF</strong> 是新一代的rpm软件包管理器。他首先出现在 Fedora 18 这个发行版中。而最近，它取代了yum，正式成为 Fedora 22 的包管理器。</p>
-<p>DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》</p>
-<p>DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：</p>
-<ol>
-<li>在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。</li>
-<li>在 DNF 中没有判断哪个包提供了指定依赖的 resolvedep 命令。</li>
-<li>在 DNF 中没有用来列出某个软件依赖包的 deplist 命令。</li>
-<li>当你在 DNF 中排除了某个软件库，那么该操作将会影响到你之后所有的操作，不像在 YUM 下那样，你的排除操作只会咋升级和安装软件时才起作用。</li>
-</ol>
-<h2 id="安装yum源"><a href="#安装yum源" class="headerlink" title="安装yum源"></a>安装yum源</h2><p>安装7.70版本curl yum源</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm</span><br></pre></td></tr></table></figure>
-
-<h2 id="其它技巧"><a href="#其它技巧" class="headerlink" title="其它技巧"></a>其它技巧</h2><h3 id="rpm依赖查询"><a href="#rpm依赖查询" class="headerlink" title="rpm依赖查询"></a>rpm依赖查询</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">rpm -q --whatprovides file-name //查询一个文件来自哪个rpm包</span><br><span class="line">rpm -qf /usr/lib/systemd/libsystemd-shared-239.so // 查询一个so lib来自哪个rpm包</span><br><span class="line">或者 yum whatprovides /usr/lib/systemd/libsystemd-shared-239.so</span><br><span class="line">yum provides */libmysqlclient.so.18</span><br></pre></td></tr></table></figure>
-
-<h2 id="制作debian-仓库"><a href="#制作debian-仓库" class="headerlink" title="制作debian 仓库"></a><a href="https://rpmdeb.com/devops-articles/how-to-create-local-debian-repository/" target="_blank" rel="noopener">制作debian 仓库</a></h2><p>适合ubuntu、deepin、uos等, 参考：<a href="https://lework.github.io/2021/04/03/debian-kubeadm-install/" target="_blank" rel="noopener">https://lework.github.io/2021/04/03/debian-kubeadm-install/</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#添加新仓库</span><br><span class="line">sudo apt-add-repository &apos;deb http://ftp.us.debian.org/debian stretch main contrib non-free&apos;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/images/951413iMgBlog/2-60.png" alt="img"></p>
-<p><a href="https://zh-cn.linuxcapable.com/%E5%9C%A8-debian-11-%E9%9D%B6%E5%BF%83%E4%B8%8A%E5%AE%89%E8%A3%85-rpm-%E5%8C%85/" target="_blank" rel="noopener">rpm转换成 dpkg</a></p>
-<h3 id="apt-mirror"><a href="#apt-mirror" class="headerlink" title="apt-mirror"></a><a href="https://www.rickylss.site/os/linux/2020/05/12/debian-repositry/" target="_blank" rel="noopener">apt-mirror</a></h3><p>先要安装apt-mirror 工具，安装后会生成配置文件 &#x2F;etc&#x2F;apt&#x2F;mirror.list 然后需要手工修改配置文件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">#cat /etc/apt/mirror.list</span><br><span class="line">############# config ##################</span><br><span class="line"></span><br><span class="line">#下载下来的仓库文件放在哪里</span><br><span class="line">set base_path    /polarx/debian</span><br><span class="line"></span><br><span class="line">set mirror_path  $base_path/mirror</span><br><span class="line">set skel_path    $base_path/skel</span><br><span class="line">set var_path     $base_path/var</span><br><span class="line">set cleanscript $var_path/clean.sh</span><br><span class="line">set defaultarch  amd64</span><br><span class="line">#set postmirror_script $var_path/postmirror.sh</span><br><span class="line">set run_postmirror 0</span><br><span class="line">set nthreads     20</span><br><span class="line">set _tilde 0</span><br><span class="line">#</span><br><span class="line">############# end config ##############</span><br><span class="line"></span><br><span class="line">#从哪里镜像仓库</span><br><span class="line">deb http://yum.tbsite.net/mirrors/debian/ buster main non-free contrib</span><br><span class="line">#deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main</span><br><span class="line"></span><br><span class="line">#deb http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-src http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line"></span><br><span class="line"># mirror additional architectures</span><br><span class="line">#deb-alpha http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-amd64 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-armel http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-hppa http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-i386 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-ia64 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-m68k http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-mips http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-mipsel http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-powerpc http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-s390 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-sparc http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line"></span><br><span class="line">#clean http://ftp.us.debian.org/debian</span><br><span class="line">clean http://yum.tbsite.net/mirrors/debian/</span><br></pre></td></tr></table></figure>
-
-<h3 id="debian仓库介绍"><a href="#debian仓库介绍" class="headerlink" title="debian仓库介绍"></a><a href="https://wiki.debian.org/zh_CN/DebianRepository" target="_blank" rel="noopener">debian仓库介绍</a></h3><p>一个Debian仓库包含多个<strong>发行版</strong>。Debian 的发行版是以 “玩具总动员 “电影中的角色命名的 (wheezy, jessie, stretch, …)。 代号有别名，叫做<strong>套件</strong>(stable, oldstable, testing, unstable)。一个发行版会被分成几个<strong>组件</strong>。在 Debian 中，这些组件被命名为 <code>main</code>, <code>contrib</code>, 和 <code>non-free</code>，并表并表示它们所包含的软件的授权条款。一个版本也有各种<strong>架构</strong>(amd64, i386, mips, powerpc, s390x, …)的软件包，以及源码和架构独立的软件包。</p>
-<p>仓库的<a href="https://mirrors.aliyun.com/debian/dists/" target="_blank" rel="noopener">根目录下有一个<code>dists</code> 目录</a>，而这个目录又有每个发行版和套件的目录，后者通常是前者的符号链接，但浏览器不会向您显示出这个区别。每个发行版子目录都包含一个加密签名的<code>Release</code>文件和每个组件的目录，里面是不同架构的目录，名为<code>binary</code>-*&lt;架构&gt;*和<code>sources</code>。而在这些文件中，<code>Packages</code>是文本文件，包含了软件包。嗯，那么实际的软件包在哪里？</p>
-<p><img src="/images/951413iMgBlog/image-20220829163817671.png" alt="image-20220829163817671"></p>
-<p>软件包本身在仓库根目录下的<code>pool</code>。在<code>pool</code>下面又有所有组件的目录，其中有<code>0</code>，…，<code>9</code>，<code>a</code>，<code>b</code>，.., <code>z</code>, <code>liba</code>, … , <code>libz</code>。 而在这些目录中，是以它们所包含的软件包命名的目录，这些目录最后包含实际的软件包，即<code>.deb</code>文件。这个名字不一定是软件包本身的名字，例如，软件包bsdutils在目录<code>pool/main/u/util-linux</code> 下，它是生成软件包的源码的名称。一个上游源可能会生成多个二进制软件包，而所有这些软件包最终都会在<code>pool</code>下面的同一个子目录中。额外的单字母目录只是一个技巧，以避免在一个目录中有太多的条目，因为这是很多系统传统上存在性能问题的原因。</p>
-<p>在<code>pool</code>下面的子目录中，通常会有多个版本的软件包，而每个版本的软件包属于什么发行版的信息只存在于索引中。这样一来，同一个版本的包可软件以属于多个发行版，但只使用一次磁盘空间，而且不需要求助于硬链接或符号链接，所以镜像相当简单，甚至可以在没有这些概念的系统中进行。</p>
-<h3 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">apt install kubeadm=1.20.12-00 //指定版本安装</span><br><span class="line"></span><br><span class="line">#查询可用版本</span><br><span class="line">apt-cache policy kubeadm</span><br><span class="line">apt list --all-versions kubeadm</span><br><span class="line"></span><br><span class="line">#清理</span><br><span class="line">apt clean --dry-run </span><br><span class="line">apt update</span><br><span class="line">apt list</span><br><span class="line">apt show kubeadm</span><br><span class="line"></span><br><span class="line">#查询安装包的所有文件</span><br><span class="line">dpkg-query -L kubeadm</span><br><span class="line"></span><br><span class="line">#列出所有依赖包</span><br><span class="line">apt-cache depends ansible</span><br><span class="line"></span><br><span class="line">#被依赖查询</span><br><span class="line">apt-cache rdepends kubelet</span><br><span class="line"></span><br><span class="line">dpkg -I kubernetes/pool/kubeadm_1.21.0-00_amd64.deb</span><br><span class="line"></span><br><span class="line">#下载依赖包</span><br><span class="line">apt-get download $(apt-rdepends kubeadm|grep -v &quot;^ &quot;)</span><br><span class="line">aptitude --download-only -y install $(apt-rdepends kubeadm|grep -v &quot;^ &quot;) //不能下载已经安装了的依赖包</span><br><span class="line"></span><br><span class="line">apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep &quot;^\w&quot; | sort -u)</span><br></pre></td></tr></table></figure>
-
-<h3 id="简单仓库"><a href="#简单仓库" class="headerlink" title="简单仓库"></a><a href="https://zhuanlan.zhihu.com/p/482592599" target="_blank" rel="noopener">简单仓库</a></h3><p>下载所有 deb 包以及他们的依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep &quot;^\w&quot; | sort -u)</span><br></pre></td></tr></table></figure>
-
-<p>生成 index</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dpkg-scanpackages -m . &gt; Packages</span><br></pre></td></tr></table></figure>
-
-<p>apt source 指向这个目录</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">deb [trusted=yes] file:/polarx/test /</span><br></pre></td></tr></table></figure>
-
-<h3 id="Kubernetes-仓库"><a href="#Kubernetes-仓库" class="headerlink" title="Kubernetes 仓库"></a>Kubernetes 仓库</h3><p><a href="https://lework.github.io/2021/04/03/debian-kubeadm-install/" target="_blank" rel="noopener">debian 上通过kubeadm 安装 kubernetes 集群</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">//官方</span><br><span class="line">echo &quot;deb http://apt.kubernetes.io/ kubernetes-xenial main&quot; | tee -a /etc/apt/sources.list.d/kubernetes.list</span><br><span class="line"></span><br><span class="line">//阿里云仓库</span><br><span class="line">echo &apos;deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main&apos; &gt; /etc/apt/sources.list.d/kubernetes.list</span><br><span class="line">curl -s https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | sudo apt-key add -</span><br><span class="line">apt-get update</span><br><span class="line"></span><br><span class="line">export KUBE_VERSION=&quot;1.20.5&quot;</span><br><span class="line">apt-get install -y kubeadm=$KUBE_VERSION-00 kubelet=$KUBE_VERSION-00 kubectl=$KUBE_VERSION-00</span><br><span class="line">sudo apt-mark hold kubelet kubeadm kubectl</span><br><span class="line"></span><br><span class="line">[ -d /etc/bash_completion.d ] &amp;&amp; \</span><br><span class="line">    &#123; kubectl completion bash &gt; /etc/bash_completion.d/kubectl; \</span><br><span class="line">      kubeadm completion bash &gt; /etc/bash_completion.d/kubadm; &#125;</span><br><span class="line">      </span><br><span class="line">[ ! -d /usr/lib/systemd/system/kubelet.service.d ] &amp;&amp; mkdir -p /usr/lib/systemd/system/kubelet.service.d</span><br><span class="line">cat &lt;&lt; EOF &gt; /usr/lib/systemd/system/kubelet.service.d/11-cgroup.conf</span><br><span class="line">[Service]</span><br><span class="line">CPUAccounting=true</span><br><span class="line">MemoryAccounting=true</span><br><span class="line">BlockIOAccounting=true</span><br><span class="line">ExecStartPre=/usr/bin/bash -c &apos;/usr/bin/mkdir -p /sys/fs/cgroup/&#123;cpuset,memory,systemd,pids,&quot;cpu,cpuacct&quot;&#125;/&#123;system,kube,kubepods&#125;.slice&apos;</span><br><span class="line">Slice=kube.slice</span><br><span class="line">EOF</span><br><span class="line">systemctl daemon-reload</span><br><span class="line"> </span><br><span class="line">systemctl enable kubelet.service</span><br></pre></td></tr></table></figure>
-
-<h3 id="docker-仓库"><a href="#docker-仓库" class="headerlink" title="docker 仓库"></a>docker 仓库</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">apt-get install -y apt-transport-https ca-certificates curl gnupg2 lsb-release bash-completion</span><br><span class="line">    </span><br><span class="line">curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | sudo apt-key add -</span><br><span class="line">echo &quot;deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/debian $(lsb_release -cs)   stable&quot; &gt; /etc/apt/sources.list.d/docker-ce.list</span><br><span class="line">sudo apt-get update</span><br><span class="line">apt-get install -y docker-ce docker-ce-cli containerd.io</span><br><span class="line">apt-mark hold docker-ce docker-ce-cli containerd.io</span><br></pre></td></tr></table></figure>
-
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html" target="_blank" rel="noopener">xargs 命令教程</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/22/kubernetes service/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/22/kubernetes service/" itemprop="url">kubernetes service</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-22T17:30:03+08:00">
-                2020-01-22
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/docker/" itemprop="url" rel="index">
-                    <span itemprop="name">docker</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="kubernetes-service-和-kube-proxy详解"><a href="#kubernetes-service-和-kube-proxy详解" class="headerlink" title="kubernetes service 和 kube-proxy详解"></a>kubernetes service 和 kube-proxy详解</h1><h2 id="service-模式"><a href="#service-模式" class="headerlink" title="service 模式"></a>service 模式</h2><p>根据创建Service的<code>type</code>类型不同，可分成4种模式：</p>
-<ul>
-<li>ClusterIP： <strong>默认方式</strong>。根据是否生成ClusterIP又可分为普通Service和Headless Service两类：<ul>
-<li><code>普通Service</code>：通过为Kubernetes的Service分配一个集群内部可访问的固定虚拟IP（Cluster IP），实现集群内的访问。为最常见的方式。</li>
-<li><code>Headless Service</code>：该服务不会分配Cluster IP，也不通过kube-proxy做反向代理和负载均衡。而是通过DNS提供稳定的网络ID来访问，DNS会将headless service的后端直接解析为podIP列表。主要供StatefulSet中对应POD的序列用。</li>
-</ul>
-</li>
-<li><code>NodePort</code>：除了使用Cluster IP之外，还通过将service的port映射到集群内每个节点的相同一个端口，实现通过nodeIP:nodePort从集群外访问服务。NodePort会RR转发给后端的任意一个POD，跟ClusterIP类似</li>
-<li><code>LoadBalancer</code>：和nodePort类似，不过除了使用一个Cluster IP和nodePort之外，还会向所使用的公有云申请一个负载均衡器，实现从集群外通过LB访问服务。在公有云提供的 Kubernetes 服务里，都使用了一个叫作 CloudProvider 的转接层，来跟公有云本身的 API 进行对接。所以，在上述 LoadBalancer 类型的 Service 被提交后，Kubernetes 就会调用 CloudProvider 在公有云上为你创建一个负载均衡服务，并且把被代理的 Pod 的 IP 地址配置给负载均衡服务做后端。</li>
-<li><code>ExternalName</code>：是 Service 的特例。此模式主要面向运行在集群外部的服务，通过它可以将外部服务映射进k8s集群，且具备k8s内服务的一些特征（如具备namespace等属性），来为集群内部提供服务。此模式要求kube-dns的版本为1.7或以上。这种模式和前三种模式（除headless service）最大的不同是重定向依赖的是dns层次，而不是通过kube-proxy。</li>
-</ul>
-<p>service yaml案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">apiVersion: v1</span><br><span class="line">kind: Service</span><br><span class="line">metadata:</span><br><span class="line">  name: nginx-ren</span><br><span class="line">  labels:</span><br><span class="line">    app: web</span><br><span class="line">spec:</span><br><span class="line">  type: NodePort</span><br><span class="line"># clusterIP: None  </span><br><span class="line">  ports:</span><br><span class="line">  - port: 8080</span><br><span class="line">    targetPort: 80</span><br><span class="line">    nodePort: 30080</span><br><span class="line">  selector:</span><br><span class="line">    app: ren</span><br></pre></td></tr></table></figure>
-
-<p><code>ports</code> 字段指定服务的端口信息：</p>
-<ul>
-<li><code>port</code>：虚拟 ip 要绑定的 port，每个 service 会创建出来一个虚拟 ip，通过访问 <code>vip:port</code> 就能获取服务的内容。这个 port 可以用户随机选取，因为每个服务都有自己的 vip，也不用担心冲突的情况</li>
-<li><code>targetPort</code>：pod 中暴露出来的 port，这是运行的容器中具体暴露出来的端口，一定不能写错–一般用name来代替具体的port</li>
-<li><code>protocol</code>：提供服务的协议类型，可以是 <code>TCP</code> 或者 <code>UDP</code></li>
-<li><code>nodePort</code>： 仅在type为nodePort模式下有用，宿主机暴露端口</li>
-</ul>
-<p>但是nodePort和loadbalancer可以被外部访问，loadbalancer需要一个外部ip，流量走外部ip进出</p>
-<p>NodePort向外部暴露了多个宿主机的端口，外部可以部署负载均衡将这些地址配置进去。</p>
-<p>默认情况下，服务会rr转发到可用的后端。如果希望保持会话（同一个 client 永远都转发到相同的 pod），可以把 <code>service.spec.sessionAffinity</code> 设置为 <code>ClientIP</code>。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">iptables-save | grep 3306</span><br><span class="line"></span><br><span class="line">iptables-save | grep KUBE-SERVICES</span><br><span class="line"></span><br><span class="line">#iptables-save |grep KUBE-SVC-RVEVH2XMONK6VC5O</span><br><span class="line">:KUBE-SVC-RVEVH2XMONK6VC5O - [0:0]</span><br><span class="line">-A KUBE-SERVICES -d 10.10.70.95/32 -p tcp -m comment --comment &quot;drds/mysql-read:mysql cluster IP&quot; -m tcp --dport 3306 -j KUBE-SVC-RVEVH2XMONK6VC5O</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -m statistic --mode random --probability 0.33333333349 -j KUBE-SEP-XC4TZYIZFYB653VI</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-MK4XPBZUIJGFXKED</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -j KUBE-SEP-AAYXWGQJBDHUJUQ3</span><br></pre></td></tr></table></figure>
-
-<p>看起来 service 是个完美的方案，可以解决服务访问的所有问题，但是 service 这个方案（iptables 模式）也有自己的缺点。</p>
-<p>首先，<strong>如果转发的 pod 不能正常提供服务，它不会自动尝试另一个 pod</strong>，当然这个可以通过 <code>readiness probes</code> 来解决。每个 pod 都有一个健康检查的机制，当有 pod 健康状况有问题时，kube-proxy 会删除对应的转发规则。</p>
-<p>另外，<code>nodePort</code> 类型的服务也无法添加 TLS 或者更复杂的报文路由机制。因为只做了NAT</p>
-<h2 id="NodePort-的一些问题"><a href="#NodePort-的一些问题" class="headerlink" title="NodePort 的一些问题"></a>NodePort 的一些问题</h2><ul>
-<li>首先endpoint回复不能走node 1给client，因为会被client reset（如果在node1上将src ip替换成node2的ip可能会路由不通）。回复包在 node1上要snat给node2</li>
-<li>经过snat后endpoint没法拿到client ip（slb之类是通过option带过来）</li>
-</ul>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">          client</span><br><span class="line">            \ ^</span><br><span class="line">             \ \</span><br><span class="line">              v \</span><br><span class="line">  node 1 &lt;--- node 2</span><br><span class="line">   | ^   SNAT</span><br><span class="line">   | |   ---&gt;</span><br><span class="line">   v |</span><br><span class="line">endpoint</span><br></pre></td></tr></table></figure>
-
-<p>可以将 Service 的 spec.externalTrafficPolicy 字段设置为 local，这就保证了所有 Pod 通过 Service 收到请求之后，一定可以看到真正的、外部 client 的源地址。</p>
-<p>而这个机制的实现原理也非常简单：这时候，<strong>一台宿主机上的 iptables 规则，会设置为只将 IP 包转发给运行在这台宿主机上的 Pod</strong>。所以这时候，Pod 就可以直接使用源地址将回复包发出，不需要事先进行 SNAT 了。这个流程，如下所示：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">      client</span><br><span class="line">      ^ /   \</span><br><span class="line">     / /     \</span><br><span class="line">    / v       X</span><br><span class="line">  node 1     node 2</span><br><span class="line">   ^ |</span><br><span class="line">   | |</span><br><span class="line">   | v</span><br><span class="line">endpoint</span><br></pre></td></tr></table></figure>
-
-<p>当然，这也就意味着如果在一台宿主机上，没有任何一个被代理的 Pod 存在，比如上图中的 node 2，那么你使用 node 2 的 IP 地址访问这个 Service，就是无效的。此时，你的请求会直接被 DROP 掉。</p>
-<h2 id="Service和kube-proxy的工作原理"><a href="#Service和kube-proxy的工作原理" class="headerlink" title="Service和kube-proxy的工作原理"></a>Service和kube-proxy的工作原理</h2><p>kube-proxy有两种主要的实现（userspace基本没有使用了）：</p>
-<ul>
-<li>[[iptables使用]]来做NAT以及负载均衡</li>
-<li>ipvs来做NAT以及负载均衡</li>
-</ul>
-<p>Service 是由 kube-proxy 组件通过监听 Pod 的变化事件，在宿主机上维护iptables规则或者ipvs规则。</p>
-<p>Kube-proxy 主要监听两个对象，一个是 Service，一个是 Endpoint，监听他们启停。以及通过selector将他们绑定。</p>
-<p>IPVS 是专门为LB设计的。它用hash table管理service，对service的增删查找都是*O(1)*的时间复杂度。不过IPVS内核模块没有SNAT功能，因此借用了iptables的SNAT功能。IPVS 针对报文做DNAT后，将连接信息保存在nf_conntrack中，iptables据此接力做SNAT。该模式是目前Kubernetes网络性能最好的选择。但是由于nf_conntrack的复杂性，带来了很大的性能损耗。</p>
-<h3 id="iptables-实现负载均衡的工作流程"><a href="#iptables-实现负载均衡的工作流程" class="headerlink" title="iptables 实现负载均衡的工作流程"></a>iptables 实现负载均衡的工作流程</h3><p>如果kube-proxy不是用的ipvs模式，那么主要靠iptables来做DNAT和SNAT以及负载均衡</p>
-<p>iptables+clusterIP工作流程：</p>
-<ol>
-<li>集群内访问svc 10.10.35.224:3306 命中 kube-services iptables</li>
-<li>iptables 规则：KUBE-SEP-F4QDAAVSZYZMFXZQ 对应到  KUBE-SEP-F4QDAAVSZYZMFXZQ</li>
-<li>KUBE-SEP-F4QDAAVSZYZMFXZQ 指示 DNAT到 宿主机：192.168.0.83:10379（在内核中将包改写了ip port）</li>
-<li>从svc description中可以看到这个endpoint的地址 192.168.0.83:10379（pod使用Host network）</li>
-</ol>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png" alt="image.png"></p>
-<p>在对应的宿主机上可以清楚地看到容器中的mysqld进程正好监听着 10379端口</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-83 ~]# ss -lntp |grep 10379</span><br><span class="line">LISTEN     0      128         :::10379                   :::*                   users:((&quot;mysqld&quot;,pid=17707,fd=18))</span><br><span class="line">[root@az1-drds-83 ~]# ps auxff | grep 17707 -B2</span><br><span class="line">root     13606  0.0  0.0  10720  3764 ?        Sl   17:09   0:00  \_ containerd-shim -namespace moby -workdir /var/lib/containerd/io.containerd.runtime.v1.linux/moby/ead57b52b11902b9b5004db0b72abb060b56a1af7ee7ad7066bd09c946abcb97 -address /run/containerd/containerd.sock -containerd-binary /usr/bin/containerd -runtime-root /var/run/docker/runtime-runc</span><br><span class="line"></span><br><span class="line">root     13624  0.0  0.0 103044 10424 ?        Ss   17:09   0:00  |   \_ python /entrypoint.py</span><br><span class="line">root     14835  0.0  0.0  11768  1636 ?        S    17:10   0:00  |   \_ /bin/sh /u01/xcluster/bin/mysqld_safe --defaults-file=/home/mysql/my10379.cnf</span><br><span class="line">alidb    17707  0.6  0.0 1269128 67452 ?       Sl   17:10   0:25  |       \_ /u01/xcluster_20200303/bin/mysqld --defaults-file=/home/mysql/my10379.cnf --basedir=/u01/xcluster_20200303 --datadir=/home/mysql/data10379/dbs10379 --plugin-dir=/u01/xcluster_20200303/lib/plugin --user=mysql --log-error=/home/mysql/data10379/mysql/master-error.log --open-files-limit=8192 --pid-file=/home/mysql/data10379/dbs10379/az1-drds-83.pid --socket=/home/mysql/data10379/tmp/mysql.sock --port=10379</span><br></pre></td></tr></table></figure>
-
-<p>对应的这个pod的description：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br></pre></td><td class="code"><pre><span class="line">#kubectl describe pod apsaradbcluster010-cv6w</span><br><span class="line">Name:         apsaradbcluster010-cv6w</span><br><span class="line">Namespace:    default</span><br><span class="line">Priority:     0</span><br><span class="line">Node:         az1-drds-83/192.168.0.83</span><br><span class="line">Start Time:   Thu, 10 Sep 2020 17:09:33 +0800</span><br><span class="line">Labels:       alisql.clusterName=apsaradbcluster010</span><br><span class="line">              alisql.pod_name=apsaradbcluster010-cv6w</span><br><span class="line">              alisql.pod_role=leader</span><br><span class="line">Annotations:  apsara.metric.pod_name: apsaradbcluster010-cv6w</span><br><span class="line">Status:       Running</span><br><span class="line">IP:           192.168.0.83</span><br><span class="line">IPs:</span><br><span class="line">  IP:           192.168.0.83</span><br><span class="line">Controlled By:  ApsaradbCluster/apsaradbcluster010</span><br><span class="line">Containers:</span><br><span class="line">  engine:</span><br><span class="line">    Container ID:   docker://ead57b52b11902b9b5004db0b72abb060b56a1af7ee7ad7066bd09c946abcb97</span><br><span class="line">    Image:          reg.docker.alibaba-inc.com/apsaradb/alisqlcluster-engine:develop-20200910140415</span><br><span class="line">    Image ID:       docker://sha256:7ad5cc53c87b34806eefec829d70f5f0192f4127c7ee4e867cb3da3bb6c2d709</span><br><span class="line">    Ports:          10379/TCP, 20383/TCP, 46846/TCP</span><br><span class="line">    Host Ports:     10379/TCP, 20383/TCP, 46846/TCP</span><br><span class="line">    State:          Running</span><br><span class="line">      Started:      Thu, 10 Sep 2020 17:09:35 +0800</span><br><span class="line">    Ready:          True</span><br><span class="line">    Restart Count:  0</span><br><span class="line">    Environment:</span><br><span class="line">      ALISQL_POD_NAME:  apsaradbcluster010-cv6w (v1:metadata.name)</span><br><span class="line">      ALISQL_POD_PORT:  10379</span><br><span class="line">    Mounts:</span><br><span class="line">      /dev/shm from devshm (rw)</span><br><span class="line">      /etc/localtime from etclocaltime (rw)</span><br><span class="line">      /home/mysql/data from data-dir (rw)</span><br><span class="line">      /var/run/secrets/kubernetes.io/serviceaccount from default-token-n2bmn (ro)</span><br><span class="line">  exporter:</span><br><span class="line">    Container ID:  docker://b49865b7798f9036b431203d54994ac8fdfcadacb01a2ab4494b13b2681c482d</span><br><span class="line">    Image:         reg.docker.alibaba-inc.com/apsaradb/alisqlcluster-exporter:latest</span><br><span class="line">    Image ID:      docker://sha256:432cdd0a0e7c74c6eb66551b6f6af9e4013f60fb07a871445755f6577b44da19</span><br><span class="line">    Port:          47272/TCP</span><br><span class="line">    Host Port:     47272/TCP</span><br><span class="line">    Args:</span><br><span class="line">      --web.listen-address=:47272</span><br><span class="line">      --collect.binlog_size</span><br><span class="line">      --collect.engine_innodb_status</span><br><span class="line">      --collect.info_schema.innodb_metrics</span><br><span class="line">      --collect.info_schema.processlist</span><br><span class="line">      --collect.info_schema.tables</span><br><span class="line">      --collect.info_schema.tablestats</span><br><span class="line">      --collect.slave_hosts</span><br><span class="line">    State:          Running</span><br><span class="line">      Started:      Thu, 10 Sep 2020 17:09:35 +0800</span><br><span class="line">    Ready:          True</span><br><span class="line">    Restart Count:  0</span><br><span class="line">    Environment:</span><br><span class="line">      ALISQL_POD_NAME:   apsaradbcluster010-cv6w (v1:metadata.name)</span><br><span class="line">      DATA_SOURCE_NAME:  root:@(127.0.0.1:10379)/</span><br><span class="line">    Mounts:</span><br><span class="line">      /dev/shm from devshm (rw)</span><br><span class="line">      /etc/localtime from etclocaltime (rw)</span><br><span class="line">      /home/mysql/data from data-dir (rw)</span><br><span class="line">      /var/run/secrets/kubernetes.io/serviceaccount from default-token-n2bmn (ro)</span><br></pre></td></tr></table></figure>
-
-<p>DNAT 规则的作用，就是<strong>在 PREROUTING 检查点之前，也就是在路由之前，将流入 IP 包的目的地址和端口，改成–to-destination 所指定的新的目的地址和端口</strong>。可以看到，这个目的地址和端口，正是被代理 Pod 的 IP 地址和端口。</p>
-<h4 id="哪些组件会修改iptables"><a href="#哪些组件会修改iptables" class="headerlink" title="哪些组件会修改iptables"></a>哪些组件会修改iptables</h4><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/776d057b133692312578f01e74caca5b.png" alt="image.png"></p>
-<h3 id="ipvs-实现负载均衡的原理"><a href="#ipvs-实现负载均衡的原理" class="headerlink" title="ipvs 实现负载均衡的原理"></a>ipvs 实现负载均衡的原理</h3><p>ipvs模式下，kube-proxy会先创建虚拟网卡，kube-ipvs0下面的每个ip都对应着svc的一个clusterIP：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># ip addr</span><br><span class="line">  ...</span><br><span class="line">5: kube-ipvs0: &lt;BROADCAST,NOARP&gt; mtu 1500 qdisc noop state DOWN group default </span><br><span class="line">    link/ether de:29:17:2a:8d:79 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 10.68.70.130/32 scope global kube-ipvs0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
-
-<p>kube-ipvs0下面绑的这些ip就是在发包的时候让内核知道如果目标ip是这些地址的话，这些地址是自身的所以包不会发出去，而是给INPUT链，这样ipvs内核模块有机会改写包做完NAT后再发走。</p>
-<p>ipvs会放置DNAT钩子在INPUT链上，因此必须要让内核识别 VIP 是本机的 IP。这样才会过INPUT 链，要不然就通过OUTPUT链出去了。k8s 通过kube-proxy将service cluster ip 绑定到虚拟网卡kube-ipvs0。</p>
-<p>同时在路由表中增加一些ipvs 的路由条目：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># ip route show table local</span><br><span class="line">local 10.68.0.1 dev kube-ipvs0 proto kernel scope host src 10.68.0.1 </span><br><span class="line">local 10.68.0.2 dev kube-ipvs0 proto kernel scope host src 10.68.0.2 </span><br><span class="line">local 10.68.70.130 dev kube-ipvs0 proto kernel scope host src 10.68.70.130 -- ipvs</span><br><span class="line">broadcast 127.0.0.0 dev lo proto kernel scope link src 127.0.0.1 </span><br><span class="line">local 127.0.0.0/8 dev lo proto kernel scope host src 127.0.0.1 </span><br><span class="line">local 127.0.0.1 dev lo proto kernel scope host src 127.0.0.1 </span><br><span class="line">broadcast 127.255.255.255 dev lo proto kernel scope link src 127.0.0.1 </span><br><span class="line">broadcast 172.17.0.0 dev docker0 proto kernel scope link src 172.17.0.1 </span><br><span class="line">local 172.17.0.1 dev docker0 proto kernel scope host src 172.17.0.1 </span><br><span class="line">broadcast 172.17.255.255 dev docker0 proto kernel scope link src 172.17.0.1 </span><br><span class="line">local 172.20.185.192 dev tunl0 proto kernel scope host src 172.20.185.192 </span><br><span class="line">broadcast 172.20.185.192 dev tunl0 proto kernel scope link src 172.20.185.192 </span><br><span class="line">broadcast 172.26.128.0 dev eth0 proto kernel scope link src 172.26.137.117 </span><br><span class="line">local 172.26.137.117 dev eth0 proto kernel scope host src 172.26.137.117 </span><br><span class="line">broadcast 172.26.143.255 dev eth0 proto kernel scope link src 172.26.137.117</span><br></pre></td></tr></table></figure>
-
-<p>而接下来，kube-proxy 就会通过 Linux 的 IPVS 模块，为这个 IP 地址设置三个 IPVS 虚拟主机，并设置这三个虚拟主机之间使用轮询模式 (rr) 来作为负载均衡策略。我们可以通过 ipvsadm 查看到这个设置，如下所示：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -ln |grep 10.68.114.131 -A5</span><br><span class="line">TCP  10.68.114.131:3306 rr</span><br><span class="line">  -&gt; 172.20.120.143:3306          Masq    1      0          0         </span><br><span class="line">  -&gt; 172.20.185.209:3306          Masq    1      0          0         </span><br><span class="line">  -&gt; 172.20.248.143:3306          Masq    1      0          0</span><br></pre></td></tr></table></figure>
-
-<p>172.20.<em>.</em> 是后端真正pod的ip， 10.68.114.131 是cluster-ip.</p>
-<p>完整的工作流程如下：</p>
-<ol>
-<li>因为service cluster ip 绑定到虚拟网卡kube-ipvs0上，内核可以识别访问的 VIP 是本机的 IP.</li>
-<li>数据包到达INPUT链.</li>
-<li>ipvs监听到达input链的数据包，比对数据包请求的服务是为集群服务，修改数据包的目标IP地址为对应pod的IP，然后将数据包发至POSTROUTING链.</li>
-<li>数据包经过POSTROUTING链选路由后，将数据包通过tunl0网卡(calico网络模型)发送出去。从tunl0虚拟网卡获得源IP.</li>
-<li>经过tunl0后进行ipip封包，丢到物理网络，路由到目标node（目标pod所在的node）</li>
-<li>目标node进行ipip解包后给pod对应的网卡</li>
-<li>pod接收到请求之后，构建响应报文，改变源地址和目的地址，返回给客户端。</li>
-</ol>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/51695ebb1c6b30d95f8ac8d5dcb8dd7f.png" alt="image.png"></p>
-<h4 id="ipvs实际案例"><a href="#ipvs实际案例" class="headerlink" title="ipvs实际案例"></a>ipvs实际案例</h4><p>ipvs负载均衡下一次完整的syn握手抓包。</p>
-<p>宿主机上访问 curl clusterip+port 后因为这个ip绑定在kube-ipvs0上，本来是应该发出去的包（prerouting）但是内核认为这个包是访问自己，于是给INPUT链，接着被ipvs放置在INPUT中的DNAT钩子勾住，将dest ip根据负载均衡逻辑改成pod-ip，然后将数据包再发至POSTROUTING链。这时因为目标ip是POD-IP了，根据ip route 选择到出口网卡是tunl0。</p>
-<p>可以看下内核中的路由规则：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># ip route get 10.68.70.130</span><br><span class="line">local 10.68.70.130 dev lo src 10.68.70.130  //这条规则指示了clusterIP是发给自己的</span><br><span class="line">    cache &lt;local&gt; </span><br><span class="line"># ip route get 172.20.185.217</span><br><span class="line">172.20.185.217 via 172.26.137.117 dev tunl0 src 172.20.22.192  //这条规则指示clusterIP替换成POD IP后发给本地tunl0做ipip封包</span><br></pre></td></tr></table></figure>
-
-<p>于是cip变成了tunl0的IP，这个tunl0是ipip模式，于是将这个包打包成ipip，也就是外层sip、dip都是宿主机ip，再将这个包丢入到物理网络</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/84bbd3f10de9e7ec2266a82520876c8c.png"></p>
-<p>网络收包到达内核后的处理流程如下，核心都是查路由表，出包也会查路由表（判断是否本机内部通信，或者外部通信的话需要选用哪个网卡）</p>
-<p>补两张内核netfilter框架的图：</p>
-<p><strong>packet filtering in IPTables</strong></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a10e26828904310633f7bc20d587e547.png" alt="image.png"></p>
-<p><a href="https://en.wikipedia.org/wiki/Iptables#/media/File:Netfilter-packet-flow.svg" target="_blank" rel="noopener">完整版</a>：</p>
-<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/02e4e71ea0fae4f087a233faa190d7c7.png" alt="image.png" style="zoom:150%;">
-
-<h3 id="ipvs的一些分析"><a href="#ipvs的一些分析" class="headerlink" title="ipvs的一些分析"></a>ipvs的一些分析</h3><p>ipvs是一个内核态的四层负载均衡，支持NAT以及IPIP隧道模式，但LB和RS不能跨子网，IPIP性能次之，通过ipip隧道解决跨网段传输问题，因此能够支持跨子网。而NAT模式没有限制，这也是唯一一种支持端口映射的模式。</p>
-<p>但是ipvs只有NAT（也就是DNAT），NAT也俗称三角模式，要求RS和LVS 在一个二层网络，并且LVS是RS的网关，这样回包一定会到网关，网关再次做SNAT，这样client看到SNAT后的src ip是LVS ip而不是RS-ip。默认实现不支持ful-NAT，所以像公有云厂商为了适应公有云场景基本都会定制实现ful-NAT模式的lvs。</p>
-<p>我们不难猜想，由于Kubernetes Service需要使用端口映射功能，因此kube-proxy必然只能使用ipvs的NAT模式。</p>
-<p>如下Masq表示MASQUERADE（也就是SNAT），跟iptables里面的 MASQUERADE 是一个意思</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># ipvsadm -L -n  |grep 70.130 -A12</span><br><span class="line">TCP  10.68.70.130:12380 rr</span><br><span class="line">  -&gt; 172.20.185.217:9376          Masq    1      0          0</span><br></pre></td></tr></table></figure>
-
-<h3 id="kuberletes对iptables的修改-图中黄色部分-："><a href="#kuberletes对iptables的修改-图中黄色部分-：" class="headerlink" title="kuberletes对iptables的修改(图中黄色部分)："></a>kuberletes对iptables的修改(图中黄色部分)：</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b64e5edf67ec76613616efbd7eba20a3.png" alt="image.png"></p>
-<h2 id="kube-proxy"><a href="#kube-proxy" class="headerlink" title="kube-proxy"></a>kube-proxy</h2><p>在 Kubernetes v1.0 版本，代理完全在 userspace 实现。Kubernetes v1.1 版本新增了 <a href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#iptables-%E4%BB%A3%E7%90%86%E6%A8%A1%E5%BC%8F" target="_blank" rel="noopener">iptables 代理模式</a>，但并不是默认的运行模式。从 Kubernetes v1.2 起，默认使用 iptables 代理。在 Kubernetes v1.8.0-beta.0 中，添加了 <a href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#ipvs-%E4%BB%A3%E7%90%86%E6%A8%A1%E5%BC%8F" target="_blank" rel="noopener">ipvs 代理模式</a></p>
-<p>kube-proxy相当于service的管控方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。</p>
-<p>kube-proxy的三种模式：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/075e2955c5fbd08986bd34afaa5034ba.png" alt="image.png"></p>
-<p><strong>一直以来，基于 iptables 的 Service 实现，都是制约 Kubernetes 项目承载更多量级的 Pod 的主要障碍。</strong></p>
-<p>ipvs 就是用于解决在大量 Service 时，iptables 规则同步变得不可用的性能问题。与 iptables 比较像的是，ipvs 的实现虽然也基于 netfilter 的钩子函数，但是它却使用哈希表作为底层的数据结构并且工作在内核态，这也就是说 ipvs 在重定向流量和同步代理规则有着更好的性能。</p>
-<p>除了能够提升性能之外，ipvs 也提供了多种类型的负载均衡算法，除了最常见的 Round-Robin 之外，还支持最小连接、目标哈希、最小延迟等算法，能够很好地提升负载均衡的效率。</p>
-<p>而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价，“将重要操作放入内核态”是提高性能的重要手段。</p>
-<p><strong>IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。</strong></p>
-<p>ipvs 和 iptables 都是基于 Netfilter 实现的。</p>
-<p>Kubernetes 中已经使用 ipvs 作为 kube-proxy 的默认代理模式。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/opt/kube/bin/kube-proxy --bind-address=172.26.137.117 --cluster-cidr=172.20.0.0/16 --hostname-override=172.26.137.117 --kubeconfig=/etc/kubernetes/kube-proxy.kubeconfig --logtostderr=true --proxy-mode=ipvs</span><br></pre></td></tr></table></figure>
-
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/c44c8b3fbb1b2e0910872a6aecef790c.png" alt="image.png"></p>
-<h2 id="为什么clusterIP不能ping通"><a href="#为什么clusterIP不能ping通" class="headerlink" title="为什么clusterIP不能ping通"></a>为什么clusterIP不能ping通</h2><p><a href="https://cizixs.com/2017/03/30/kubernetes-introduction-service-and-kube-proxy/" target="_blank" rel="noopener">集群内访问cluster ip（不能ping，只能cluster ip+port）就是在到达网卡之前被内核iptalbes做了dnat&#x2F;snat</a>, cluster IP是一个虚拟ip，可以针对具体的服务固定下来，这样服务后面的pod可以随便变化。</p>
-<p>iptables模式的svc会ping不通clusterIP，可以看如下iptables和route（留意：–reject-with icmp-port-unreachable）：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#ping 10.96.229.40</span><br><span class="line">PING 10.96.229.40 (10.96.229.40) 56(84) bytes of data.</span><br><span class="line">^C</span><br><span class="line">--- 10.96.229.40 ping statistics ---</span><br><span class="line">2 packets transmitted, 0 received, 100% packet loss, time 999ms</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">#iptables-save |grep 10.96.229.40</span><br><span class="line">-A KUBE-SERVICES -d 10.96.229.40/32 -p tcp -m comment --comment &quot;***-service:https has no endpoints&quot; -m tcp --dport 8443 -j REJECT --reject-with icmp-port-unreachable</span><br><span class="line"></span><br><span class="line">#ip route get 10.96.229.40</span><br><span class="line">10.96.229.40 via 11.164.219.253 dev eth0  src 11.164.219.119 </span><br><span class="line">    cache</span><br></pre></td></tr></table></figure>
-
-<p>准确来说如果用ipvs实现的clusterIP是可以ping通的：</p>
-<ul>
-<li>如果用iptables 来做转发是ping不通的，因为iptables里面这条规则只处理tcp包，reject了icmp</li>
-<li>ipvs实现的clusterIP都能ping通</li>
-<li>ipvs下的clusterIP ping通了也不是转发到pod，ipvs负载均衡只转发tcp协议的包</li>
-<li>ipvs 的clusterIP在本地配置了route路由到回环网卡，这个包是lo网卡回复的</li>
-</ul>
-<p>ipvs实现的clusterIP，在本地有添加路由到lo网卡</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1f5539eb4c5fa16b2f66f44056d80d7a.png" alt="image.png"></p>
-<p>然后在本机抓包（到ipvs后端的pod上抓不到icmp包）：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1caea5b0eb23a47241191d1b5d8c5001.png" alt="image.png"></p>
-<p>从上面可以看出显然ipvs只会转发tcp包到后端pod，所以icmp包不会通过ipvs转发到pod上，同时在本地回环网卡lo上抓到了进去的icmp包。因为本地添加了一条路由规则，目标clusterIP被指示发到lo网卡上，lo网卡回复了这个ping包，所以通了。</p>
-<h2 id="port-forward"><a href="#port-forward" class="headerlink" title="port-forward"></a>port-forward</h2><p>port-forward后外部也能够像nodePort一样访问到，但是port-forward不适合大流量，一般用于管理端口，启动的时候port-forward会固定转发到一个具体的Pod上，也没有负载均衡的能力。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#在本机监听1080端口，并转发给后端的svc/nginx-ren(总是给发给svc中的一个pod)</span><br><span class="line">kubectl port-forward --address 0.0.0.0 svc/nginx-ren 1080:80</span><br></pre></td></tr></table></figure>
-
-<p><code>kubectl</code> looks up a Pod from the service information provided on the command line and forwards directly to a Pod rather than forwarding to the ClusterIP&#x2F;Service port and allowing the cluster to load balance the service like regular service traffic.</p>
-<p>The <a href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L225" target="_blank" rel="noopener">portforward.go <code>Complete</code> function</a> is where <code>kubectl portforward</code> does the first look up for a pod from options via <a href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L254" target="_blank" rel="noopener"><code>AttachablePodForObjectFn</code></a>:</p>
-<p>The <code>AttachablePodForObjectFn</code> is defined as <code>attachablePodForObject</code> in <a href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/interface.go#L39-L40" target="_blank" rel="noopener">this interface</a>, then here is the <a href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/attachablepodforobject.go" target="_blank" rel="noopener"><code>attachablePodForObject</code> function</a>.</p>
-<p>To my (inexperienced) Go eyes, it appears the <a href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/attachablepodforobject.go" target="_blank" rel="noopener"><code>attachablePodForObject</code></a> is the thing <code>kubectl</code> uses to look up a Pod to from a Service defined on the command line.</p>
-<p>Then from there on everything deals with filling in the Pod specific <a href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L46-L58" target="_blank" rel="noopener"><code>PortForwardOptions</code></a> (which doesn’t include a service) and is passed to the kubernetes API.</p>
-<h2 id="Service-和-DNS-的关系"><a href="#Service-和-DNS-的关系" class="headerlink" title="Service 和 DNS 的关系"></a>Service 和 DNS 的关系</h2><p>Service 和 Pod 都会被分配对应的 DNS A 记录（从域名解析 IP 的记录）。</p>
-<p>对于 ClusterIP 模式的 Service 来说（比如我们上面的例子），它的 A 记录的格式是：..svc.cluster.local。当你访问这条 A 记录的时候，它解析到的就是该 Service 的 VIP 地址。</p>
-<p>而对于指定了 clusterIP&#x3D;None 的 Headless Service 来说，它的 A 记录的格式也是：..svc.cluster.local。但是，当你访问这条 A 记录的时候，它返回的是所有被代理的 Pod 的 IP 地址的集合。当然，如果你的客户端没办法解析这个集合的话，它可能会只会拿到第一个 Pod 的 IP 地址。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">#kubectl get pod -l app=mysql-r -o wide</span><br><span class="line">NAME        READY   STATUS    RESTARTS IP               NODE          </span><br><span class="line">mysql-r-0   2/2     Running   0        172.20.120.143   172.26.137.118</span><br><span class="line">mysql-r-1   2/2     Running   4        172.20.248.143   172.26.137.116</span><br><span class="line">mysql-r-2   2/2     Running   0        172.20.185.209   172.26.137.117</span><br><span class="line"></span><br><span class="line">/ # nslookup mysql-r-1.mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r-1.mysql-r</span><br><span class="line">Address 1: 172.20.248.143 mysql-r-1.mysql-r.default.svc.cluster.local</span><br><span class="line">/ # </span><br><span class="line">/ # nslookup mysql-r-2.mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r-2.mysql-r</span><br><span class="line">Address 1: 172.20.185.209 mysql-r-2.mysql-r.default.svc.cluster.local</span><br><span class="line"></span><br><span class="line">#如果service是headless(也就是明确指定了 clusterIP: None)</span><br><span class="line">/ # nslookup mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r</span><br><span class="line">Address 1: 172.20.185.209 mysql-r-2.mysql-r.default.svc.cluster.local</span><br><span class="line">Address 2: 172.20.248.143 mysql-r-1.mysql-r.default.svc.cluster.local</span><br><span class="line">Address 3: 172.20.120.143 mysql-r-0.mysql-r.default.svc.cluster.local</span><br><span class="line"></span><br><span class="line">#如果service 没有指定 clusterIP: None，也就是会分配一个clusterIP给集群</span><br><span class="line">/ # nslookup mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r</span><br><span class="line">Address 1: 10.68.90.172 mysql-r.default.svc.cluster.local</span><br></pre></td></tr></table></figure>
-
-<p>不是每个pod都会向DNS注册，只有：</p>
-<ul>
-<li>StatefulSet中的POD会向dns注册，因为他们要保证顺序行</li>
-<li>POD显式指定了hostname和subdomain，说明要靠hostname&#x2F;subdomain来解析</li>
-<li>Headless Service代理的POD也会注册</li>
-</ul>
-<h2 id="Ingress"><a href="#Ingress" class="headerlink" title="Ingress"></a>Ingress</h2><p> <code>kube-proxy</code> 只能路由 Kubernetes 集群内部的流量，而我们知道 Kubernetes 集群的 Pod 位于 <a href="https://jimmysong.io/kubernetes-handbook/concepts/cni.html" target="_blank" rel="noopener">CNI</a> 创建的外网络中，集群外部是无法直接与其通信的，因此 Kubernetes 中创建了 <a href="https://jimmysong.io/kubernetes-handbook/concepts/ingress.html" target="_blank" rel="noopener">ingress</a> 这个资源对象，它由位于 Kubernetes <a href="https://jimmysong.io/kubernetes-handbook/practice/edge-node-configuration.html" target="_blank" rel="noopener">边缘节点</a>（这样的节点可以是很多个也可以是一组）的 Ingress controller 驱动，负责管理<strong>南北向流量</strong>，Ingress 必须对接各种 Ingress Controller 才能使用，比如 <a href="https://github.com/kubernetes/ingress-nginx" target="_blank" rel="noopener">nginx ingress controller</a>、<a href="https://traefik.io/" target="_blank" rel="noopener">traefik</a>。Ingress 只适用于 HTTP 流量，使用方式也很简单，只能对 service、port、HTTP 路径等有限字段匹配来路由流量，这导致它无法路由如 MySQL、Redis 和各种私有 RPC 等 TCP 流量。要想直接路由南北向的流量，只能使用 Service 的 LoadBalancer 或 NodePort，前者需要云厂商支持，后者需要进行额外的端口管理。有些 Ingress controller 支持暴露 TCP 和 UDP 服务，但是只能使用 Service 来暴露，Ingress 本身是不支持的，例如 <a href="https://kubernetes.github.io/ingress-nginx/user-guide/exposing-tcp-udp-services/" target="_blank" rel="noopener">nginx ingress controller</a>，服务暴露的端口是通过创建 ConfigMap 的方式来配置的。</p>
-<p>Ingress是授权入站连接到达集群服务的规则集合。 你可以给Ingress配置提供外部可访问的URL、负载均衡、SSL、基于名称的虚拟主机等。 用户通过POST Ingress资源到API server的方式来请求ingress。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"> internet</span><br><span class="line">     |</span><br><span class="line">[ Ingress ]</span><br><span class="line">--|-----|--</span><br><span class="line">[ Services ]</span><br></pre></td></tr></table></figure>
-
-<p>可以将 Ingress 配置为服务提供外部可访问的 URL、负载均衡流量、终止 SSL&#x2F;TLS，以及提供基于名称的虚拟主机等能力。 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/ingress-controllers" target="_blank" rel="noopener">Ingress 控制器</a> 通常负责通过负载均衡器来实现 Ingress，尽管它也可以配置边缘路由器或其他前端来帮助处理流量。</p>
-<p>Ingress 不会公开任意端口或协议。 将 HTTP 和 HTTPS 以外的服务公开到 Internet 时，通常使用 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#nodeport" target="_blank" rel="noopener">Service.Type&#x3D;NodePort</a> 或 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#loadbalancer" target="_blank" rel="noopener">Service.Type&#x3D;LoadBalancer</a> 类型的服务。</p>
-<p>Ingress 其实不是Service的一个类型，但是它可以作用于多个Service，作为集群内部服务的入口。Ingress 能做许多不同的事，比如根据不同的路由，将请求转发到不同的Service上等等。</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0e100056910df8cfc45403a05838dd34.png" alt="image.png"></p>
-<p> Ingress 对象，其实就是 Kubernetes 项目对“反向代理”的一种抽象。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">apiVersion: extensions/v1beta1</span><br><span class="line">kind: Ingress</span><br><span class="line">metadata:</span><br><span class="line">  name: cafe-ingress</span><br><span class="line">spec:</span><br><span class="line">  tls:</span><br><span class="line">  - hosts:</span><br><span class="line">    - cafe.example.com</span><br><span class="line">    secretName: cafe-secret</span><br><span class="line">  rules:</span><br><span class="line">  - host: cafe.example.com</span><br><span class="line">    http:</span><br><span class="line">      paths:</span><br><span class="line">      - path: /tea              --入口url路径</span><br><span class="line">        backend:</span><br><span class="line">          serviceName: tea-svc  --对应的service</span><br><span class="line">          servicePort: 80</span><br><span class="line">      - path: /coffee</span><br><span class="line">        backend:</span><br><span class="line">          serviceName: coffee-svc</span><br><span class="line">          servicePort: 80</span><br></pre></td></tr></table></figure>
-
-<p>在实际的使用中，你只需要从社区里选择一个具体的 Ingress Controller，把它部署在 Kubernetes 集群里即可。然后，这个 Ingress Controller 会根据你定义的 Ingress 对象，提供对应的代理能力。</p>
-<p>目前，业界常用的各种反向代理项目，比如 Nginx、HAProxy、Envoy、Traefik 等，都已经为 Kubernetes 专门维护了对应的 Ingress Controller。</p>
-<p>一个 Ingress Controller 可以根据 Ingress 对象和被代理后端 Service 的变化，来自动进行更新的 Nginx 负载均衡器。</p>
-<p>对service未来的一些探索</p>
-<h2 id="eBPF（extended-Berkeley-Packet-Filter）和网络"><a href="#eBPF（extended-Berkeley-Packet-Filter）和网络" class="headerlink" title="eBPF（extended Berkeley Packet Filter）和网络"></a>eBPF（extended Berkeley Packet Filter）和网络</h2><p>eBPF 最早出现在 3.18 内核中，此后原来的 BPF 就被称为 <strong>“经典” BPF</strong>（classic BPF, cBPF），cBPF 现在基本已经废弃了。很多人知道 cBPF 是因为它是 <code>tcpdump</code> 的包过滤语言。<strong>现在，Linux 内核只运行 eBPF，内核会将加载的 cBPF 字节码 透明地转换成 eBPF 再执行</strong>。如无特殊说明，本文中所说的 BPF 都是泛指 BPF 技术。</p>
-<p>2015年<strong>eBPF 添加了一个新 fast path：XDP</strong>，XDP 是 eXpress DataPath 的缩写，支持在网卡驱动中运行 eBPF 代码，而无需将包送 到复杂的协议栈进行处理，因此处理代价很小，速度极快。</p>
-<p>BPF 当时用于 tcpdump，在内核中尽量前面的位置抓包，它不会 crash 内核；</p>
-<p>bcc 是 tracing frontend for eBPF。</p>
-<p>内核添加了一个新 socket 类型 AF_XDP。它提供的能力是：在零拷贝（ zero-copy）的前提下将包从网卡驱动送到用户空间。</p>
-<p>AF_XDP 提供的能力与 DPDK 有点类似，不过：</p>
-<ul>
-<li>DPDK 需要重写网卡驱动，需要额外维护用户空间的驱动代码。</li>
-<li>AF_XDP 在复用内核网卡驱动的情况下，能达到与 DPDK 一样的性能。</li>
-</ul>
-<p>而且由于复用了内核基础设施，所有的网络管理工具还都是可以用的，因此非常方便， 而 DPDK 这种 bypass 内核的方案导致绝大大部分现有工具都用不了了。</p>
-<p>由于所有这些操作都是发生在 XDP 层的，因此它称为 AF_XDP。插入到这里的 BPF 代码 能直接将包送到 socket。</p>
-<p>Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS &amp; LB）</p>
-<ul>
-<li>用 XDP&#x2F;eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。</li>
-<li>eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP &amp; eBPF 处理的。</li>
-</ul>
-<p><strong>Cilium 1.6 发布</strong> 第一次支持完全干掉基于 iptables 的 kube-proxy，全部功能基于 eBPF。Cilium 1.8 支持基于 XDP 的 Service 负载均衡和 host network policies。</p>
-<p>传统的 kube-proxy 处理 Kubernetes Service 时，包在内核中的 转发路径是怎样的？如下图所示：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/67851ecb88fca18b9745dae4948947a5.png" alt="image.png"></p>
-<p>步骤：</p>
-<ol>
-<li>网卡收到一个包（通过 DMA 放到 ring-buffer）。</li>
-<li>包经过 XDP hook 点。</li>
-<li>内核给包分配内存，此时才有了大家熟悉的 skb（包的内核结构体表示），然后 送到内核协议栈。</li>
-<li>包经过 GRO 处理，对分片包进行重组。</li>
-<li>包进入 tc（traffic control）的 ingress hook。接下来，所有橙色的框都是 Netfilter 处理点。</li>
-<li>Netfilter：在 PREROUTING hook 点处理 raw table 里的 iptables 规则。</li>
-<li>包经过内核的连接跟踪（conntrack）模块。</li>
-<li>Netfilter：在 PREROUTING hook 点处理 mangle table 的 iptables 规则。</li>
-<li>Netfilter：在 PREROUTING hook 点处理 nat table 的 iptables 规则。</li>
-<li>进行路由判断（FIB：Forwarding Information Base，路由条目的内核表示，译者注） 。接下来又是四个 Netfilter 处理点。</li>
-<li>Netfilter：在 FORWARD hook 点处理 mangle table 里的iptables 规则。</li>
-<li>Netfilter：在 FORWARD hook 点处理 filter table 里的iptables 规则。</li>
-<li>Netfilter：在 POSTROUTING hook 点处理 mangle table 里的iptables 规则。</li>
-<li>Netfilter：在 POSTROUTING hook 点处理 nat table 里的iptables 规则。</li>
-<li>包到达 TC egress hook 点，会进行出方向（egress）的判断，例如判断这个包是到本 地设备，还是到主机外。</li>
-<li>对大包进行分片。根据 step 15 判断的结果，这个包接下来可能会：发送到一个本机 veth 设备，或者一个本机 service endpoint， 或者，如果目的 IP 是主机外，就通过网卡发出去。</li>
-</ol>
-<h3 id="Cilium-如何处理POD之间的流量（东西向流量）"><a href="#Cilium-如何处理POD之间的流量（东西向流量）" class="headerlink" title="Cilium 如何处理POD之间的流量（东西向流量）"></a>Cilium 如何处理POD之间的流量（东西向流量）</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png" alt="image.png"></p>
-<p>如上图所示，Socket 层的 BPF 程序主要处理 Cilium 节点的东西向流量（E-W）。</p>
-<ul>
-<li>将 Service 的 IP:Port 映射到具体的 backend pods，并做负载均衡。</li>
-<li>当应用发起 connect、sendmsg、recvmsg 等请求（系统调用）时，拦截这些请求， 并根据请求的IP:Port 映射到后端 pod，直接发送过去。反向进行相反的变换。</li>
-</ul>
-<p>这里实现的好处：性能更高。</p>
-<ul>
-<li>不需要包级别（packet leve）的地址转换（NAT）。在系统调用时，还没有创建包，因此性能更高。</li>
-<li>省去了 kube-proxy 路径中的很多中间节点（intermediate node hops） 可以看出，应用对这种拦截和重定向是无感知的（符合 Kubernetes Service 的设计）。</li>
-</ul>
-<h3 id="Cilium处理外部流量（南北向流量）"><a href="#Cilium处理外部流量（南北向流量）" class="headerlink" title="Cilium处理外部流量（南北向流量）"></a>Cilium处理外部流量（南北向流量）</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png" alt="image.png"></p>
-<p>集群外来的流量到达 node 时，由 XDP 和 tc 层的 BPF 程序进行处理， 它们做的事情与 socket 层的差不多，将 Service 的 IP:Port 映射到后端的 PodIP:Port，如果 backend pod 不在本 node，就通过网络再发出去。发出去的流程我们 在前面 Cilium eBPF 包转发路径 讲过了。</p>
-<p>这里 BPF 做的事情：执行 DNAT。这个功能可以在 XDP 层做，也可以在 TC 层做，但 在XDP 层代价更小，性能也更高。</p>
-<p>总结起来，Cilium的核心理念就是：</p>
-<ul>
-<li>将东西向流量放在离 socket 层尽量近的地方做。</li>
-<li>将南北向流量放在离驱动（XDP 和 tc）层尽量近的地方做。</li>
-</ul>
-<h3 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h3><p>测试环境：两台物理节点，一个发包，一个收包，收到的包做 Service loadbalancing 转发给后端 Pods。</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1b69dfd206a91dc4007781163fd55f41.png" alt="image.png"></p>
-<p>可以看出：</p>
-<ul>
-<li>Cilium XDP eBPF 模式能处理接收到的全部 10Mpps（packets per second）。</li>
-<li>Cilium tc eBPF 模式能处理 3.5Mpps。</li>
-<li>kube-proxy iptables 只能处理 2.3Mpps，因为它的 hook 点在收发包路径上更后面的位置。</li>
-<li>kube-proxy ipvs 模式这里表现更差，它相比 iptables 的优势要在 backend 数量很多的时候才能体现出来。</li>
-</ul>
-<p>cpu：</p>
-<ul>
-<li>XDP 性能最好，是因为 XDP BPF 在驱动层执行，不需要将包 push 到内核协议栈。</li>
-<li>kube-proxy 不管是 iptables 还是 ipvs 模式，都在处理软中断（softirq）上消耗了大量 CPU。</li>
-</ul>
-<h2 id="标签和选择算符"><a href="#标签和选择算符" class="headerlink" title="标签和选择算符"></a>标签和选择算符</h2><p><em>标签（Labels）</em> 是附加到 Kubernetes 对象（比如 Pods）上的键值对。 标签旨在用于指定对用户有意义且相关的对象的标识属性，但不直接对核心系统有语义含义。 标签可以用于组织和选择对象的子集。标签可以在创建时附加到对象，随后可以随时添加和修改。 每个对象都可以定义一组键&#x2F;值标签。每个键对于给定对象必须是唯一的。</p>
-<h3 id="标签选择符"><a href="#标签选择符" class="headerlink" title="标签选择符"></a>标签选择符</h3><p>selector要和template中的labels一致</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">spec:</span><br><span class="line">  serviceName: &quot;nginx-test&quot;</span><br><span class="line">  replicas: 2</span><br><span class="line">  selector:</span><br><span class="line">    matchLabels:</span><br><span class="line">      app: ren</span><br><span class="line">  template:</span><br><span class="line">    metadata:</span><br><span class="line">      labels:</span><br><span class="line">        app: web</span><br></pre></td></tr></table></figure>
-
-<p>selector就是要找别人的label和自己匹配的，label是给别人来寻找的。如下case，svc中的 Selector:                 app&#x3D;ren 是表示这个svc要绑定到app&#x3D;ren的deployment&#x2F;statefulset上.</p>
-<p>被 selector 选中的 Pod，就称为 Service 的 Endpoints</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@poc117 mysql-cluster]# kubectl describe svc nginx-ren </span><br><span class="line">Name:                     nginx-ren</span><br><span class="line">Namespace:                default</span><br><span class="line">Labels:                   app=web</span><br><span class="line">Annotations:              &lt;none&gt;</span><br><span class="line">Selector:                 app=ren</span><br><span class="line">Type:                     NodePort</span><br><span class="line">IP:                       10.68.34.173</span><br><span class="line">Port:                     &lt;unset&gt;  8080/TCP</span><br><span class="line">TargetPort:               80/TCP</span><br><span class="line">NodePort:                 &lt;unset&gt;  30080/TCP</span><br><span class="line">Endpoints:                172.20.22.226:80,172.20.56.169:80</span><br><span class="line">Session Affinity:         None</span><br><span class="line">External Traffic Policy:  Cluster</span><br><span class="line">Events:                   &lt;none&gt;</span><br><span class="line">[root@poc117 mysql-cluster]# kubectl get svc -l app=web</span><br><span class="line">NAME        TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE</span><br><span class="line">nginx-ren   NodePort   10.68.34.173   &lt;none&gt;        8080:30080/TCP   13m</span><br><span class="line">[root@poc117 mysql-cluster]# kubectl get svc -l app=ren</span><br><span class="line">No resources found in default namespace.</span><br><span class="line">[root@poc117 mysql-cluster]# kubectl get svc -l app=web</span><br><span class="line">NAME        TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE</span><br><span class="line">nginx-ren   NodePort   10.68.34.173   &lt;none&gt;        8080:30080/TCP   14m</span><br></pre></td></tr></table></figure>
-
-<h2 id="service-mesh"><a href="#service-mesh" class="headerlink" title="service mesh"></a>service mesh</h2><ul>
-<li>Kubernetes 的本质是应用的生命周期管理，具体来说就是部署和管理（扩缩容、自动恢复、发布）。</li>
-<li>Kubernetes 为微服务提供了可扩展、高弹性的部署和管理平台。</li>
-<li>Service Mesh 的基础是透明代理，通过 sidecar proxy 拦截到微服务间流量后再通过控制平面配置管理微服务的行为。</li>
-<li>Service Mesh 将流量管理从 Kubernetes 中解耦，Service Mesh 内部的流量无需 <code>kube-proxy</code> 组件的支持，通过为更接近微服务应用层的抽象，管理服务间的流量、安全性和可观察性。</li>
-<li>xDS 定义了 Service Mesh 配置的协议标准。</li>
-<li>Service Mesh 是对 Kubernetes 中的 service 更上层的抽象，它的下一步是 serverless。</li>
-</ul>
-<h3 id="Sidecar-注入及流量劫持步骤概述"><a href="#Sidecar-注入及流量劫持步骤概述" class="headerlink" title="Sidecar 注入及流量劫持步骤概述"></a>Sidecar 注入及流量劫持步骤概述</h3><p>下面是从 Sidecar 注入、Pod 启动到 Sidecar proxy 拦截流量及 Envoy 处理路由的步骤概览。</p>
-<p><strong>1.</strong> Kubernetes 通过 Admission Controller 自动注入，或者用户使用 <code>istioctl</code> 命令手动注入 sidecar 容器。</p>
-<p><strong>2.</strong> 应用 YAML 配置部署应用，此时 Kubernetes API server 接收到的服务创建配置文件中已经包含了 Init 容器及 sidecar proxy。</p>
-<p><strong>3.</strong> 在 sidecar proxy 容器和应用容器启动之前，首先运行 Init 容器，Init 容器用于设置 iptables（Istio 中默认的流量拦截方式，还可以使用 BPF、IPVS 等方式） 将进入 pod 的流量劫持到 Envoy sidecar proxy。所有 TCP 流量（Envoy 目前只支持 TCP 流量）将被 sidecar 劫持，其他协议的流量将按原来的目的地请求。</p>
-<p><strong>4.</strong> 启动 Pod 中的 Envoy sidecar proxy 和应用程序容器。这一步的过程请参考<a href="https://zhaohuabing.com/post/2018-09-25-istio-traffic-management-impl-intro/#%E9%80%9A%E8%BF%87%E7%AE%A1%E7%90%86%E6%8E%A5%E5%8F%A3%E8%8E%B7%E5%8F%96%E5%AE%8C%E6%95%B4%E9%85%8D%E7%BD%AE" target="_blank" rel="noopener">通过管理接口获取完整配置</a>。</p>
-<p><strong>5.</strong> 不论是进入还是从 Pod 发出的 TCP 请求都会被 iptables 劫持，inbound 流量被劫持后经 Inbound Handler 处理后转交给应用程序容器处理，outbound 流量被 iptables 劫持后转交给 Outbound Handler 处理，并确定转发的 upstream 和 Endpoint。</p>
-<p><strong>6.</strong> Sidecar proxy 请求 Pilot 使用 xDS 协议同步 Envoy 配置，其中包括 LDS、EDS、CDS 等，不过为了保证更新的顺序，Envoy 会直接使用 ADS 向 Pilot 请求配置更新</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://imroc.io/posts/kubernetes/troubleshooting-with-kubernetes-network/" target="_blank" rel="noopener">https://imroc.io/posts/kubernetes/troubleshooting-with-kubernetes-network/</a> Kubernetes 网络疑难杂症排查方法</p>
-<p><a href="https://blog.csdn.net/qq_36183935/article/details/90734936" target="_blank" rel="noopener">https://blog.csdn.net/qq_36183935/article/details/90734936</a>  kube-proxy ipvs模式详解</p>
-<p><a href="http://arthurchiao.art/blog/ebpf-and-k8s-zh/" target="_blank" rel="noopener">http://arthurchiao.art/blog/ebpf-and-k8s-zh/</a>  大规模微服务利器：eBPF 与 Kubernetes</p>
-<p><a href="http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service-zh/" target="_blank" rel="noopener">http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service-zh/</a>  Life of a Packet in Cilium：实地探索 Pod-to-Service 转发路径及 BPF 处理逻辑</p>
-<p><a href="http://arthurchiao.art/blog/understanding-ebpf-datapath-in-cilium-zh/" target="_blank" rel="noopener">http://arthurchiao.art/blog/understanding-ebpf-datapath-in-cilium-zh/</a>  深入理解 Cilium 的 eBPF 收发包路径（datapath）（KubeCon, 2019）</p>
-<p><a href="https://jiayu0x.com/2014/12/02/iptables-essential-summary/" target="_blank" rel="noopener">https://jiayu0x.com/2014/12/02/iptables-essential-summary/</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6000,7 +5843,7 @@ LISTEN    0     511              *:8085           *:*
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">186</span>
+                <span class="site-state-item-count">187</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
