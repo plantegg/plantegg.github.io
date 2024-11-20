@@ -1,0 +1,1298 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>DNS - 分类 - plantegg</title>
+        <link>http://localhost:1313/categories/dns/</link>
+        <description>DNS - 分类 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Sun, 09 Jun 2019 10:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/categories/dns/" rel="self" type="application/rss+xml" /><item>
+    <title>就是要你懂DNS--一文搞懂域名解析相关问题</title>
+    <link>http://localhost:1313/posts/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/</link>
+    <pubDate>Sun, 09 Jun 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/</guid>
+    <description><![CDATA[<h1 id="一文搞懂域名解析dns相关问题" class="headerLink">
+    <a href="#%e4%b8%80%e6%96%87%e6%90%9e%e6%87%82%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90dns%e7%9b%b8%e5%85%b3%e9%97%ae%e9%a2%98" class="header-mark"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
+  <p>本文希望通过一篇文章解决所有域名解析中相关的问题</p>
+<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
+
+</blockquote><p>这几个Case描述如下：</p>
+<ol>
+<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/" rel="">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" rel="">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" rel="">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" rel="">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
+<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
+<h2 id="linux下域名解析流程" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e6%b5%81%e7%a8%8b" class="header-mark"></a>Linux下域名解析流程</h2><ul>
+<li>DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
+<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns</li>
+<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b7458f344de1d1b10c2a6f6ee7f1c501.png   alt="image.png"  ></p>
+<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener noreferrer">所以默认的nsswitch流程是</a>：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/82489e801d8f7bd455053315d760614b.png   alt="image.png"  ></p>
+<p>以下是一个 /etc/nsswitch.conf</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"># cat /etc/nsswitch.conf |grep -v &#34;^#&#34; |grep -v &#34;^$&#34;
+</span></span><span class="line"><span class="cl">passwd:     files sss
+</span></span><span class="line"><span class="cl">shadow:     files sss
+</span></span><span class="line"><span class="cl">group:      files sss
+</span></span><span class="line"><span class="cl">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序
+</span></span><span class="line"><span class="cl">bootparams: nisplus [NOTFOUND=return] files
+</span></span><span class="line"><span class="cl">ethers:     files
+</span></span><span class="line"><span class="cl">netmasks:   files
+</span></span><span class="line"><span class="cl">networks:   files
+</span></span><span class="line"><span class="cl">protocols:  files
+</span></span><span class="line"><span class="cl">rpc:        files
+</span></span><span class="line"><span class="cl">services:   files sss
+</span></span><span class="line"><span class="cl">netgroup:   nisplus sss
+</span></span><span class="line"><span class="cl">publickey:  nisplus
+</span></span><span class="line"><span class="cl">automount:  files nisplus sss
+</span></span><span class="line"><span class="cl">aliases:    files nisplus</span></span></code></pre>
+</div>
+<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
+<h2 id="linux下域名解析流程需要注意的地方" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e6%b5%81%e7%a8%8b%e9%9c%80%e8%a6%81%e6%b3%a8%e6%84%8f%e7%9a%84%e5%9c%b0%e6%96%b9" class="header-mark"></a>Linux下域名解析流程需要注意的地方</h2><ul>
+<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener noreferrer">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+<li>如果被解析的域名不是以 &ldquo;.&rdquo; 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a href="https://access.redhat.com/solutions/58028" target="_blank" rel="noopener noreferrer">resolv.conf最多支持6个search域</a></li>
+<li>ping 调用的是 glibc的 gethostbyname() 函数流程&ndash;背后是NameServiceSwitch，nslookup 不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
+</ul>
+<h2 id="linux下域名解析诊断工具" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e8%af%8a%e6%96%ad%e5%b7%a5%e5%85%b7" class="header-mark"></a>Linux下域名解析诊断工具</h2><ul>
+<li>ping</li>
+<li>nslookup (nslookup domain @dns-server-ip)</li>
+<li><a href="https://jvns.ca/blog/2021/12/04/how-to-use-dig/" target="_blank" rel="noopener noreferrer">dig</a> (dig +trace domain)</li>
+<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
+<li>strace</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/dig.png   alt="img"  ></p>
+<h3 id="案例httpsshawyeokgithubioarticleping-issuehtml" class="headerLink">
+    <a href="#%e6%a1%88%e4%be%8bhttpsshawyeokgithubioarticleping-issuehtml" class="header-mark"></a><a href="https://shawyeok.github.io/article/ping-issue.html" target="_blank" rel="noopener noreferrer">案例</a></h3><p>如下，向 /etc/hosts 中添加两条记录，一条是test.unknow.host 无法解析到，但是另一条 test.localhost 可以解析到，为啥呢？</p>
+<pre><code>$head -2 /etc/hosts
+127.0.0.1　 test.unknow.host
+127.0.0.1   test.localhost
+$ping test.unknow.host
+ping: unknown host test.unknow.host
+$ping -c 1 test.localhost
+PING test.localhost (127.0.0.1) 56(84) bytes of data.
+64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
+</code></pre>
+<p>为什么 test.unknow.host 没法解析到？ 可能有哪些因素导致这种现象？尝试 ping -c 1 test.localhost 的目的是做什么？</p>
+<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
+<ul>
+<li>/etc/hosts 没有启用</li>
+<li>有本地缓存记录了一个unknow host记录</li>
+</ul>
+<h4 id="验证" class="headerLink">
+    <a href="#%e9%aa%8c%e8%af%81" class="header-mark"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
+</code></pre>
+<p>可以通，说明 /etc/hosts 是在起作用的，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
+<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png   alt="undefined"  ></p>
+<p>从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
+<p>到这里可能的情况要追加第三种了：</p>
+<ul>
+<li>/etc/hosts 中添加的记录没生效(比如中文符号）</li>
+</ul>
+<h3 id="dhcp" class="headerLink">
+    <a href="#dhcp" class="header-mark"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 /etc/resolv.conf</p>
+<h3 id="dnsmasq" class="headerLink">
+    <a href="#dnsmasq" class="header-mark"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：/run/dnsmasq/resolv.conf。集团内部的vipclient就是类似这个原理。</p>
+<h2 id="微服务下的域名解析负载均衡" class="headerLink">
+    <a href="#%e5%be%ae%e6%9c%8d%e5%8a%a1%e4%b8%8b%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1" class="header-mark"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
+<h3 id="域名解析通过jarlib包" class="headerLink">
+    <a href="#%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e9%80%9a%e8%bf%87jarlib%e5%8c%85" class="header-mark"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
+<h3 id="域名解析通过dns-server" class="headerLink">
+    <a href="#%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e9%80%9a%e8%bf%87dns-server" class="header-mark"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
+<p>如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
+<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
+<h2 id="kubernetes-和-docker中的域名解析" class="headerLink">
+    <a href="#kubernetes-%e5%92%8c-docker%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90" class="header-mark"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
+<h2 id="nginx-中的域名解析" class="headerLink">
+    <a href="#nginx-%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90" class="header-mark"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 /etc/resolv.conf转换而来，要注意对 /etc/resolv.conf中 注释的<a href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf" target="_blank" rel="noopener noreferrer">兼容</a></p>
+<p><a href="https://github.com/blacklabelops-legacy/nginx/issues/36" target="_blank" rel="noopener noreferrer">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 /etc/resolv.conf没有处理好 # 注释的问题</p>
+<h2 id="进一步的case学习" class="headerLink">
+    <a href="#%e8%bf%9b%e4%b8%80%e6%ad%a5%e7%9a%84case%e5%ad%a6%e4%b9%a0" class="header-mark"></a>进一步的Case学习：</h2><ol>
+<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/" rel="">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" rel="">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" rel="">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" rel="">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章：</h2><p><a href="https://blog.bruceding.me/516.html" target="_blank" rel="noopener noreferrer">GO DNS 原理解析</a></p>
+<p><a href="https://blog.arstercz.com/linux-%e7%b3%bb%e7%bb%9f%e5%a6%82%e4%bd%95%e5%a4%84%e7%90%86%e5%90%8d%e7%a7%b0%e8%a7%a3%e6%9e%90" target="_blank" rel="noopener noreferrer">Linux 系统如何处理名称解析</a></p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener noreferrer">Anatomy of a Linux DNS Lookup – Part I</a></p>
+]]></description>
+</item><item>
+    <title>中间件的vipclient服务在centos7上域名解析失败</title>
+    <link>http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84dns%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/</link>
+    <pubDate>Sun, 13 Jan 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84dns%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/</guid>
+    <description><![CDATA[<h1 id="中间件的vipclient服务在centos7上域名解析失败" class="headerLink">
+    <a href="#%e4%b8%ad%e9%97%b4%e4%bb%b6%e7%9a%84vipclient%e6%9c%8d%e5%8a%a1%e5%9c%a8centos7%e4%b8%8a%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e5%a4%b1%e8%b4%a5" class="header-mark"></a>中间件的vipclient服务在centos7上域名解析失败</h1><blockquote>
+  <p>我们申请了一批ECS，操作系统是centos7，这些ECS部署了中间件的DNS服务（vipclient），但是发现这个时候域名解析失败，而同样的配置在centos6上就运行正确</p>
+
+</blockquote><h2 id="抓包分析" class="headerLink">
+    <a href="#%e6%8a%93%e5%8c%85%e5%88%86%e6%9e%90" class="header-mark"></a>抓包分析</h2><p>分别在centos6、centos7上nslookup通过同一个DNS Server解析同一个域名，并抓包比较得到如下截图（为了方便我将centos6、7抓包做到了一张图上）：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1d5295ccb1fab715f246b54faf94eaaf.png   alt="image.png"  ></p>
+<p>绿色部分是正常的解析（centos6），<strong>红色部分是解析，多了一个OPT（centos7）</strong></p>
+<p>赶紧Google一下OPT，原来DNS协议还有一个extention，参考<a href="https://tools.ietf.org/html/rfc6891#page-15" title="EDNS OPT" target="_blank" rel="noopener noreferrer">这里</a>：</p>
+<p>而centos7默认启用edns，但是vipclient实现的时候没有支持edns，所以 centos7 解析域名就出了问题</p>
+<h2 id="通过-dig-命令来查看dns解析过程" class="headerLink">
+    <a href="#%e9%80%9a%e8%bf%87-dig-%e5%91%bd%e4%bb%a4%e6%9d%a5%e6%9f%a5%e7%9c%8bdns%e8%a7%a3%e6%9e%90%e8%bf%87%e7%a8%8b" class="header-mark"></a>通过 dig 命令来查看dns解析过程</h2><p>在centos7上，通过命令 dig edas.console.cztest.com 解析失败，但是改用这个命令禁用edns后就解析正常了：dig +noedns edas.console.cztest.com</p>
+<p>vipclient会启动一个53端口，在上面监听dns query，也就是自己就是一个DNS Service</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/dig.png   alt="img"  ></p>
+<h2 id="分析vipclient域名解析返回的包内容" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90vipclient%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e8%bf%94%e5%9b%9e%e7%9a%84%e5%8c%85%e5%86%85%e5%ae%b9" class="header-mark"></a>分析vipclient域名解析返回的包内容</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/0882e4815fb1acfa80f813db4bb7265b.png   alt="image.png"  ></p>
+<p>把上图中最后4个16进制翻译成10进制IP地址，这个IP地址正是域名所对应的IP，可见vipclient收到域名解析后，因为看不懂edns协议，就按照自己的理解返回了结果，客户端收到这个结果后按照edns协议解析不出来IP，也就是两个的协议不对等导致了问题</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>centos7之前默认都不启用edns，centos7后默认启用edns，但是vipclient目前不支持edns
+通过命令：dig +noedns edas.console.cztest.com 能解析到域名所对应的IP
+但是命令：dig edas.console.cztest.com  解析不到IP，因为vipclient（相当于这里的dns server）没有兼容edns，实际返回的结果带了IP但是客户端不支持edns协议所以解析不到（vipclient返回的格式、规范不对）</p>
+]]></description>
+</item><item>
+    <title>Docker中的DNS解析过程</title>
+    <link>http://localhost:1313/posts/docker%E4%B8%AD%E7%9A%84dns%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/</link>
+    <pubDate>Sat, 12 Jan 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/docker%E4%B8%AD%E7%9A%84dns%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/</guid>
+    <description><![CDATA[<h1 id="docker中的dns解析过程" class="headerLink">
+    <a href="#docker%e4%b8%ad%e7%9a%84dns%e8%a7%a3%e6%9e%90%e8%bf%87%e7%a8%8b" class="header-mark"></a>Docker中的DNS解析过程</h1><h2 id="问题描述" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e6%8f%8f%e8%bf%b0" class="header-mark"></a>问题描述</h2><blockquote>
+  <p>同一个Docker集群中两个容器中通过 nslookup 同一个域名，这个域名是容器启动的时候通过net alias指定的，但是返回来的IP不一样</p>
+
+</blockquote><p>如图所示：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/892a98b53c7f9e65da79d1d6d890c3b0.png   alt="image.png"  ></p>
+<p>图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。</p>
+<p>要想解决这个问题抓包就没用了，因为Docker 中的net alias 域名是 Docker Daemon自己来解析的，也就是在容器中做域名解析（nslookup、ping）的时候，Docker Daemon先看这个域名是不是net alias的，是的话返回对应的ip，如果不是（比如 <a href="https://www.baidu.com" target="_blank" rel="noopener noreferrer">www.baidu.com</a>) ，那么Docker Daemon再把这个域名丢到宿主机上去解析，在宿主机上的解析过程就是标准的DNS，可以抓包分析。但是Docker Daemon内部的解析过程没有走DNS协议，不好分析，所以得先了解一下 Docker Daemon的域名解析原理</p>
+<p>具体参考文章： <a href="http://www.jianshu.com/p/4433f4c70cf0" target="_blank" rel="noopener noreferrer">http://www.jianshu.com/p/4433f4c70cf0</a> <a href="http://www.bijishequ.com/detail/261401?p=70-67" target="_blank" rel="noopener noreferrer">http://www.bijishequ.com/detail/261401?p=70-67</a></p>
+<h2 id="继续分析所有容器对这个域名的解析" class="headerLink">
+    <a href="#%e7%bb%a7%e7%bb%ad%e5%88%86%e6%9e%90%e6%89%80%e6%9c%89%e5%ae%b9%e5%99%a8%e5%af%b9%e8%bf%99%e4%b8%aa%e5%9f%9f%e5%90%8d%e7%9a%84%e8%a7%a3%e6%9e%90" class="header-mark"></a>继续分析所有容器对这个域名的解析</h2><p>继续分析所有容器对这个域名的解析发现只有某一台宿主机上的有这个问题，而且这台宿主机上所有容器都有这个问题，结合上面的文章，那么这个问题比较明朗了，这台有问题的宿主机的Docker Daemon中残留了一个net alias，你可以理解成cache中有脏数据没有清理。</p>
+<p>进而跟业务的同学们沟通，确实155这个IP的容器做过升级，改动过配置，可能升级前这个155也绑定过这个域名，但是升级后绑到146这个容器上去了，但是Docker Daemon中还残留这条记录。</p>
+<h2 id="重启docker-daemon后问题解决容器不需要重启" class="headerLink">
+    <a href="#%e9%87%8d%e5%90%afdocker-daemon%e5%90%8e%e9%97%ae%e9%a2%98%e8%a7%a3%e5%86%b3%e5%ae%b9%e5%99%a8%e4%b8%8d%e9%9c%80%e8%a6%81%e9%87%8d%e5%90%af" class="header-mark"></a>重启Docker Daemon后问题解决（容器不需要重启）</h2><p>重启Docker Daemon的时候容器还在正常运行，只是这段时间的域名解析会不正常，其它业务长连接都能正常运行，在Docker Daemon重启的时候它会去检查所有容器的endpoint、重建sandbox、清理network等等各种事情，所以就把这个脏数据修复掉了。</p>
+<p>在Docker Daemon重启过程中，会给每个容器构建DNS Resovler（setup-resolver），如果构建DNS Resovler这个过程中容器发送了大量域名查询过来同时这些域名又查询不到的话Docker Daemon在重启过程中需要等待这个查询超时，然后才能继续往下走重启流程，所以导致启动流程拉长<a href="https://www.atatech.org/articles/87339" target="_blank" rel="noopener noreferrer">问题严重的时候导致Docker Daemon长时间无法启动</a></p>
+<p>Docker的域名解析为什么要这么做，是因为容器中有两种域名解析需求：</p>
+<ol>
+<li>容器启动时通过 net alias 命名的域名</li>
+<li>容器中正常对外网各种域名的解析（比如 baidu.com/api.taobao.com)</li>
+</ol>
+<p>对于第一种只能由docker daemon来解析了，所以容器中碰到的任何域名解析都会丢给 docker daemon(127.0.0.11), 如果 docker daemon 发现这个域名不认识，也就是不是net alias命名的域名，那么docker就会把这个域名解析丢给宿主机配置的 nameserver 来解析【非常非常像 dns-f/vipclient 的解析原理】</p>
+<h2 id="容器中的域名解析" class="headerLink">
+    <a href="#%e5%ae%b9%e5%99%a8%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90" class="header-mark"></a>容器中的域名解析</h2><p>容器启动的时候读取宿主机的 /etc/resolv.conf (去掉127.0.0.1/16 的nameserver）然后当成容器的 /etc/resolv.conf, 但是实际在容器中看到的 /etc/resolve.conf 中的nameserver只有一个：127.0.0.11，因为如上描述nameserver都被代理掉了</p>
+<p>容器 -&gt; docker daemon(127.0.0.11) -&gt; 宿主机中的/etc/resolv.conf 中的nameserver</p>
+<p>如果宿主机中的/etc/resolv.conf 中的nameserver没有，那么daemon默认会用8.8.8.8/8.8.4.4来做下一级dns server，如果在一些隔离网络中（跟外部不通），那么域名解析就会超时，因为一直无法连接到 8.8.8.8/8.8.4.4 ，进而导致故障。</p>
+<p>比如 vipserver 中需要解析 armory的域名，如果这个时候在私有云环境，宿主机又没有配置 nameserver, 那么这个域名解析会发送给 8.8.8.8/8.8.4.4 ，长时间没有响应，超时后 vipserver 会关闭自己的探活功能，从而导致 vipserver 基本不可用一样。</p>
+<p>修改 宿主机的/etc/resolv.conf后 重新启动、创建的容器才会load新的nameserver</p>
+<h2 id="如果容器中需要解析vipserver中的域名" class="headerLink">
+    <a href="#%e5%a6%82%e6%9e%9c%e5%ae%b9%e5%99%a8%e4%b8%ad%e9%9c%80%e8%a6%81%e8%a7%a3%e6%9e%90vipserver%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d" class="header-mark"></a>如果容器中需要解析vipserver中的域名</h2><ol>
+<li>容器中安装vipclient，同时容器的 /etc/resolv.conf 配置 nameserver 127.0.0.1</li>
+<li>要保证vipclient起来之后才能启动业务</li>
+</ol>
+<h2 id="kubernetes中dns解析偶尔5秒钟超时" class="headerLink">
+    <a href="#kubernetes%e4%b8%addns%e8%a7%a3%e6%9e%90%e5%81%b6%e5%b0%945%e7%a7%92%e9%92%9f%e8%b6%85%e6%97%b6" class="header-mark"></a>kubernetes中dns解析偶尔5秒钟超时</h2><p>dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png   alt="img"  ></p>
+<p>（高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）</p>
+<p>解析异常的strace栈：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">不正常解析的strace日志：
+</span></span><span class="line"><span class="cl">1596601737.655724 socket(PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 5
+</span></span><span class="line"><span class="cl">1596601737.655784 connect(5, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&#34;10.68.0.2&#34;)}, 16) = 0
+</span></span><span class="line"><span class="cl">1596601737.655869 poll([{fd=5, events=POLLOUT}], 1, 0) = 1 ([{fd=5, revents=POLLOUT}])
+</span></span><span class="line"><span class="cl">1596601737.655968 sendmmsg(5, {{{msg_name(0)=NULL, msg_iov(1)=[{&#34;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&#34;, 48}], msg_controllen=0, msg_flags=MSG_TRUNC|MSG_EOR|MSG_FIN|MSG_RST|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_MORE|MSG_WAITFORONE|MSG_FASTOPEN|0x1e340010}, 48}, {{msg_name(0)=NULL, msg_iov(1)=[{&#34;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&#34;, 48}], msg_controllen=0, msg_flags=MSG_WAITALL|MSG_FIN|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_FASTOPEN|MSG_CMSG_CLOEXEC|0x156c0000}, 48}}, 2, MSG_NOSIGNAL) = 2
+</span></span><span class="line"><span class="cl">1596601737.656113 poll([{fd=5, events=POLLIN}], 1, 5000) = 1 ([{fd=5, revents=POLLIN}])
+</span></span><span class="line"><span class="cl">1596601737.659251 ioctl(5, FIONREAD, [141]) = 0
+</span></span><span class="line"><span class="cl">1596601737.659330 recvfrom(5, &#34;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\10\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&#34;, 2048, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&#34;10.68.0.2&#34;)}, [16]) = 141
+</span></span><span class="line"><span class="cl">=========
+</span></span><span class="line"><span class="cl">1596601737.659421 poll([{fd=5, events=POLLIN}], 1, 4996) = 0 (Timeout) //这里就是问题所在
+</span></span><span class="line"><span class="cl">=========
+</span></span><span class="line"><span class="cl">1596601742.657639 poll([{fd=5, events=POLLOUT}], 1, 0) = 1 ([{fd=5, revents=POLLOUT}])
+</span></span><span class="line"><span class="cl">1596601742.657735 sendto(5, &#34;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&#34;, 48, MSG_NOSIGNAL, NULL, 0) = 48
+</span></span><span class="line"><span class="cl">1596601742.657837 poll([{fd=5, events=POLLIN}], 1, 5000) = 1 ([{fd=5, revents=POLLIN}])
+</span></span><span class="line"><span class="cl">1596601742.660929 ioctl(5, FIONREAD, [141]) = 0
+</span></span><span class="line"><span class="cl">1596601742.661038 recvfrom(5, &#34;\20\v\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&#34;, 2048, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&#34;10.68.0.2&#34;)}, [16]) = 141
+</span></span><span class="line"><span class="cl">1596601742.661129 poll([{fd=5, events=POLLOUT}], 1, 4996) = 1 ([{fd=5, revents=POLLOUT}])
+</span></span><span class="line"><span class="cl">1596601742.661204 sendto(5, &#34;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&#34;, 48, MSG_NOSIGNAL, NULL, 0) = 48
+</span></span><span class="line"><span class="cl">1596601742.661313 poll([{fd=5, events=POLLIN}], 1, 4996) = 1 ([{fd=5, revents=POLLIN}])
+</span></span><span class="line"><span class="cl">1596601742.664443 ioctl(5, FIONREAD, [141]) = 0
+</span></span><span class="line"><span class="cl">1596601742.664519 recvfrom(5, &#34;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&#34;, 65536, 0, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&#34;10.68.0.2&#34;)}, [16]) = 141
+</span></span><span class="line"><span class="cl">1596601742.664600 close(5)              = 0</span></span></code></pre>
+</div>
+<h3 id="原因分析" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0%e5%88%86%e6%9e%90" class="header-mark"></a>原因分析</h3><p>DNS client (glibc 或 musl libc) 会并发请求 A 和 AAAA 记录，跟 DNS Server 通信自然会先 connect (建立fd)，后面请求报文使用这个 fd 来发送，由于 UDP 是无状态协议， connect 时并不会发包，也就不会创建 conntrack 表项, 而并发请求的 A 和 AAAA 记录默认使用同一个 fd 发包，send 时各自发的包它们源 Port 相同(因为用的同一个socket发送)，当并发发包时，两个包都还没有被插入 conntrack 表项，所以 netfilter 会为它们分别创建 conntrack 表项，而集群内请求 kube-dns 或 coredns 都是访问的CLUSTER-IP，报文最终会被 DNAT 成一个 endpoint 的 POD IP，当两个包恰好又被 DNAT 成同一个 POD IP时，它们的五元组就相同了，在最终插入的时候后面那个包就会被丢掉，而single-request-reopen的选项设置为俩请求被丢了一个，会等待超时再重发 ，这个就解释了为什么还存在调整成2s就是2s的异常比较多 ，因此这种场景下调整成single-request是比较好的方式，同时k8s那边给的dns缓存方案是 nodelocaldns组件可以考虑用一下</p>
+<p>关于recolv的选项</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">single-request (since glibc 2.10) 串行解析，
+</span></span><span class="line"><span class="cl">                     Sets RES_SNGLKUP in _res.options.  By default, glibc
+</span></span><span class="line"><span class="cl">                     performs IPv4 and IPv6 lookups in parallel since
+</span></span><span class="line"><span class="cl">                     version 2.9.  Some appliance DNS servers cannot handle
+</span></span><span class="line"><span class="cl">                     these queries properly and make the requests time out.
+</span></span><span class="line"><span class="cl">                     This option disables the behavior and makes glibc
+</span></span><span class="line"><span class="cl">                     perform the IPv6 and IPv4 requests sequentially (at the
+</span></span><span class="line"><span class="cl">                     cost of some slowdown of the resolving process).
+</span></span><span class="line"><span class="cl">single-request-reopen (since glibc 2.9) 并行解析，少收到一个解析回复后，再开一个socket重新发起解析，因此看到了前面调整timeout是1s后，还是有挺多1s的解析
+</span></span><span class="line"><span class="cl">                     Sets RES_SNGLKUPREOP in _res.options.  The resolver
+</span></span><span class="line"><span class="cl">                     uses the same socket for the A and AAAA requests.  Some
+</span></span><span class="line"><span class="cl">                     hardware mistakenly sends back only one reply.  When
+</span></span><span class="line"><span class="cl">                     that happens the client system will sit and wait for
+</span></span><span class="line"><span class="cl">                     the second reply.  Turning this option on changes this
+</span></span><span class="line"><span class="cl">                     behavior so that if two requests from the same port are
+</span></span><span class="line"><span class="cl">                     not handled correctly it will close the socket and open
+</span></span><span class="line"><span class="cl">                     a new one before sending the second request.</span></span></code></pre>
+</div>
+<h3 id="getaddrinfo-关闭ipv6的解析" class="headerLink">
+    <a href="#getaddrinfo-%e5%85%b3%e9%97%adipv6%e7%9a%84%e8%a7%a3%e6%9e%90" class="header-mark"></a>getaddrinfo 关闭ipv6的解析</h3><p>基本上所有测试下来，网上那些通过修改配置的<a href="https://serverfault.com/questions/632665/how-to-disable-aaaa-lookups" target="_blank" rel="noopener noreferrer">基本都不能关闭ipv6的解析</a>，只有通过在代码中指定</p>
+<blockquote>
+  <p>hints.ai_family = AF_INET;    /* or AF_INET6 for ipv6 addresses */</p>
+
+</blockquote><p>来只做ipv4的解析</p>
+<p><a href="https://askubuntu.com/questions/32298/prefer-a-ipv4-dns-lookups-before-aaaaipv6-lookups" target="_blank" rel="noopener noreferrer">Prefer A (IPv4) DNS lookups before AAAA(IPv6) lookups</a></p>
+<p><a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html" target="_blank" rel="noopener noreferrer">https://man7.org/linux/man-pages/man3/getaddrinfo.3.html</a>:</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4
+</span></span><span class="line"><span class="cl">       addresses are returned in the list pointed to by res only if the
+</span></span><span class="line"><span class="cl">       local system has at least one IPv4 address configured, and IPv6
+</span></span><span class="line"><span class="cl">       addresses are returned only if the local system has at least one
+</span></span><span class="line"><span class="cl">       IPv6 address configured.  The loopback address is not considered
+</span></span><span class="line"><span class="cl">       for this case as valid as a configured address.  This flag is
+</span></span><span class="line"><span class="cl">       useful on, for example, IPv4-only systems, to ensure that
+</span></span><span class="line"><span class="cl">       getaddrinfo() does not return IPv6 socket addresses that would
+</span></span><span class="line"><span class="cl">       always fail in connect(2) or bind(2).</span></span></code></pre>
+</div>
+<p><a href="https://unix.stackexchange.com/questions/45598/force-getaddrinfo-to-use-ipv4" target="_blank" rel="noopener noreferrer">c code demo</a>:</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">struct addrinfo hints, *result;
+</span></span><span class="line"><span class="cl">int s;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">memset(&amp;hints, 0, sizeof(hints));
+</span></span><span class="line"><span class="cl">hints.ai_family = AF_INET;        /* or AF_INET6 for ipv6 addresses */
+</span></span><span class="line"><span class="cl">s = getaddrinfo(NULL, &#34;ftp&#34;, &amp;hints, &amp;result);
+</span></span><span class="line"><span class="cl">...</span></span></code></pre>
+</div>
+<p>or</p>
+<p>In the <a href="https://www.cloudshark.org/captures/7e14dcc1d443" target="_blank" rel="noopener noreferrer">Wireshark capture</a>, 172.25.50.3 is the local DNS resolver; the capture was taken there, so you also see its outgoing queries and responses. Note that <em>only</em> an A record was requested. No AAAA lookup was ever done.</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;sys/types.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;sys/socket.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;netdb.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">struct</span> <span class="n">addrinfo</span> <span class="n">hints</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="k">struct</span> <span class="n">addrinfo</span> <span class="o">*</span><span class="n">result</span><span class="p">,</span> <span class="o">*</span><span class="n">rp</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="kt">int</span> <span class="n">s</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="kt">char</span> <span class="n">host</span><span class="p">[</span><span class="mi">256</span><span class="p">];</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="nf">memset</span><span class="p">(</span><span class="o">&amp;</span><span class="n">hints</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span> <span class="n">addrinfo</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl">    <span class="n">hints</span><span class="p">.</span><span class="n">ai_family</span> <span class="o">=</span> <span class="n">AF_INET</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">hints</span><span class="p">.</span><span class="n">ai_socktype</span> <span class="o">=</span> <span class="n">SOCK_STREAM</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">hints</span><span class="p">.</span><span class="n">ai_protocol</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="n">s</span> <span class="o">=</span> <span class="nf">getaddrinfo</span><span class="p">(</span><span class="s">&#34;www.facebook.com&#34;</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">hints</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">result</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">s</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">&#34;getaddrinfo: %s</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span> <span class="nf">gai_strerror</span><span class="p">(</span><span class="n">s</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">exit</span><span class="p">(</span><span class="n">EXIT_FAILURE</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="k">for</span> <span class="p">(</span><span class="n">rp</span> <span class="o">=</span> <span class="n">result</span><span class="p">;</span> <span class="n">rp</span> <span class="o">!=</span> <span class="nb">NULL</span><span class="p">;</span> <span class="n">rp</span> <span class="o">=</span> <span class="n">rp</span><span class="o">-&gt;</span><span class="n">ai_next</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">getnameinfo</span><span class="p">(</span><span class="n">rp</span><span class="o">-&gt;</span><span class="n">ai_addr</span><span class="p">,</span> <span class="n">rp</span><span class="o">-&gt;</span><span class="n">ai_addrlen</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">host</span><span class="p">),</span> <span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">NI_NUMERICHOST</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">printf</span><span class="p">(</span><span class="s">&#34;%s</span><span class="se">\n</span><span class="s">&#34;</span><span class="p">,</span> <span class="n">host</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">freeaddrinfo</span><span class="p">(</span><span class="n">result</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span></span></span></code></pre>
+</div>
+<p>or：https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method</p>
+<p>/etc/gai.conf <a href="https://linux.die.net/man/5/gai.conf" target="_blank" rel="noopener noreferrer">getaddrinfo的配置文件</a></p>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+        <tr>
+            <th style="text-align: center">Prefix</th>
+            <th style="text-align: center">Precedence</th>
+            <th style="text-align: center">Label</th>
+            <th style="text-align: center">Usage</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td style="text-align: center">::1/128</td>
+            <td style="text-align: center">50</td>
+            <td style="text-align: center">0</td>
+            <td style="text-align: center">Localhost</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">::/0</td>
+            <td style="text-align: center">40</td>
+            <td style="text-align: center">1</td>
+            <td style="text-align: center">Default unicast</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">::<a href="http://ffff/" target="_blank" rel="noopener noreferrer">ffff:0:0/96</a></td>
+            <td style="text-align: center">35</td>
+            <td style="text-align: center">4</td>
+            <td style="text-align: center">IPv4-mapped IPv6 address</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">2002::/16</td>
+            <td style="text-align: center">30</td>
+            <td style="text-align: center">2</td>
+            <td style="text-align: center">6to4</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">2001::/32</td>
+            <td style="text-align: center">5</td>
+            <td style="text-align: center">5</td>
+            <td style="text-align: center">Teredo tunneling</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">fc00::/7</td>
+            <td style="text-align: center">3</td>
+            <td style="text-align: center">13</td>
+            <td style="text-align: center">Unique local address</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">::/96</td>
+            <td style="text-align: center">1</td>
+            <td style="text-align: center">3</td>
+            <td style="text-align: center">IPv4-compatible addresses (deprecated)</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">fec0::/10</td>
+            <td style="text-align: center">1</td>
+            <td style="text-align: center">11</td>
+            <td style="text-align: center">Site-local address (deprecated)</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">3ffe::/16</td>
+            <td style="text-align: center">1</td>
+            <td style="text-align: center">12</td>
+            <td style="text-align: center">6bone (returned)</td>
+        </tr>
+    </tbody>
+  </table>
+</div>
+<p>来源于<a href="https://en.wikipedia.org/wiki/IPv6_address" target="_blank" rel="noopener noreferrer">维基百科</a></p>
+<p>0:0:0:0:0:<a href="http://ffff/" target="_blank" rel="noopener noreferrer">ffff:0:0/96</a> 10 4 IPv4映射地址（这个地址网络上信息较少，地址范围：:: ffff：0.0.0.0~:: ffff：255.255.255.255 地址数量<a href="https://en.wikipedia.org/wiki/Power_of_2" target="_blank" rel="noopener noreferrer">2 128−96 = 2 32</a> = 4 294 967 296，用于软件，目的是IPv4映射的地址。 ）</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener noreferrer">Kubernetes &gt;= 1.13 + kube-proxy IPVS mode 服务部署不平滑</a></p>
+<p><a href="https://blog.51cto.com/welcomeweb/2464836" target="_blank" rel="noopener noreferrer">linux ipv4 ipv6双栈 （优先ipv4而不使用ipv6配置）</a></p>
+]]></description>
+</item><item>
+    <title>windows7的wifi总是报DNS域名异常无法上网</title>
+    <link>http://localhost:1313/posts/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5dns%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/</link>
+    <pubDate>Thu, 10 Jan 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5dns%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/</guid>
+    <description><![CDATA[<h1 id="windows7的wifi总是报dns域名异常无法上网" class="headerLink">
+    <a href="#windows7%e7%9a%84wifi%e6%80%bb%e6%98%af%e6%8a%a5dns%e5%9f%9f%e5%90%8d%e5%bc%82%e5%b8%b8%e6%97%a0%e6%b3%95%e4%b8%8a%e7%bd%91" class="header-mark"></a>windows7的wifi总是报DNS域名异常无法上网</h1><p>Windows7笔记本+公司wifi（dhcp）环境下，用着用着dns服务不可用（无法通过域名上网，通过IP地址可以访问），这里有个一模一样的Case了：https://superuser.com/questions/629559/why-is-my-computer-suddenly-using-nbns-instead-of-dns 一样的环境，看来这个问题也不只是我一个人碰到了。</p>
+<p>其实之前一直有，一个月偶尔出来一两次，以为是其他原因就没管，这次换了新电脑还是这个毛病有点不能忍，于是决定彻底解决一下。</p>
+<p>这个问题出现后，通过下面三个办法都可以让DNS恢复正常：</p>
+<ol>
+<li>重启系统大法，恢复正常</li>
+<li>禁用wifi驱动再启用，恢复正常</li>
+<li>不用DHCP，而是手工填入一个DNS服务器，比如114.114.114.114【公司域名就无法解析了】</li>
+</ol>
+<p>如果只是停用一下wifi再启用问题还在。</p>
+<h2 id="找it升级了网卡驱动不管用" class="headerLink">
+    <a href="#%e6%89%beit%e5%8d%87%e7%ba%a7%e4%ba%86%e7%bd%91%e5%8d%a1%e9%a9%b1%e5%8a%a8%e4%b8%8d%e7%ae%a1%e7%94%a8" class="header-mark"></a>找IT升级了网卡驱动不管用</h2><h2 id="重现的时候抓包看看" class="headerLink">
+    <a href="#%e9%87%8d%e7%8e%b0%e7%9a%84%e6%97%b6%e5%80%99%e6%8a%93%e5%8c%85%e7%9c%8b%e7%9c%8b" class="header-mark"></a>重现的时候抓包看看</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/c110f232829cbea9d5503166531d7f1d.png   alt="image.png"  ></p>
+<p>这肯定不对了，254上根本就没有跑DNS服务，可是当时没有检查 ipconfig，看看是否将网关IP动态配置到dns server里面去了，等下次重现后再确认吧。</p>
+<p>第二次重现后抓包，发现不一样了：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/295797df3c311d6902d68fb16f6212d8.png   alt="image.png"  ></p>
+<p>出来一个 NBNS 的鬼东西，赶紧查了一下，把它禁掉，如下图所示：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/9f06b680ae1f8b4cb781360f7c0ac2eb.png   alt="image.png"  ></p>
+<p>把NBNS服务关了就能上网了，同时也能抓到各种DNS Query包</p>
+<h2 id="事情没有这么简单" class="headerLink">
+    <a href="#%e4%ba%8b%e6%83%85%e6%b2%a1%e6%9c%89%e8%bf%99%e4%b9%88%e7%ae%80%e5%8d%95" class="header-mark"></a>事情没有这么简单</h2><p>过一段时间后还是会出现上面的症状，但是因为NBNS关闭了，所以这次 ping <a href="https://www.baidu.com" target="_blank" rel="noopener noreferrer">www.baidu.com</a> 的时候没有任何包了，没有DNS Query包，也没有NBNS包，这下好尴尬。</p>
+<p>尝试Enable NBNS，又恢复了正常，看来<strong>开关 NBNS 仍然只是一个workaround，他不是导致问题的根因</strong>，开关一下没有真正解决问题，只是临时相当于重启了dns修复了问题而已。</p>
+<p>继续在网络不通的时候尝试直接ping dns server ip，发现一个奇怪的现象，丢包很多，丢包的时候还总是从 192.168.0.11返回来的，这就奇怪了，我的笔记本基本IP是30开头的，dns server ip也是30开头的，route 路由表也是对的，怎么就走到 192.168.0.11 上了啊（<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener noreferrer">参考我的另外一篇文章，网络到底通不通</a>），赶紧 ipconfig /all | grep 192</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/5212ee5e7496dafb122ce144293184e1.png   alt="image.png"  ></p>
+<p>发现这个IP是VirtualBox虚拟机在笔记本上虚拟出来的网卡IP，这下我倒是能理解为啥总是我碰到这个问题了，因为我的工作笔记本一拿到后第一件事情就是装VirtualBox 跑虚拟机。</p>
+<p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
+<pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
+</code></pre>
+<p>执行完上面的命令观察了3个月了，暂时没有再出现这个问题，相对于以前轻则一个月2、3次，重则一天出现5、6次，应该算是解决了，同时升级 VirtualBox 也无法解决这个问题。</p>
+<p>route 信息：</p>
+<pre><code>$route PRINT -4
+===========================================================================
+接口列表
+ 23...00 ff c1 57 7f 12 ......Sangfor SSL VPN CS Support System VNIC
+ 18...f6 96 34 38 76 06 ......Microsoft Virtual WiFi Miniport Adapter #2
+ 17...f6 96 34 38 76 07 ......Microsoft Virtual WiFi Miniport Adapter
+ 15...00 ff 1f 24 e6 6c ......Sophos SSL VPN Adapter
+ 12...f4 96 34 38 76 06 ......Intel(R) Dual Band Wireless-AC 8260
+ 11...54 ee 75 d4 99 ae ......Intel(R) Ethernet Connection I219-V
+ 14...0a 00 27 00 00 0e ......VirtualBox Host-Only Ethernet Adapter
+  1...........................Software Loopback Interface 1
+ 25...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter
+ 19...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #9
+ 26...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #2
+ 27...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #3
+ 22...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #7
+ 21...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #5
+ 20...00 00 00 00 00 00 00 e0 Microsoft 6to4 Adapter #2
+ 16...00 00 00 00 00 00 00 e0 Teredo Tunneling Pseudo-Interface
+ 24...00 00 00 00 00 00 00 e0 Microsoft ISATAP Adapter #8
+===========================================================================
+
+IPv4 路由表
+===========================================================================
+活动路由:
+网络目标网络掩码  网关   接口   跃点数
+  0.0.0.0  0.0.0.0192.168.0.250169.254.24.89266
+  0.0.0.0  0.0.0.030.27.115.254 30.27.112.21 20
+  30.27.112.0255.255.252.0在链路上  30.27.112.21276
+ 30.27.112.21  255.255.255.255在链路上  30.27.112.21276
+30.27.115.255  255.255.255.255在链路上  30.27.112.21276
+127.0.0.0255.0.0.0在链路上 127.0.0.1306
+127.0.0.1  255.255.255.255在链路上 127.0.0.1306
+  127.255.255.255  255.255.255.255在链路上 127.0.0.1306
+  169.254.0.0  255.255.0.0在链路上 169.254.24.89266
+169.254.24.89  255.255.255.255在链路上 169.254.24.89266
+  169.254.255.255  255.255.255.255在链路上 169.254.24.89266
+224.0.0.0240.0.0.0在链路上 127.0.0.1306
+224.0.0.0240.0.0.0在链路上 169.254.24.89266
+224.0.0.0240.0.0.0在链路上  30.27.112.21276
+  255.255.255.255  255.255.255.255在链路上 127.0.0.1306
+  255.255.255.255  255.255.255.255在链路上 169.254.24.89266
+  255.255.255.255  255.255.255.255在链路上  30.27.112.21276
+===========================================================================
+永久路由:
+  网络地址  网络掩码  网关地址  跃点数
+  0.0.0.0  0.0.0.0192.168.0.250 默认
+  0.0.0.0  0.0.0.0192.168.0.250 默认
+===========================================================================
+</code></pre>
+<h2 id="另外dhcp也许可以做一些事情至少同样的用法在以前的公司网络环境没有出过问题" class="headerLink">
+    <a href="#%e5%8f%a6%e5%a4%96dhcp%e4%b9%9f%e8%ae%b8%e5%8f%af%e4%bb%a5%e5%81%9a%e4%b8%80%e4%ba%9b%e4%ba%8b%e6%83%85%e8%87%b3%e5%b0%91%e5%90%8c%e6%a0%b7%e7%9a%84%e7%94%a8%e6%b3%95%e5%9c%a8%e4%bb%a5%e5%89%8d%e7%9a%84%e5%85%ac%e5%8f%b8%e7%bd%91%e7%bb%9c%e7%8e%af%e5%a2%83%e6%b2%a1%e6%9c%89%e5%87%ba%e8%bf%87%e9%97%ae%e9%a2%98" class="header-mark"></a>另外DHCP也许可以做一些事情，至少同样的用法在以前的公司网络环境没有出过问题</h2><p>下面是来自微软官方的建议：</p>
+<blockquote>
+  <p>One big advise – do not disable the DHCP Client service on any server, whether the machine is a DHCP client or statically configured. Somewhat of a misnomer, this service performs Dynamic DNS registration and is tied in with the client resolver service. If disabled on a DC, you’ll get a slew of errors, and no DNS queries will get resolved.</p>
+<p>No DNS Name Resolution If DHCP Client Service Is Not Running. When you try to resolve a host name using Domain Name Service (DNS), the attempt is unsuccessful. Communication by Internet Protocol (IP) address (even to …</p>
+<p><a href="http://support.microsoft.com/kb/268674" target="_blank" rel="noopener noreferrer">http://support.microsoft.com/kb/268674</a></p>
+
+</blockquote><p>from： <a href="https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4" target="_blank" rel="noopener noreferrer">https://blogs.msmvps.com/acefekay/2009/11/29/dns-wins-netbios-amp-the-client-side-resolver-browser-service-disabling-netbios-direct-hosted-smb-directsmb-if-one-dc-is-down-does-a-client-logon-to-another-dc-and-dns-forwarders-algorithm/#section4</a></p>
+<h2 id="nbns也许会导致nslookup-ok-but-ping-fail的问题" class="headerLink">
+    <a href="#nbns%e4%b9%9f%e8%ae%b8%e4%bc%9a%e5%af%bc%e8%87%b4nslookup-ok-but-ping-fail%e7%9a%84%e9%97%ae%e9%a2%98" class="header-mark"></a>NBNS也许会导致nslookup OK but ping fail的问题</h2><p><a href="https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html" target="_blank" rel="noopener noreferrer">https://www.experts-exchange.com/questions/28894006/NetBios-name-resolution-instead-of-DNS.html</a></p>
+<p>The Windows Client Resolver（ping dns流程）</p>
+<ol>
+<li>Windows checks whether the host name is the same as the local host name.</li>
+<li>If the host name and local host name are not the same, Windows searches the DNS client resolver cache.</li>
+<li>If the host name cannot be resolved using the DNS client resolver cache, Windows sends DNS Name Query Request messages to its configured DNS servers.</li>
+<li>If the host name is a single-label name (such as server1) and cannot be resolved using the configured DNS servers, Windows converts the host name to a NetBIOS name and checks its local NetBIOS name cache.</li>
+<li>If Windows cannot find the NetBIOS name in the NetBIOS name cache, Windows contacts its configured WINS servers.</li>
+<li>If Windows cannot resolve the NetBIOS name by querying its configured WINS servers, Windows broadcasts as many as three NetBIOS Name Query Request messages on the directly attached subnet.</li>
+<li>If there is no reply to the NetBIOS Name Query Request messages, Windows searches the local Lmhosts file.
+Ping</li>
+</ol>
+<p>windows下nslookup 流程</p>
+<ol>
+<li>Check the DNS resolver cache. This is true for records that were cached via a previous name query or records that are cached as part of a pre-load operation from updating the hosts file.</li>
+<li>Attempt NetBIOS name resolution.</li>
+<li>Append all suffixes from the suffix search list.</li>
+<li>When a Primary Domain Suffix is used, nslookup will only take devolution 3 levels.</li>
+</ol>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>碰到问题绕过去也不是长久之计，还是要从根本上了解问题的本质，这个问题在其它公司没有碰到过，我觉得跟公司的DNS、DHCP的配置也有点关系吧，但是这个我不好确认，应该还有好多用Windows本本的同学同样会碰到这个问题的，希望对你们有些帮助</p>
+<p><a href="https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order" target="_blank" rel="noopener noreferrer">https://support.microsoft.com/en-us/help/172218/microsoft-tcp-ip-host-name-resolution-order</a></p>
+<p><a href="http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html" target="_blank" rel="noopener noreferrer">http://www.man7.org/linux/man-pages/man5/resolv.conf.5.html</a></p>
+<hr>
+<h2 id="本文附带鸡汤" class="headerLink">
+    <a href="#%e6%9c%ac%e6%96%87%e9%99%84%e5%b8%a6%e9%b8%a1%e6%b1%a4" class="header-mark"></a>本文附带鸡汤：</h2><p><strong>有些技能初学很难，大家水平都差不多，但是日积月累就会形成极强的优势，而且一旦突破某个临界点，它就会突飞猛进，这种技能叫指数型技能，是值得长期投资的，比如物理学就是一种指数型技能。</strong></p>
+<p>那么抓包算不算呢？​​</p>
+]]></description>
+</item><item>
+    <title>nslookup-OK-but-ping-fail</title>
+    <link>http://localhost:1313/posts/nslookup-ok-but-ping-fail/</link>
+    <pubDate>Wed, 09 Jan 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/nslookup-ok-but-ping-fail/</guid>
+    <description><![CDATA[<h1 id="nslookup-域名结果正确但是-ping-域名-返回-unknown-host" class="headerLink">
+    <a href="#nslookup-%e5%9f%9f%e5%90%8d%e7%bb%93%e6%9e%9c%e6%ad%a3%e7%a1%ae%e4%bd%86%e6%98%af-ping-%e5%9f%9f%e5%90%8d-%e8%bf%94%e5%9b%9e-unknown-host" class="header-mark"></a>nslookup 域名结果正确，但是 ping 域名 返回 unknown host</h1><blockquote>
+  <p>2018-02 update : 最根本的原因 <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener noreferrer">https://access.redhat.com/solutions/1426263</a></p>
+
+</blockquote><h2 id="下面让我们来看看这个问题的定位过程" class="headerLink">
+    <a href="#%e4%b8%8b%e9%9d%a2%e8%ae%a9%e6%88%91%e4%bb%ac%e6%9d%a5%e7%9c%8b%e7%9c%8b%e8%bf%99%e4%b8%aa%e9%97%ae%e9%a2%98%e7%9a%84%e5%ae%9a%e4%bd%8d%e8%bf%87%e7%a8%8b" class="header-mark"></a>下面让我们来看看这个问题的定位过程</h2><p>先Google一下: nslookup ok but ping fail, 这个关键词居然被Google自动提示了，看来碰到这个问题同学的好多</p>
+<p>Google到的帖子大概有如下原因：</p>
+<ul>
+<li>域名最后没有加 . 然后被自动追加了 tbsite.net aliyun.com alidc.net，自然 ping不到了</li>
+<li>/etc/resolv.conf 配置的nameserver 要保证都是正常服务的</li>
+<li>/etc/nsswitch.conf 中的这行：hosts: files dns 配置成了 hosts: files mdns dns，而server不支持mdns</li>
+<li>域名是单标签的（domain 单标签； domain.com 多标签），单标签在windows下走的NBNS而不是DNS协议</li>
+</ul>
+<p>检查完我的环境不是上面描述的情况，比较悲催，居然碰到了一个Google不到的问题</p>
+<h3 id="抓包看为什么解析不了" class="headerLink">
+    <a href="#%e6%8a%93%e5%8c%85%e7%9c%8b%e4%b8%ba%e4%bb%80%e4%b9%88%e8%a7%a3%e6%9e%90%e4%b8%8d%e4%ba%86" class="header-mark"></a>抓包看为什么解析不了</h3><blockquote>
+  <p>DNS协议是典型的UDP应用，一来一回就搞定了查询，效率比TCP三次握手要高多了，DNS Server也支持TCP，不过一般不用TCP</p>
+
+</blockquote><pre><code>sudo tcpdump -i eth0 udp and port 53 
+</code></pre>
+<p>抓包发现ping 不通域名的时候都是把域名丢到了 /etc/resolv.conf 中的第二台nameserver，或者根本没有发送 dns查询。</p>
+<p>这里要多解释一下我们的环境， /etc/resolv.conf 配置了2台 nameserver，第一台负责解析内部域名，另外一台负责解析其它域名，如果内部域名的解析请求丢到了第二台上自然会解析不到。</p>
+<p>所以这个问题的根本原因是挑选的nameserver 不对，按照 /etc/resolv.conf 的逻辑都是使用第一个nameserver，失败后才使用第二、第三个备用nameserver。</p>
+<p>比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS /etc/resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。</p>
+<h3 id="风波再起" class="headerLink">
+    <a href="#%e9%a3%8e%e6%b3%a2%e5%86%8d%e8%b5%b7" class="header-mark"></a>风波再起</h3><p>本来以为问题彻底解决了，结果还是有一台机器ping仍然是unknow host，眼睛都看瞎了没发现啥问题，抓包发现总是把dns请求交给第二个nameserver，或者根本不发送dns请求，这就有意思了，跟我们理解的不太一样。</p>
+<p>看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ca466bb6430f1149958ceb41b9ffe591.png   alt="image.png"  ></p>
+<p>ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 /var/run/nscd/ 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。</p>
+<p><strong>从strace来看所有的ping都会尝试看看 nscd 是否在运行，在的话找nscd要域名解析结果，如果nscd没有运行，那么再找 /etc/resolv.conf中的nameserver做域名解析</strong></p>
+<p>而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。</p>
+<p>如下文字摘自网络：</p>
+<blockquote>
+  <p>NSCD(name service cache daemon)是GLIBC关于网络库的一个组件，服务基于glibc开发的各类网络服务，基本上来讲我们能见到的一些编程语言和开发框架最终均会调用到glibc的网络解析的函数（如GETHOSTBYNAME or GETHOSTBYADDR等），因此绝大部分程序能够使用NSCD提供的缓存服务。当然了如果是应用端自己用socker编写了一个网络client就无法使用NSCD提供的缓存服务，比如DNS领域常见的dig命令不会使用NSCD提供的缓存，而作为对比ping得到的DNS解析结果将使用NSCD提供的缓存</p>
+
+</blockquote><h4 id="connect函数返回值的说明" class="headerLink">
+    <a href="#connect%e5%87%bd%e6%95%b0%e8%bf%94%e5%9b%9e%e5%80%bc%e7%9a%84%e8%af%b4%e6%98%8e" class="header-mark"></a>connect函数返回值的说明：</h4><pre><code>RETURN VALUE
+   If  the  connection or binding succeeds, zero is returned.  On error, -1 is returned,and errno is set appropriately.
+</code></pre>
+<p>Windows下客户端是默认有dns cache的，但是Linux Client上默认没有dns cache，DNS Server上是有cache的，所以忽视了这个问题。这个nscd是之前看ping不通，google到这么一个命令，但是应该没有搞明白它的作用，就执行了一个网上的命令，把nscd拉起来，然后ping 因为rotate的问题，还是不通，同时nscd cache了这个不通的结果，导致了新的问题</p>
+<h2 id="域名解析流程或者说-glibc的-gethostbyname-函数流程--背后是nameserviceswitch" class="headerLink">
+    <a href="#%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e6%b5%81%e7%a8%8b%e6%88%96%e8%80%85%e8%af%b4-glibc%e7%9a%84-gethostbyname-%e5%87%bd%e6%95%b0%e6%b5%81%e7%a8%8b--%e8%83%8c%e5%90%8e%e6%98%afnameserviceswitch" class="header-mark"></a>域名解析流程（或者说 glibc的 gethostbyname() 函数流程&ndash;背后是NameServiceSwitch）</h2><ul>
+<li>DNS域名解析的时候先根据 /etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
+<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns</li>
+<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
+<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener noreferrer">但是因为glibc库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+</ul>
+<p><strong>nslookup和dig程序是bind程序包所带的工具，专门用来检测DNS Server的，实现上更简单，就一个目的，给DNS Server发DNS解析请求，没有调gethostbyname()函数，也就不遵循上述流程，而是直接到 /etc/resolv.conf 取第一个nameserver当dns server进行解析</strong></p>
+<h3 id="glibc函数" class="headerLink">
+    <a href="#glibc%e5%87%bd%e6%95%b0" class="header-mark"></a>glibc函数</h3><p>glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 地址的解析, gethostbyname 函数以同步阻塞的方式提供服务, 没有超时等选项, 仅提供 IPv4 的解析. getaddrinfo 则没有这些限制, 同时支持 IPv4, IPv6, 也支持 IPv4 到 IPv6 的映射选项. 包含 Linux 在内的很多系统都已废弃 gethostbyname 函数, 使用 getaddrinfo 函数代替. 不过从现实的情况来看, 还是有很多程序或网络库使用 gethostbyname 进行服务.</p>
+<p>备注:
+线上开启 nscd 前, 建议做好程序的测试, nscd 仅支持通过 glibc, c 标准机制运行的程序, 没有基于 glibc 运行的程序可能不支持 nscd. 另外一些 go, perl 等编程语言网络库的解析函数是单独实现的, 不会走 nscd 的 socket, 这种情况下程序可以进行名称解析, 但不会使用 nscd 缓存. 不过我们在测试环境中使用go, java 的常规网络库都可以正常连接 nscd 的 socket 进行请求; perl 语言使用 Net::DNS 模块, 不会使用 nscd 缓存; python 语言使用 python-dns 模块, 不会使用 nscd 缓存. python 和 perl 不使用模块的时候进行解析还是遵循上述的过程, 同时使用 nscd 缓存.</p>
+<h2 id="下面是glibc中对rotate的处理" class="headerLink">
+    <a href="#%e4%b8%8b%e9%9d%a2%e6%98%afglibc%e4%b8%ad%e5%af%b9rotate%e7%9a%84%e5%a4%84%e7%90%86" class="header-mark"></a>下面是glibc中对rotate的处理：</h2><p>这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/2a8116a867726e3fea20e0f45e9ed9fa.png   alt="image.png"  ></p>
+<p>在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png   alt="image.png"  ></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/245e70b53aee4bfcdc9a921993ddad6f.png   alt="image.png"  ></p>
+<p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是/etc/resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
+<p><a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570" target="_blank" rel="noopener noreferrer">参考 glibc bug</a></p>
+<p><a href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc" target="_blank" rel="noopener noreferrer">Linux内核与glibc</a></p>
+<blockquote>
+  <p><code>getaddrinfo()</code> is a newer function that was introduced to replace <code>gethostbyname()</code> and provides a more flexible and robust way of resolving hostnames. <code>getaddrinfo()</code> can resolve both IPv4 and IPv6 addresses, and it supports more complex name resolution scenarios, such as service name resolution and name resolution with specific protocol families.</p>
+
+</blockquote><p>linux主要是基于glibc，分析glibc源码（V2.17）getaddrinfo 逻辑如下：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">// search1、search2等是resolv.conf中配置的search域，会根据resolv.conf中ndots配置和qname的级数来决定
+</span></span><span class="line"><span class="cl">// 先查加search域的域名还是后查加search域的域名，除没有配置nameserver外，任何错误都会重试下一个
+</span></span><span class="line"><span class="cl">foreach domain(qname、qname.search1、qname.search2...) 
+</span></span><span class="line"><span class="cl">  foreach retry // resolv.conf中配置的retry数目
+</span></span><span class="line"><span class="cl">    foreach ns // resolv.conf中配置的nameserver，最多有效的只有前三个，增加rotate 的option后，会从                         
+</span></span><span class="line"><span class="cl">               //nameserver中（最多前三个）随机选择一个进行请求
+</span></span><span class="line"><span class="cl">      foreach qtype（A、AAAA）
+</span></span><span class="line"><span class="cl">      // 根据请求显试指定和系统是双栈还是单栈v4、or单栈v6来决定，如果两个
+</span></span><span class="line"><span class="cl">      // 类型的话会同时并发请求，不会等另外一个返回。如果在resov.conf中指定
+</span></span><span class="line"><span class="cl">      // single-request-reopen，则会每个类型请求新建一个链接，否则复用同一个
+</span></span><span class="line"><span class="cl">        foreach (without_edns0, with_edns0 ) 
+</span></span><span class="line"><span class="cl">        // 注意：默认不支持edns0，如果要支持的话需要设置宏RES_USE_EDNS0，并重编译
+</span></span><span class="line"><span class="cl">           if (timeout || rcode == servfail 
+</span></span><span class="line"><span class="cl">                || rcode == notimp || rcode == refuse) 
+</span></span><span class="line"><span class="cl">                // timeout时间第一次为resolv.conf中配置，后面的依据下面公式
+</span></span><span class="line"><span class="cl">                //计算：(timeout&lt;&lt;index_of_dns_server)/num_of_dns_server
+</span></span><span class="line"><span class="cl">              conftinue;</span></span></code></pre>
+</div>
+<h2 id="还有一种情况开了easyconnect这样的vpn软件同时又配置了自己的dns-server" class="headerLink">
+    <a href="#%e8%bf%98%e6%9c%89%e4%b8%80%e7%a7%8d%e6%83%85%e5%86%b5%e5%bc%80%e4%ba%86easyconnect%e8%bf%99%e6%a0%b7%e7%9a%84vpn%e8%bd%af%e4%bb%b6%e5%90%8c%e6%97%b6%e5%8f%88%e9%85%8d%e7%bd%ae%e4%ba%86%e8%87%aa%e5%b7%b1%e7%9a%84dns-server" class="header-mark"></a>还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server</h2><p>这个时候ping 某个自己的dns server中才有的域名是没法解析到的，即使你配置了自己的dns server，如果这个时候你通过 nslookup 自己的域名, 自己的dns-server-ip 确实是能够解析到的。但是你只是 nslookup 自己的域名 就不行，明显可以看到这个时候nslookup把域名发给了127.0.0.1:53来解析，而这个端口正是easyconnect这个软件在监听，你也可以理解easyconnect这样的软件的工作方式就是必须要挟持你的dns解析，可以理解的是这个时候nslookup肯定解析不到你的域名(只把dns解析丢给第一个nameserver&ndash;127.0.0.1)，但是不能理解的是还是ping不通域名，正常ping的逻辑丢给第一个127.0.0.1解析不到域名的话，会丢给第二个dns-server继续尝试解析，但是这里的easyconnect没有进行第二次尝试，这也许是它实现上没有考虑到或者故意这样实现的。</p>
+<h2 id="其他情况" class="headerLink">
+    <a href="#%e5%85%b6%e4%bb%96%e6%83%85%e5%86%b5" class="header-mark"></a>其他情况</h2><p><a href="https://access.redhat.com/solutions/58028" target="_blank" rel="noopener noreferrer">resolv.conf中search只能支持最多6个后缀（代码中写死了）</a>: This cannot be modified for RHEL 6.x and below and is resolved in RHEL7 glibc package versions at or exceeding glibc-2.17-222.el7.</p>
+<p>nameserver：指定nameserver，必须配置，每行指定一个nameserver，最多只能生效3行</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><ul>
+<li>/etc/resolv.conf rotate参数的关键作用</li>
+<li>nscd对域名解析的cache</li>
+<li>nslookup背后执行原理和ping不一样(前者不调glibc的gethostbyname() 函数), nslookup不会检查 /etc/hosts、/etc/nsswitch.conf, 而是直接从 /etc/resolv.conf 中取nameserver； 但是ping或者我们在程序一般最终都是通过调glibc的gethostbyname() 函数对域名进行解析的，也就是按照 /etc/nsswitch.conf 指示的来</li>
+<li>在没有源代码的情况下strace和抓包能够看到问题的本质</li>
+<li><a href="https://access.redhat.com/solutions/58028" target="_blank" rel="noopener noreferrer">resolv.conf中最多只能使用前六个搜索域</a></li>
+</ul>
+<p>下一篇介绍《在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）》困扰了我两年，最近换了新笔记本还是有这个问题才痛下决心咬牙解决</p>
+<h3 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h3><p><a href="https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine" target="_blank" rel="noopener noreferrer">https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine</a></p>
+<p><a href="https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt" target="_blank" rel="noopener noreferrer">https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt</a></p>
+<p><a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener noreferrer">来自redhat上原因的描述，但是从代码的原作者的描述来看，他认为rotate下这个行为是合理的</a></p>
+<p><a href="https://arstercz.com/linux-%E7%B3%BB%E7%BB%9F%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86%E5%90%8D%E7%A7%B0%E8%A7%A3%E6%9E%90/" target="_blank" rel="noopener noreferrer">Linux 系统如何处理名称解析</a></p>
+]]></description>
+</item><item>
+    <title>部分机器网络不通</title>
+    <link>http://localhost:1313/posts/%E6%96%B9%E8%88%9F%E5%9F%9F%E5%90%8D%E5%92%8C%E6%9C%8D%E5%8A%A1/</link>
+    <pubDate>Sat, 25 Aug 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E6%96%B9%E8%88%9F%E5%9F%9F%E5%90%8D%E5%92%8C%E6%9C%8D%E5%8A%A1/</guid>
+    <description><![CDATA[<h1 id="方舟域名和服务" class="headerLink">
+    <a href="#%e6%96%b9%e8%88%9f%e5%9f%9f%e5%90%8d%e5%92%8c%e6%9c%8d%e5%8a%a1" class="header-mark"></a>方舟域名和服务</h1><h2 id="服务发布" class="headerLink">
+    <a href="#%e6%9c%8d%e5%8a%a1%e5%8f%91%e5%b8%83" class="header-mark"></a>服务发布</h2><ul>
+<li>通过Docker方式指定需要发布的服务名称和对应端口</li>
+</ul>
+<p>~:docker run -d -it &ndash;name HTTP_Provider &ndash;net=vlan701 -l alimw.domain=chengji.test.com -l alimw.port=8090 reg.docker.alibaba-inc.com/middleware.udp</p>
+<p>说明：这里docker容器的名称是HTTP_Provider ,通过alimw.domain=chengji.test.com -l alimw.port=8090 指定了服务名为：chengji.test.com，端口：8090</p>
+<ul>
+<li>启动后，进入VIPServer的OPS平台查询域名：chengji.test.com，可以看到注册的服务IP和端口，以及健康状态。
+<code>说明：由于只是通过Docker方式注册了服务，但是内部服务并没有启动，可以看到健康程度标注为差，健康检查为false。</code></li>
+<li>部署相关的HTTP服务，再次进入VIPServer的OPS平台查询域名：chengji.test.com，将可以看到健康检查状态正常。</li>
+</ul>
+<h2 id="服务发现" class="headerLink">
+    <a href="#%e6%9c%8d%e5%8a%a1%e5%8f%91%e7%8e%b0" class="header-mark"></a>服务发现</h2><p>1.VIPServer-Client方式</p>
+<pre><code>任意启动一个Docker环境，部署好HTTP服务的消费者，采用标准的VS的Client订阅方式即可
+</code></pre>
+<p>2.DNS-F方式（跨语言）</p>
+<pre><code>需要提前部署好DNS-F客户端，需要保证DNS-F服务高可用，可直接通过curl方式进行测试
+</code></pre>
+<p>3.方舟提供DNS Server，负责这些域名的解析</p>
+]]></description>
+</item></channel>
+</rss>

@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>MySQL线程池卡顿重现 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E9%A1%BF%E9%87%8D%E7%8E%B0/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="MySQL线程池卡顿重现">
+  <meta property="og:description" content="MySQL线程池卡顿重现by @wych42
+起因为了激励大家多动手少空想，我在推特发起了白嫖我的知识星球活动：
+白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2023-05-26T17:30:03+00:00">
+    <meta property="article:modified_time" content="2023-05-26T17:30:03+00:00">
+    <meta property="article:tag" content="Thread Pool">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="MySQL线程池卡顿重现">
+  <meta name="twitter:description" content="MySQL线程池卡顿重现by @wych42
+起因为了激励大家多动手少空想，我在推特发起了白嫖我的知识星球活动：
+白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E9%A1%BF%E9%87%8D%E7%8E%B0/" /><link rel="prev" href="http://localhost:1313/posts/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/" /><link rel="next" href="http://localhost:1313/posts/nginx-reuseport-%E5%AF%BC%E8%87%B4%E5%81%B6%E5%8F%91%E6%80%A7%E5%8D%A1%E9%A1%BF/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "MySQL线程池卡顿重现",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E9%A1%BF%E9%87%8D%E7%8E%B0/"
+        },"genre": "posts","keywords":["thread pool"],"wordcount":  4840 ,
+        "url": "http://localhost:1313/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E9%A1%BF%E9%87%8D%E7%8E%B0/","datePublished": "2023-05-26T17:30:03+00:00","dateModified": "2023-05-26T17:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#起因">起因</a></li>
+    <li><a href="#这个案例的重要性">这个案例的重要性</a></li>
+    <li><a href="#原因分析">原因分析</a></li>
+    <li><a href="#mariadb">mariadb</a></li>
+    <li><a href="#percona">percona</a></li>
+    <li><a href="#尝试复现">尝试复现</a>
+      <ul>
+        <li><a href="#思路">思路</a></li>
+      </ul>
+    </li>
+    <li><a href="#复现执行">复现执行</a>
+      <ul>
+        <li><a href="#mariadb-1">mariadb</a></li>
+        <li><a href="#percona-1">percona</a></li>
+        <li><a href="#real-world-模拟percona版本">real-world 模拟（percona）版本</a></li>
+        <li><a href="#复现文章中部分线程池卡的现象">复现文章中部分线程池卡的现象</a></li>
+      </ul>
+    </li>
+  </ul>
+
+  <ul>
+    <li><a href="#过程回顾">过程回顾</a>
+      <ul>
+        <li><a href="#阶段一-确定原因">阶段一 确定原因</a></li>
+        <li><a href="#阶段二-走上弯路">阶段二 走上弯路</a></li>
+        <li><a href="#阶段三-柳岸花明">阶段三 柳岸花明</a></li>
+      </ul>
+    </li>
+    <li><a href="#mariadb-启动命令和配置">mariadb 启动命令和配置</a></li>
+    <li><a href="#percona-启动命令和配置">percona 启动命令和配置</a></li>
+    <li><a href="#其他人的重现和分析">其他人的重现和分析</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2023-05-26" data-pagefind-body>MySQL线程池卡顿重现</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/mysql/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>MySQL</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2023-05-26">2023-05-26</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2023-05-26">2023-05-26</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 4840 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 22 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#起因">起因</a></li>
+    <li><a href="#这个案例的重要性">这个案例的重要性</a></li>
+    <li><a href="#原因分析">原因分析</a></li>
+    <li><a href="#mariadb">mariadb</a></li>
+    <li><a href="#percona">percona</a></li>
+    <li><a href="#尝试复现">尝试复现</a>
+      <ul>
+        <li><a href="#思路">思路</a></li>
+      </ul>
+    </li>
+    <li><a href="#复现执行">复现执行</a>
+      <ul>
+        <li><a href="#mariadb-1">mariadb</a></li>
+        <li><a href="#percona-1">percona</a></li>
+        <li><a href="#real-world-模拟percona版本">real-world 模拟（percona）版本</a></li>
+        <li><a href="#复现文章中部分线程池卡的现象">复现文章中部分线程池卡的现象</a></li>
+      </ul>
+    </li>
+  </ul>
+
+  <ul>
+    <li><a href="#过程回顾">过程回顾</a>
+      <ul>
+        <li><a href="#阶段一-确定原因">阶段一 确定原因</a></li>
+        <li><a href="#阶段二-走上弯路">阶段二 走上弯路</a></li>
+        <li><a href="#阶段三-柳岸花明">阶段三 柳岸花明</a></li>
+      </ul>
+    </li>
+    <li><a href="#mariadb-启动命令和配置">mariadb 启动命令和配置</a></li>
+    <li><a href="#percona-启动命令和配置">percona 启动命令和配置</a></li>
+    <li><a href="#其他人的重现和分析">其他人的重现和分析</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="mysql线程池卡顿重现" class="headerLink">
+    <a href="#mysql%e7%ba%bf%e7%a8%8b%e6%b1%a0%e5%8d%a1%e9%a1%bf%e9%87%8d%e7%8e%b0" class="header-mark"></a>MySQL线程池卡顿重现</h1><p>by @wych42</p>
+<h2 id="起因" class="headerLink">
+    <a href="#%e8%b5%b7%e5%9b%a0" class="header-mark"></a>起因</h2><p>为了激励大家多动手少空想，我在推特发起了白嫖我的<a href="http://t.zsxq.com/0cz93XUPj" target="_blank" rel="noopener noreferrer">知识星球活动</a>：</p>
+<blockquote>
+  <p>白嫖我星球的机会来了，总有人说贵、没有优惠券，这次直接来一个完全100%免费的机会，要求： 在MySQL的基础上重现某个线程池卡的现象，给出可复制的重现过程。就是因为某个线程池满了导致落到这个池里的查询一定都慢，否则都快。 不愿意出钱就动手吧</p>
+
+</blockquote><p>参考现象：https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/</p>
+<hr>
+<p>感谢推友<a href="https://twitter.com/wych42" target="_blank" rel="noopener noreferrer">王鱼翅</a>同学，以下是他的教科书级的细致重现，你复制粘贴就能和他一样重现了</p>
+<h2 id="这个案例的重要性" class="headerLink">
+    <a href="#%e8%bf%99%e4%b8%aa%e6%a1%88%e4%be%8b%e7%9a%84%e9%87%8d%e8%a6%81%e6%80%a7" class="header-mark"></a>这个案例的重要性</h2><p>这个现象对应我们年度四大案例之一，如下图左下角</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230517082106489.png   alt="image-20230517082106489"  ></p>
+<p>重现后请思考：</p>
+<ol>
+<li>MySQL为什么要将多个线程分成小池子，小池子肯定容易局部资源不足</li>
+<li>Nginx 一个连接固定在一个worker上，那么同样多个Worker也会有不均衡(有的worker很闲，有的很卡)</li>
+<li>动手实验一下将多个小池子改成一个大线程池会怎么样</li>
+<li>Java ConcurrentHashMap为什么能够高性能</li>
+</ol>
+<p>由 @wych42 重现</p>
+<h2 id="原因分析" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0%e5%88%86%e6%9e%90" class="header-mark"></a>原因分析</h2><p>根据 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener noreferrer">USE</a> 分析套路。看到服务端执行快，但是整体RT慢的现象，大概率是中间哪个位置有排队。根据文章里的描述，原因是在thread pool group中出现了排队。</p>
+<p>排队的主要原因是服务端拒绝创建新的thread（worker），导致新进来的SQL需要等待前面的执行完成。那么就需要重点分析thread(worker)的创建过程和约束条件。根据文章和文档的说明，重点在thread_pool_size, thread_pool_oversubscribe, thread_pool_max_threads, thread_pool_stall_limit这几个参数上。</p>
+<p>跟据文档分析和实际执行结果，这几个参数在MySQL不同的发型版中的行为逻辑是不尽相同的。核心差异在对创建新worker的限制条件上，后面复现也会根据两个发型版的特点分别执行。</p>
+<h2 id="mariadb" class="headerLink">
+    <a href="#mariadb" class="header-mark"></a>mariadb</h2><p><a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="noopener noreferrer">文档</a></p>
+<ul>
+<li>通常情况下，新worker由listener worker创建</li>
+<li>当timer worker检测到thread group 有stall时，可能会选择创建一个新的worker</li>
+<li>worker的数量上限由thread_pool_max_threads限制</li>
+<li>thread_pool_oversubscribe约束的是被额外创建出来的worker，在执行完任务后，最多能保留active状态的数量</li>
+</ul>
+<blockquote>
+  <p>To clarify, the thread_pool_oversubscribe system variable does not play any part in the creation of new worker threads. The thread_pool_oversubscribe system variable is only used to determine how many worker threads should remain active in a thread group, once a thread group is already oversubscribed due to stalls.</p>
+
+</blockquote><h2 id="percona" class="headerLink">
+    <a href="#percona" class="header-mark"></a>percona</h2><p><a href="https://docs.percona.com/percona-server/8.0/performance/threadpool.html" target="_blank" rel="noopener noreferrer">文档</a></p>
+<p>percona的行为更符合原文章里的说明：</p>
+<ul>
+<li>如果线程执行超过时间 thread_pool_stall_limit 的值，会被任务stalled，会创建一个新的线程执行排队的任务</li>
+<li>thread_pool_oversubscribe 约束了每个thread group的线程数上限。</li>
+</ul>
+<h2 id="尝试复现" class="headerLink">
+    <a href="#%e5%b0%9d%e8%af%95%e5%a4%8d%e7%8e%b0" class="header-mark"></a>尝试复现</h2><h3 id="思路" class="headerLink">
+    <a href="#%e6%80%9d%e8%b7%af" class="header-mark"></a>思路</h3><p>并发向DB发起请求，观察客户端耗时，这些请求应当符合这些条件：</p>
+<ul>
+<li>可控的并发数量：以对比数据库服务端不同参数值的情况</li>
+<li>有稳定的、相同的服务端执行耗时：以对比客户端在不同场景下的耗时</li>
+<li>对服务端的硬件压力较小：避免因为并发不同时，因IO、CPU资源占用，影响服务端执行耗时</li>
+</ul>
+<p>综合考虑使用 <code>select sleep(2); </code>作为测试SQL。并发控制使用下面的golang代码实现。</p>
+<p>再控制数据库服务端参数，运行同一个并发程序进行对比，mariadb和percona分析执行运行过程：</p>
+<h2 id="复现执行" class="headerLink">
+    <a href="#%e5%a4%8d%e7%8e%b0%e6%89%a7%e8%a1%8c" class="header-mark"></a>复现执行</h2><h3 id="mariadb-1" class="headerLink">
+    <a href="#mariadb-1" class="header-mark"></a>mariadb</h3><p>由上面分析可以，mariadb 中造成排队的约束是thread_pool_max_threads。</p>
+<h4 id="执行方案" class="headerLink">
+    <a href="#%e6%89%a7%e8%a1%8c%e6%96%b9%e6%a1%88" class="header-mark"></a>执行方案</h4><ul>
+<li>DB配置</li>
+</ul>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">| thread_pool_max_threads                 | 6               |
+</span></span><span class="line"><span class="cl">| thread_pool_oversubscribe               | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_size                        | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_stall_limit                 | 500             |</span></span></code></pre>
+</div>
+<ul>
+<li>执行SQL <code>select sleep(2)</code></li>
+<li>执行并发：8</li>
+</ul>
+<p>预期结果： 6个SQL执行的客户端观察耗时为2s；2个SQL为4s</p>
+<p>若调整 thread_pool_max_threads=8，则8个SQL的执行客户端观察耗时都为2s</p>
+<h4 id="执行结果" class="headerLink">
+    <a href="#%e6%89%a7%e8%a1%8c%e7%bb%93%e6%9e%9c" class="header-mark"></a>执行结果</h4><ol>
+<li>thread_pool_max_threads=6;concurrency=8</li>
+</ol>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">go run ./main.go
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_3
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_1
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_6
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_4
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_0
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_7
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_2
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:51 starting taskId:task_5
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_0 exec cost : 2.021305666s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_6 exec cost : 2.021421041s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_3 exec cost : 2.021258917s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_2 exec cost : 2.021275458s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_4 exec cost : 2.021254083s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:53 taskId:task_7 exec cost : 2.02146725s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:55 taskId:task_5 exec cost : 4.021478584s
+</span></span><span class="line"><span class="cl">2023/05/16 13:34:55 taskId:task_1 exec cost : 4.02192s</span></span></code></pre>
+</div>
+<ol start="2">
+<li>thread_pool_max_threads=8;concurrency=8</li>
+</ol>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">go run ./main.go
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_7
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_3
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_1
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_5
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_0
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_6
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_4
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:17 starting taskId:task_2
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_6 exec cost : 2.045480167s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_2 exec cost : 2.045405667s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_7 exec cost : 2.045507334s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_1 exec cost : 2.04553075s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_3 exec cost : 2.04554975s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_0 exec cost : 2.045697375s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_4 exec cost : 2.046417375s
+</span></span><span class="line"><span class="cl">2023/05/16 13:36:19 taskId:task_5 exec cost : 2.046453792s</span></span></code></pre>
+</div>
+<p>均符合预期。</p>
+<h3 id="percona-1" class="headerLink">
+    <a href="#percona-1" class="header-mark"></a>percona</h3><p>由上面分析可以，percona中造成排队的约束是thread_pool_oversubscribe。</p>
+<h4 id="执行方案-1" class="headerLink">
+    <a href="#%e6%89%a7%e8%a1%8c%e6%96%b9%e6%a1%88-1" class="header-mark"></a>执行方案</h4><ul>
+<li>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</li>
+</ul>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">| thread_pool_max_threads                 | 1000               |
+</span></span><span class="line"><span class="cl">| thread_pool_oversubscribe               | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_size                        | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_stall_limit                 | 500             |</span></span></code></pre>
+</div>
+<ul>
+<li>执行SQL <code>select sleep(2)</code></li>
+<li>执行并发：8</li>
+</ul>
+<p>预期结果： 客户端观察到的耗时分四个批次输出，每个批次2个SQL，耗时分别为2s,4s,6s,8s.</p>
+<p>若调整 thread_pool_oversubscribe=2，则三个批次输出，分别为3条SQL耗时均为2s，3条SQL耗时均为4s，2条SQL耗时均为6s</p>
+<h4 id="执行结果-1" class="headerLink">
+    <a href="#%e6%89%a7%e8%a1%8c%e7%bb%93%e6%9e%9c-1" class="header-mark"></a>执行结果</h4><ol>
+<li>thread_pool_oversubscribe=1,concurrency=8</li>
+</ol>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">go run ./main.go
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_2
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_4
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_3
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_5
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_6
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_0
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_1
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:35 starting taskId:task_7
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:37 taskId:task_7 exec cost : 2.063547416s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:37 taskId:task_0 exec cost : 2.064091541s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:39 taskId:task_5 exec cost : 4.06672125s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:39 taskId:task_6 exec cost : 4.066822583s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:41 taskId:task_3 exec cost : 6.067720292s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:41 taskId:task_2 exec cost : 6.069995s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:43 taskId:task_4 exec cost : 8.069296042s
+</span></span><span class="line"><span class="cl">2023/05/16 13:39:43 taskId:task_1 exec cost : 8.071391709s</span></span></code></pre>
+</div>
+<ol start="2">
+<li>thread_pool_oversubscribe=2,concurrency=8</li>
+</ol>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-6" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">go run ./main.go
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_7
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_1
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_3
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_2
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_5
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_6
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_4
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:02 starting taskId:task_0
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:04 taskId:task_1 exec cost : 2.057093667s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:04 taskId:task_3 exec cost : 2.057156334s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:04 taskId:task_5 exec cost : 2.057170667s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:06 taskId:task_6 exec cost : 4.066917041s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:06 taskId:task_7 exec cost : 4.066944125s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:06 taskId:task_2 exec cost : 4.066976875s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:08 taskId:task_4 exec cost : 6.070653125s
+</span></span><span class="line"><span class="cl">2023/05/16 13:41:08 taskId:task_0 exec cost : 6.070612083s</span></span></code></pre>
+</div>
+<p>均符合预期。</p>
+<h3 id="real-world-模拟percona版本" class="headerLink">
+    <a href="#real-world-%e6%a8%a1%e6%8b%9fpercona%e7%89%88%e6%9c%ac" class="header-mark"></a>real-world 模拟（percona）版本</h3><p>现实场景中，很少会有大批量的2s在SQL在生产环境执行（限互联网业务)，上述的分析过程能否在真实场景中验证呢？尝试用一个执行200ms的SQL来模拟下：</p>
+<ul>
+<li>DB配置: thread_pool_max_threads设置一个较大的值，以排除影响。</li>
+</ul>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-7" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">| thread_pool_max_threads                 | 1000               |
+</span></span><span class="line"><span class="cl">| thread_pool_oversubscribe               | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_size                        | 1               |
+</span></span><span class="line"><span class="cl">| thread_pool_stall_limit                 | 500             |</span></span></code></pre>
+</div>
+<ul>
+<li>执行SQL <code>select sleep(0.2)</code></li>
+<li>执行并发：10</li>
+</ul>
+<p>从执行结果中可以看到，只有第一条SQL按照预期的时间执行完成了。
+从抓包结果中可以看到，所有SQL几乎是同时发出。观察最慢的一条SQL,但是从客户端发包到服务端响应包发出的耗时，与客户端观察到的耗时也能对应上。</p>
+<p>可以验证上述分析过程。</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-8" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_1 exec cost : 239.34925ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_9 exec cost : 239.560833ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_5 exec cost : 453.795084ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_3 exec cost : 458.0005ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_6 exec cost : 659.441541ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_8 exec cost : 659.660917ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_0 exec cost : 862.526375ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:47 taskId:task_7 exec cost : 864.450042ms
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:48 taskId:task_2 exec cost : 1.063766875s
+</span></span><span class="line"><span class="cl">2023/05/16 14:47:48 taskId:task_4 exec cost : 1.066266041s</span></span></code></pre>
+</div>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/238557399-c92e2c4e-436f-4f89-ba87-48c49b5393ac.png   alt="send_sql"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/238557635-1209f057-0c3c-4cfd-9072-12bfc112b4c6.png   alt="response_delay"  ></p>
+<h3 id="复现文章中部分线程池卡的现象" class="headerLink">
+    <a href="#%e5%a4%8d%e7%8e%b0%e6%96%87%e7%ab%a0%e4%b8%ad%e9%83%a8%e5%88%86%e7%ba%bf%e7%a8%8b%e6%b1%a0%e5%8d%a1%e7%9a%84%e7%8e%b0%e8%b1%a1" class="header-mark"></a>复现文章中部分线程池卡的现象</h3><p>配置两个线程池，在其中一个线程池上,通过<code>select sleep()</code>较长时间模拟线程池被慢SQL或者大量任务堵塞的情况，具体配置方案如下：</p>
+<ul>
+<li>thread_pool_size=2: 保留两个线程池，验证一个卡顿，一个不卡</li>
+<li>thread_pool_oversubscribe=1: 允许多创建一个线程，每个线程池中可以同时运行1+1=2个线程</li>
+<li>thread_pool_max_threads=2: 每个线程池的线程数量上限，为thread_pool_oversubscribe的配置约束加一个硬限制，每个线程池中最多允许运行2个线程</li>
+</ul>
+<p>操作步骤如下:</p>
+<ul>
+<li>通过mysql client在终端发起链接，通过 <code>show processlist</code>语句获取到链接Id, 该链接会分配到 id%2 的线程池中。</li>
+<li>用偶数id的链接验证卡顿线程池，用奇数id的链接验证不卡的线程池，链接情况如下:</li>
+</ul>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-9" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">  show processlist;
+</span></span><span class="line"><span class="cl">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+
+</span></span><span class="line"><span class="cl">| Id  | User            | Host           | db   | Command | Time  | State                  | Info             | Time_ms  | Rows_sent | Rows_examined |
+</span></span><span class="line"><span class="cl">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+
+</span></span><span class="line"><span class="cl">|   5 | event_scheduler | localhost      | NULL | Daemon  | 23664 | Waiting on empty queue | NULL             | 23663650 |         0 |             0 |
+</span></span><span class="line"><span class="cl">| 404 | root            | _gateway:51310 | NULL | Sleep   |  7256 |                        | NULL             |  7256057 |         1 |             1 |
+</span></span><span class="line"><span class="cl">| 405 | root            | _gateway:48860 | NULL | Sleep   |  7295 |                        | NULL             |  7295342 |         1 |             1 |
+</span></span><span class="line"><span class="cl">| 406 | root            | _gateway:41144 | NULL | Sleep   |  7254 |                        | NULL             |  7254236 |         1 |             1 |
+</span></span><span class="line"><span class="cl">| 410 | root            | _gateway:46794 | NULL | Sleep   |  7196 |                        | NULL             |  7196042 |         1 |             1 |
+</span></span><span class="line"><span class="cl">+-----+-----------------+----------------+------+---------+-------+------------------------+------------------+----------+-----------+---------------+</span></span></code></pre>
+</div>
+<ul>
+<li>在 id=404, id=406的链接上，执行 <code>select sleep(30)</code>，再到 id=410 的链接上执行 <code>select 1</code>，预计 <code>select 'slow'</code>会直接卡顿约30s再执行完成。</li>
+<li>同时，在id=405的链接上，反复执行 <code>select 'fast'</code>,都可以很快执行完成。</li>
+</ul>
+<p>执行结果:</p>
+<ul>
+<li>id=410 上的语句执行约25s返回结果（终端操作手速影响导致了5s误差）,语句执行时数据库实例输出报错日志，提示线程不足:</li>
+</ul>
+<blockquote>
+  <p>2023-05-16T11:27:09.997916Z 406 [ERROR] [MY-000000] [Server] Threadpool could not create additional thread to handle queries, because the number of allowed threads was reached. Increasing &rsquo;thread_pool_max_threads&rsquo; parameter can help in this situation.  If &lsquo;admin_port&rsquo; parameter is set, you can still connect to the database with superuser account (it must be TCP connection using admin_port as TCP port) and troubleshoot the situation. A likely cause of pool blocks are clients that lock resources for long time. &lsquo;show processlist&rsquo; or &lsquo;show engine innodb status&rsquo; can give additional hints.</p>
+
+</blockquote><ul>
+<li>id=405链接上的执行都行快。可参考下面抓包截图。</li>
+</ul>
+<p>抓包结果:</p>
+<p>id=410 上的阻塞SQL,可以看到:</p>
+<ol>
+<li>三条语句在3s内接连发出,但是由于线程池阻塞， <code>select 'slow'</code>原本应该很快返回结果，被卡住</li>
+<li>在30s时，第一个<code>select sleep(30)</code>语句执行完成，空出的线程立刻执行了 <code>select 'slow'</code>并返回结果
+<img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/238638548-c4161d72-b94c-43ef-b698-3acc1002eb43.png   alt="slow query"  ></li>
+</ol>
+<p>id=405链接上的执行结果可以看到，每条语句执行都很快。
+<img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/238637635-323fca3b-edf1-4ae7-8d68-d9db9811c692.png   alt="fast query"  ></p>
+<h1 id="参数合理值已知参数的容量评估" class="headerLink">
+    <a href="#%e5%8f%82%e6%95%b0%e5%90%88%e7%90%86%e5%80%bc%e5%b7%b2%e7%9f%a5%e5%8f%82%e6%95%b0%e7%9a%84%e5%ae%b9%e9%87%8f%e8%af%84%e4%bc%b0" class="header-mark"></a>参数合理值/已知参数的容量评估</h1><p>percona 的默认配置中，thread_pool_size=核心数，thread_pool_oversubscribe=3.假设在一台 16core 的服务器上运行percona，默认配置下最多可以有 16*(1+3)=64个worker同时接受请求。也就是最大可并行处理的SQL数量为 64 个。</p>
+<p>假设同时有65个执行耗时为10ms的SQL到达服务端，理论上，会有一个进入排队。排查网络、解析等阶段，在客户端观察到的64个SQL执行耗时10ms，1个SQL执行耗时约20ms。这也会导致耗时监控中出现毛刺、耗时分布不符合正态分布。</p>
+<p>反之，根据硬件配置、查询的量、耗时等特点，也可以推算合理的参数值。</p>
+<h1 id="附录" class="headerLink">
+    <a href="#%e9%99%84%e5%bd%95" class="header-mark"></a>附录</h1><h2 id="过程回顾" class="headerLink">
+    <a href="#%e8%bf%87%e7%a8%8b%e5%9b%9e%e9%a1%be" class="header-mark"></a>过程回顾</h2><h3 id="阶段一-确定原因" class="headerLink">
+    <a href="#%e9%98%b6%e6%ae%b5%e4%b8%80-%e7%a1%ae%e5%ae%9a%e5%8e%9f%e5%9b%a0" class="header-mark"></a>阶段一 确定原因</h3><p>看到文章时，基本确认问题根源在执行线程(worker)不够，导致排队，出于以下几点分析:</p>
+<ul>
+<li>开头提到的 <a href="https://www.brendangregg.com/usemethod.html" target="_blank" rel="noopener noreferrer">USE</a> 分析套路，结合排查过类似问题(非SQL)的经验</li>
+<li>看到文章作者调大thread_pool_oversubscribe便解决问题, 结合文章中对该参数作用的文档引用，基本可以确定</li>
+</ul>
+<h3 id="阶段二-走上弯路" class="headerLink">
+    <a href="#%e9%98%b6%e6%ae%b5%e4%ba%8c-%e8%b5%b0%e4%b8%8a%e5%bc%af%e8%b7%af" class="header-mark"></a>阶段二 走上弯路</h3><p>尝试复现时，要先启动一个DB实例，便查询文档该参数如何在配置文件中配置，查了MySQL的文档，似乎只在enterprise版本中才有该配置项，便转头去看mariadb的配置说明(这一步给走弯路埋下了伏笔)。</p>
+<p>用docker在本地启动了mariadb实例(thread_pool_size=2 thread_pool_oversubscribe=1)</p>
+<p>先尝试用 <code>select sleep(30)</code> 模拟阻塞，用 sysbench 模拟正常流量，结果失败：</p>
+<ol>
+<li>正常流量中有慢的，但是整体还符合正态分布，没有出现都卡的情况。</li>
+<li>加大了  <code>select sleep(30)</code> 查询的并发量，现象同上。</li>
+</ol>
+<p>又翻阅了一些文档，看到DB在调度时，对不同类型的SQL调度优先级会有所区别，类似sleep这种啥也不干的SQL，会不会被降低调度优先级，才导致了没有复现呢？(走上了弯路)</p>
+<p>尝试人工制造慢查询:</p>
+<ol>
+<li>用 sysbench 制造百万量级的表</li>
+<li>执行 offset limit 的排序查询，并且不走索引</li>
+</ol>
+<p>复现结果仍不满意：</p>
+<ol>
+<li>整体耗时上升了，出现几笔长尾的耗时特别长的请求</li>
+<li>但是整体仍然符合正态分布</li>
+</ol>
+<p>此时分析了下，整体耗时上升是人工制造的慢查询，占用了过多IO和CPU资源，影响了sysbench SQL执行的效率。</p>
+<h3 id="阶段三-柳岸花明" class="headerLink">
+    <a href="#%e9%98%b6%e6%ae%b5%e4%b8%89-%e6%9f%b3%e5%b2%b8%e8%8a%b1%e6%98%8e" class="header-mark"></a>阶段三 柳岸花明</h3><p>回头又仔细看了下 mariadb关于线程池的<a href="https://mariadb.com/kb/en/thread-groups-in-the-unix-implementation-of-the-thread-pool/" target="_blank" rel="noopener noreferrer">文档</a>，注意到文档中提到 thread_pool_oversubscribe 不决定同时有多少线程池被创建出来并执行任务，这个行为逻辑与文章中作者引用的并不相同。
+又去查看了另一个MySQL发行版 percona 的文档，对该配置的行为描述与文章中的相符，基本就确定前面复现失败的原因了。</p>
+<p>确定了前面提到的复现思路：用有稳定服务端执行耗时、并且不消耗大量硬件资源的SQL,用可控的并发进行模拟流量，到具体执行时：</p>
+<ul>
+<li>SQL就用 <code>select sleep(N)</code></li>
+<li>可控的并发就用 golang写个小脚本(事后看直接在终端手动操作也是可以的,不过写个脚本也不费事就是了)</li>
+</ul>
+<h2 id="mariadb-启动命令和配置" class="headerLink">
+    <a href="#mariadb-%e5%90%af%e5%8a%a8%e5%91%bd%e4%bb%a4%e5%92%8c%e9%85%8d%e7%bd%ae" class="header-mark"></a>mariadb 启动命令和配置</h2><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-10" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">mkdir mariadb
+</span></span><span class="line"><span class="cl">cat &gt; mariadb/my.cnf &lt;&lt; EOF
+</span></span><span class="line"><span class="cl">[mariadb]
+</span></span><span class="line"><span class="cl">#thread pool
+</span></span><span class="line"><span class="cl">thread_handling=pool-of-threads
+</span></span><span class="line"><span class="cl">thread_pool_oversubscribe=1
+</span></span><span class="line"><span class="cl">thread_pool_size=1
+</span></span><span class="line"><span class="cl">thread_pool_max_threads=6
+</span></span><span class="line"><span class="cl">EOF
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">docker run --name mariadb -v ./mariadb:/etc/mysql/conf.d -e MYSQL_ROOT_PASSWORD=password -p3306:3306 mariadb:10.3</span></span></code></pre>
+</div>
+<h2 id="percona-启动命令和配置" class="headerLink">
+    <a href="#percona-%e5%90%af%e5%8a%a8%e5%91%bd%e4%bb%a4%e5%92%8c%e9%85%8d%e7%bd%ae" class="header-mark"></a>percona 启动命令和配置</h2><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-11" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">mkdir percona
+</span></span><span class="line"><span class="cl">cat &gt; percona/my.cnf &lt;&lt; EOF
+</span></span><span class="line"><span class="cl">[mysqld]
+</span></span><span class="line"><span class="cl">#thread pool
+</span></span><span class="line"><span class="cl">thread_handling=pool-of-threads
+</span></span><span class="line"><span class="cl">thread_pool_oversubscribe=1
+</span></span><span class="line"><span class="cl">thread_pool_size=1
+</span></span><span class="line"><span class="cl">thread_pool_max_threads=1000
+</span></span><span class="line"><span class="cl">default_authentication_plugin=mysql_native_password
+</span></span><span class="line"><span class="cl">EOF
+</span></span><span class="line"><span class="cl">docker run --name percona -v ./percona:/etc/my.cnf.d -e MYSQL_ROOT_PASSWORD=123 -p33060:3306 percona:ps-8</span></span></code></pre>
+</div>
+<p>注：Mac M1启动percona时，需要在 docker run 后面添加 <code>--platform linux/x86_64</code> 参数。(percona 未提供arm架构的image)</p>
+<h2 id="其他人的重现和分析" class="headerLink">
+    <a href="#%e5%85%b6%e4%bb%96%e4%ba%ba%e7%9a%84%e9%87%8d%e7%8e%b0%e5%92%8c%e5%88%86%e6%9e%90" class="header-mark"></a>其他人的重现和分析</h2><p><a href="https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/" target="_blank" rel="noopener noreferrer">https://lotabout.me/2023/Verification-of-Percona-Thread-Pool-Behavior/</a>  从源代码debug上来分析</p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2023-05-26</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href=""></a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/" class="prev" rel="prev" title="程序员案例星球介绍"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>程序员案例星球介绍</a>
+            <a href="/posts/nginx-reuseport-%E5%AF%BC%E8%87%B4%E5%81%B6%E5%8F%91%E6%80%A7%E5%8D%A1%E9%A1%BF/" class="next" rel="next" title="Nginx reuseport 导致偶发性卡顿">Nginx reuseport 导致偶发性卡顿<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

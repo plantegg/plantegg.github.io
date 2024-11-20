@@ -1,0 +1,193 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>LT - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/lt/</link>
+        <description>LT - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Mon, 09 Dec 2019 12:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/lt/" rel="self" type="application/rss+xml" /><item>
+    <title>epoll的LT和ET</title>
+    <link>http://localhost:1313/posts/epoll%E7%9A%84lt%E5%92%8Cet/</link>
+    <pubDate>Mon, 09 Dec 2019 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/epoll%E7%9A%84lt%E5%92%8Cet/</guid>
+    <description><![CDATA[<h1 id="epoll的lt和et" class="headerLink">
+    <a href="#epoll%e7%9a%84lt%e5%92%8cet" class="header-mark"></a>epoll的LT和ET</h1><ul>
+<li>LT水平触发(翻译为 条件触发 更合适）</li>
+</ul>
+<blockquote>
+  <p>如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
+
+</blockquote><ul>
+<li>ET边沿触发</li>
+</ul>
+<blockquote>
+  <p>如果事件来了，不管来了几个，你若不处理或者没有处理完，除非下一个事件到来，否则epoll将不会再通知你。 比如事件来了，打印一行通知，但是不去处理事件，那么不再通知，除非下个事件来了</p>
+
+</blockquote><p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
+<p>举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。</p>
+<h3 id="条件触发的问题不必要的唤醒" class="headerLink">
+    <a href="#%e6%9d%a1%e4%bb%b6%e8%a7%a6%e5%8f%91%e7%9a%84%e9%97%ae%e9%a2%98%e4%b8%8d%e5%bf%85%e8%a6%81%e7%9a%84%e5%94%a4%e9%86%92" class="header-mark"></a>条件触发的问题：不必要的唤醒</h3><ol>
+<li>内核：收到一个新建连接的请求</li>
+<li>内核：由于 &ldquo;惊群效应&rdquo; ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程B：epoll_wait() 返回</li>
+<li>线程A：执行 accept() 并且成功</li>
+<li>线程B：执行 accept() 失败，accept() 返回 EAGAIN</li>
+</ol>
+<h3 id="边缘触发的问题不必要的唤醒以及饥饿" class="headerLink">
+    <a href="#%e8%be%b9%e7%bc%98%e8%a7%a6%e5%8f%91%e7%9a%84%e9%97%ae%e9%a2%98%e4%b8%8d%e5%bf%85%e8%a6%81%e7%9a%84%e5%94%a4%e9%86%92%e4%bb%a5%e5%8f%8a%e9%a5%a5%e9%a5%bf" class="header-mark"></a>边缘触发的问题：不必要的唤醒以及饥饿</h3><p>不必要的唤醒：</p>
+<ol>
+<li>内核：收到第一个连接请求。线程 A 和 线程 B 两个线程都在 epoll_wait() 上等待。由于采用边缘触发模式，所以只有一个线程会收到通知。这里假定线程 A 收到通知</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：此时 accept queue 为空，所以将边缘触发的 socket 的状态从可读置成不可读</li>
+<li>内核：收到第二个建连请求</li>
+<li>内核：此时，由于线程 A 还在执行 accept() 处理，只剩下线程 B 在等待 epoll_wait()，于是唤醒线程 B</li>
+<li>线程A：继续执行 accept() 直到返回 EAGAIN</li>
+<li>线程B：执行 accept()，并返回 EAGAIN，此时线程 B 可能有点困惑(&ldquo;明明通知我有事件，结果却返回 EAGAIN&rdquo;)</li>
+<li>线程A：再次执行 accept()，这次终于返回 EAGAIN</li>
+</ol>
+<p>饥饿：</p>
+<ol>
+<li>内核：接收到两个建连请求。线程 A 和 线程 B 两个线程都在等在 epoll_wait()。由于采用边缘触发模式，只有一个线程会被唤醒，我们这里假定线程 A 先被唤醒</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：收到第三个建连请求。由于线程 A 还没有处理完(没有返回 EAGAIN)，当前 socket 还处于可读的状态，由于是边缘触发模式，所有不会产生新的事件</li>
+<li>线程A：继续执行 accept() 希望返回 EAGAIN 再进入 epoll_wait() 等待，然而它又 accept() 成功并处理了一个新连接</li>
+<li>内核：又收到了第四个建连请求</li>
+<li>线程A：又继续执行 accept()，结果又返回成功</li>
+</ol>
+<p>ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：</p>
+<blockquote>
+  <p>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip &hellip;..</p>
+
+</blockquote><p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
+<p>这样就会造成nginx的这个worker假死了一样。如果上传速度慢，这个循环无法持续存在，也就是一旦读完nginx切走（再有数据进来等待下次触发），不会造成假死。</p>
+<p>JDK中的NIO是条件触发（level-triggered），不支持ET。netty，nginx和redis默认是边缘触发（edge-triggered），netty因为JDK不支持ET，所以自己实现了Netty-native的抽象，不依赖JDK来提供ET。</p>
+<p>边缘触发会比条件触发更高效一些，因为边缘触发不会让同一个文件描述符多次被处理,比如有些文件描述符已经不需要再读写了,但是在条件触发下每次都会返回,而边缘触发只会返回一次。</p>
+<p>如果设置边缘触发,则必须将对应的文件描述符设置为非阻塞模式并且循环读取数据。否则会导致程序的效率大大下降或丢消息。</p>
+<p>poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘触发。条件触发同时支持block和non-block，使用更简单一些。</p>
+<h3 id="epoll-lt惊群的发生" class="headerLink">
+    <a href="#epoll-lt%e6%83%8a%e7%be%a4%e7%9a%84%e5%8f%91%e7%94%9f" class="header-mark"></a>epoll LT惊群的发生</h3><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">// 否则会阻塞在IO系统调用，导致没有机会再epoll
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="nf">set_socket_nonblocking</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="n">epfd</span> <span class="o">=</span> <span class="nf">epoll_create</span><span class="p">(</span><span class="mi">64</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="n">event</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">fd</span> <span class="o">=</span> <span class="n">sd</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="nf">epoll_ctl</span><span class="p">(</span><span class="n">epfd</span><span class="p">,</span> <span class="n">EPOLL_CTL_ADD</span><span class="p">,</span> <span class="n">sd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">event</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">epoll_wait</span><span class="p">(</span><span class="n">epfd</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">xx</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">...</span> <span class="c1">// 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="n">csd</span> <span class="o">=</span> <span class="nf">accept</span><span class="p">(</span><span class="n">sd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">in_addr</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">in_len</span><span class="p">);</span> 
+</span></span><span class="line"><span class="cl">    <span class="p">...</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span></span></span></code></pre>
+</div>
+<p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
+<p>保证1：在LT模式下，“就绪链表”上取出的epi上报完事件后会重新加回“就绪链表”；
+保证2：如果“就绪链表”不为空，且此时有进程阻塞在同一个epoll句柄的睡眠队列上，则唤醒它。</p>
+<p>epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而为之的，内核肯定是知道这件事的，这个并不像之前accept惊群那样算是内核的一个缺陷。epoll LT模式只是提供了一种模式，误用这种模式将会造成类似惊群那样的效应。但是不管怎么说，为了讨论上的方便，后面我们姑且将这种效应称作epoll LT惊群吧。</p>
+<h3 id="epoll-et模式可以解决上面的问题但是带来了新的麻烦" class="headerLink">
+    <a href="#epoll-et%e6%a8%a1%e5%bc%8f%e5%8f%af%e4%bb%a5%e8%a7%a3%e5%86%b3%e4%b8%8a%e9%9d%a2%e7%9a%84%e9%97%ae%e9%a2%98%e4%bd%86%e6%98%af%e5%b8%a6%e6%9d%a5%e4%ba%86%e6%96%b0%e7%9a%84%e9%ba%bb%e7%83%a6" class="header-mark"></a>epoll ET模式可以解决上面的问题，但是带来了新的麻烦</h3><p>由于epi entry的callback即ep_poll_callback所做的事情仅仅是将该epi自身加入到epoll句柄的“就绪链表”，同时唤醒在epoll句柄睡眠队列上的task，所以这里并不对事件的细节进行计数，比如说，<strong>如果ep_poll_callback在将一个epi加入“就绪链表”之前发现它已经在“就绪链表”了，那么就不会再次添加，因此可以说，一个epi可能pending了多个事件，注意到这点非常重要！</strong></p>
+<p>一个epi上pending多个事件，这个在LT模式下没有任何问题，因为获取事件的epi总是会被重新添加回“就绪链表”，那么如果还有事件，在下次check的时候总会取到。然而对于ET模式，仅仅将epi从“就绪链表”删除并将事件本身上报后就返回了，因此如果该epi里还有事件，则只能等待再次发生事件，进而调用ep_poll_callback时将该epi加入“就绪队列”。这意味着什么？</p>
+<p>这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/157349" target="_blank" rel="noopener noreferrer">Epoll is fundamentally broken</a></p>
+<p><a href="https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12" target="_blank" rel="noopener noreferrer">Epoll is fundamentally broken 1/2</a></p>
+<p><a href="https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/" target="_blank" rel="noopener noreferrer">https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/</a></p>
+]]></description>
+</item></channel>
+</rss>

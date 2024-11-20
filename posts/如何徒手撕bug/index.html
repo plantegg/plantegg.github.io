@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>如何徒手撕Bug - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="如何徒手撕Bug">
+  <meta property="og:description" content="如何徒手撕Bug经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。
+所以不到万不得已不要碰复杂的源代码
+问题docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2018-08-25T16:30:03+00:00">
+    <meta property="article:modified_time" content="2018-08-25T16:30:03+00:00">
+    <meta property="article:tag" content="Linux">
+    <meta property="article:tag" content="Performance">
+    <meta property="article:tag" content="Troubleshooting">
+    <meta property="article:tag" content="Strace">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="如何徒手撕Bug">
+  <meta name="twitter:description" content="如何徒手撕Bug经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。
+所以不到万不得已不要碰复杂的源代码
+问题docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/" /><link rel="prev" href="http://localhost:1313/posts/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E4%BB%8E%E8%80%81%E4%B8%AD%E5%8C%BB%E5%88%B0%E7%A7%91%E5%AD%A6%E7%90%86%E8%AE%BA%E6%8C%87%E5%AF%BC/" /><link rel="next" href="http://localhost:1313/posts/%E6%96%B9%E8%88%9F%E5%9F%9F%E5%90%8D%E5%92%8C%E6%9C%8D%E5%8A%A1/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "如何徒手撕Bug",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/"
+        },"genre": "posts","keywords":["Linux","performance","troubleshooting","strace"],"wordcount":  2422 ,
+        "url": "http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/","datePublished": "2018-08-25T16:30:03+00:00","dateModified": "2018-08-25T16:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题">问题</a></li>
+    <li><a href="#跟踪具体拿到锁的进程">跟踪具体拿到锁的进程</a></li>
+    <li><a href="#strace某个等锁的进程拿到锁后非常快">strace某个等锁的进程，拿到锁后非常快</a></li>
+    <li><a href="#strace工作原理">strace工作原理</a>
+      <ul>
+        <li><a href="#strace-常用用法">strace 常用用法</a></li>
+      </ul>
+    </li>
+    <li><a href="#我的分析">我的分析</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2018-08-25" data-pagefind-body>如何徒手撕Bug</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/troubleshooting/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>Troubleshooting</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2018-08-25">2018-08-25</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2018-08-25">2018-08-25</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 2422 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 11 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题">问题</a></li>
+    <li><a href="#跟踪具体拿到锁的进程">跟踪具体拿到锁的进程</a></li>
+    <li><a href="#strace某个等锁的进程拿到锁后非常快">strace某个等锁的进程，拿到锁后非常快</a></li>
+    <li><a href="#strace工作原理">strace工作原理</a>
+      <ul>
+        <li><a href="#strace-常用用法">strace 常用用法</a></li>
+      </ul>
+    </li>
+    <li><a href="#我的分析">我的分析</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="如何徒手撕bug" class="headerLink">
+    <a href="#%e5%a6%82%e4%bd%95%e5%be%92%e6%89%8b%e6%92%95bug" class="header-mark"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
+<p>所以不到万不得已不要碰复杂的源代码</p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/ed7f275935b32c7fd5fef3e0caf2eb0c.png   alt="image.png"  ></p>
+<p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
+<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：
+<img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/901fd2057fb3b32ff79dc5a29c9cdd67.png   alt="image.png"  ></p>
+<pre><code>$sudo fuser /run/xtables.lock 
+/run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
+</code></pre>
+<p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
+<h2 id="跟踪具体拿到锁的进程" class="headerLink">
+    <a href="#%e8%b7%9f%e8%b8%aa%e5%85%b7%e4%bd%93%e6%8b%bf%e5%88%b0%e9%94%81%e7%9a%84%e8%bf%9b%e7%a8%8b" class="header-mark"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
+iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
+</code></pre>
+<p>通过strace这个拿到锁的进程可以看到：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/27d266ab8fd492f009fb7047d9337518.png   alt="image.png"  ></p>
+<p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
+<p>看看物理机上的dns服务器配置：</p>
+<pre><code>$cat /etc/resolv.conf   
+options timeout:2 attempts:2   
+nameserver 10.0.0.1  
+nameserver 10.0.0.2
+nameserver 10.0.0.3
+</code></pre>
+<p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
+<h2 id="strace某个等锁的进程拿到锁后非常快" class="headerLink">
+    <a href="#strace%e6%9f%90%e4%b8%aa%e7%ad%89%e9%94%81%e7%9a%84%e8%bf%9b%e7%a8%8b%e6%8b%bf%e5%88%b0%e9%94%81%e5%90%8e%e9%9d%9e%e5%b8%b8%e5%bf%ab" class="header-mark"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/25ab3e2385e08e8e23eeb1309d949839.png   alt="image.png"  ></p>
+<p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
+<h2 id="strace工作原理" class="headerLink">
+    <a href="#strace%e5%b7%a5%e4%bd%9c%e5%8e%9f%e7%90%86" class="header-mark"></a>strace工作原理</h2><blockquote>
+  <p>strace -T -tt -ff -p pid -o strace.out</p>
+<p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
+
+</blockquote><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/19c681e7393bda67ab0a4d8f62f1a853.png   alt="image.png"  ></p>
+<p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
+<p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
+<p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
+<p>两个术语：</p>
+<ol>
+<li>tracer：跟踪（其他程序的）程序</li>
+<li>tracee：被跟踪程序</li>
+</ol>
+<p>tracer 跟踪 tracee 的过程：</p>
+<p>首先，<strong>attach 到 tracee 进程</strong>：调用 <code>ptrace</code>，带 <code>PTRACE_ATTACH</code> 及 tracee 进程 ID 作为参数。</p>
+<p>之后当 <strong>tracee 运行到系统调用函数时就会被内核暂停</strong>；对 tracer 来说，就像 tracee 收到了 <code>SIGTRAP</code> 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。</p>
+<p>然后，<strong>恢复 tracee 执行</strong>：再次调用 <code>ptrace</code>，带 <code>PTRACE_SYSCALL</code> 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。</p>
+<p>以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。</p>
+<h3 id="strace-常用用法" class="headerLink">
+    <a href="#strace-%e5%b8%b8%e7%94%a8%e7%94%a8%e6%b3%95" class="header-mark"></a>strace 常用用法</h3><ol>
+<li>
+<p>sudo strace -tt -e poll,select,connect,recvfrom,sendto nc <a href="https://www.baidu.com" target="_blank" rel="noopener noreferrer">www.baidu.com</a> 80 //网络连接不上，卡在哪里</p>
+</li>
+<li>
+<p>如何确认一个程序为什么卡住和停止在什么地方?</p>
+</li>
+</ol>
+<p>有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。</p>
+<p>$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX</p>
+<p>这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?</p>
+<p>$ readlink /proc/22067/fd/3 /tmp/foobar.lock</p>
+<p>aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?</p>
+<p>$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock</p>
+<p>原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。</p>
+<p>strace -cp  // strace  可以按操作汇总时间</p>
+<h2 id="我的分析" class="headerLink">
+    <a href="#%e6%88%91%e7%9a%84%e5%88%86%e6%9e%90" class="header-mark"></a>我的分析</h2><p>docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。</p>
+<p>这应该是docker daemon实现上的小bug，也就是改iptables这里没加锁，如果修改dns的时候同时收到了dns查询，要是让查询等锁的话就不至于出现这种恶性循环</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>其实这个问题还是挺容易出现的，daemon重启，上面有很多容器，容器里面的任务启动的时候都要做dns解析，这个时候daemon还在修改dns，冲进来很多dns查询的话会导致修改进程变慢</p>
+<p>这也跟物理机的 /etc/resolv.conf 配置有关</p>
+<p>暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。</p>
+<p>解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/how-does-strace-work-zh/" target="_blank" rel="noopener noreferrer">strace 是如何工作的（2016）</a></p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2018-08-25</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/linux/">Linux</a>,&nbsp;<a href="/tags/performance/">Performance</a>,&nbsp;<a href="/tags/troubleshooting/">Troubleshooting</a>,&nbsp;<a href="/tags/strace/">Strace</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E4%BB%8E%E8%80%81%E4%B8%AD%E5%8C%BB%E5%88%B0%E7%A7%91%E5%AD%A6%E7%90%86%E8%AE%BA%E6%8C%87%E5%AF%BC/" class="prev" rel="prev" title="性能优化，从老中医到科学理论指导"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>性能优化，从老中医到科学理论指导</a>
+            <a href="/posts/%E6%96%B9%E8%88%9F%E5%9F%9F%E5%90%8D%E5%92%8C%E6%9C%8D%E5%8A%A1/" class="next" rel="next" title="部分机器网络不通">部分机器网络不通<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

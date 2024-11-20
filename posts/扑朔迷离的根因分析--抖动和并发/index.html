@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>扑朔迷离的根因分析--抖动和并发 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="扑朔迷离的根因分析--抖动和并发">
+  <meta property="og:description" content="扑朔迷离的根因分析–抖动和并发 前言我们之前说过根因分析第一就是要追着 RT跑，随着并发的增加哪里RT增加快哪里就是瓶颈，这是我们的基本原则，但总有一些例外，我们今天想说说例外
+场景如下图，应用是多个Tomcat集群，Tomcat节点可以随意增加，后端是一组DB集群，有几百个Database实例，每一次业务请求都会对应多个Database查询
+问题开始的时候客户端压2个Tomcat集群，QPS 700，Tomcat节点CPU 90%，Database每个节点CPU 20%左右，于是增加1个Tomcat 节点这个时候QPS 还是700，Tomcat的RT增加了50%，Tomcat CPU 降低到60%，继续增加Tomcat 节点 RT、QPS保持稳定，CPU使用率下降。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2023-07-23T12:30:03+00:00">
+    <meta property="article:modified_time" content="2023-07-23T12:30:03+00:00">
+    <meta property="article:tag" content="Performance">
+    <meta property="article:tag" content="Druid">
+    <meta property="article:tag" content="Network">
+    <meta property="article:tag" content="RT">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="扑朔迷离的根因分析--抖动和并发">
+  <meta name="twitter:description" content="扑朔迷离的根因分析–抖动和并发 前言我们之前说过根因分析第一就是要追着 RT跑，随着并发的增加哪里RT增加快哪里就是瓶颈，这是我们的基本原则，但总有一些例外，我们今天想说说例外
+场景如下图，应用是多个Tomcat集群，Tomcat节点可以随意增加，后端是一组DB集群，有几百个Database实例，每一次业务请求都会对应多个Database查询
+问题开始的时候客户端压2个Tomcat集群，QPS 700，Tomcat节点CPU 90%，Database每个节点CPU 20%左右，于是增加1个Tomcat 节点这个时候QPS 还是700，Tomcat的RT增加了50%，Tomcat CPU 降低到60%，继续增加Tomcat 节点 RT、QPS保持稳定，CPU使用率下降。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/" /><link rel="prev" href="http://localhost:1313/posts/%E5%AE%9E%E6%88%98%E7%93%B6%E9%A2%88%E5%AE%9A%E4%BD%8D-%E6%88%91%E7%9A%84mysql%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8E%8B%E4%B8%8D%E4%B8%8A%E5%8E%BB--%E5%86%99%E5%9C%BA%E6%99%AF/" /><link rel="next" href="http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "扑朔迷离的根因分析--抖动和并发",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/"
+        },"genre": "posts","keywords":["performance","druid","network","RT"],"wordcount":  2575 ,
+        "url": "http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/","datePublished": "2023-07-23T12:30:03+00:00","dateModified": "2023-07-23T12:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#场景">场景</a></li>
+    <li><a href="#问题">问题</a></li>
+    <li><a href="#分析">分析</a>
+      <ul>
+        <li><a href="#问题在database">问题在Database</a></li>
+      </ul>
+    </li>
+    <li><a href="#原因">原因</a></li>
+    <li><a href="#为什么">为什么</a>
+      <ul>
+        <li></li>
+        <li><a href="#heading"></a></li>
+      </ul>
+    </li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2023-07-23" data-pagefind-body>扑朔迷离的根因分析--抖动和并发</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/performance/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>Performance</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2023-07-23">2023-07-23</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2023-07-23">2023-07-23</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 2575 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 12 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#场景">场景</a></li>
+    <li><a href="#问题">问题</a></li>
+    <li><a href="#分析">分析</a>
+      <ul>
+        <li><a href="#问题在database">问题在Database</a></li>
+      </ul>
+    </li>
+    <li><a href="#原因">原因</a></li>
+    <li><a href="#为什么">为什么</a>
+      <ul>
+        <li></li>
+        <li><a href="#heading"></a></li>
+      </ul>
+    </li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="扑朔迷离的根因分析--抖动和并发" class="headerLink">
+    <a href="#%e6%89%91%e6%9c%94%e8%bf%b7%e7%a6%bb%e7%9a%84%e6%a0%b9%e5%9b%a0%e5%88%86%e6%9e%90--%e6%8a%96%e5%8a%a8%e5%92%8c%e5%b9%b6%e5%8f%91" class="header-mark"></a>扑朔迷离的根因分析&ndash;抖动和并发</h1><h2 id="前言" class="headerLink">
+    <a href="#%e5%89%8d%e8%a8%80" class="header-mark"></a>前言</h2><p>我们之前说过根因分析第一就是要追着 RT跑，随着并发的增加哪里RT增加快哪里就是瓶颈，这是我们的基本原则，但总有一些例外，我们今天想说说例外</p>
+<h2 id="场景" class="headerLink">
+    <a href="#%e5%9c%ba%e6%99%af" class="header-mark"></a>场景</h2><p>如下图，应用是多个Tomcat集群，Tomcat节点可以随意增加，后端是一组DB集群，有几百个Database实例，每一次业务请求都会对应多个Database查询</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230609204957690.png   alt="image-20230609204957690"  ></p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>开始的时候客户端压2个Tomcat集群，QPS 700，Tomcat节点CPU 90%，Database每个节点CPU 20%左右，于是增加1个Tomcat 节点这个时候QPS 还是700，Tomcat的RT增加了50%，Tomcat CPU 降低到60%，继续增加Tomcat 节点 RT、QPS保持稳定，CPU使用率下降。</p>
+<p>所以这里要搞清楚哪里是瓶颈，如果Tomcat是瓶颈加Tomcat节点为什么没有效果。如果Database是瓶颈但是增加Tomcat节点的时候Database 的RT有一点点增加，远远没有到增加50%的RT 程度</p>
+<h2 id="分析" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90" class="header-mark"></a>分析</h2><p>首先最容易想到的是Tomcat 和 Database之间的网络、网关、LVS 等资源到了瓶颈，但是经过排查分析这些环节都排除了，另外也排除了Tomcat到Database的连接池、Database的磁盘等瓶颈，另外Tomcat 访问Database全是查询，没有事务。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/20230609210244.jpg   alt="image.png"  ></p>
+<p>看起来事情比想象的复杂，于是进行了如下压测：</p>
+<p>先用一个压力端压3个Tomcat中的2个，QPS 跑到700，然后新开一个压力端压第三个Tomcat(新开压力端是排查压力机的问题，新开Tomcat是想排除Tomcat 的问题)，如果Tomcat是瓶颈的话QPS应该上去，或者说后端没有问题的话那两个Tomcat 的700 QPS得保持基本稳定不变或略微下降才对。</p>
+<p>实际上第二个压力端跑起来后，前两个Tomcat的QPS 铛就掉下去了，总QPS 保持稳定不变，也就是随着Tomcat给后端并发压力的增加后端肯定给了一个负反馈给那两Tomcat，导致那两Tomcat QPS掉下去了。这个负反馈明显得是Database的RT在增加，但是从监控来看Database的RT 从0.6增加到了0.8，但是Tomcat 的RT 增加更快从19.7增加到了29.8.</p>
+<p>单独压DB，DB的QPS能高5倍，CPU 也可以跑到100%。看起来单压都没问题，一组合就不行了</p>
+<h3 id="问题在database" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e5%9c%a8database" class="header-mark"></a>问题在Database</h3><p>绕过Tomcat 用相同的SQL 压Database QPS 一下子就能上去，Database 的CPU 也跑到了100%，但是只要走Tomcat 就会上不去。</p>
+<p>打开Tomcat 日志将所有Database的响应时间拉出来分析，发现随着并发的增加 100 ms的响应也多了很多，实际上这些查询都是1ms就应该返回</p>
+<p>具体分析过程看这里：https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/</p>
+<h2 id="原因" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0" class="header-mark"></a>原因</h2><p>当压力增加的时候MySQL端等锁导致的 RT 抖动或者说长尾越来越多，虽然没有数据库的写，但是查询的时候优化器也需要统计行数等数据来为查询优化器做选择依据，这个统计动作会触发加锁排队(极短)，但是因为这一代Intel CPU指令的变化导致这个锁被放大了10 被，所以最终Tomcat 端看到的长尾就多了</p>
+<h2 id="为什么" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88" class="header-mark"></a>为什么</h2><h4 id="为什么同样的环境同样的sql-绕过tomcat-就能压上去" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e5%90%8c%e6%a0%b7%e7%9a%84%e7%8e%af%e5%a2%83%e5%90%8c%e6%a0%b7%e7%9a%84sql-%e7%bb%95%e8%bf%87tomcat-%e5%b0%b1%e8%83%bd%e5%8e%8b%e4%b8%8a%e5%8e%bb" class="header-mark"></a>为什么同样的环境、同样的SQL 绕过Tomcat 就能压上去？</h4><p>绕过后的压测场景没有业务逻辑，每次请求就是一条SQL，虽然有抖动但是对平均RT拉升不明显。</p>
+<h4 id="走业务逻辑压tomcat-为什么不行" class="headerLink">
+    <a href="#%e8%b5%b0%e4%b8%9a%e5%8a%a1%e9%80%bb%e8%be%91%e5%8e%8btomcat-%e4%b8%ba%e4%bb%80%e4%b9%88%e4%b8%8d%e8%a1%8c" class="header-mark"></a>走业务逻辑压Tomcat 为什么不行？</h4><p>业务逻辑是一次请求会发256条SQL，等这256条SQL全部返回来了业务请求才会返回！请反复读这句话3遍再往下看</p>
+<p>如果256条SQL 中有一条花了100 ms返回那么整个业务逻辑的RT 就是100ms，假设1%的概率一条SQL是100ms，99%的SQL 是 1ms，你可以先停下来算一算这种业务模型下的平均RT是多少</p>
+<h4 id="计算抖动下的平均rt" class="headerLink">
+    <a href="#%e8%ae%a1%e7%ae%97%e6%8a%96%e5%8a%a8%e4%b8%8b%e7%9a%84%e5%b9%b3%e5%9d%87rt" class="header-mark"></a>计算抖动下的平均RT</h4><p>关于这个抖动对整体rt的影响计算：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1575880425321-79c7ea4a-fcf1-41f9-afb9-6e553d9eaf8f.png   alt="img"  ></p>
+<p>注:假设正常查询rt 1ms，逻辑平均rt=(1-power(1-抖动概率,物理查询次数))*抖动大小+(power(1-抖动概率,物理查询次数))*1ms</p>
+<p>当前场景下，逻辑QPS:物理QPS=1:256，假如每次查询有1%的物理（RDS）rt抖动到100ms，则会导致逻辑平均rt恶化到92.44ms.</p>
+<p>在一次逻辑查询里，只有所有物理查询都不抖整体才是不抖，RT正常；如果有一个或多个物理查询抖了，那么逻辑RT就是抖动RT。</p>
+<p>所以一次逻辑查询不抖的概率是： power(1-抖动概率, 物理查询次数)</p>
+<p>反过来想这256条SQL都不碰上抖动这次业务请求才会1ms返回(概率极低)，否则就是256ms返回</p>
+<h4 id="为什么要讲这个案例" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e8%a6%81%e8%ae%b2%e8%bf%99%e4%b8%aa%e6%a1%88%e4%be%8b" class="header-mark"></a>为什么要讲这个案例</h4><p>倒不是出于原因分析，这个原因几年前就分析清楚了，但是这个场景：一次业务请求会涉及多次SQL、Redis、MQ的调用，只要其中有一个有短板、抖动这次业务请求就慢了。这简直太常见了</p>
+<p>但难在别人的抖动很低被平均掉了，但是业务(Tomcat) 就要替别人背锅了，因为别人的RT 几乎没有增加或者加很少，但是Tomcat RT增加很明显，瓶颈当然看着像是在Tomcat 上。背锅吧也不可怕可怕的是你增加Tomcat 节点也不能解决问题，这才是你要从这个案例里学到的。</p>
+<p>如果你的Tomcat 调后端因为短板(抖动)导致压力打不到后端，因为抖动导致Tomcat不能快速返回</p>
+<h5 id="上游影响下游" class="headerLink">
+    <a href="#%e4%b8%8a%e6%b8%b8%e5%bd%b1%e5%93%8d%e4%b8%8b%e6%b8%b8" class="header-mark"></a>上游影响下游：</h5><p>和本文无关但是可以放一起综合来看上下游互相影响的复杂性</p>
+<p>以前认为事务不提交的主要代价是行锁持有时间变长(这确实是个问题)，今天见识到了新代价，事务不提交会导致事务活跃链表变长，增加copy readview的代价，进而导致DB的RT 增高，实际导致DB RT高的根本原因是DB前面的业务早到了瓶颈，来不及发送commit，导致DB端事务堆积严重。也就是业务瓶颈导致了后端DB RT高，只看RT就会被蒙蔽——怎么解决？可以抓包看commit发送慢</p>
+<h3 id="heading" class="headerLink">
+    <a href="#heading" class="header-mark"></a></h3></div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2023-07-23</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/performance/">Performance</a>,&nbsp;<a href="/tags/druid/">Druid</a>,&nbsp;<a href="/tags/network/">Network</a>,&nbsp;<a href="/tags/rt/">RT</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E5%AE%9E%E6%88%98%E7%93%B6%E9%A2%88%E5%AE%9A%E4%BD%8D-%E6%88%91%E7%9A%84mysql%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8E%8B%E4%B8%8D%E4%B8%8A%E5%8E%BB--%E5%86%99%E5%9C%BA%E6%99%AF/" class="prev" rel="prev" title="实战瓶颈定位-我的MySQL为什么压不上去--写场景"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>实战瓶颈定位-我的MySQL为什么压不上去--写场景</a>
+            <a href="/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90/" class="next" rel="next" title="扑朔迷离的根因分析">扑朔迷离的根因分析<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>存储原理 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/ssd%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="存储原理">
+  <meta property="og:description" content="存储原理本文记录各种存储、接口等原理性东西
+磁盘信息Here are some common ones:
+hdX — ATA hard disk, pre-libata. You’ll only see this with old distros (probably based on Linux 2.4.x or older) sdX — “SCSI” hard disk. Also includes SATA and SAS. And IDE disks using libata (on any recent distro). hdXY, sdXY — Partition on the hard disk hdX or sdX. loopX — Loopback device, used for mounting disk images, etc. loopXpY — Partitions on the loopback device loopX; used when mounting an image of a complete hard drive, etc. scdX, srX — “SCSI” CD, using same weird definition of “SCSI”. Also includes DVD, Blu-ray, etc. mdX — Linux MDraid dm-X — Device Mapper. Use -N to see what these are, or ls -l /dev/mapper. Device Mapper underlies LVM2 and dm-crypt. If you’re using either LVM or encrypted volumes, you’ll see dm-X devices. 回顾串行磁盘技术的发展历史，从光纤通道，到SATA，再到SAS，几种技术各有所长。光纤通道最早出现的串行化存储技术，可以满足高性能、高可靠和高扩展性的存储需要，但是价格居高不下；SATA硬盘成本倒是降下来了，但主要是用于近线存储和非关键性应用，毕竟在性能等方面差强人意；SAS应该算是个全才，可以支持SAS和SATA磁盘，很方便地满足不同性价比的存储需求，是具有高性能、高可靠和高扩展性的解决方案。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2020-01-25T17:30:03+00:00">
+    <meta property="article:modified_time" content="2020-01-25T17:30:03+00:00">
+    <meta property="article:tag" content="Linux">
+    <meta property="article:tag" content="磁盘性能">
+    <meta property="article:tag" content="存储">
+    <meta property="article:tag" content="SSD">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="存储原理">
+  <meta name="twitter:description" content="存储原理本文记录各种存储、接口等原理性东西
+磁盘信息Here are some common ones:
+hdX — ATA hard disk, pre-libata. You’ll only see this with old distros (probably based on Linux 2.4.x or older) sdX — “SCSI” hard disk. Also includes SATA and SAS. And IDE disks using libata (on any recent distro). hdXY, sdXY — Partition on the hard disk hdX or sdX. loopX — Loopback device, used for mounting disk images, etc. loopXpY — Partitions on the loopback device loopX; used when mounting an image of a complete hard drive, etc. scdX, srX — “SCSI” CD, using same weird definition of “SCSI”. Also includes DVD, Blu-ray, etc. mdX — Linux MDraid dm-X — Device Mapper. Use -N to see what these are, or ls -l /dev/mapper. Device Mapper underlies LVM2 and dm-crypt. If you’re using either LVM or encrypted volumes, you’ll see dm-X devices. 回顾串行磁盘技术的发展历史，从光纤通道，到SATA，再到SAS，几种技术各有所长。光纤通道最早出现的串行化存储技术，可以满足高性能、高可靠和高扩展性的存储需要，但是价格居高不下；SATA硬盘成本倒是降下来了，但主要是用于近线存储和非关键性应用，毕竟在性能等方面差强人意；SAS应该算是个全才，可以支持SAS和SATA磁盘，很方便地满足不同性价比的存储需求，是具有高性能、高可靠和高扩展性的解决方案。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/ssd%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" /><link rel="prev" href="http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%88%B6%E4%BD%9C%E6%9C%AC%E5%9C%B0yum-repository/" /><link rel="next" href="http://localhost:1313/posts/ssd-san%E5%92%8Csas-%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "存储原理",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/ssd%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/"
+        },"genre": "posts","keywords":["Linux","磁盘性能","存储","SSD"],"wordcount":  8738 ,
+        "url": "http://localhost:1313/posts/ssd%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/","datePublished": "2020-01-25T17:30:03+00:00","dateModified": "2020-01-25T17:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#磁盘信息">磁盘信息</a></li>
+    <li><a href="#ssd中satam2pcie和nvme各有什么意义">SSD中，SATA、m2、PCIE和NVME各有什么意义</a>
+      <ul>
+        <li><a href="#高速信号协议">高速信号协议</a></li>
+        <li><a href="#传输层协议">传输层协议</a></li>
+        <li><a href="#物理接口">物理接口</a></li>
+      </ul>
+    </li>
+    <li><a href="#ssd-的性能特性和机制">SSD 的性能特性和机制</a>
+      <ul>
+        <li><a href="#ssd存储持久化原理httpszhuanlanzhihucomp347599423"><a href="https://zhuanlan.zhihu.com/p/347599423">SSD存储持久化原理</a></a></li>
+        <li><a href="#写入放大write-amplification-or-wa">写入放大（Write Amplification, or WA)</a></li>
+        <li><a href="#耗损平衡-wear-leveling">耗损平衡 (Wear Leveling)</a></li>
+      </ul>
+    </li>
+    <li><a href="#non-volatile-memory-nvmhttpsnvmexpressorgopen-source-nvme-management-utility-nvme-command-line-interface-nvme-clicontinueflag6093989111564a68c297d3f4bb8831b0"><a href="https://nvmexpress.org/open-source-nvme-management-utility-nvme-command-line-interface-nvme-cli/?continueFlag=6093989111564a68c297d3f4bb8831b0">non-volatile memory (NVM)</a></a></li>
+    <li><a href="#傲腾-pmem">傲腾 PMem</a></li>
+    <li><a href="#磁盘类型查看">磁盘类型查看</a></li>
+    <li><a href="#fio-结果解读">fio 结果解读</a></li>
+    <li><a href="#iostat-结果解读linuxtools-rstreadthedocsiozh_cnlatesttooliostathtml"><a href="linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html">iostat 结果解读</a></a></li>
+    <li><a href="#rq_affinity">rq_affinity</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2020-01-25" data-pagefind-body>存储原理</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/cpu/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>CPU</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2020-01-25">2020-01-25</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2020-01-25">2020-01-25</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 8738 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 39 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#磁盘信息">磁盘信息</a></li>
+    <li><a href="#ssd中satam2pcie和nvme各有什么意义">SSD中，SATA、m2、PCIE和NVME各有什么意义</a>
+      <ul>
+        <li><a href="#高速信号协议">高速信号协议</a></li>
+        <li><a href="#传输层协议">传输层协议</a></li>
+        <li><a href="#物理接口">物理接口</a></li>
+      </ul>
+    </li>
+    <li><a href="#ssd-的性能特性和机制">SSD 的性能特性和机制</a>
+      <ul>
+        <li><a href="#ssd存储持久化原理httpszhuanlanzhihucomp347599423"><a href="https://zhuanlan.zhihu.com/p/347599423">SSD存储持久化原理</a></a></li>
+        <li><a href="#写入放大write-amplification-or-wa">写入放大（Write Amplification, or WA)</a></li>
+        <li><a href="#耗损平衡-wear-leveling">耗损平衡 (Wear Leveling)</a></li>
+      </ul>
+    </li>
+    <li><a href="#non-volatile-memory-nvmhttpsnvmexpressorgopen-source-nvme-management-utility-nvme-command-line-interface-nvme-clicontinueflag6093989111564a68c297d3f4bb8831b0"><a href="https://nvmexpress.org/open-source-nvme-management-utility-nvme-command-line-interface-nvme-cli/?continueFlag=6093989111564a68c297d3f4bb8831b0">non-volatile memory (NVM)</a></a></li>
+    <li><a href="#傲腾-pmem">傲腾 PMem</a></li>
+    <li><a href="#磁盘类型查看">磁盘类型查看</a></li>
+    <li><a href="#fio-结果解读">fio 结果解读</a></li>
+    <li><a href="#iostat-结果解读linuxtools-rstreadthedocsiozh_cnlatesttooliostathtml"><a href="linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html">iostat 结果解读</a></a></li>
+    <li><a href="#rq_affinity">rq_affinity</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="存储原理" class="headerLink">
+    <a href="#%e5%ad%98%e5%82%a8%e5%8e%9f%e7%90%86" class="header-mark"></a>存储原理</h1><p>本文记录各种存储、接口等原理性东西</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/d81b49e46e4c5de80a554a453d92e08f.png   alt="img"  ></p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/52eca12b2b73a72861fc777919457f5b.png   alt="img"  ></p>
+<h2 id="磁盘信息" class="headerLink">
+    <a href="#%e7%a3%81%e7%9b%98%e4%bf%a1%e6%81%af" class="header-mark"></a>磁盘信息</h2><p>Here are some common ones:</p>
+<ul>
+<li><code>hdX</code> — ATA hard disk, pre-libata. You&rsquo;ll only see this with old distros (probably based on Linux 2.4.x or older)</li>
+<li><code>sdX</code> — &ldquo;SCSI&rdquo; hard disk. Also includes SATA and SAS. And IDE disks using libata (on any recent distro).</li>
+<li><code>hdXY</code>, <code>sdXY</code> — Partition on the hard disk <code>hdX</code> or <code>sdX</code>.</li>
+<li><code>loopX</code> — Loopback device, used for mounting disk images, etc.</li>
+<li><code>loopXpY</code> — Partitions on the loopback device <code>loopX</code>; used when mounting an image of a complete hard drive, etc.</li>
+<li><code>scdX</code>, <code>srX</code> — &ldquo;SCSI&rdquo; CD, using same weird definition of &ldquo;SCSI&rdquo;. Also includes DVD, Blu-ray, etc.</li>
+<li><code>mdX</code> — Linux MDraid</li>
+<li><code>dm-X</code> — Device Mapper. Use <code>-N</code> to see what these are, or <code>ls -l /dev/mapper</code>. Device Mapper underlies LVM2 and dm-crypt. If you&rsquo;re using either LVM or encrypted volumes, you&rsquo;ll see <code>dm-X</code> devices.</li>
+</ul>
+<p>回顾串行磁盘技术的发展历史，从光纤通道，到SATA，再到SAS，几种技术各有所长。光纤通道最早出现的串行化存储技术，可以满足高性能、高可靠和高扩展性的存储需要，但是价格居高不下；SATA硬盘成本倒是降下来了，但主要是用于近线存储和非关键性应用，毕竟在性能等方面差强人意；SAS应该算是个全才，可以支持SAS和SATA磁盘，很方便地满足不同性价比的存储需求，是具有高性能、高可靠和高扩展性的解决方案。</p>
+<h2 id="ssd中satam2pcie和nvme各有什么意义" class="headerLink">
+    <a href="#ssd%e4%b8%adsatam2pcie%e5%92%8cnvme%e5%90%84%e6%9c%89%e4%bb%80%e4%b9%88%e6%84%8f%e4%b9%89" class="header-mark"></a>SSD中，SATA、m2、PCIE和NVME各有什么意义</h2><h3 id="高速信号协议" class="headerLink">
+    <a href="#%e9%ab%98%e9%80%9f%e4%bf%a1%e5%8f%b7%e5%8d%8f%e8%ae%ae" class="header-mark"></a>高速信号协议</h3><p>SAS，SATA，PCIe 这三个是同一个层面上的，模拟串行高速接口。</p>
+<ul>
+<li>SAS 对扩容比较友好，也支持双控双活。接上SAS RAID 卡，一般在阵列上用的比较多。</li>
+<li>SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb/s，上限 768MB/s左右，现在已经慢慢被pcie取代。</li>
+<li>PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb/s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb/s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB/s 左右。</li>
+</ul>
+<h3 id="传输层协议" class="headerLink">
+    <a href="#%e4%bc%a0%e8%be%93%e5%b1%82%e5%8d%8f%e8%ae%ae" class="header-mark"></a>传输层协议</h3><p>SCSI，ATA，NVMe 都属于这一层。主要是定义命令集，数字逻辑层。</p>
+<ul>
+<li>SCSI 命令集 历史悠久，应用也很广泛。U盘，SAS 盘，还有手机上 UFS 之类很多设备都走的这个命令集。</li>
+<li>ATA 则只是跑在SATA 协议上</li>
+<li>NVMe 协议是有特意为 NAND 进行优化。相比于上面两者，效率更高。主要是跑在 PCIe 上的。当然，也有NVMe-MI，NVMe-of之类的。是个很好的传输层协议。</li>
+</ul>
+<h4 id="nvmenon-volatile-memory-express" class="headerLink">
+    <a href="#nvmenon-volatile-memory-express" class="header-mark"></a>NVMe（Non-Volatile Memory Express）</h4><p>NVMe其实与AHCI一样都是逻辑设备接口标准（是接口标准，并不是接口），NVMe全称Non-Volatile Memory Express，非易失性存储器标准，是使用PCI-E通道的SSD一种规范，NVMe的设计之初就有充分利用到PCI-E SSD的低延时以及并行性，还有当代处理器、平台与应用的并行性。SSD的并行性可以充分被主机的硬件与软件充分利用，相比与现在的AHCI标准，NVMe标准可以带来多方面的性能提升。</p>
+<p>NVMe标准是面向PCI-E SSD的，使用原生PCI-E通道与CPU直连可以免去SATA与SAS接口的外置控制器（PCH）与CPU通信所带来的延时。而在软件层方面，NVMe标准的延时只有AHCI的一半不到，NVMe精简了调用方式，执行命令时不需要读取寄存器；而AHCI每条命令则需要读取4次寄存器，一共会消耗8000次CPU循环，从而造成大概2.5微秒的延迟。</p>
+<p>NVMe标准和传统的SATA/SAS相比，一个重大的差别是引入了<strong>多队列机制</strong>。</p>
+<p>主机与SSD进行数据交互采用“生产者-消费者”模型进行数据交互。在原有AHCI规范中，只定义了一个交互队列，主机与HDD之间的数据交互只能通过一个队列通信，多核处理器也只能通过一个队列与HDD进行数据交互。在传统磁盘存储时代，单队列在一个IO调度器，可以很好的保证提交请求的IO顺序最优化。</p>
+<p>而NAND存储介质具有很高的性能，AHCI原有的规范不再适用，NVMe规范替代了原有的AHCI规范，在软件层面的处理命令也进行了重新定义，不再采用SCSI／ATA命令规范集。相比以前AHCI、SAS等协议规范，NVMe规范是一种非常简化，面向新型存储介质的协议规范。该规范将存储外设拉到了处理器局部总线上，性能大为提升。并且<strong>主机和SSD处理器之间采用多队列的设计，适应了多核的发展趋势，每个处理器核与SSD之间可以采用独立的硬件Queue Pair进行数据交互。</strong></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/7ac6b1847a9bc6e029f3cb51716ef413.png   alt="img"  ></p>
+<p>如上图从软件的角度来看，每个CPU Core都可以创建一对Queue Pair和SSD进行数据交互。Queue Pair由Submission Queue与Completion Queue构成，通过Submission queue发送数据；通过Completion queue接受完成事件。SSD硬件和主机驱动软件控制queue的Head与Tail指针完成双方的数据交互。</p>
+<p>nvme多队列</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/ef86af3155d7dd2e6f78ec4f896179db.png   alt="img"  ></p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/8cb9e6f80895141d875df66c3d0069f6.png   alt="img"  ></p>
+<h3 id="物理接口" class="headerLink">
+    <a href="#%e7%89%a9%e7%90%86%e6%8e%a5%e5%8f%a3" class="header-mark"></a>物理接口</h3><p>M.2 , U.2 , AIC, NGFF 这些属于物理接口</p>
+<p>像 M.2 可以是 SATA SSD 也可以是 NVMe（PCIe） SSD。金手指上有一个 SATA/PCIe 的选择信号，来区分两者。很多笔记本的M.2 接口也是同时支持两种类型的盘的。</p>
+<ul>
+<li>M.2 , 主要用在 笔记本上，优点是体积小，缺点是散热不好。</li>
+<li>U.2,主要用在 数据中心或者一些企业级用户，对热插拔需求高的地方。优点热插拔，散热也不错。一般主要是pcie ssd(也有sas ssd)，受限于接口，最多只能是 pcie 4lane</li>
+<li>AIC，企业，行业用户用的比较多。通常会支持pcie 4lane/8lane，带宽上限更高</li>
+</ul>
+<h2 id="ssd-的性能特性和机制" class="headerLink">
+    <a href="#ssd-%e7%9a%84%e6%80%a7%e8%83%bd%e7%89%b9%e6%80%a7%e5%92%8c%e6%9c%ba%e5%88%b6" class="header-mark"></a>SSD 的性能特性和机制</h2><p>SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。</p>
+<p><strong>单元（Cell）、页面（Page）、块（Block）</strong>。</p>
+<p>当今的主流 SSD 是基于 NAND 的，它将数字位存储在单元中。每个 SSD 单元可以存储一位或多位。对单元的每次擦除都会降低单元的寿命，所以单元只能承受一定数量的擦除。单元存储的位数越多，制造成本就越低，SSD 的容量也就越大，但是耐久性（擦除次数）也会降低。</p>
+<p>一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。</p>
+<p>多个页面组合成块。一个块(Block)的典型大小为 512KB 或 1MB，也就是大约 128 或 256 (Page&ndash;16KB)页。<strong>块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。</strong></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210915090731401.png   alt="image-20210915090731401"  ></p>
+<p><strong>擦除速度相对很慢，通常为几毫秒</strong>。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。</p>
+<p>SSD的基本结构：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210915090459823.png   alt="image-20210915090459823"  ></p>
+<p>比如Intel P4510 SSD控制器内部集成了两个Cotex A15 ARM core，这两个CPU core各自处理50%物理地址空间的读写命令（不同CPU负责不同的Die，以提高并发度）。在处理IO命令的过程中，为了充分发挥两个cpu的并行处理效率，每个cpu core单次处理的最大数据块是128kB。所以P4510对于128k对齐（4k，8k，16k，32k，64k，128k）或者128k整数倍（256k，512k，1024k）的数据块的处理效率最高。因为这些数据块都能够在SSD内部被组装或者拆分为完整的128k数据块。但是，对于非128k对齐的数据块（68k，132k，260k，516k，1028k），由于每个提交给SSD的写命令都有一个非128k对齐的“尾巴”需要跨CPU来处理，这样便会导致SSD处理单个命令的效率下降，写带宽随之也下降。</p>
+<p><!-- raw HTML omitted --><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/bb8e3c40ede0432021d7d56d1387aa08.jpg   alt="img"  ></p>
+<p>SSD内部使用写缓存。写缓存主要用来降低写延迟。当写请求发送给SSD时，写数据会被先保存在写缓存，此时SSD会直接发送确认消息通知主机端写请求已完成，实现最低的写延迟。SSD固件在后台会异步的定期把写缓存中的数据通过写操作命令刷回给NAND颗粒。为了满足写操作的持久化语义，SSD内有大容量电容保证写缓存中数据的安全。当紧急断电情况发生时，固件会及时把写缓存中的数据写回NAND颗粒. 也就是紧急断电后还能通过大电容供电来维持最后的落盘。</p>
+<p>SSD内嵌内存容量的问题也限制了大容量NVMe SSD的发展，为了解决内存问题，目前一种可行的方法是增大sector size。标准NVMe SSD的sector size为4KB，为了进一步增大NVMe SSD的容量，有些厂商已经开始采用16KB的sector size。16KB Sector size的普及应用，会加速大容量NVMe SSD的推广。</p>
+<p><a href="https://www.bilibili.com/read/cv4139832" target="_blank" rel="noopener noreferrer">以海康威视E200P为例</a>，PCB上的硬件PLP掉电保护电路从D200Pro的10个钽电容+6个电感，简化为6个钽电容+6个电感。钽电容来自Panasonic，单颗47uF，6个钽电容并联可以为SSD提供几十毫秒的放电时间，让SSD把处理中的数据写入NAND中并更新映射表。这样的硬件PLP电路对比普通的家用产品要强悍很多。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp   alt="img"  ></p>
+<p>或者如下结构：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220923172817591.png   alt="image-20220923172817591"  ></p>
+<h3 id="ssd存储持久化原理httpszhuanlanzhihucomp347599423" class="headerLink">
+    <a href="#ssd%e5%ad%98%e5%82%a8%e6%8c%81%e4%b9%85%e5%8c%96%e5%8e%9f%e7%90%86httpszhuanlanzhihucomp347599423" class="header-mark"></a><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="noopener noreferrer">SSD存储持久化原理</a></h3><p>记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。</p>
+<p>但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。</p>
+<p>只有一个电容，我们怎么能够表示更多的比特呢？别忘了，这里我们还有一个电压计。4 个比特一共可以从 0000-1111 表示 16 个不同的数。那么，如果我们能往电容里面充电的时候，充上 15 个不同的电压，并且我们电压计能够区分出这 15 个不同的电压。加上电容被放空代表的 0，就能够代表从 0000-1111 这样 4 个比特了。</p>
+<p>不过，要想表示 15 个不同的电压，充电和读取的时候，对于精度的要求就会更高。这会导致充电和读取的时候都更慢，所以 QLC 的 SSD 的读写速度，要比 SLC 的慢上好几倍。</p>
+<p>SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。</p>
+<p>SSD寿命：以Intel 335为例再来算一下，BT用户可以用600TB × 1024 / 843 = <strong>728天</strong>，普通用户可以用600TB/2 = <strong>300年</strong>！情况十分乐观</p>
+<h4 id="两种逻辑门" class="headerLink">
+    <a href="#%e4%b8%a4%e7%a7%8d%e9%80%bb%e8%be%91%e9%97%a8" class="header-mark"></a>两种逻辑门</h4><p><strong>NAND</strong>(NOT-AND)  gate</p>
+<p><strong>NOR</strong>(NOT-OR)  gate</p>
+<p>如上两种门实现的介质<strong>都是非易失存储介质</strong>，<strong>在写入前都需要擦除</strong>。实际上NOR Flash的一个bit可以从1变成0，而要从0变1就要擦除整块。NAND flash都需要擦除。</p>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+        <tr>
+            <th style="text-align: "></th>
+            <th style="text-align: ">NAND Flash</th>
+            <th style="text-align: ">NOR Flash</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td style="text-align: ">芯片容量</td>
+            <td style="text-align: ">&lt;32GBit</td>
+            <td style="text-align: ">&lt;1GBit</td>
+        </tr>
+        <tr>
+            <td style="text-align: ">访问方式</td>
+            <td style="text-align: ">块读写（顺序读写）</td>
+            <td style="text-align: ">随机读写</td>
+        </tr>
+        <tr>
+            <td style="text-align: ">接口方式</td>
+            <td style="text-align: ">任意I/O口</td>
+            <td style="text-align: ">特定完整存储器接口</td>
+        </tr>
+        <tr>
+            <td style="text-align: ">读写性能</td>
+            <td style="text-align: ">读取快（顺序读） 写入快 擦除快（可按块擦除）</td>
+            <td style="text-align: ">读取快（RAM方式） 写入慢 檫除很慢</td>
+        </tr>
+        <tr>
+            <td style="text-align: ">使用寿命</td>
+            <td style="text-align: ">百万次</td>
+            <td style="text-align: ">十万次</td>
+        </tr>
+        <tr>
+            <td style="text-align: ">价格</td>
+            <td style="text-align: ">低廉</td>
+            <td style="text-align: ">高昂</td>
+        </tr>
+    </tbody>
+  </table>
+</div>
+<p>NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。</p>
+<p><a href="https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf" target="_blank" rel="noopener noreferrer">高端SSD会选取MLC</a>（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210603161822079.png   alt="image-20210603161822079"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220105201724752.png   alt="image-20220105201724752"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg   alt="slc-mlc-tlc-buckets"  ></p>
+<p>umlc</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220105201749003.png   alt="image-20220105201749003"  ></p>
+<p>NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB</p>
+<p>对于TLC NAND （每个NAND cell存储3 bits的信息），下面列出了每种操作的典型耗时的范围：</p>
+<p>​      读操作（Tread）    ：      50-100us，</p>
+<p>​      写操作（Tprog）    ：     500us-5ms，</p>
+<p>​      擦除操作（Terase） ：      2-10ms。</p>
+<h4 id="为什么断电后ssd不丢数据" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e6%96%ad%e7%94%b5%e5%90%8essd%e4%b8%8d%e4%b8%a2%e6%95%b0%e6%8d%ae" class="header-mark"></a>为什么断电后SSD不丢数据</h4><p>SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。比如标准要求SSD：温度在30度的情况下，数据要能保持52周。</p>
+<h3 id="写入放大write-amplification-or-wa" class="headerLink">
+    <a href="#%e5%86%99%e5%85%a5%e6%94%be%e5%a4%a7write-amplification-or-wa" class="header-mark"></a>写入放大（Write Amplification, or WA)</h3><p>这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 / 擦除（P/E）周期，所以写入放大效用会缩短 SSD 的寿命。</p>
+<p>SSD 的读取和写入的基本单位，不是一个比特（bit）或者一个字节（byte），而是一个页（Page）。SSD 的擦除单位就更夸张了，我们不仅不能按照比特或者字节来擦除，连按照页来擦除都不行，我们必须按照块来擦除。</p>
+<p>SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次左右，而 TLC 和 QLC 就只在几千次了。这也是为什么，你去购买 SSD 硬盘，会看到同样的容量的价格差别很大，因为它们的芯片颗粒和寿命完全不一样。</p>
+<p>从本质上讲，NAND Flash是一种不可靠介质，非常容易出现Bit翻转问题。SSD通过控制器和固件程序将这种不可靠的NAND Flash变成了可靠的数据存储介质。</p>
+<p>为了在这种不可靠介质上构建可靠存储，SSD内部做了大量工作。在硬件层面，需要通过ECC单元解决经常出现的比特翻转问题。每次数据存储的时候，硬件单元需要为存储的数据计算ECC校验码；在数据读取的时候，硬件单元会根据校验码恢复被破坏的bit数据。ECC硬件单元集成在SSD控制器内部，代表了SSD控制器的能力。在MLC存储时代，BCH编解码技术可以解决问题，4KB数据中存在100bit翻转时可以纠正错误；在TLC存储时代，bit错误率大为提升，需要采用更高纠错能力的LDPC编解码技术，在4KB出现550bit翻转时，LDPC硬解码仍然可以恢复数据。对比LDPC硬解码、BCH以及LDPC软解码之间的能力，可以看出LDPC软解码具有更强的纠错能力，通常使用在硬解码失效的情况下。LDPC软解码的不足之处在于增加了IO的延迟。</p>
+<p>在软件层面，SSD内部设计了FTL（Flash Translation Layer），该软件层的设计思想和Log-Structured File System设计思想类似。采用log追加写的方式记录数据，采用LBA至PBA的地址映射表记录数据组织方式。Log-structured系统最大的一个问题就是垃圾回收(GC)。因此，虽然NAND Flash本身具有很高的IO性能，但受限于GC的影响，SSD层面的性能会大受影响，并且存在十分严重的IO QoS问题，这也是目前标准NVMe SSD一个很重要的问题。</p>
+<h3 id="耗损平衡-wear-leveling" class="headerLink">
+    <a href="#%e8%80%97%e6%8d%9f%e5%b9%b3%e8%a1%a1-wear-leveling" class="header-mark"></a>耗损平衡 (Wear Leveling)</h3><p>对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P/E 周期的典型数目是十万次；对于 MLC 块，P/E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。</p>
+<h2 id="non-volatile-memory-nvmhttpsnvmexpressorgopen-source-nvme-management-utility-nvme-command-line-interface-nvme-clicontinueflag6093989111564a68c297d3f4bb8831b0" class="headerLink">
+    <a href="#non-volatile-memory-nvmhttpsnvmexpressorgopen-source-nvme-management-utility-nvme-command-line-interface-nvme-clicontinueflag6093989111564a68c297d3f4bb8831b0" class="header-mark"></a><a href="https://nvmexpress.org/open-source-nvme-management-utility-nvme-command-line-interface-nvme-cli/?continueFlag=6093989111564a68c297d3f4bb8831b0" target="_blank" rel="noopener noreferrer">non-volatile memory (NVM)</a></h2><p>NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。</p>
+<p><strong>1、NVM特性</strong></p>
+<p><strong>数据访问延迟</strong>：NVM的读延迟比磁盘小很多。由于NVM仍处于开发阶段，来源不同延迟不同。STT-RAM的延迟1-20ns。尽管如此，他的延迟也已经非常接近DRAM了。</p>
+<p>PC_RAM 和R-RAM的写延迟比DRAM高。但是写延迟不是很重要，因为可以通过buffer来缓解。</p>
+<p><strong>密度</strong>：NVM的密度比DRAM高，可以作为主存的替代品，尤其是在嵌入式系统中。例如，相对于DRAM，PC-RAM提供2到4倍的容量，便于扩展。</p>
+<p><strong>耐久性</strong>：即每个内存单元写的最大次数。最具竞争性的是PC-RAM和STT-RAM，提供接近DRAM的耐久性。更精确的说，NVM的耐久性是1015而DRAM是1016。另外，NVM比闪存技术的耐久性更大。</p>
+<p><strong>能量消耗</strong>：NVM不需要像DRAM一样周期性刷写以维护内存中数据，所以消耗的能量更少。PC-RAM比DRAM消耗能量显著的少，其他比较接近。</p>
+<p>此外，还有字节寻址、持久性。Interl和Micron已经发起了3D XPoint技术，同时Interl开发了新的指令以支持持久内存的使用。</p>
+<h2 id="傲腾-pmem" class="headerLink">
+    <a href="#%e5%82%b2%e8%85%be-pmem" class="header-mark"></a>傲腾 PMem</h2><p>Optane 的工作原理与 NAND Flash 有很大区别，NAND Flash 是基于 <a href="https://link.zhihu.com/?target=https%3A//en.wikipedia.org/wiki/Floating-gate_MOSFET" target="_blank" rel="noopener noreferrer">Floating-gate MOSFET</a> 而 Optane 虽然因特尔没有官方资料说明但是根据国外机构用<a href="https://link.zhihu.com/?target=https%3A//en.wikipedia.org/wiki/Mass_spectrometry" target="_blank" rel="noopener noreferrer">质谱法</a> 测试的结果表明 Optane 是一种基于 <a href="https://link.zhihu.com/?target=https%3A//en.wikipedia.org/wiki/Phase-change_memory" target="_blank" rel="noopener noreferrer">PCM</a> (相变化存储器) 原理的存储器，PCM 简单来说就是某种物质目前主要是一种或多种硫族化物的玻璃，经由加热可以改变它的状态，成为晶体或者非晶体，这些不同的状态具有相应的电阻值。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/v2-a008e63dd545c8afe7d0f083e1d4b7f5_1440w.webp   alt="img"  ></p>
+<p>从以上数据来看 PCM 读接近 DRAM，比 NAND Flash 快了500倍，PCM 写比 DRAM 慢了20倍，但是仍然比 NAND Flash 快了500倍。DRAM 读写速度一致，PCM 和 NAND Flash 写都比读要慢20倍。</p>
+<h2 id="磁盘类型查看" class="headerLink">
+    <a href="#%e7%a3%81%e7%9b%98%e7%b1%bb%e5%9e%8b%e6%9f%a5%e7%9c%8b" class="header-mark"></a>磁盘类型查看</h2><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">$cat /sys/block/vda/queue/rotational
+</span></span><span class="line"><span class="cl">1  //1表示旋转，非ssd，0表示ssd
+</span></span><span class="line"><span class="cl">or
+</span></span><span class="line"><span class="cl">lsblk -d -o name,rota,size,label,uuid
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">SATA SSD测试数据
+</span></span><span class="line"><span class="cl"># cat /sys/block/sda/queue/rotational 
+</span></span><span class="line"><span class="cl">0
+</span></span><span class="line"><span class="cl"># lsblk -d -o name,rota
+</span></span><span class="line"><span class="cl">NAME     ROTA
+</span></span><span class="line"><span class="cl">sda         0
+</span></span><span class="line"><span class="cl">sfdv0n1     0
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">ESSD磁盘测试用一块虚拟的阿里云网络盘，不能算完整意义的SSD（承诺IOPS 4200），数据仅供参考，磁盘概况：
+</span></span><span class="line"><span class="cl">$df -lh
+</span></span><span class="line"><span class="cl">Filesystem      Size  Used Avail Use% Mounted on
+</span></span><span class="line"><span class="cl">/dev/vda1        99G   30G   65G  32% /
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">$cat /sys/block/vda/queue/rotational
+</span></span><span class="line"><span class="cl">1</span></span></code></pre>
+</div>
+<h2 id="fio-结果解读" class="headerLink">
+    <a href="#fio-%e7%bb%93%e6%9e%9c%e8%a7%a3%e8%af%bb" class="header-mark"></a>fio 结果解读</h2><p>slat，异步场景下才有</p>
+<blockquote>
+  <p>其中slat指的是发起IO的时间，在异步IO模式下，发起IO以后，IO会异步完成。例如调用一个异步的write，虽然write返回成功了，但是IO还未完成，slat约等于发起write的耗时；</p>
+<p>slat (usec): min=4, max=6154, avg=48.82, stdev=56.38： The first latency metric you&rsquo;ll see is the &lsquo;slat&rsquo; or submission latency. It is pretty much what it sounds like, meaning &ldquo;how long did it take to submit this IO to the kernel for processing?&rdquo;</p>
+
+</blockquote><p>clat</p>
+<blockquote>
+  <p>clat指的是完成时间，从发起IO后到完成IO的时间，在同步IO模式下，clat是指整个写动作完成时间</p>
+
+</blockquote><p>lat</p>
+<blockquote>
+  <p>lat是总延迟时间，指的是IO单元创建到完成的总时间，通常这项数据关注较多。同步场景几乎等于clat，异步场景等于clat+slat
+这项数据需要关注的是max，看看有没有极端的高延迟IO；另外还需要关注stdev，这项数据越大说明，IO响应时间波动越大，反之越小，波动越小</p>
+
+</blockquote><p>clat percentiles (usec)：处于某个百分位的io操作时延</p>
+<p>cpu          : usr=9.11%, sys=57.07%, ctx=762410, majf=0, minf=1769  //用户和系统的CPU占用时间百分比，线程切换次数，major以及minor页面错误的数量。</p>
+<p>SSD的direct和buffered似乎很奇怪，应该是direct=0性能更好，实际不是这样，这里还需要找资料求证下</p>
+<blockquote>
+  <ul>
+<li>
+<p><code>direct``=bool</code></p>
+<p>If value is true, use non-buffered I/O. This is usually O_DIRECT. Note that OpenBSD and ZFS on Solaris don’t support direct I/O. On Windows the synchronous ioengines don’t support direct I/O. Default: false.</p>
+</li>
+<li>
+<p><code>buffered``=bool</code></p>
+<p>If value is true, use buffered I/O. This is the opposite of the <a href="https://fio.readthedocs.io/en/latest/fio_man.html#cmdoption-arg-direct" target="_blank" rel="noopener noreferrer"><code>direct</code></a> option. Defaults to true.</p>
+</li>
+</ul>
+
+</blockquote><h2 id="iostat-结果解读linuxtools-rstreadthedocsiozh_cnlatesttooliostathtml" class="headerLink">
+    <a href="#iostat-%e7%bb%93%e6%9e%9c%e8%a7%a3%e8%af%bblinuxtools-rstreadthedocsiozh_cnlatesttooliostathtml" class="header-mark"></a><a href="linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html" rel="">iostat 结果解读</a></h2><p>Dm-0就是lvm</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+</span></span><span class="line"><span class="cl">           0.32    0.00    3.34    0.13    0.00   96.21
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+</span></span><span class="line"><span class="cl">sda               0.00    11.40   66.00    7.20  1227.20    74.40    35.56     0.03    0.43    0.47    0.08   0.12   0.88
+</span></span><span class="line"><span class="cl">nvme0n1           0.00  8612.00    0.00 51749.60     0.00 241463.20     9.33     4.51    0.09    0.00    0.09   0.02  78.56
+</span></span><span class="line"><span class="cl">dm-0              0.00     0.00    0.00 60361.80     0.00 241463.20     8.00   152.52    2.53    0.00    2.53   0.01  78.26
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+</span></span><span class="line"><span class="cl">           0.36    0.00    3.46    0.17    0.00   96.00
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+</span></span><span class="line"><span class="cl">sda               0.00     8.80    9.20    5.20  1047.20    67.20   154.78     0.01    0.36    0.46    0.19   0.33   0.48
+</span></span><span class="line"><span class="cl">nvme0n1           0.00 11354.20    0.00 50876.80     0.00 248944.00     9.79     5.25    0.10    0.00    0.10   0.02  80.06
+</span></span><span class="line"><span class="cl">dm-0              0.00     0.00    0.00 62231.00     0.00 248944.80     8.00   199.49    3.21    0.00    3.21   0.01  78.86</span></span></code></pre>
+</div>
+<p>avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表示有大量IO在处理或等待，但是这还不足以说明后端的存储系统达到了处理极限。例如后端存储的并发能力是4096，客户端并发发送了256个IO下去，那么队列长度就是256。即使长时间队列长度是256，也不能说明什么，仅仅表明队列长度是256，有256个IO在处理或者排队。</p>
+<p>那么怎么判断IO是在调度队列排队等待，还是在设备上处理呢？iostat有两项数据可以给出一个大致的判断。svctime，这项数据的指的是IO在设备处理中耗费的时间。另外一项数据await，指的是IO从排队到完成的时间，包括了svctime和排队等待的时间。那么通过对比这两项数据，如果两项数据差不多，则说明IO基本没有排队等待，耗费的时间都是设备处理。如果await远大于svctime，则说明有大量的IO在排队，并没有发送给设备处理。</p>
+<h2 id="rq_affinity" class="headerLink">
+    <a href="#rq_affinity" class="header-mark"></a>rq_affinity</h2><p>参考<a href="https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll" target="_blank" rel="noopener noreferrer">aliyun测试文档</a> , rq_affinity增加2的commit： git show 5757a6d76c</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">function RunFio
+</span></span><span class="line"><span class="cl">{
+</span></span><span class="line"><span class="cl"> numjobs=$1   # 实例中的测试线程数，例如示例中的10
+</span></span><span class="line"><span class="cl"> iodepth=$2   # 同时发出I/O数的上限，例如示例中的64
+</span></span><span class="line"><span class="cl"> bs=$3        # 单次I/O的块文件大小，例如示例中的4k
+</span></span><span class="line"><span class="cl"> rw=$4        # 测试时的读写策略，例如示例中的randwrite
+</span></span><span class="line"><span class="cl"> filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device
+</span></span><span class="line"><span class="cl"> nr_cpus=`cat /proc/cpuinfo |grep &#34;processor&#34; |wc -l`
+</span></span><span class="line"><span class="cl"> if [ $nr_cpus -lt $numjobs ];then
+</span></span><span class="line"><span class="cl">     echo “Numjobs is more than cpu cores, exit!”
+</span></span><span class="line"><span class="cl">     exit -1
+</span></span><span class="line"><span class="cl"> fi
+</span></span><span class="line"><span class="cl"> let nu=$numjobs+1
+</span></span><span class="line"><span class="cl"> cpulist=&#34;&#34;
+</span></span><span class="line"><span class="cl"> for ((i=1;i&lt;10;i++))
+</span></span><span class="line"><span class="cl"> do
+</span></span><span class="line"><span class="cl">     list=`cat /sys/block/your_device/mq/*/cpu_list | awk &#39;{if(i&lt;=NF) print $i;}&#39; i=&#34;$i&#34; | tr -d &#39;,&#39; | tr &#39;\n&#39; &#39;,&#39;`
+</span></span><span class="line"><span class="cl">     if [ -z $list ];then
+</span></span><span class="line"><span class="cl">         break
+</span></span><span class="line"><span class="cl">     fi
+</span></span><span class="line"><span class="cl">     cpulist=${cpulist}${list}
+</span></span><span class="line"><span class="cl"> done
+</span></span><span class="line"><span class="cl"> spincpu=`echo $cpulist | cut -d &#39;,&#39; -f 2-${nu}`
+</span></span><span class="line"><span class="cl"> echo $spincpu
+</span></span><span class="line"><span class="cl"> fio --ioengine=libaio --runtime=30s --numjobs=${numjobs} --iodepth=${iodepth} --bs=${bs} --rw=${rw} --filename=${filename} --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split
+</span></span><span class="line"><span class="cl">}
+</span></span><span class="line"><span class="cl">echo 2 &gt; /sys/block/your_device/queue/rq_affinity
+</span></span><span class="line"><span class="cl">sleep 5
+</span></span><span class="line"><span class="cl">RunFio 10 64 4k randwrite filename</span></span></code></pre>
+</div>
+<p>对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210607113709945.png   alt="image-20210607113709945"  ></p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="http://cizixs.com/2017/01/03/how-slow-is-disk-and-network" target="_blank" rel="noopener noreferrer">http://cizixs.com/2017/01/03/how-slow-is-disk-and-network</a></p>
+<p><a href="https://tobert.github.io/post/2014-04-17-fio-output-explained.html" target="_blank" rel="noopener noreferrer">https://tobert.github.io/post/2014-04-17-fio-output-explained.html</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="noopener noreferrer">https://zhuanlan.zhihu.com/p/40497397</a></p>
+<p><a href="https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&amp;flag_data_from=home_algorithm_article" target="_blank" rel="noopener noreferrer">块存储NVMe云盘原型实践</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247483999&amp;idx=1&amp;sn=238d3d1a8cf24443db0da4aa00c9fb7e&amp;chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener noreferrer">机械硬盘随机IO慢的超乎你的想象</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&amp;mid=2247484023&amp;idx=1&amp;sn=1946b4c286ed72da023b402cc30908b6&amp;chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&amp;scene=178&amp;cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener noreferrer">搭载固态硬盘的服务器究竟比搭机械硬盘快多少？</a></p>
+<p><a href="http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml" target="_blank" rel="noopener noreferrer">SSD基本工作原理</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="noopener noreferrer">SSD原理解读</a></p>
+<p><a href="https://blog.gslin.org/archives/2022/02/02/10524/backblaze-%E7%9A%84-2021-%E5%B9%B4%E7%A1%AC%E7%A2%9F%E6%AD%BB%E4%BA%A1%E5%A0%B1%E5%91%8A/" target="_blank" rel="noopener noreferrer">Backblaze 的 2021 年硬盘死亡報告</a></p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2020-01-25</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/linux/">Linux</a>,&nbsp;<a href="/tags/%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD/">磁盘性能</a>,&nbsp;<a href="/tags/%E5%AD%98%E5%82%A8/">存储</a>,&nbsp;<a href="/tags/ssd/">SSD</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E5%A6%82%E4%BD%95%E5%88%B6%E4%BD%9C%E6%9C%AC%E5%9C%B0yum-repository/" class="prev" rel="prev" title="如何制作本地yum repository"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>如何制作本地yum repository</a>
+            <a href="/posts/ssd-san%E5%92%8Csas-%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83/" class="next" rel="next" title="ssd/san/sas  磁盘 光纤性能比较">ssd/san/sas  磁盘 光纤性能比较<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

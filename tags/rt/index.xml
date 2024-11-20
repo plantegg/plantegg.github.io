@@ -1,0 +1,1276 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>RT - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/rt/</link>
+        <description>RT - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Wed, 23 Aug 2023 12:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/rt/" rel="self" type="application/rss+xml" /><item>
+    <title>如何从几百万个抓包中找到一个异常的包</title>
+    <link>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/</link>
+    <pubDate>Wed, 23 Aug 2023 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/</guid>
+    <description><![CDATA[<h1 id="如何从几百万个抓包中找到一个异常的包" class="headerLink">
+    <a href="#%e5%a6%82%e4%bd%95%e4%bb%8e%e5%87%a0%e7%99%be%e4%b8%87%e4%b8%aa%e6%8a%93%e5%8c%85%e4%b8%ad%e6%89%be%e5%88%b0%e4%b8%80%e4%b8%aa%e5%bc%82%e5%b8%b8%e7%9a%84%e5%8c%85" class="header-mark"></a>如何从几百万个抓包中找到一个异常的包</h1><p>这篇算是对抓包定位原因在哪里的落地篇，没什么高深的技术，都是很low但是你一定可以照着操作的，算是星球内必须学会和带走的内容</p>
+<h2 id="场景" class="headerLink">
+    <a href="#%e5%9c%ba%e6%99%af" class="header-mark"></a>场景</h2><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620150119963.png   alt="image-20230620150119963"  ></p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>一次业务请求包含160个拖数据的SQL查询，通过160个连接，发给160个Database，但是过几分钟后总有报错。几分钟抓包文件10G左右，网络包几百万个，怎么找到报错的那个？</p>
+<p>几个麻烦的地方</p>
+<ul>
+<li>虽然问题每次稳定重现，但是每次重现的Database不是固定的；</li>
+<li>从开始拖到出现问题需要几分钟不等，抓包量巨大</li>
+<li>有一个连接报错后剩下的其它连接也会断开</li>
+<li>这么多端口怎么解析成MySQL协议，请看：https://t.zsxq.com/0f7nMlKax</li>
+</ul>
+<h3 id="问题发生条件" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e5%8f%91%e7%94%9f%e6%9d%a1%e4%bb%b6" class="header-mark"></a>问题发生条件</h3><ul>
+<li>一个Client同时开160条连接，发160个类似的SQL去160个MySQL Database上拖数据时必现</li>
+<li>如果将拖数据的SQL拖取数量改小一点就不再出现——拖取少执行更快，没达到触发bug条件</li>
+<li>网络传输得慢一点、JDBC streaming 模式下发生，比如streaming流模式拖数据是几MB每秒，去掉流模式拖数据是几十MB每秒且不报错。这里可以通过设置内核 tcp rmem/加大rtt延时来模拟重现——和我们的<a href="https://wx.zsxq.com/dweb2/index/topic_detail/181428425525182" target="_blank" rel="noopener noreferrer">必做实验callback一下</a>，无时不刻不展示下我们必做实验的用途。</li>
+</ul>
+<h2 id="分析过程" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90%e8%bf%87%e7%a8%8b" class="header-mark"></a>分析过程</h2><p>分析技巧和步骤：</p>
+<ol>
+<li>抓包，从握手到报错断开全抓下来，时间跨度3分多钟，抓下来10个G左右，怎么分析？</li>
+<li>editcap -c 200000 把抓包切小，每个文件20万个包，保证wireshark打开不太慢（editcap 是安装wireshark附带的小命令，附带的还有tshark、capinfos等）</li>
+<li>wireshark打开切小后的最后一个文件，搜reset/fin 找到<strong>第一个</strong>断开的连接(如下图)，找到9913/42909这对连接端口</li>
+<li>回到10个G的抓包中，用 tshark -r ./big.pcap -Y &ldquo;tcp.port==42909&rdquo;   -w 42909.pcap 把42909这条连接所有包过滤出来，-r 读，-w 写</li>
+<li>wireshark 打开42909.pcap 傻子也能看到问题在哪里了</li>
+</ol>
+<p>切完后的包，切完后的文件会加时间戳，时间戳可以和报错时间对应：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">-rw-r--r--  1 root  root   329M Jun 16 17:46 big00_00000_20230616170456.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00001_20230616170524.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root  1022M Jun 16 17:46 big00_00002_20230616170546.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00003_20230616170608.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root  1012M Jun 16 17:46 big00_00004_20230616170630.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   982M Jun 16 17:46 big00_00005_20230616170652.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   938M Jun 16 17:46 big00_00006_20230616170714.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00007_20230616170735.pcap
+</span></span><span class="line"><span class="cl">-rw-r--r--  1 root  root   661M Jun 16 17:46 big00_00008_20230616170759.pcap</span></span></code></pre>
+</div>
+<p>搜reset/fin 找到第一个断开的连接，第一个断开的连接才是罪魁祸首：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620143248344.png   alt="image-20230620143248344"  ></p>
+<h3 id="进一步分析发生问题的连接" class="headerLink">
+    <a href="#%e8%bf%9b%e4%b8%80%e6%ad%a5%e5%88%86%e6%9e%90%e5%8f%91%e7%94%9f%e9%97%ae%e9%a2%98%e7%9a%84%e8%bf%9e%e6%8e%a5" class="header-mark"></a>进一步分析发生问题的连接</h3><p>知识点：</p>
+<blockquote>
+  <p>MySQL 协议是一来一回，也就是client发查询然后等查询结果全部返回，然后再发下一个</p>
+<p>按协议在一个SQL查询的数据传输完毕前client不能再发任何请求，MySQL Server负责一直发送查询结果直到发送完毕。</p>
+
+</blockquote><p>如下两个截图是从42909.pcap文件中过滤到的抓包从握手到断开的全过程，图1过滤条件：tcp.srcport eq 42909 and tcp.len&gt;0  (42909是客户端，9913是MySQL端口)，可以看到客户端 login（连数据库肯定得要user、password认证），然后是client查了MySQL的一堆服务端参数(下图第二行)，再然后是client设置了几个参数(set 那些)。关键的是倒数第二行client发了一个SQL给MySQL需要拉取大量数据(建立连接17.98秒的时候)，然后是数据传数据过程，第190秒的时候client发了 Quit断开连接</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620140921134.png   alt="image-20230620140921134"  ></p>
+<p>上图因为加了过滤条件，只看client端并去掉ack后的所有包，没看到全貌，这个过程9913的MySQL 服务端又做了啥呢？因为太长前面漫长的传数据就不截图了，只看最后连接的断开。</p>
+<p>但是下图红框所示的地方可以看到MySQL Server 传着传着居然带了个 fin 包在里面，表示MySQL Server要断开连接了，无奈Client只能也发送quit 断开连接。红框告诉我们一个无比有力的证据MySQL Server 在不应该断开的地方断开了连接，问题在 MySQL Server 端</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620141017987.png   alt="image-20230620141017987"  ></p>
+<h2 id="结论" class="headerLink">
+    <a href="#%e7%bb%93%e8%ae%ba" class="header-mark"></a>结论</h2><p>就抓包结论来看是 MySQL 在不应该断开的时候发送了 fin 主动断开连接，可能是MySQL的bug</p>
+<p>题外话，这个包证据抓了有一周了，但是MySQL研发同学始终绕来绕去(比如我的代码没记录下这个SQL就是没收到，我的代码没问题——熟悉的味道)跟我打了一周太极(异地)，我一查发现我和他老板认识且在一层楼，赶紧面对面找他老板讲清楚这个问题，且签字画押承认是MySQL的问题，然后继续推进排查，最终结果是为啥我跟你们一起期待吧，有了结果我再来update。</p>
+<h2 id="练习" class="headerLink">
+    <a href="#%e7%bb%83%e4%b9%a0" class="header-mark"></a>练习</h2><p>找个MySQL，然后开始抓包，用mysql-client连一下MySQL Server随便发几个SQL，然后看看一来一回的响应</p>
+<p>如果哪怕在星球一年你只要好好掌握这一篇用到的技能也能帮助你在日常工作中互相扯皮的时候快速给出精准定位和分析，值回星球票价，加油</p>
+<p>比如这个案例我同时打开了5/6个wireshark分析不同的流、整体搜索等</p>
+<h2 id="其它" class="headerLink">
+    <a href="#%e5%85%b6%e5%ae%83" class="header-mark"></a>其它</h2><p>这些技巧不只是用在MySQL 上，其它微服务、redis等涉及网络调用场景的扯皮的地方都可以用</p>
+<p><a href="https://plantegg.github.io/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--WireShark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/" target="_blank" rel="noopener noreferrer">wireshark 附带的一些小工具</a></p>
+<blockquote>
+  <p>capinfos rsb2.cap</p>
+
+</blockquote><blockquote>
+  <p>tshark -q -n -r rsb2.cap  -z &ldquo;conv,ip&rdquo;   分析流量总况</p>
+
+</blockquote><blockquote>
+  <p>tshark -q -n -r rsb2.cap  -z &ldquo;conv,tcp&rdquo;  分析每一个连接的流量、rtt、响应时间、丢包率、重传率等等</p>
+
+</blockquote><blockquote>
+  <p>editcap -c 100000 ./rsb2.cap  rsb00.cap  //把大文件rsb2.cap按每个文件100000个package切成小文件</p>
+
+</blockquote><p>存放在这里：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">/usr/sbin/capinfos
+</span></span><span class="line"><span class="cl">/usr/sbin/dftest
+</span></span><span class="line"><span class="cl">/usr/sbin/dumpcap
+</span></span><span class="line"><span class="cl">/usr/sbin/editcap
+</span></span><span class="line"><span class="cl">/usr/sbin/mergecap
+</span></span><span class="line"><span class="cl">/usr/sbin/randpkt
+</span></span><span class="line"><span class="cl">/usr/sbin/rawshark
+</span></span><span class="line"><span class="cl">/usr/sbin/reordercap
+</span></span><span class="line"><span class="cl">/usr/sbin/text2pcap
+</span></span><span class="line"><span class="cl">/usr/sbin/tshark</span></span></code></pre>
+</div>
+<h2 id="net_write_timeout-报错" class="headerLink">
+    <a href="#net_write_timeout-%e6%8a%a5%e9%94%99" class="header-mark"></a>net_write_timeout 报错</h2><p>最后回答一下<a href="https://t.zsxq.com/0ftY9WNVv" target="_blank" rel="noopener noreferrer">上一篇</a>中提到的流模式下 net_write_timeout 报错</p>
+<p>如下图，JDBC 在 streaming 模式下，不断读取下一行，如果这个过程只要报错抛出的异常就是 StreamingNotifiable 异常</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620173111706.png   alt="image-20230620173111706"  ></p>
+<p>错误信息定义如下，这个报错误导太严重，从以上JDBC 代码可以看到只要读取下一行报错了就会报调大 net_write_timeout 错误，但是实际原因却是连接异常断开，和 timeout 没有一点关系，你看久经考验的 JDBC  代码也不是那么完善还得你会 Debug</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">CommunicationsException.ClientWasStreaming=Application was streaming results when the connection failed. Consider raising value of &#39;&#39;net_write_timeout&#39;&#39; on the server.</span></span></code></pre>
+</div>
+<p>这个报错误导了排查分析方向，不知道坑了多少人了！当然如果MySQL 因为net_write_timeout 超时断开连接当然应该报如上错误，但是 JDBC 搞不清楚MySQL 为啥断开，就瞎猜是 timeout 了，然后只要是连接异常读数据错误(包含断开)就报这个错误。希望你们不要被坑</p>
+<p>记住这个坑人的报错堆栈：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of &#39;net_write_timeout&#39; on the server.
+</span></span><span class="line"><span class="cl">    at sun.reflect.GeneratedConstructorAccessor150.newInstance(Unknown Source)
+</span></span><span class="line"><span class="cl">    at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+</span></span><span class="line"><span class="cl">    at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:972)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.nextRow(MysqlIO.java:2123)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.RowDataDynamic.nextRecord(RowDataDynamic.java:374)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.RowDataDynamic.next(RowDataDynamic.java:354)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.RowDataDynamic.close(RowDataDynamic.java:155)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.ResultSetImpl.realClose(ResultSetImpl.java:6726)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.ResultSetImpl.close(ResultSetImpl.java:865)
+</span></span><span class="line"><span class="cl">    at com.alibaba.druid.pool.DruidPooledResultSet.close(DruidPooledResultSet.java:86)</span></span></code></pre>
+</div>
+<p>不过你要仔细看的话，它还是有caused by，如下，但是绝大部分工程师看到这个堆栈会忽视，上面都有 net_write_timeout 我还管个屁 Can not read response from server, 不过要是结合抓包的话就能理解：at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3186) 这个根本的原因是 JDBC 从服务端读取数据的时候报错了</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">Caused by: java.io.EOFException: Can not read response from server. Expected to read 405 bytes, read 272 bytes before connection was unexpectedly lost.
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3186)
+</span></span><span class="line"><span class="cl">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3709)
+</span></span><span class="line"><span class="cl">    ... 40 common frames omitted</span></span></code></pre>
+</div>
+<p>最后希望你没被绕晕，再去看看<a href="https://t.zsxq.com/0ftY9WNVv" target="_blank" rel="noopener noreferrer">上一篇</a>中推荐的流模式原理，把代码和网络应用层完美地结合起来</p>
+<p>完整堆栈也可以参考网络上别人碰到的：https://github.com/brettwooldridge/HikariCP/issues/1771</p>
+<p>看 Google 里面对这个问题的分析基本都没入门：https://www.google.com/search?q=Caused+by%3A+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException%3A+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&amp;hl=en&amp;sxsrf=APwXEddTwJGjFpkKuWHyXjlTvwTo2OUMhA%3A1687226872136&amp;ei=-AmRZI7gB6-C0PEPmOGbwAE&amp;ved=0ahUKEwiOvPny4dD_AhUvATQIHZjwBhgQ4dUDCBE&amp;uact=5&amp;oq=Caused+by%3A+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException%3A+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&amp;gs_lcp=Cgxnd3Mtd2l6LXNlcnAQA0oECEEYAFAAWABgAGgAcAF4AIABAIgBAJIBAJgBAKABAqABAQ&amp;sclient=gws-wiz-serp</p>
+<p>下次在你们的业务代码里如果出现查询结果太大导致JVM OOM的话你可以站出来说把拉取数据改成 流 模式会有奇效 :) , 当然随之而来的是会有 net_write_timeout 报错，嗯，你的机会来了，业务技术上按照你的指引发展，出了问题你能顶得上</p>
+]]></description>
+</item><item>
+    <title>扑朔迷离的根因分析</title>
+    <link>http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90/</link>
+    <pubDate>Sun, 23 Jul 2023 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90/</guid>
+    <description><![CDATA[<h1 id="扑朔迷离的根因分析" class="headerLink">
+    <a href="#%e6%89%91%e6%9c%94%e8%bf%b7%e7%a6%bb%e7%9a%84%e6%a0%b9%e5%9b%a0%e5%88%86%e6%9e%90" class="header-mark"></a>扑朔迷离的根因分析</h1><h2 id="原则" class="headerLink">
+    <a href="#%e5%8e%9f%e5%88%99" class="header-mark"></a>原则</h2><p>追着RT 跑，不断加压力，到瓶颈前随着并发的增加RT很稳定。</p>
+<p>但是你要对你的RT怎么来的，包含哪些环节的消耗，这样才不会出错。</p>
+<p>如下图左边是QPS不停地增加，每一次台阶(增加20%流量)都是一次加压过程，右边是对应的 RT，可以看到在绿线阶段几乎是平稳的，直到最后的红色箭头 RT略微有一点点提升，但是整体也还好，说明基本没到瓶颈</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230520101758175.png   alt="image-20230520101758175"  ></p>
+<p>当然这个图是经过长时间调优的结果，来之不易，是理想的期望系统状态，但在这之前是长时间的痛苦分析和瓶颈在哪里的定位过程。</p>
+<p>凡是复杂的实际业务总是有很多干扰项出现在你的理论图上，你得很好地识别他们</p>
+<h2 id="业务结构" class="headerLink">
+    <a href="#%e4%b8%9a%e5%8a%a1%e7%bb%93%e6%9e%84" class="header-mark"></a>业务结构</h2><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230517113148916.png   alt="image-20230517113148916"  ></p>
+<p>概念说明：</p>
+<p>黑色=Database=被依赖业务=物理</p>
+<p>蓝色=Tomcat=上游业务=逻辑</p>
+<p>上游响应时间=下游业务响应时间+网络时间+上游自身处理耗时</p>
+<p>响应时间=RT=耗时监控</p>
+<p>tcprt：从内核网络取Database的响应时间</p>
+<p>实际很魔幻的是同样流量有时候压测很稳定，有时候又不稳定，性能上不去(稳定时可能是压测数据、没有触发Database雪崩之类的问题)，所以导致问题</p>
+<p><strong>所有压测过程中肯定是没有任何资源上的瓶颈(CPU、内存、网络带宽、磁盘等等)</strong></p>
+<h2 id="监控数据" class="headerLink">
+    <a href="#%e7%9b%91%e6%8e%a7%e6%95%b0%e6%8d%ae" class="header-mark"></a>监控数据</h2><p>如图，蓝线表示Tomcat，黑线表示Database被调用方，可以看到每次黑色 RT上升QPS下跌很猛(符合预期)，奇怪的是黑色RT很快降下来后蓝色RT还会维持较高一段时间，监控频率每5秒采集一次，以下所有监控图时间范围是一样的，但采集频率不一样</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230516150350614.png   alt="image-20230516150350614"  ></p>
+<p>(图1)</p>
+<p>上图的两个 RT 监控数据都是Tomcat的业务代码记录下来的，比如Database的响应时间就包含网络+Database的处理时间</p>
+<p>如下图通过网络监控看响应时间(tcprt <a href="https://help.aliyun.com/document_detail/181331.html" target="_blank" rel="noopener noreferrer">阿里云文档</a>，从OS 内核中取到网络包的响应时间)，蓝线表示Tomcat，紫线表示Database，监控力度每1分钟采集一次，有被平均</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230516150812485.png   alt="image-20230516150812485"  ></p>
+<p>以上两个监控图的矛盾点：如果从网络层面记录的Database RT 可以看到上升幅度不明显，但是Tomcat 的RT上升很明显，但是Tomcat记录的RT则又是Database 上升明显。</p>
+<h4 id="补充知识httpshelpaliyuncomdocument_detail181331html" class="headerLink">
+    <a href="#%e8%a1%a5%e5%85%85%e7%9f%a5%e8%af%86httpshelpaliyuncomdocument_detail181331html" class="header-mark"></a><a href="https://help.aliyun.com/document_detail/181331.html" target="_blank" rel="noopener noreferrer">补充知识</a></h4><p>tcprt和tomcat业务进程记录的 Database rt差异，tcprt记录到的是RDS/Database的响应时间+网络时间，tomcat在这个基础上还要加入自己进程调出处理时间，比如tomcat进程取到数据库连接的时候连接需要排队等待1秒钟(后面有分析)，那么这个一秒钟对tcprt来说是不会记录进去的，但是客户端感知到的这次调用是1秒以上。当然业务记录的Database 还可以更精准，比如在连接池Druid(或者其它连接池的实现)内取记录，但是无论如何从业务进程到OS内核这里的差距总是存在的。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/6f6862dec810933f34b7793018cfb0da.png   alt="image.png"  ></p>
+<h3 id="tomcat-cpu-监控" class="headerLink">
+    <a href="#tomcat-cpu-%e7%9b%91%e6%8e%a7" class="header-mark"></a>Tomcat CPU 监控</h3><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230516150950383.png   alt="image-20230516150950383"  ></p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>可以很清楚看到 QPS 下降是因为 RT上升，那么究竟是Database的RT上升导致的还是Tomcat的RT上升导致的。</p>
+<p>但是我们从监控图也能看到Database RT降下来后Tomcat RT还维持高水位，所以有点迷惑了。</p>
+<p>继续看另外案例</p>
+<h2 id="案例2-yy" class="headerLink">
+    <a href="#%e6%a1%88%e4%be%8b2-yy" class="header-mark"></a>案例2 yy</h2><p>两次压测监控数据，左右两个图标是同一时间的QPS和RT，蓝线表示Tomcat，黑线表示Database被调用方</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519170255718.png   alt="image-20230519170255718"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519172225890.png   alt="image-20230519172225890"  ></p>
+<p>从两个图来看，随着并发加高(QPS加高) 黑色RT增加明显，但是跑着跑着降下去了，可以理解成突发流量导致黑色RT增加，但是很快黑色RT稳住了阵脚，降回去了，但是蓝色 RT没降，所以表面看起来是蓝色(Tomcat)处理能力到了瓶颈</p>
+<p>上图时间点内核监控的tcprt，可以看到还是Database 处理耗时增加，和上图的黑色RT下降根本不匹配，上图黑色RT最后在2.96ms，下图内核监控到的Database的tcprt在8.49，差异矛盾点</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519172519802.png   alt="image-20230519172519802"  ></p>
+<p>第三次压测图</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519165825977.png   alt="image-20230519165825977"  ></p>
+<p>从第一个图来看，随着并发加高(QPS加高) 黑色RT增加明显，蓝色 RT去掉黑色部分也有增加，并且黑色、蓝色都没降回去，看起来主要是黑色(Database)处理能力到了瓶颈</p>
+<p>纠结的时候就在Tomcat上抓包确认一下，如下图黑色 Database服务端口是5493，可以看到Tomcat 发request总是很快，但是Database 响应都是几十毫秒(下图红色框)，和监控一致。其实监控可以说明问题，但是我担心业务记录时间不准，以及建连接时间都考虑在内，所以想抓包微观上印证一下，这种项目牵扯到很多人你搞错了方向丢人不说，大家合作联调浪费很大，所以必须稳！</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519203620163.png   alt="image-20230519203620163"  ></p>
+<p>如果说问题在Database上，那为什么会有Database RT忽上忽下，Database RT降下去了Tomcat RT不降？我们要继续分析一下 Tomcat RT以及Database RT是怎么记录和实现的</p>
+<h2 id="分析" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90" class="header-mark"></a>分析</h2><p>问题解决后的原因分析以及数据整理</p>
+<p>这个时候我们再把Tomcat部分的业务调用和RT记录再细化一下，如下图：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230520111102697.png   alt="image-20230520111102697"  ></p>
+<h3 id="druid分析httpsgithubcomalibabadruid" class="headerLink">
+    <a href="#druid%e5%88%86%e6%9e%90httpsgithubcomalibabadruid" class="header-mark"></a><a href="https://github.com/alibaba/druid" target="_blank" rel="noopener noreferrer">Druid分析</a></h3><p>创建和回收逻辑：https://exceting.github.io/2019/08/28/%E6%B1%A0%E5%8C%96%E6%8A%80%E6%9C%AF%EF%BC%88%E4%B8%80%EF%BC%89Druid%E6%98%AF%E5%A6%82%E4%BD%95%E7%AE%A1%E7%90%86%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E7%9A%84%EF%BC%9F/#%E4%B9%9D%E3%80%81%E4%B8%BB%E6%B5%81%E7%A8%8B5%EF%BC%9A%E5%9B%9E%E6%94%B6%E8%BF%9E%E6%8E%A5</p>
+<p>作为Tomcat和Database的连接点、枢纽点搞清楚Druid的逻辑对理解Tomcat和Database之间的问题的理解很关键。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240523084559029.png   alt="image-20240523084559029"  ></p>
+<p>比如以下要说的三个Druid 错误状态如果你不放到一起比较，看到这个错误你最多反应就是连接池不够了，什么原因不知道。但是如果放到一次比较一次后你以后对详细错误提示会积极敏感，进而发现第四、第五种错误提示</p>
+<p>这就是综合比较、总结的好处。</p>
+<p>Druid 最核心的类是 DruidDataSource，连接的构建，入池，获取，收缩，销毁，以及核心监控数据都在这个类维护</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230721170334688.png   alt="image-20230721170334688"  ></p>
+<p>连接池初始化流程：初始化驱动实例 -&gt; 加锁 -&gt; 初始化属性 -&gt; 初始化过滤器 -&gt; 校验参数 -&gt; <strong>创建初始化连接并校验后加入池中</strong> -&gt; 创建logStatsThread、createConnectionThread和destroyConnectionThread -&gt; 注册MBean，用于支持JMX -&gt; 如果设置了keepAlive，通知createConnectionThread创建连接对象 -&gt; 解锁</p>
+<p>Druid 创建连接的堆栈如下：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">&#34;Druid-ConnectionPool-Create-1647809146&#34; #265 daemon prio=5 os_prio=0 tid=0x00007fbcdfd5f000 nid=0x1a0 runnable [0x00007fbcdf9fd000]
+</span></span><span class="line"><span class="cl">   java.lang.Thread.State: RUNNABLE
+</span></span><span class="line"><span class="cl">        at java.net.SocketInputStream.socketRead0(Native Method)
+</span></span><span class="line"><span class="cl">        at java.net.SocketInputStream.socketRead(SocketInputStream.java:116)
+</span></span><span class="line"><span class="cl">        at java.net.SocketInputStream.read(SocketInputStream.java:171)
+</span></span><span class="line"><span class="cl">        at java.net.SocketInputStream.read(SocketInputStream.java:141)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:101)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:144)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:174)
+</span></span><span class="line"><span class="cl">        - locked &lt;0x00000000e71ca648&gt; (a com.mysql.jdbc.util.ReadAheadInputStream)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3001)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.MysqlIO.readPacket(MysqlIO.java:567)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.MysqlIO.doHandshake(MysqlIO.java:1018)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.ConnectionImpl.coreConnect(ConnectionImpl.java:2253)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.ConnectionImpl.connectOneTryOnly(ConnectionImpl.java:2284)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.ConnectionImpl.createNewIO(ConnectionImpl.java:2083)
+</span></span><span class="line"><span class="cl">        - locked &lt;0x00000000e7f898f0&gt; (a com.mysql.jdbc.JDBC4Connection)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.ConnectionImpl.&lt;init&gt;(ConnectionImpl.java:806)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.JDBC4Connection.&lt;init&gt;(JDBC4Connection.java:47)
+</span></span><span class="line"><span class="cl">        at sun.reflect.GeneratedConstructorAccessor196.newInstance(Unknown Source)
+</span></span><span class="line"><span class="cl">        at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+</span></span><span class="line"><span class="cl">        at java.lang.reflect.Constructor.newInstance(Constructor.java:423)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.Util.handleNewInstance(Util.java:404)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.ConnectionImpl.getInstance(ConnectionImpl.java:410)
+</span></span><span class="line"><span class="cl">        at com.mysql.jdbc.NonRegisteringDriver.connect(NonRegisteringDriver.java:328)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidAbstractDataSource.createPhysicalConnection(DruidAbstractDataSource.java:1558)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidAbstractDataSource.createPhysicalConnection(DruidAbstractDataSource.java:1623)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource$CreateConnectionThread.run(DruidDataSource.java:2468)       
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">&#34;Druid-ConnectionPool-Create-1823047135&#34; #160 daemon prio=5 os_prio=0 tid=0x00007fbd60cf0000 nid=0x142 waiting on condition [0x00007fbd043fe000]
+</span></span><span class="line"><span class="cl">   java.lang.Thread.State: WAITING (parking)
+</span></span><span class="line"><span class="cl">        at sun.misc.Unsafe.park0(Native Method)
+</span></span><span class="line"><span class="cl">        - parking to wait for  &lt;0x00000000c448b348&gt; (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+</span></span><span class="line"><span class="cl">        at sun.misc.Unsafe.park(Unsafe.java:1036)
+</span></span><span class="line"><span class="cl">        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:176)
+</span></span><span class="line"><span class="cl">        at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(AbstractQueuedSynchronizer.java:2047)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource$CreateConnectionThread.run(DruidDataSource.java:2443)        </span></span></code></pre>
+</div>
+<h4 id="druid-报错1" class="headerLink">
+    <a href="#druid-%e6%8a%a5%e9%94%991" class="header-mark"></a>Druid 报错1</h4><p>获取连接排队是基本不消耗CPU，下图右上角是获取失败的日志打堆栈消耗，可以看到异常非常多。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519174633172.png   alt="image-20230519174633172"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519175029396.png   alt="image-20230519175029396"  ></p>
+<p>Druid最大连接数默认是30，多次调大，30-&gt;60-&gt;120-&gt;160，一直调下去对调大能解决问题都没有信心了，总是报错</p>
+<blockquote>
+  <p>maxWaitThreadCount 30, current wait Thread count 0</p>
+
+</blockquote><p>调大到160后的报错堆栈，<a href="https://sourcegraph.com/github.com/alibaba/druid/-/blob/core/src/main/java/com/alibaba/druid/pool/DruidDataSource.java?L1733:92" target="_blank" rel="noopener noreferrer">对应源码 </a> 这个报错说明报错时已经有160个线程在等连接了，别等了，先快速报错返回吧</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">Caused by: java.sql.SQLException: maxWaitThreadCount 160, current wait Thread count 0
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource.getConnectionInternal(DruidDataSource.java:1620)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource.getConnectionDirect(DruidDataSource.java:1404)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.filter.FilterChainImpl.dataSource_connect(FilterChainImpl.java:5059)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.filter.FilterAdapter.dataSource_getConnection(FilterAdapter.java:2756)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.filter.FilterChainImpl.dataSource_connect(FilterChainImpl.java:5055)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:1382)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:1374)
+</span></span><span class="line"><span class="cl">        at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:98)
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">对应代码：
+</span></span><span class="line"><span class="cl">                   final Lock lock = this.lock;
+</span></span><span class="line"><span class="cl">                    lock.lock();
+</span></span><span class="line"><span class="cl">                    try {
+</span></span><span class="line"><span class="cl">                        if (activeCount &lt; maxActive) {
+</span></span><span class="line"><span class="cl">                            activeCount++;
+</span></span><span class="line"><span class="cl">                            holder.active = true;
+</span></span><span class="line"><span class="cl">                            if (activeCount &gt; activePeak) {
+</span></span><span class="line"><span class="cl">                                activePeak = activeCount;
+</span></span><span class="line"><span class="cl">                                activePeakTime = System.currentTimeMillis();
+</span></span><span class="line"><span class="cl">                            }
+</span></span><span class="line"><span class="cl">                            break;
+</span></span><span class="line"><span class="cl">                        } else {
+</span></span><span class="line"><span class="cl">                            discard = true;
+</span></span><span class="line"><span class="cl">                        }
+</span></span><span class="line"><span class="cl">                    } finally {
+</span></span><span class="line"><span class="cl">                        lock.unlock();
+</span></span><span class="line"><span class="cl">                    }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">                    if (discard) {
+</span></span><span class="line"><span class="cl">                        JdbcUtils.close(pyConnInfo.getPhysicalConnection());
+</span></span><span class="line"><span class="cl">                    }
+</span></span><span class="line"><span class="cl">                }
+</span></span><span class="line"><span class="cl">            }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">            final ReentrantLock lock = this.lock;
+</span></span><span class="line"><span class="cl">            try {
+</span></span><span class="line"><span class="cl">                lock.lockInterruptibly();
+</span></span><span class="line"><span class="cl">            } catch (InterruptedException e) {
+</span></span><span class="line"><span class="cl">                connectErrorCountUpdater.incrementAndGet(this);
+</span></span><span class="line"><span class="cl">                throw new SQLException(&#34;interrupt&#34;, e);
+</span></span><span class="line"><span class="cl">            }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">            try {
+</span></span><span class="line"><span class="cl">                if (maxWaitThreadCount &gt; 0
+</span></span><span class="line"><span class="cl">                        &amp;&amp; notEmptyWaitThreadCount &gt;= maxWaitThreadCount) {
+</span></span><span class="line"><span class="cl">                    connectErrorCountUpdater.incrementAndGet(this);
+</span></span><span class="line"><span class="cl">                    throw new SQLException(&#34;maxWaitThreadCount &#34; + maxWaitThreadCount + &#34;, current wait Thread count &#34;
+</span></span><span class="line"><span class="cl">                            + lock.getQueueLength());//bug? lock.getQueueLength()永远为0，应该改成：lock.getWaitQueueLength(notEmpty)
+</span></span><span class="line"><span class="cl">                }</span></span></code></pre>
+</div>
+<p>以下两个Druid 报错这次压测没有出现但是可以放一起比较一下，其它项目场景经常出现</p>
+<h4 id="druid-报错2" class="headerLink">
+    <a href="#druid-%e6%8a%a5%e9%94%992" class="header-mark"></a>Druid 报错2</h4><p>Druid类似报错，明显是等了5秒最大等待时间还没有获取到连接：<img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519191317489.png   alt="image-20230519191317489"  ></p>
+<p>红色错误信息表示等了5006毫秒（设置的5000毫秒超时）还没有取到连接，所以超时了，然后抛出错误堆栈。</p>
+<p>红色信息还提示我们当前连接池最大10，目前 active 0, 说明不是连接池满了取不到，而是连接池里一直是空的。</p>
+<p>看到这个错误不能说明数据库、访问数据库有啥问题，只能说明Druid 连接池取不到连接，要继续分析Druid创建连接的线程栈。或者比如Druid 参数设置不合理，可以把min、init、max 连接数设置为相同的值，避免压力高峰期再去创建连接。</p>
+<p>Druid通过另外一个task（thread）异步给连接池补充连接，也就是这里可能是Druid创建连接失败，比如密码错误、比如连不上数据库，比如创建的thread卡死了、报其他异常了</p>
+<p><strong>Druid创建 连接 和业务取连接是两个线程，所以业务取连接报错是看不到创建连接报错的堆栈和原因的</strong></p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#grep CreateConnectionThread.run stack4.log
+</span></span><span class="line"><span class="cl">	at com.alibaba.druid.pool.DruidDataSource$CreateConnectionThread.run(DruidDataSource.java:2818)
+</span></span><span class="line"><span class="cl">	at com.alibaba.druid.pool.DruidDataSource$CreateConnectionThread.run(DruidDataSource.java:2813)</span></span></code></pre>
+</div>
+<h4 id="druid-报错3" class="headerLink">
+    <a href="#druid-%e6%8a%a5%e9%94%993" class="header-mark"></a>Druid 报错3</h4><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230520092224080.png   alt="image-20230520092224080"  ></p>
+<p>借出连接为0(active 0)，creating也是0，没有新连接正在创建。</p>
+<p>分析方法：</p>
+<ol>
+<li>dump Java应用内存，用MAT内存分析工具打开dump文件</li>
+<li>使用OQL，select * from com.alibaba.druid.pool.DruidDataSource where createTaskCount=3</li>
+<li>选出来的DruidDataSource即为有问题的datasource</li>
+</ol>
+<p>原因</p>
+<p>Druid中有个计数器createTaskCount，用来记录每个连接池当前正在创建连接的任务数，默认不能超过3。Druid中，在keepAlive=true的情况下，这个计数器有bug，存在加了但没减的情况，导致这个值涨到3之后没有减回去，从而无法提交新的创建连接任务。</p>
+<p>注意，进入这个状态后的连接池，是无法自动恢复的。Druid升级到1.1.24可以修复这个问题。</p>
+<h3 id="分片逻辑" class="headerLink">
+    <a href="#%e5%88%86%e7%89%87%e9%80%bb%e8%be%91" class="header-mark"></a>分片逻辑</h3><p>因为数据量太大，一台Database存放不下，自然会分片，或者说单表几千万之后也是建议分片。</p>
+<p>分片逻辑是取业务id最后两位的字符去取string hashcode，再对16个Database分片</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">如果对id后两位字符(从00-99供100个数字，因为不排除id里面有字符，但实际主要是0-9的数字)的ascii码取hash然后按16取模的结果：
+</span></span><span class="line"><span class="cl">0
+</span></span><span class="line"><span class="cl">1
+</span></span><span class="line"><span class="cl">2
+</span></span><span class="line"><span class="cl">3
+</span></span><span class="line"><span class="cl">4
+</span></span><span class="line"><span class="cl">5
+</span></span><span class="line"><span class="cl">6
+</span></span><span class="line"><span class="cl">7
+</span></span><span class="line"><span class="cl">8
+</span></span><span class="line"><span class="cl">9  --开始不正常，10-14号分片没有直接跳到15号分片
+</span></span><span class="line"><span class="cl">15
+</span></span><span class="line"><span class="cl">0
+</span></span><span class="line"><span class="cl">1
+</span></span><span class="line"><span class="cl">2
+</span></span><span class="line"><span class="cl">3
+</span></span><span class="line"><span class="cl">4
+</span></span><span class="line"><span class="cl">5
+</span></span><span class="line"><span class="cl">6
+</span></span><span class="line"><span class="cl">7
+</span></span><span class="line"><span class="cl">8
+</span></span><span class="line"><span class="cl">14
+</span></span><span class="line"><span class="cl">15
+</span></span><span class="line"><span class="cl">……
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">//分片求模代码
+</span></span><span class="line"><span class="cl">for(int i=0;i&lt;10;++i) //0的ascii码是48，依此类推
+</span></span><span class="line"><span class="cl">	for(int j=0;j&lt;10;++j)
+</span></span><span class="line"><span class="cl">		 int value=((48+i)*31+j) mod 16;</span></span></code></pre>
+</div>
+<p>补充个小八卦</p>
+<blockquote>
+  <p>为什么取某几位尾数来求模？比如很多业务按user_id拆分片，然后希望这个用户的所有订单拆分也落在一个分片内。于是他们想到的办法是在订单id最后几位上追加进去下单人的user_id后几位，对订单拆分会取订单id后几位hash，这样同一个用户肯定到同一个分片</p>
+<p>这样查询某个用户的所有订单时(高频需求)就只需要查一个分片，否则就要扫描所有分片。</p>
+<p>掏出你的某宝、某东看看你的订单后几位</p>
+
+</blockquote><p>分片后的数据，明显两头的多中间的少，这必然导致后面的 Database 负载不均衡：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519181628114.png   alt="image-20230519181628114"  ></p>
+<p>Java源码：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230519181451384.png   alt="image-20230519181451384"  ></p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>问题的根本原因？</p>
+<p>多个Database中的某几个瓶颈，为什么会这样见数据分布部分的分析</p>
+<p>为什么Database RT监控能降下来？</p>
+<p>业务Tomcat 帮Database拦截了流量，一旦Database响应慢 Druid 连接就会不够，请求都堵在Tomcat中，导致Tomcat RT升高(包含等待连接时间)——替人堵了枪眼，很好，Tomcat crash总比 Database crash要好，但是业务要清楚这是替人挨枪子，该往哪里去查瓶颈。</p>
+<p>比如加流量20%，开始Database RT升高，很快连接不可用，可能有接近20%的流量被Tomcat拦截，这个时候Database RT能稳定，也有可能拦截的不够多，这个时候Database RT还是很高，但Tomcat RT更高，进入一种平衡状态</p>
+<p>为什么有时候压测能过？</p>
+<p>应该是数据分布比较巧，刚好压测流里面的数据分布没那么不均衡，没触发数据库雪崩</p>
+]]></description>
+</item><item>
+    <title>扑朔迷离的根因分析--抖动和并发</title>
+    <link>http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/</link>
+    <pubDate>Sun, 23 Jul 2023 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E7%9A%84%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90--%E6%8A%96%E5%8A%A8%E5%92%8C%E5%B9%B6%E5%8F%91/</guid>
+    <description><![CDATA[<h1 id="扑朔迷离的根因分析--抖动和并发" class="headerLink">
+    <a href="#%e6%89%91%e6%9c%94%e8%bf%b7%e7%a6%bb%e7%9a%84%e6%a0%b9%e5%9b%a0%e5%88%86%e6%9e%90--%e6%8a%96%e5%8a%a8%e5%92%8c%e5%b9%b6%e5%8f%91" class="header-mark"></a>扑朔迷离的根因分析&ndash;抖动和并发</h1><h2 id="前言" class="headerLink">
+    <a href="#%e5%89%8d%e8%a8%80" class="header-mark"></a>前言</h2><p>我们之前说过根因分析第一就是要追着 RT跑，随着并发的增加哪里RT增加快哪里就是瓶颈，这是我们的基本原则，但总有一些例外，我们今天想说说例外</p>
+<h2 id="场景" class="headerLink">
+    <a href="#%e5%9c%ba%e6%99%af" class="header-mark"></a>场景</h2><p>如下图，应用是多个Tomcat集群，Tomcat节点可以随意增加，后端是一组DB集群，有几百个Database实例，每一次业务请求都会对应多个Database查询</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230609204957690.png   alt="image-20230609204957690"  ></p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>开始的时候客户端压2个Tomcat集群，QPS 700，Tomcat节点CPU 90%，Database每个节点CPU 20%左右，于是增加1个Tomcat 节点这个时候QPS 还是700，Tomcat的RT增加了50%，Tomcat CPU 降低到60%，继续增加Tomcat 节点 RT、QPS保持稳定，CPU使用率下降。</p>
+<p>所以这里要搞清楚哪里是瓶颈，如果Tomcat是瓶颈加Tomcat节点为什么没有效果。如果Database是瓶颈但是增加Tomcat节点的时候Database 的RT有一点点增加，远远没有到增加50%的RT 程度</p>
+<h2 id="分析" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90" class="header-mark"></a>分析</h2><p>首先最容易想到的是Tomcat 和 Database之间的网络、网关、LVS 等资源到了瓶颈，但是经过排查分析这些环节都排除了，另外也排除了Tomcat到Database的连接池、Database的磁盘等瓶颈，另外Tomcat 访问Database全是查询，没有事务。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/20230609210244.jpg   alt="image.png"  ></p>
+<p>看起来事情比想象的复杂，于是进行了如下压测：</p>
+<p>先用一个压力端压3个Tomcat中的2个，QPS 跑到700，然后新开一个压力端压第三个Tomcat(新开压力端是排查压力机的问题，新开Tomcat是想排除Tomcat 的问题)，如果Tomcat是瓶颈的话QPS应该上去，或者说后端没有问题的话那两个Tomcat 的700 QPS得保持基本稳定不变或略微下降才对。</p>
+<p>实际上第二个压力端跑起来后，前两个Tomcat的QPS 铛就掉下去了，总QPS 保持稳定不变，也就是随着Tomcat给后端并发压力的增加后端肯定给了一个负反馈给那两Tomcat，导致那两Tomcat QPS掉下去了。这个负反馈明显得是Database的RT在增加，但是从监控来看Database的RT 从0.6增加到了0.8，但是Tomcat 的RT 增加更快从19.7增加到了29.8.</p>
+<p>单独压DB，DB的QPS能高5倍，CPU 也可以跑到100%。看起来单压都没问题，一组合就不行了</p>
+<h3 id="问题在database" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e5%9c%a8database" class="header-mark"></a>问题在Database</h3><p>绕过Tomcat 用相同的SQL 压Database QPS 一下子就能上去，Database 的CPU 也跑到了100%，但是只要走Tomcat 就会上不去。</p>
+<p>打开Tomcat 日志将所有Database的响应时间拉出来分析，发现随着并发的增加 100 ms的响应也多了很多，实际上这些查询都是1ms就应该返回</p>
+<p>具体分析过程看这里：https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/</p>
+<h2 id="原因" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0" class="header-mark"></a>原因</h2><p>当压力增加的时候MySQL端等锁导致的 RT 抖动或者说长尾越来越多，虽然没有数据库的写，但是查询的时候优化器也需要统计行数等数据来为查询优化器做选择依据，这个统计动作会触发加锁排队(极短)，但是因为这一代Intel CPU指令的变化导致这个锁被放大了10 被，所以最终Tomcat 端看到的长尾就多了</p>
+<h2 id="为什么" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88" class="header-mark"></a>为什么</h2><h4 id="为什么同样的环境同样的sql-绕过tomcat-就能压上去" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e5%90%8c%e6%a0%b7%e7%9a%84%e7%8e%af%e5%a2%83%e5%90%8c%e6%a0%b7%e7%9a%84sql-%e7%bb%95%e8%bf%87tomcat-%e5%b0%b1%e8%83%bd%e5%8e%8b%e4%b8%8a%e5%8e%bb" class="header-mark"></a>为什么同样的环境、同样的SQL 绕过Tomcat 就能压上去？</h4><p>绕过后的压测场景没有业务逻辑，每次请求就是一条SQL，虽然有抖动但是对平均RT拉升不明显。</p>
+<h4 id="走业务逻辑压tomcat-为什么不行" class="headerLink">
+    <a href="#%e8%b5%b0%e4%b8%9a%e5%8a%a1%e9%80%bb%e8%be%91%e5%8e%8btomcat-%e4%b8%ba%e4%bb%80%e4%b9%88%e4%b8%8d%e8%a1%8c" class="header-mark"></a>走业务逻辑压Tomcat 为什么不行？</h4><p>业务逻辑是一次请求会发256条SQL，等这256条SQL全部返回来了业务请求才会返回！请反复读这句话3遍再往下看</p>
+<p>如果256条SQL 中有一条花了100 ms返回那么整个业务逻辑的RT 就是100ms，假设1%的概率一条SQL是100ms，99%的SQL 是 1ms，你可以先停下来算一算这种业务模型下的平均RT是多少</p>
+<h4 id="计算抖动下的平均rt" class="headerLink">
+    <a href="#%e8%ae%a1%e7%ae%97%e6%8a%96%e5%8a%a8%e4%b8%8b%e7%9a%84%e5%b9%b3%e5%9d%87rt" class="header-mark"></a>计算抖动下的平均RT</h4><p>关于这个抖动对整体rt的影响计算：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1575880425321-79c7ea4a-fcf1-41f9-afb9-6e553d9eaf8f.png   alt="img"  ></p>
+<p>注:假设正常查询rt 1ms，逻辑平均rt=(1-power(1-抖动概率,物理查询次数))*抖动大小+(power(1-抖动概率,物理查询次数))*1ms</p>
+<p>当前场景下，逻辑QPS:物理QPS=1:256，假如每次查询有1%的物理（RDS）rt抖动到100ms，则会导致逻辑平均rt恶化到92.44ms.</p>
+<p>在一次逻辑查询里，只有所有物理查询都不抖整体才是不抖，RT正常；如果有一个或多个物理查询抖了，那么逻辑RT就是抖动RT。</p>
+<p>所以一次逻辑查询不抖的概率是： power(1-抖动概率, 物理查询次数)</p>
+<p>反过来想这256条SQL都不碰上抖动这次业务请求才会1ms返回(概率极低)，否则就是256ms返回</p>
+<h4 id="为什么要讲这个案例" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e8%a6%81%e8%ae%b2%e8%bf%99%e4%b8%aa%e6%a1%88%e4%be%8b" class="header-mark"></a>为什么要讲这个案例</h4><p>倒不是出于原因分析，这个原因几年前就分析清楚了，但是这个场景：一次业务请求会涉及多次SQL、Redis、MQ的调用，只要其中有一个有短板、抖动这次业务请求就慢了。这简直太常见了</p>
+<p>但难在别人的抖动很低被平均掉了，但是业务(Tomcat) 就要替别人背锅了，因为别人的RT 几乎没有增加或者加很少，但是Tomcat RT增加很明显，瓶颈当然看着像是在Tomcat 上。背锅吧也不可怕可怕的是你增加Tomcat 节点也不能解决问题，这才是你要从这个案例里学到的。</p>
+<p>如果你的Tomcat 调后端因为短板(抖动)导致压力打不到后端，因为抖动导致Tomcat不能快速返回</p>
+<h5 id="上游影响下游" class="headerLink">
+    <a href="#%e4%b8%8a%e6%b8%b8%e5%bd%b1%e5%93%8d%e4%b8%8b%e6%b8%b8" class="header-mark"></a>上游影响下游：</h5><p>和本文无关但是可以放一起综合来看上下游互相影响的复杂性</p>
+<p>以前认为事务不提交的主要代价是行锁持有时间变长(这确实是个问题)，今天见识到了新代价，事务不提交会导致事务活跃链表变长，增加copy readview的代价，进而导致DB的RT 增高，实际导致DB RT高的根本原因是DB前面的业务早到了瓶颈，来不及发送commit，导致DB端事务堆积严重。也就是业务瓶颈导致了后端DB RT高，只看RT就会被蒙蔽——怎么解决？可以抓包看commit发送慢</p>
+<h3 id="heading" class="headerLink">
+    <a href="#heading" class="header-mark"></a></h3>]]></description>
+</item></channel>
+</rss>

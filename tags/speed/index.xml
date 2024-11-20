@@ -1,0 +1,207 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Speed - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/speed/</link>
+        <description>Speed - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Tue, 15 Mar 2022 17:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/speed/" rel="self" type="application/rss+xml" /><item>
+    <title>听风扇声音来定位性能瓶颈</title>
+    <link>http://localhost:1313/posts/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/</link>
+    <pubDate>Tue, 15 Mar 2022 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/</guid>
+    <description><![CDATA[<h1 id="记一次听风扇声音来定位性能瓶颈" class="headerLink">
+    <a href="#%e8%ae%b0%e4%b8%80%e6%ac%a1%e5%90%ac%e9%a3%8e%e6%89%87%e5%a3%b0%e9%9f%b3%e6%9d%a5%e5%ae%9a%e4%bd%8d%e6%80%a7%e8%83%bd%e7%93%b6%e9%a2%88" class="header-mark"></a>记一次听风扇声音来定位性能瓶颈</h1><h2 id="背景" class="headerLink">
+    <a href="#%e8%83%8c%e6%99%af" class="header-mark"></a>背景</h2><p>在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群</p>
+<ul>
+<li>压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存</li>
+<li>压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列比5系列 CPU的性能要好、要贵）</li>
+</ul>
+<p>从CPU硬件指标来看压力机2都是碾压压力机1，但是实际测试是压力机2只能跑到接近压力机1的能力，两台机器CPU基本都跑满，并且都是压测进程消耗了90%以上的CPU，内核态消耗不到5%CPU</p>
+<p>所以接下来需要在调试我们集群性能前先把测试机优化好，才能把压力打上来。</p>
+<h2 id="分析" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90" class="header-mark"></a>分析</h2><p>测试机构提供的机器上没有任何工具来评估CPU性能，也无法安装，只能<strong>仔细听196core机器的CPU风扇声音更小，说明196core的CPU出工不出力，大概是流水线在频繁地Stall</strong>（不管你信不信反正我是信的）</p>
+<p>进一步分析，首先看到 业务消耗了90%以上的CPU，内核态消耗不到5%CPU，两台机器都是这样，这说明 196core 只跑出了 72core的水平，一定是CPU效率出了问题，top看到的CPU占用率不完全是全力在运算，其实cpu 流水线stall也是占用CPU的。</p>
+<p>这个分析理论请参考我的文章<a href="https://plantegg.github.io/2021/05/16/Perf%20IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/" target="_blank" rel="noopener noreferrer">《Perf IPC以及CPU性能》</a></p>
+<h2 id="验证" class="headerLink">
+    <a href="#%e9%aa%8c%e8%af%81" class="header-mark"></a>验证</h2><p>通过stream测试读写内存的带宽和时延，得到如下数据：</p>
+<p>72core机器，  本路时延1.1，跨路时延1.4，因为是2路所以有50%的概率跨路，性能下降30%</p>
+<p>196core机器，本路时延1.2，跨路时延1.85，因为是4路所以有75%的概率跨路，性能下降50%</p>
+<p>从以上测试数据可以明显看到虽然196core机器拥有更强的单核能力以及更多的核数，但是因为访问内存太慢严重拖累了CPU运算能力，导致大部分时间CPU都在等待内存，这里CPU和内存的速度差了2个数量级，所以内存延时才是整体的瓶颈。</p>
+<p>测试数据和方法请参考我的文章<a href="https://plantegg.github.io/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/" target="_blank" rel="noopener noreferrer">《AMD Zen CPU 架构以及不同CPU性能大PK》</a></p>
+<p>有了这个数据心里非常有底问题在哪里了，但是还要想清楚怎么解释给测试机构他们才会信服，因为第一次解释他们直接说不可能，怎么会196core打不过72core呢，再说从来没有集群是测试机构196core压力机打不满的，这台压力机用了几年从来没有人说过这个问题 :(</p>
+<h2 id="内存信息" class="headerLink">
+    <a href="#%e5%86%85%e5%ad%98%e4%bf%a1%e6%81%af" class="header-mark"></a>内存信息</h2><p>接下来需要拿到更详细的硬件信息来说服测试机构了。</p>
+<p>通过dmidecode 获取两台机器内存的速度，分别是2100（196core） VS 2900（72core），同时系统也吐出了内存延时分别是 0.5ns VS 0.3 ns，这两个时间对比很直观，普通人也能看懂。</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">//以下硬件信息是从家里机器上获取，并非测试机构提供的机器，测试机构提供的机器不让拍照和采集
+</span></span><span class="line"><span class="cl">#dmidecode -t memory
+</span></span><span class="line"><span class="cl"># dmidecode 3.2
+</span></span><span class="line"><span class="cl">Getting SMBIOS data from sysfs.
+</span></span><span class="line"><span class="cl">SMBIOS 3.2.1 present.
+</span></span><span class="line"><span class="cl"># SMBIOS implementations newer than version 3.2.0 are not
+</span></span><span class="line"><span class="cl"># fully supported by this version of dmidecode.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Handle 0x0033, DMI type 16, 23 bytes 
+</span></span><span class="line"><span class="cl">Physical Memory Array
+</span></span><span class="line"><span class="cl">	Location: System Board Or Motherboard
+</span></span><span class="line"><span class="cl">	Use: System Memory
+</span></span><span class="line"><span class="cl">	Error Correction Type: Multi-bit ECC
+</span></span><span class="line"><span class="cl">	Maximum Capacity: 2 TB  //最大支持2T
+</span></span><span class="line"><span class="cl">	Error Information Handle: 0x0032
+</span></span><span class="line"><span class="cl">	Number Of Devices: 32   //32个插槽
+</span></span><span class="line"><span class="cl">	
+</span></span><span class="line"><span class="cl">	Handle 0x0041, DMI type 17, 84 bytes
+</span></span><span class="line"><span class="cl">Memory Device
+</span></span><span class="line"><span class="cl">	Array Handle: 0x0033
+</span></span><span class="line"><span class="cl">	Error Information Handle: 0x0040
+</span></span><span class="line"><span class="cl">	Total Width: 72 bits
+</span></span><span class="line"><span class="cl">	Data Width: 64 bits
+</span></span><span class="line"><span class="cl">	Size: 32 GB
+</span></span><span class="line"><span class="cl">	Form Factor: DIMM
+</span></span><span class="line"><span class="cl">	Set: None
+</span></span><span class="line"><span class="cl">	Locator: CPU0_DIMMA0
+</span></span><span class="line"><span class="cl">	Bank Locator: P0 CHANNEL A
+</span></span><span class="line"><span class="cl">	Type: DDR4
+</span></span><span class="line"><span class="cl">	Type Detail: Synchronous Registered (Buffered)
+</span></span><span class="line"><span class="cl">	Speed: 2933 MT/s                    //dmmi 内存插槽支持最大速度 ?
+</span></span><span class="line"><span class="cl">	Manufacturer: SK Hynix
+</span></span><span class="line"><span class="cl">	Serial Number: 220F9EC0
+</span></span><span class="line"><span class="cl">	Asset Tag: Not Specified
+</span></span><span class="line"><span class="cl">	Part Number: HMAA4GR7AJR8N-WM
+</span></span><span class="line"><span class="cl">	Rank: 2
+</span></span><span class="line"><span class="cl">	Configured Memory Speed: 2100 MT/s  //内存实际运行速度
+</span></span><span class="line"><span class="cl">	Minimum Voltage: 1.2 V
+</span></span><span class="line"><span class="cl">	Maximum Voltage: 1.2 V
+</span></span><span class="line"><span class="cl">	Configured Voltage: 1.2 V
+</span></span><span class="line"><span class="cl">	Memory Technology: DRAM
+</span></span><span class="line"><span class="cl">	Memory Operating Mode Capability: Volatile memory
+</span></span><span class="line"><span class="cl">	Module Manufacturer ID: Bank 1, Hex 0xAD
+</span></span><span class="line"><span class="cl">	Non-Volatile Size: None
+</span></span><span class="line"><span class="cl">	Volatile Size: 32 GB
+</span></span><span class="line"><span class="cl">	
+</span></span><span class="line"><span class="cl">	#lshw
+</span></span><span class="line"><span class="cl">	*-bank:19  //主板插槽槽位
+</span></span><span class="line"><span class="cl">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) 
+</span></span><span class="line"><span class="cl">             product: HMAA4GR7AJR8N-WM
+</span></span><span class="line"><span class="cl">             vendor: SK Hynix
+</span></span><span class="line"><span class="cl">             physical id: 13
+</span></span><span class="line"><span class="cl">             serial: 220F9F63
+</span></span><span class="line"><span class="cl">             slot: CPU1_DIMMB0
+</span></span><span class="line"><span class="cl">             size: 32GiB  //实际所插内存大小
+</span></span><span class="line"><span class="cl">             width: 64 bits
+</span></span><span class="line"><span class="cl">             clock: 2933MHz (0.3ns)</span></span></code></pre>
+</div>
+<blockquote>
+  <p>In <code>dmidecode</code>’s output for memory, “Speed” is the highest speed supported by the DIMM, as determined by <a href="https://en.wikipedia.org/wiki/JEDEC" target="_blank" rel="noopener noreferrer">JEDEC</a> SPD information. “Configured Clock Speed” is the speed at which it is currently running (as set up during boot).</p>
+
+</blockquote><p>Dimm（双列直插式存储模块（dual In-line memory module））： DIMM是内存条印刷电路板正反面均有金手指与主板上的内存条槽接触，这种结构被称为DIMM。于是内存条也有人叫DIMM条，主板上的内存槽也有人称为DIMM槽。</p>
+<p>大多数主板设计为易于用户安装和更换DIMM，通常只需打开侧边卡扣，将DIMM垂直插入插槽，然后关闭卡扣即可固定内存模块。正确安装DIMM时通常会有轻微的“点击”声，表示模块已经正确位于插槽中。</p>
+<p>DIMM 代表物理上的一根内存条，下图中三根内存条共享一个channel连到 CPU</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/05-05_DPC_Bandwidth_Impact.svg   alt="05-05_DPC_Bandwidth_Impact"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220705104403314.png   alt="image-20220705104403314"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/8f04a1f57fe07692327b9269ba484ce4.jpg   alt="img"  ></p>
+<h2 id="最终的运行方案" class="headerLink">
+    <a href="#%e6%9c%80%e7%bb%88%e7%9a%84%e8%bf%90%e8%a1%8c%e6%96%b9%e6%a1%88" class="header-mark"></a>最终的运行方案</h2><p>给196core的机器换上新的2933 MHz (0.3 ns)的内存条，速度一下子就上去了。</p>
+<p>然后在196core的机器上起4个压力进程，每个进程分担25%的压力，避免跨路访问内存导致时延从1.2掉到1.8，实际测试也是只用196core中的48core性能和用全部196core是一样的，所以这里一定要起多个进程做内存亲和性绑定，充分使用全部196core。</p>
+<p><strong>最终整机196core机器的打压能力达到了原来的3.6倍左右。</strong></p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>程序员要保护好听力，关键时刻可能会用上 :)</p>
+<p>你说196core机器用了这么强的CPU但是为什么搭配那么差的内存以及主板，我也不知道，大概是有人拿回扣吧。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://frankdenneman.nl/2016/07/13/numa-deep-dive-4-local-memory-optimization/" target="_blank" rel="noopener noreferrer">NUMA DEEP DIVE PART 4: LOCAL MEMORY OPTIMIZATION</a></p>
+]]></description>
+</item></channel>
+</rss>

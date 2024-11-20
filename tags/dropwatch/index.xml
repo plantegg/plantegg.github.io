@@ -1,0 +1,118 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>DropWatch - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/dropwatch/</link>
+        <description>DropWatch - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Wed, 26 Dec 2018 16:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/dropwatch/" rel="self" type="application/rss+xml" /><item>
+    <title>网络丢包</title>
+    <link>http://localhost:1313/posts/%E7%BD%91%E7%BB%9C%E4%B8%A2%E5%8C%85/</link>
+    <pubDate>Wed, 26 Dec 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E7%BD%91%E7%BB%9C%E4%B8%A2%E5%8C%85/</guid>
+    <description><![CDATA[<h1 id="网络丢包" class="headerLink">
+    <a href="#%e7%bd%91%e7%bb%9c%e4%b8%a2%e5%8c%85" class="header-mark"></a>网络丢包</h1><h2 id="查看网卡是否丢包一般是ring-buffer太小" class="headerLink">
+    <a href="#%e6%9f%a5%e7%9c%8b%e7%bd%91%e5%8d%a1%e6%98%af%e5%90%a6%e4%b8%a2%e5%8c%85%e4%b8%80%e8%88%ac%e6%98%afring-buffer%e5%a4%aa%e5%b0%8f" class="header-mark"></a>查看网卡是否丢包，一般是ring buffer太小</h2><pre><code>ethtool -S eth0 | grep rx_ | grep errors
+</code></pre>
+<p>当驱动处理速度跟不上网卡收包速度时，驱动来不及分配缓冲区，NIC接收到的数据包无法及时写到sk_buffer(由网卡驱动直接在内核中分配的内存，并存放数据包，供内核软中断的时候读取)，就会产生堆积，当NIC内部缓冲区写满后，就会丢弃部分数据，引起丢包。这部分丢包为rx_fifo_errors，在 /proc/net/dev中体现为fifo字段增长，在ifconfig中体现为overruns指标增长。</p>
+<h2 id="查看ring-buffer的大小设置" class="headerLink">
+    <a href="#%e6%9f%a5%e7%9c%8bring-buffer%e7%9a%84%e5%a4%a7%e5%b0%8f%e8%ae%be%e7%bd%ae" class="header-mark"></a>查看ring buffer的大小设置</h2><pre><code>ethtool ‐g eth0  
+</code></pre>
+<h2 id="socket-buffer太小导致的丢包一般不多见" class="headerLink">
+    <a href="#socket-buffer%e5%a4%aa%e5%b0%8f%e5%af%bc%e8%87%b4%e7%9a%84%e4%b8%a2%e5%8c%85%e4%b8%80%e8%88%ac%e4%b8%8d%e5%a4%9a%e8%a7%81" class="header-mark"></a>Socket buffer太小导致的丢包（一般不多见）</h2><p>内核收到包后，会给对应的socket，每个socket会有 sk_rmem_alloc/sk_wmem_alloc/sk_omem_alloc、sk_rcvbuf(bytes)来存放包</p>
+<p>When sk_rmem_alloc &gt;
+sk_rcvbuf the TCP stack will call a routine which “collapses” the receive queue</p>
+<p>查看collapses:</p>
+<pre><code>netstat -sn | egrep &quot;prune|collap&quot;; sleep 30; netstat -sn | egrep &quot;prune|collap&quot;
+17671 packets pruned from receive queue because of socket buffer overrun
+18671 packets pruned from receive queue because of socket buffer overrun
+</code></pre>
+<p>测试发现在小包情况下，这两个值相对会增大且比较快。增大 net.ipv4.tcp_rmem 和 net.core.rmem_max、net.core.rmem_default 后没什么效果 &ndash; 需要进一步验证</p>
+<h2 id="netcorenetdev_budget" class="headerLink">
+    <a href="#netcorenetdev_budget" class="header-mark"></a>net.core.netdev_budget</h2><p>sysctl net.core.netdev_budget //默认300， The default value of the budget is 300. This will
+cause the SoftIRQ process to drain 300 messages from the NIC before getting off the CPU
+如果 /proc/net/softnet_stat 第三列一直在增加的话需要，表示SoftIRQ 获取的CPU时间太短，来不及处理足够多的网络包，那么需要增大这个值
+net/core/dev.c-&gt;net_rx_action 函数中会按netdev_budget 执行softirq，budget每次执行都要减少，一直到没有了，就退出softirq</p>
+<p>一般默认软中断只绑定在CPU0上，如果包的数量巨大的话会导致 CPU0利用率 100%（主要是si），这个时候可以检查文件 /proc/net/softnet_stat 的第三列 或者 RX overruns 是否在持续增大</p>
+<h2 id="netcorenetdev_max_backlog" class="headerLink">
+    <a href="#netcorenetdev_max_backlog" class="header-mark"></a>net.core.netdev_max_backlog</h2><p>enqueue_to_backlog函数中，会对CPU的softnet_data 实例中的接收队列（input_pkt_queue）进行判断，如果队列中的数据长度超过netdev_max_backlog ，那么数据包将直接丢弃，这就产生了丢包。</p>
+<p>参数net.core.netdev_max_backlog指定的，默认大小是 1000。</p>
+<p>netdev_max_backlog 接收包队列（网卡收到还没有进行协议的处理队列），每个cpu core一个队列,如果/proc/net/softnet_stat第二列增加就表示这个队列溢出了，需要改大。</p>
+<blockquote>
+  <p>/proc/net/softnet_stat：（第一列和第三列的关系？）
+The 1st column is the number of frames received by the interrupt handler. （第一列是中断处理程序接收的帧数）
+The 2nd column is the number of frames dropped due to netdev_max_backlog being exceeded. netdev_max_backlog
+The 3rd column is the number of times ksoftirqd ran out of netdev_budget or CPU time when there was still work to be done   net.core.netdev_budget</p>
+
+</blockquote><h2 id="rp_filter" class="headerLink">
+    <a href="#rp_filter" class="header-mark"></a>rp_filter</h2><p><a href="https://www.yuque.com/plantegg/weyi1s/uc7a5g" target="_blank" rel="noopener noreferrer">https://www.yuque.com/plantegg/weyi1s/uc7a5g</a></p>
+<h2 id="关于ifconfig的种种解释" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8eifconfig%e7%9a%84%e7%a7%8d%e7%a7%8d%e8%a7%a3%e9%87%8a" class="header-mark"></a>关于ifconfig的种种解释</h2><ul>
+<li>RX errors: 表示总的收包的错误数量，这包括 too-long-frames 错误，Ring Buffer 溢出错误，crc 校验错误，帧同步错误，fifo overruns 以及 missed pkg 等等。</li>
+<li>RX dropped: 表示数据包已经进入了 Ring Buffer，但是由于内存不够等系统原因，导致在拷贝到内存的过程中被丢弃。</li>
+<li>RX overruns: 表示了 fifo 的 overruns，这是由于 Ring Buffer(aka Driver Queue) 传输的 IO 大于 kernel 能够处理的 IO 导致的，而 Ring Buffer 则是指在发起 IRQ 请求之前的那块 buffer。很明显，overruns 的增大意味着数据包没到 Ring Buffer 就被网卡物理层给丢弃了，而 CPU 无法及时地处理中断是造成 Ring Buffer 满的原因之一，上面那台有问题的机器就是因为 interruprs 分布的不均匀(都压在 core0)，没有做 affinity 而造成的丢包。</li>
+<li>RX frame: 表示 misaligned 的 frames。</li>
+</ul>
+<p><strong>dropped数量持续增加，建议增大Ring Buffer ，使用ethtool ‐G 进行设置。</strong></p>
+<p>txqueuelen:1000 对应着qdisc队列的长度（发送队列和网卡关联着）</p>
+<p>而对应的接收队列由内核参数来设置：</p>
+<pre><code>net.core.netdev_max_backlog
+</code></pre>
+<p>Adapter buffer defaults are commonly set to a smaller size than the maximum//网卡进出队列大小调整 ethtool -G eth rx 8192 tx 8192</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/5478d28fb7aaba3adeb4260bc15c0c65.png   alt="image.png"  ></p>
+<h2 id="核心流程" class="headerLink">
+    <a href="#%e6%a0%b8%e5%bf%83%e6%b5%81%e7%a8%8b" class="header-mark"></a>核心流程</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/48fb8755f8e96b8df58c6c537650b81b.png   alt="image.png"  ></p>
+<p>接收数据包是一个复杂的过程，涉及很多底层的技术细节，但大致需要以下几个步骤：</p>
+<ol>
+<li>网卡收到数据包。</li>
+<li>将数据包从网卡硬件缓存转移到服务器内存中。</li>
+<li>通知内核处理。</li>
+<li>经过TCP/IP协议逐层处理。</li>
+<li>应用程序通过read()从socket buffer读取数据。</li>
+</ol>
+<h2 id="通过-dropwatch来查看丢包点" class="headerLink">
+    <a href="#%e9%80%9a%e8%bf%87-dropwatch%e6%9d%a5%e6%9f%a5%e7%9c%8b%e4%b8%a2%e5%8c%85%e7%82%b9" class="header-mark"></a>通过 dropwatch来查看丢包点</h2><p>dropwatch -l kas (-l 加载符号表） // 丢包点位置等于 ip_rcv地址+ cf(偏移量）</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/04283745fd082003e5f77e78a55e0d67.png   alt="image.png"  ></p>
+<p>一个典型的接收包调用堆栈：</p>
+<pre><code> 0xffffffff8157af10 : tcp_may_send_now+0x0/0x160 [kernel]
+ 0xffffffff815765f8 : tcp_fastretrans_alert+0x868/0xb50 [kernel]
+ 0xffffffff8157729d : tcp_ack+0x8bd/0x12c0 [kernel]
+ 0xffffffff81578295 : tcp_rcv_established+0x1d5/0x750 [kernel]
+ 0xffffffff81582bca : tcp_v4_do_rcv+0x10a/0x340 [kernel]
+ 0xffffffff81584411 : tcp_v4_rcv+0x831/0x9f0 [kernel]
+ 0xffffffff8155e114 : ip_local_deliver_finish+0xb4/0x1f0 [kernel]
+ 0xffffffff8155e3f9 : ip_local_deliver+0x59/0xd0 [kernel]
+ 0xffffffff8155dd8d : ip_rcv_finish+0x7d/0x350 [kernel]
+ 0xffffffff8155e726 : ip_rcv+0x2b6/0x410 [kernel]
+ 0xffffffff81522d42 : __netif_receive_skb_core+0x582/0x7d0 [kernel]
+ 0xffffffff81522fa8 : __netif_receive_skb+0x18/0x60 [kernel]
+ 0xffffffff81523c7e : process_backlog+0xae/0x180 [kernel]
+ 0xffffffff81523462 : net_rx_action+0x152/0x240 [kernel]
+ 0xffffffff8107dfff : __do_softirq+0xef/0x280 [kernel]
+ 0xffffffff8163f61c : call_softirq+0x1c/0x30 [kernel]
+ 0xffffffff81016fc5 : do_softirq+0x65/0xa0 [kernel]
+ 0xffffffff8107d254 : local_bh_enable_ip+0x94/0xa0 [kernel]
+ 0xffffffff81634f4b : _raw_spin_unlock_bh+0x1b/0x40 [kernel]
+ 0xffffffff8150d968 : release_sock+0x118/0x170 [kernel]
+</code></pre>
+<h2 id="如果客户端建立连接的时候抛异常可能的原因握手失败建不上连接" class="headerLink">
+    <a href="#%e5%a6%82%e6%9e%9c%e5%ae%a2%e6%88%b7%e7%ab%af%e5%bb%ba%e7%ab%8b%e8%bf%9e%e6%8e%a5%e7%9a%84%e6%97%b6%e5%80%99%e6%8a%9b%e5%bc%82%e5%b8%b8%e5%8f%af%e8%83%bd%e7%9a%84%e5%8e%9f%e5%9b%a0%e6%8f%a1%e6%89%8b%e5%a4%b1%e8%b4%a5%e5%bb%ba%e4%b8%8d%e4%b8%8a%e8%bf%9e%e6%8e%a5" class="header-mark"></a>如果客户端建立连接的时候抛异常，可能的原因（握手失败，建不上连接）：</h2><ul>
+<li>网络不通，诊断：ping ip</li>
+<li>端口不通,  诊断：telnet ip port</li>
+<li>rp_filter 命中(rp_filter=1, 多网卡环境）， 诊断:  netstat -s | grep -i filter ;</li>
+<li>snat/dnat的时候宿主机port冲突，内核会扔掉 syn包。 troubleshooting: sudo conntrack -S | grep  insert_failed //有不为0的</li>
+<li>全连接队列满的情况，诊断： netstat -s | egrep &ldquo;listen|LISTEN&rdquo;</li>
+<li>syn flood攻击, 诊断：同上</li>
+<li>若远端服务器的内核参数 net.ipv4.tcp_tw_recycle 和 net.ipv4.tcp_timestamps 的值都为 1，则远端服务器会检查每一个报文中的时间戳（Timestamp），若 Timestamp 不是递增的关系，不会响应这个报文。配置 NAT 后，远端服务器看到来自不同的客户端的源 IP 相同，但 NAT 前每一台客户端的时间可能会有偏差，报文中的 Timestamp 就不是递增的情况。nat后的连接，开启timestamp。因为快速回收time_wait的需要，会校验时间该ip上次tcp通讯的timestamp大于本次tcp(nat后的不同机器经过nat后ip一样，保证不了timestamp递增），诊断：是否有nat和是否开启了timestamps</li>
+<li>NAT 哈希表满导致 ECS 实例丢包 nf_conntrack full</li>
+</ul>
+<h2 id="iptables和tcpdump" class="headerLink">
+    <a href="#iptables%e5%92%8ctcpdump" class="header-mark"></a>iptables和tcpdump</h2><blockquote>
+  <p>sudo iptables -A INPUT -p tcp &ndash;destination-port 8089 -j DROP</p>
+
+</blockquote><p>tcpdump 是直接从网卡驱动拿包，也就是包还没进入内核tcpdump就拿到了，而iptables是工作在内核层，也就是即使被DROP还是能tcpdump到8089的packet。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料：</h2><p><a href="https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&amp;mid=2651747704&amp;idx=3&amp;sn=cd76ad912729a125fd56710cb42792ba&amp;chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&amp;mpshare=1&amp;scene=1&amp;srcid=07047U4tN9Y3m97WQUJSLENt#rd" target="_blank" rel="noopener noreferrer">https://mp.weixin.qq.com/s?__biz=MjM5NjQ5MTI5OA==&mid=2651747704&idx=3&sn=cd76ad912729a125fd56710cb42792ba&chksm=bd12ac358a6525235f51e3937d99ea113ed45542c51bc58bb9588fa1198f34d95b7d13ae1ae2&mpshare=1&scene=1&srcid=07047U4tN9Y3m97WQUJSLENt#rd</a></p>
+<p><a href="http://blog.hyfather.com/blog/2013/03/04/ifconfig/" target="_blank" rel="noopener noreferrer">http://blog.hyfather.com/blog/2013/03/04/ifconfig/</a></p>
+]]></description>
+</item></channel>
+</rss>

@@ -1,0 +1,45 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Timer(keepalive) - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/timerkeepalive/</link>
+        <description>Timer(keepalive) - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Sun, 21 Apr 2019 17:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/timerkeepalive/" rel="self" type="application/rss+xml" /><item>
+    <title>netstat定位性能案例</title>
+    <link>http://localhost:1313/posts/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/</link>
+    <pubDate>Sun, 21 Apr 2019 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/</guid>
+    <description><![CDATA[<h1 id="netstat定位性能案例" class="headerLink">
+    <a href="#netstat%e5%ae%9a%e4%bd%8d%e6%80%a7%e8%83%bd%e6%a1%88%e4%be%8b" class="header-mark"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/" rel="">ss用法见这里</a></p>
+<p>下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了）</p>
+<h2 id="netstat-命令" class="headerLink">
+    <a href="#netstat-%e5%91%bd%e4%bb%a4" class="header-mark"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p>netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="recv-q-和-send-q-的说明" class="headerLink">
+    <a href="#recv-q-%e5%92%8c-send-q-%e7%9a%84%e8%af%b4%e6%98%8e" class="header-mark"></a>Recv-Q 和 Send-Q 的说明</h3><blockquote>
+  <p>Recv-Q
+Established: The count of bytes not copied by the user program connected to this socket.
+Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</p>
+<p>Send-Q
+Established: The count of bytes not acknowledged by the remote host.
+Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog.</p>
+
+</blockquote><h2 id="通过-netstat-发现问题的案例" class="headerLink">
+    <a href="#%e9%80%9a%e8%bf%87-netstat-%e5%8f%91%e7%8e%b0%e9%97%ae%e9%a2%98%e7%9a%84%e6%a1%88%e4%be%8b" class="header-mark"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢比如如下netstat--t-看到的recv-q有大量数据堆积那么一般是cpu处理不过来导致的" class="headerLink">
+    <a href="#%e8%87%aa%e8%ba%ab%e5%a4%aa%e6%85%a2%e6%af%94%e5%a6%82%e5%a6%82%e4%b8%8bnetstat--t-%e7%9c%8b%e5%88%b0%e7%9a%84recv-q%e6%9c%89%e5%a4%a7%e9%87%8f%e6%95%b0%e6%8d%ae%e5%a0%86%e7%a7%af%e9%82%a3%e4%b9%88%e4%b8%80%e8%88%ac%e6%98%afcpu%e5%a4%84%e7%90%86%e4%b8%8d%e8%bf%87%e6%9d%a5%e5%af%bc%e8%87%b4%e7%9a%84" class="header-mark"></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/77ed9ba81f70f7940546f0a22dabf010.png   alt="image.png"  ></p>
+<h4 id="下面的case是接收方太慢从应用机器的netstat统计来看也是client端回复太慢本机listen-9108端口" class="headerLink">
+    <a href="#%e4%b8%8b%e9%9d%a2%e7%9a%84case%e6%98%af%e6%8e%a5%e6%94%b6%e6%96%b9%e5%a4%aa%e6%85%a2%e4%bb%8e%e5%ba%94%e7%94%a8%e6%9c%ba%e5%99%a8%e7%9a%84netstat%e7%bb%9f%e8%ae%a1%e6%9d%a5%e7%9c%8b%e4%b9%9f%e6%98%afclient%e7%ab%af%e5%9b%9e%e5%a4%8d%e5%a4%aa%e6%85%a2%e6%9c%ac%e6%9c%balisten-9108%e7%ab%af%e5%8f%a3" class="header-mark"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><!-- raw HTML omitted -->
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat--s-统计数据" class="headerLink">
+    <a href="#netstat--s-%e7%bb%9f%e8%ae%a1%e6%95%b0%e6%8d%ae" class="header-mark"></a>netstat -s 统计数据</h2><p>所有统计信息基本都有</p>
+]]></description>
+</item></channel>
+</rss>

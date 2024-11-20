@@ -1,0 +1,410 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>IP - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/ip/</link>
+        <description>IP - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Mon, 07 May 2018 12:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/ip/" rel="self" type="application/rss+xml" /><item>
+    <title>通过案例来理解MSS、MTU等相关TCP概念</title>
+    <link>http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0mssmtu/</link>
+    <pubDate>Mon, 07 May 2018 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0mssmtu/</guid>
+    <description><![CDATA[<h1 id="就是要你懂tcp--通过案例来学习mssmtu" class="headerLink">
+    <a href="#%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82tcp--%e9%80%9a%e8%bf%87%e6%a1%88%e4%be%8b%e6%9d%a5%e5%ad%a6%e4%b9%a0mssmtu" class="header-mark"></a>就是要你懂TCP&ndash;通过案例来学习MSS、MTU</h1><h2 id="问题的描述" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e7%9a%84%e6%8f%8f%e8%bf%b0" class="header-mark"></a>问题的描述</h2><ul>
+<li>最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题）</li>
+<li>发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现）</li>
+<li>手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了</li>
+<li>尝试单独scp这个文件依然卡死</li>
+<li>在这个容器上scp其它文件没问题(小文件)</li>
+<li>换一个容器scp这个文件没问题</li>
+</ul>
+<h2 id="分析过程" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90%e8%bf%87%e7%a8%8b" class="header-mark"></a>分析过程</h2><blockquote>
+  <p>实在很难理解为什么单单这个文件在这个容器上scp就卡死了，既然scp网络传输卡死，那么就同时在两个容器上tcpdump抓包，想看看为什么传不动了</p>
+
+</blockquote><h4 id="在客户端抓包如下33端口是服务端的sshd端口101611108是客户端ip" class="headerLink">
+    <a href="#%e5%9c%a8%e5%ae%a2%e6%88%b7%e7%ab%af%e6%8a%93%e5%8c%85%e5%a6%82%e4%b8%8b33%e7%ab%af%e5%8f%a3%e6%98%af%e6%9c%8d%e5%8a%a1%e7%ab%af%e7%9a%84sshd%e7%ab%af%e5%8f%a3101611108%e6%98%af%e5%ae%a2%e6%88%b7%e7%ab%afip" class="header-mark"></a>在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</h4><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506090810608.png   alt="image-20240506090810608"  ></p>
+<h4 id="从抓包中可以得到这样一些结论" class="headerLink">
+    <a href="#%e4%bb%8e%e6%8a%93%e5%8c%85%e4%b8%ad%e5%8f%af%e4%bb%a5%e5%be%97%e5%88%b0%e8%bf%99%e6%a0%b7%e4%b8%80%e4%ba%9b%e7%bb%93%e8%ae%ba" class="header-mark"></a>从抓包中可以得到这样一些结论：</h4><ul>
+<li>从抓包中可以明显知道scp之所以卡死是因为丢包了，客户端一直在重传，图中绿框</li>
+<li>图中篮框显示时间间隔，时间都是花在在丢包重传等待的过程</li>
+<li>奇怪的问题是图中橙色框中看到的，网络这时候是联通的，客户端跟服务端在这个会话中依然有些包能顺利到达（Keep-Alive包）</li>
+<li>同时注意到重传的包长是1442，包比较大了，看了一下tcp建立连接的时候MSS是1500，应该没有问题</li>
+<li>查看了scp的两个容器的网卡mtu都是1500，正常</li>
+</ul>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了</span></span></code></pre>
+</div>
+<h2 id="接下来分析网络传输链路" class="headerLink">
+    <a href="#%e6%8e%a5%e4%b8%8b%e6%9d%a5%e5%88%86%e6%9e%90%e7%bd%91%e7%bb%9c%e4%bc%a0%e8%be%93%e9%93%be%e8%b7%af" class="header-mark"></a>接下来分析网络传输链路</h2><h4 id="scp传输的时候实际路由大概是这样的" class="headerLink">
+    <a href="#scp%e4%bc%a0%e8%be%93%e7%9a%84%e6%97%b6%e5%80%99%e5%ae%9e%e9%99%85%e8%b7%af%e7%94%b1%e5%a4%a7%e6%a6%82%e6%98%af%e8%bf%99%e6%a0%b7%e7%9a%84" class="header-mark"></a>scp传输的时候实际路由大概是这样的</h4><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">  容器A---&gt; 宿主机1 ---&gt; ……中间的路由设备 …… ---&gt; 宿主机2 ---&gt; 容器B  </span></span></code></pre>
+</div>
+<ul>
+<li>前面提过其它容器scp同一个文件到容器B没问题，所以我认为中间的路由设备没问题，问题出在两台宿主机上</li>
+<li>在宿主机1上抓包发现抓不到丢失的那个长度为 1442 的包，也就是问题出在了  容器A&mdash;&gt; 宿主机1 上</li>
+</ul>
+<h2 id="查看宿主机1的dmesg看到了这样一些信息" class="headerLink">
+    <a href="#%e6%9f%a5%e7%9c%8b%e5%ae%bf%e4%b8%bb%e6%9c%ba1%e7%9a%84dmesg%e7%9c%8b%e5%88%b0%e4%ba%86%e8%bf%99%e6%a0%b7%e4%b8%80%e4%ba%9b%e4%bf%a1%e6%81%af" class="header-mark"></a>查看宿主机1的dmesg看到了这样一些信息</h2><pre><code>2016-08-08T08:15:27.125951+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+2016-08-08T08:15:27.536517+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+</code></pre>
+<h2 id="验证方法" class="headerLink">
+    <a href="#%e9%aa%8c%e8%af%81%e6%96%b9%e6%b3%95" class="header-mark"></a>验证方法</h2><blockquote>
+  <p>-D      Set the Don&rsquo;t Fragment bit.
+-s packetsize
+Specify the number of data bytes to be sent.  The default is 56, which translates into 64
+ICMP data bytes when combined with the 8 bytes of ICMP header data.  This option cannot be
+used with ping sweeps.</p>
+
+</blockquote><p>ping 测试</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="err">✘</span> <span class="n">ren</span><span class="err">@</span><span class="n">mac</span> <span class="err"></span> <span class="o">~/</span><span class="n">Downloads</span> <span class="err"></span> <span class="n">ping</span> <span class="o">-</span><span class="n">c</span> <span class="mi">1</span> <span class="o">-</span><span class="n">D</span> <span class="o">-</span><span class="n">s</span> <span class="mi">1500</span> <span class="n">www</span><span class="o">.</span><span class="n">baidu</span><span class="o">.</span><span class="n">com</span>
+</span></span><span class="line"><span class="cl"><span class="n">PING</span> <span class="n">www</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">shifen</span><span class="o">.</span><span class="n">com</span> <span class="p">(</span><span class="mf">110.242</span><span class="o">.</span><span class="mf">68.4</span><span class="p">):</span> <span class="mi">1500</span> <span class="n">data</span> <span class="n">bytes</span>
+</span></span><span class="line"><span class="cl"><span class="n">ping</span><span class="p">:</span> <span class="n">sendto</span><span class="p">:</span> <span class="n">Message</span> <span class="n">too</span> <span class="n">long</span>
+</span></span><span class="line"><span class="cl"><span class="o">^</span><span class="n">C</span>
+</span></span><span class="line"><span class="cl"><span class="o">---</span> <span class="n">www</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">shifen</span><span class="o">.</span><span class="n">com</span> <span class="n">ping</span> <span class="n">statistics</span> <span class="o">---</span>
+</span></span><span class="line"><span class="cl"><span class="mi">1</span> <span class="n">packets</span> <span class="n">transmitted</span><span class="p">,</span> <span class="mi">0</span> <span class="n">packets</span> <span class="n">received</span><span class="p">,</span> <span class="mf">100.0</span><span class="o">%</span> <span class="n">packet</span> <span class="n">loss</span>
+</span></span><span class="line"><span class="cl"> <span class="err">✘</span> <span class="n">ren</span><span class="err">@</span><span class="n">mac</span> <span class="err"></span> <span class="o">~/</span><span class="n">Downloads</span> <span class="err"></span> <span class="n">ping</span> <span class="o">-</span><span class="n">c</span> <span class="mi">1</span> <span class="o">-</span><span class="n">D</span> <span class="o">-</span><span class="n">s</span> <span class="mi">1400</span> <span class="n">www</span><span class="o">.</span><span class="n">baidu</span><span class="o">.</span><span class="n">com</span>
+</span></span><span class="line"><span class="cl"><span class="n">PING</span> <span class="n">www</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">shifen</span><span class="o">.</span><span class="n">com</span> <span class="p">(</span><span class="mf">110.242</span><span class="o">.</span><span class="mf">68.4</span><span class="p">):</span> <span class="mi">1400</span> <span class="n">data</span> <span class="n">bytes</span>
+</span></span><span class="line"><span class="cl"><span class="mi">1408</span> <span class="n">bytes</span> <span class="n">from</span> <span class="mf">110.242</span><span class="o">.</span><span class="mf">68.4</span><span class="p">:</span> <span class="n">icmp_seq</span><span class="o">=</span><span class="mi">0</span> <span class="n">ttl</span><span class="o">=</span><span class="mi">49</span> <span class="n">time</span><span class="o">=</span><span class="mf">21.180</span> <span class="n">ms</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="o">---</span> <span class="n">www</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">shifen</span><span class="o">.</span><span class="n">com</span> <span class="n">ping</span> <span class="n">statistics</span> <span class="o">---</span>
+</span></span><span class="line"><span class="cl"><span class="mi">1</span> <span class="n">packets</span> <span class="n">transmitted</span><span class="p">,</span> <span class="mi">1</span> <span class="n">packets</span> <span class="n">received</span><span class="p">,</span> <span class="mf">0.0</span><span class="o">%</span> <span class="n">packet</span> <span class="n">loss</span>
+</span></span><span class="line"><span class="cl"><span class="nb">round</span><span class="o">-</span><span class="n">trip</span> <span class="nb">min</span><span class="o">/</span><span class="n">avg</span><span class="o">/</span><span class="nb">max</span><span class="o">/</span><span class="n">stddev</span> <span class="o">=</span> <span class="mf">21.180</span><span class="o">/</span><span class="mf">21.180</span><span class="o">/</span><span class="mf">21.180</span><span class="o">/</span><span class="mf">0.000</span> <span class="n">ms</span>
+</span></span><span class="line"><span class="cl"> <span class="n">ren</span><span class="err">@</span><span class="n">mac</span> <span class="err"></span> <span class="o">~/</span><span class="n">Downloads</span> <span class="err"></span></span></span></code></pre>
+</div>
+<h2 id="一些结论" class="headerLink">
+    <a href="#%e4%b8%80%e4%ba%9b%e7%bb%93%e8%ae%ba" class="header-mark"></a>一些结论</h2><p><strong>到这里问题已经很明确了 openvswitch 收到了 一个1428大小的包因为比mtu1400要大，所以扔掉了，接着查看宿主机1的网卡mtu设置果然是1400，悲催，马上修改mtu到1500，问题解决。</strong></p>
+<p>正常分片是ip层来操作，路由器工作在3层，有分片能力，从容器到宿主机走的是bridge，没有进行分片，或者是因为收到这个IP包的时候里面带了 Don&rsquo;t Fragment标志，路由器就不进行分片了，那为什么IP包要带这个标志呢？当然是为了有更好的性能，都经过TCP握手协商出了一个MSS，就不要再进行分片了。</p>
+<p>当然这里TCP协商MSS的时候应该经过 <a href="http://en.wikipedia.org/wiki/Path_MTU_Discovery" target="_blank" rel="noopener noreferrer">PMTUD（ This process is called &ldquo;Path MTU discovery&rdquo;.）</a> 来确认整个路由上的所有最小MTU，但是有些路由器会因为安全的原因过滤掉ICMP，导致PMTUD不可靠，所以这里的PMTUD形同虚设，比如在我们的三次握手中会协商一个MSS，这只是基于Client和Server两方的MTU来确定的，链路上如果还有比Client和Server的MTU更小的那么就会出现包超过MTU的大小，同时设置了DF标志而不再进行分片被丢掉。</p>
+<p>centos或者ubuntu下：</p>
+<pre><code>$cat /proc/sys/net/ipv4/tcp_mtu_probing //1 表示开启路径mtu检测
+0
+
+$sudo sysctl -a |grep -i pmtu
+net.ipv4.ip_forward_use_pmtu = 0
+net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
+net.ipv4.route.min_pmtu = 552
+</code></pre>
+<p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="noopener noreferrer">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
+<p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="noopener noreferrer">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/23df36d95295c839722627b5d63bac48.png   alt="image.png"  ></p>
+<p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221125133218008.png   alt="image-20221125133218008"  ></p>
+<p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
+<p>这个ICMP包在链路上有可能会被丢掉，比如：</p>
+<p>Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。
+简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><ul>
+<li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
+<li>通过这个案例对mtu/mss等有了进一步的了解</li>
+<li>从这个案例也理解了vlan模式下容器、宿主机、交换机之间的网络传输链路</li>
+<li>其实抓包还发现了比1500大得多的包顺利通过，反而更小的包无法通过，这是因为网卡基本都有拆包的功能了</li>
+<li>设置由<a href="https://sysctl-explorer.net/net/ipv4/ip_no_pmtu_disc/" target="_blank" rel="noopener noreferrer">系统主动允许分片的参数</a> sysctl -w net.ipv4.ip_no_pmtu_disc=1  可以解决这种问题</li>
+</ul>
+<h2 id="常见问题" class="headerLink">
+    <a href="#%e5%b8%b8%e8%a7%81%e9%97%ae%e9%a2%98" class="header-mark"></a>常见问题</h2><p>Q: 传输的包超过MTU后表现出来的症状？
+A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。</p>
+<p>Q: mtu 如何配置
+ifconfig eth1 mtu 9000 up
+vi /etc/sysconfig/network-scripts/ifcfg-eth0</p>
+<p>Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？
+A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。</p>
+<p>Q: 到哪里可以设置MSS</p>
+<p>A: 网卡配置&ndash;ifconfig；ip route在路由上指定；iptables中限制</p>
+<blockquote>
+  <p># Add rules
+$ sudo iptables -I OUTPUT -p tcp -m tcp &ndash;tcp-flags SYN,RST SYN -j TCPMSS &ndash;set-mss 48
+# delete rules
+$ sudo iptables -D OUTPUT -p tcp -m tcp &ndash;tcp-flags SYN,RST SYN -j TCPMSS &ndash;set-mss 48</p>
+<p># show router information
+$ route -ne
+$ ip route show
+192.168.11.0/24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100
+# modify route table
+$ sudo ip route change 192.168.11.0/24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100 advmss 48</p>
+
+</blockquote>]]></description>
+</item></channel>
+</rss>

@@ -1,0 +1,625 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Troubleshooting - 分类 - plantegg</title>
+        <link>http://localhost:1313/categories/troubleshooting/</link>
+        <description>Troubleshooting - 分类 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Mon, 26 Nov 2018 16:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/categories/troubleshooting/" rel="self" type="application/rss+xml" /><item>
+    <title>一个没有遵守tcp规则导致的问题</title>
+    <link>http://localhost:1313/posts/%E4%B8%80%E4%B8%AA%E6%B2%A1%E6%9C%89%E9%81%B5%E5%AE%88tcp%E8%A7%84%E5%88%99%E5%AF%BC%E8%87%B4%E7%9A%84%E9%97%AE%E9%A2%98/</link>
+    <pubDate>Mon, 26 Nov 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%B8%80%E4%B8%AA%E6%B2%A1%E6%9C%89%E9%81%B5%E5%AE%88tcp%E8%A7%84%E5%88%99%E5%AF%BC%E8%87%B4%E7%9A%84%E9%97%AE%E9%A2%98/</guid>
+    <description><![CDATA[<h1 id="一个没有遵守tcp规则导致的问题" class="headerLink">
+    <a href="#%e4%b8%80%e4%b8%aa%e6%b2%a1%e6%9c%89%e9%81%b5%e5%ae%88tcp%e8%a7%84%e5%88%99%e5%af%bc%e8%87%b4%e7%9a%84%e9%97%ae%e9%a2%98" class="header-mark"></a>一个没有遵守tcp规则导致的问题</h1><h3 id="问题描述" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e6%8f%8f%e8%bf%b0" class="header-mark"></a>问题描述</h3><p>应用连接数据库一段时间后，执行SQL的时候总是抛出异常，通过抓包分析发现每次发送SQL给数据的时候，数据库总是Reset这个连接</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/3ea1a415f772af24d8f619a38542eb7e.png   alt="image.png"  ></p>
+<p>注意图中34号包，server（5029）发了一个fin包给client ，想要断开连接。client没断开，接着发了一个查询SQL给server。</p>
+<p>进一步分析所有断开连接（发送第一个fin包）的时间点，得到如图：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/0ac00bfe8dcf87fa5c4997c89a16eb59.png   alt="image.png"  ></p>
+<p>基本上可以猜测，server（5029端口）在建立连接100秒终止后如果没有任何请求过来就主动发送fin包给client，要断开连接，但是这个时候client比较无耻，收到端口请求后没搭理（除非是故意的），这个时候意味着server准备好关闭了，也不会再给client发送数据了（ack除外）。</p>
+<p>但是client虽然收到了fin断开连接的请求不但不理，过一会还不识时务发SQL查询给server，server一看不懂了（server早就申明连接关闭，没法发数据给client了），就只能回复reset，强制告诉client断开连接吧，client这时才迫于无奈断开了这次连接（图一绿框）</p>
+<p>client的应用代码层肯定会抛出异常。</p>
+<h3 id="server强行断开连接" class="headerLink">
+    <a href="#server%e5%bc%ba%e8%a1%8c%e6%96%ad%e5%bc%80%e8%bf%9e%e6%8e%a5" class="header-mark"></a>server强行断开连接</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/eca804fbb71e9cdfb033a9c072d8b72d.png   alt="image.png"  ></p>
+<p>18745号包，client发了一个查询SQL给server，server先是回复ack 18941号包，然后回复fin 19604号包，强行断开连接，client端只能抛异常了</p>
+]]></description>
+</item><item>
+    <title>Load很高，CPU使用率很低</title>
+    <link>http://localhost:1313/posts/high_load/</link>
+    <pubDate>Wed, 26 Sep 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/high_load/</guid>
+    <description><![CDATA[<h1 id="load很高cpu使用率很低" class="headerLink">
+    <a href="#load%e5%be%88%e9%ab%98cpu%e4%bd%bf%e7%94%a8%e7%8e%87%e5%be%88%e4%bd%8e" class="header-mark"></a>Load很高，CPU使用率很低</h1><blockquote>
+  <p>第一次碰到这种Case：物理机的Load很高，CPU使用率很低</p>
+
+</blockquote><h3 id="先看cpuload情况" class="headerLink">
+    <a href="#%e5%85%88%e7%9c%8bcpuload%e6%83%85%e5%86%b5" class="header-mark"></a>先看CPU、Load情况</h3><p>如图一：
+vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，但是CPU idle 95%以上
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/046077102b3a0fd89e53f62cf32874c0.png   alt="image.png"  >
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d905abc4576e0c6ac952c71005696131.png   alt="image.png"  ></p>
+<p>这个现象不太合乎常规，也许是在等磁盘IO、也许在等网络返回会导致CPU利用率很低而Load很高</p>
+<p>贴个vmstat 说明文档（图片来源于网络N年了，找不到出处）
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/9a0c040b24699d4128bbecae1af08b1d.png   alt="image.png"  ></p>
+<h3 id="检查磁盘状态很正常vmstat-第二列也一直为0" class="headerLink">
+    <a href="#%e6%a3%80%e6%9f%a5%e7%a3%81%e7%9b%98%e7%8a%b6%e6%80%81%e5%be%88%e6%ad%a3%e5%b8%b8vmstat-%e7%ac%ac%e4%ba%8c%e5%88%97%e4%b9%9f%e4%b8%80%e7%9b%b4%e4%b8%ba0" class="header-mark"></a>检查磁盘状态，很正常（vmstat 第二列也一直为0）</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/19d7d02c9472ddb2b057a4d09b497463.png   alt="image.png"  ></p>
+<h3 id="再看load是在5号下午1550突然飙起来的" class="headerLink">
+    <a href="#%e5%86%8d%e7%9c%8bload%e6%98%af%e5%9c%a85%e5%8f%b7%e4%b8%8b%e5%8d%881550%e7%aa%81%e7%84%b6%e9%a3%99%e8%b5%b7%e6%9d%a5%e7%9a%84" class="header-mark"></a>再看Load是在5号下午15：50突然飙起来的：</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/71127256e8e33a716770f74cb563a1b6.png   alt="image.png"  ></p>
+<h3 id="同一时间段的网络流量tcp连接相关数据很平稳" class="headerLink">
+    <a href="#%e5%90%8c%e4%b8%80%e6%97%b6%e9%97%b4%e6%ae%b5%e7%9a%84%e7%bd%91%e7%bb%9c%e6%b5%81%e9%87%8ftcp%e8%bf%9e%e6%8e%a5%e7%9b%b8%e5%85%b3%e6%95%b0%e6%8d%ae%e5%be%88%e5%b9%b3%e7%a8%b3" class="header-mark"></a>同一时间段的网络流量、TCP连接相关数据很平稳：</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/8f7ff0bf2f313409f521f6863f2375aa.png   alt="image.png"  ></p>
+<p>所以分析到此，可以得出：<strong>Load高跟磁盘、网络、压力都没啥关系</strong></p>
+<h3 id="物理机上是跑的docker分析了一下cpuset情况" class="headerLink">
+    <a href="#%e7%89%a9%e7%90%86%e6%9c%ba%e4%b8%8a%e6%98%af%e8%b7%91%e7%9a%84docker%e5%88%86%e6%9e%90%e4%ba%86%e4%b8%80%e4%b8%8bcpuset%e6%83%85%e5%86%b5" class="header-mark"></a>物理机上是跑的Docker，分析了一下CPUSet情况：</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/e7996a82da2c140594835e3264c6ef4b.png   alt="image.png"  ></p>
+<p><strong>发现基本上所有容器都绑定在CPU1上（感谢 @辺客 发现这个问题）</strong></p>
+<h3 id="进而检查top每个核的状态果然cpu1-的idle一直为0" class="headerLink">
+    <a href="#%e8%bf%9b%e8%80%8c%e6%a3%80%e6%9f%a5top%e6%af%8f%e4%b8%aa%e6%a0%b8%e7%9a%84%e7%8a%b6%e6%80%81%e6%9e%9c%e7%84%b6cpu1-%e7%9a%84idle%e4%b8%80%e7%9b%b4%e4%b8%ba0" class="header-mark"></a>进而检查top每个核的状态，果然CPU1 的idle一直为0</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/2b32adb2071b3fdb334e0735db899a2e.png   alt="image.png"  ></p>
+<p>看到这里大致明白了，虽然CPU整体很闲但是因为很多进程都绑定在CPU1上，导致CPU1上排队很长，看前面tsar的&ndash;load负载截图的 等待运行进程排队长度（runq）确实也很长。</p>
+<blockquote>
+  <p>物理机有32个核，如果100个任务同时进来，Load大概是3，这是正常的。如果这100个任务都跑在CPU1上，Load还是3（因为Load是所有核的平均值）。但是如果有源源不断的100个任务进来，前面100个还没完后面又来了100个，这个时候CPU1前面队列很长，其它31个核没事做，这个时候整体Load就是6了，时间一长很快Load就能到几百。</p>
+<p>这是典型的瓶颈导致积压进而高Load。</p>
+
+</blockquote><h3 id="为什么会出现这种情况" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e4%bc%9a%e5%87%ba%e7%8e%b0%e8%bf%99%e7%a7%8d%e6%83%85%e5%86%b5" class="header-mark"></a>为什么会出现这种情况</h3><p>检查Docker系统日志，发现同一时间点所有物理机同时批量执行docker update 把几百个容器都绑定到CPU1上，导致这个核忙死了，其它核闲得要死（所以看到整体CPU不忙，最忙的那个核被平均掩盖掉了），但是Load高（CPU1上排队太长，即使平均到32个核，这个队列还是长，这就是瓶颈啊）。</p>
+<p>如下Docker日志，Load飙升的那个时间点有人批量调docker update 把所有容器都绑定到CPU1上：
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/f4925c698c9fd4edb56fcfc2ebb9f625.png   alt="image.png"  ></p>
+<p>检查Docker集群Swarm的日志，发现Swarm没有发起这样的update操作，似乎是每个Docker Daemon自己的行为，谁触发了这个CPU的绑定过程的原因还没找到，求指点。</p>
+<h3 id="手动执行docker-update-把容器打散到不同的cpu核上恢复正常" class="headerLink">
+    <a href="#%e6%89%8b%e5%8a%a8%e6%89%a7%e8%a1%8cdocker-update-%e6%8a%8a%e5%ae%b9%e5%99%a8%e6%89%93%e6%95%a3%e5%88%b0%e4%b8%8d%e5%90%8c%e7%9a%84cpu%e6%a0%b8%e4%b8%8a%e6%81%a2%e5%a4%8d%e6%ad%a3%e5%b8%b8" class="header-mark"></a>手动执行docker update, 把容器打散到不同的cpu核上，恢复正常：</h3><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/9e1adae472cf0b4f95af83390adaead9.png   alt="image.png"  ></p>
+<h2 id="关于这个case的总结" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8e%e8%bf%99%e4%b8%aacase%e7%9a%84%e6%80%bb%e7%bb%93" class="header-mark"></a>关于这个Case的总结</h2><ul>
+<li>技术拓展商业边界，同样技能、熟练能力能拓展解决问题的能力。 开始我注意到了Swarm集群显示的CPU绑定过多，同时也发现有些容器绑定在CPU1上。所以我尝试通过API： GET /containers/json 拿到了所有容器的参数，然后搜索里面的CPUSet，结果这个API返回来的参数不包含CPUSet，那我只能挨个 GET /containers/id/json, 要写个循环，偷懒没写，所以没发现这个问题。</li>
+<li>这种多个进程绑定到同一个核然后导致Load过高的情况确实很少见，也算是个教训</li>
+<li>自己观察top 单核的时候不够仔细，只是看到CPU1 的US 60%，没留意idle，同时以为这个60%就是偶尔一个进程在跑，耐心不够（主要也是没意识到这种极端情况，疏忽了）</li>
+</ul>
+<h2 id="关于load高的总结" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8eload%e9%ab%98%e7%9a%84%e6%80%bb%e7%bb%93" class="header-mark"></a>关于Load高的总结</h2><ul>
+<li>Load高一般对应着CPU高，就是CPU负载过大，检查CPU具体执行任务是否合理</li>
+<li>如果Load高，CPU使用率不高的检查一下IO、网络等是否比较慢</li>
+<li>如果是虚拟机，检查是否物理机超卖或者物理机其它ECS抢占CPU、IO导致的</li>
+<li>如果两台一样的机器一样的流量，Load有一台偏高的话检查硬件信息，比如CPU被降频了，QPI，内存效率等等（https://www.atatech.org/articles/12201），这个时候可能需要硬件相关同学加入一起排查了，当然牛逼的工程师能把这块也Cover了排查效率自然更高</li>
+<li>load计算是看TASK_RUNNING(R)或者TASK_UNINTERRUPTIBLE(D&ndash;不可中断的睡眠进程)的数量，R肯定会占用CPU，但是D一般就不占用CPU了</li>
+</ul>
+<p>Linux 下load 高主要是因为<a href="http://oliveryang.net/2017/12/linux-high-loadavg-analysis-1" target="_blank" rel="noopener noreferrer">R/D 两个状态的线程多了</a>，排查套路：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/format,webp-1273209.   alt="img"  ></p>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章</h2><p><a href="http://oliveryang.net/2017/12/linux-high-loadavg-analysis-1" target="_blank" rel="noopener noreferrer">浅谈 Linux 高负载的系统化分析</a></p>
+]]></description>
+</item><item>
+    <title>部分机器网络不通</title>
+    <link>http://localhost:1313/posts/%E4%BC%98%E9%85%B7%E4%B8%80%E5%8F%B0%E5%BA%94%E7%94%A8%E6%9C%8D%E5%8A%A1%E5%99%A8%E6%97%A0%E6%B3%95%E8%AE%BF%E9%97%AE%E9%83%A8%E5%88%86drds-server/</link>
+    <pubDate>Sun, 26 Aug 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%BC%98%E9%85%B7%E4%B8%80%E5%8F%B0%E5%BA%94%E7%94%A8%E6%9C%8D%E5%8A%A1%E5%99%A8%E6%97%A0%E6%B3%95%E8%AE%BF%E9%97%AE%E9%83%A8%E5%88%86drds-server/</guid>
+    <description><![CDATA[<h1 id="部分机器网络不通" class="headerLink">
+    <a href="#%e9%83%a8%e5%88%86%e6%9c%ba%e5%99%a8%e7%bd%91%e7%bb%9c%e4%b8%8d%e9%80%9a" class="header-mark"></a>部分机器网络不通</h1><h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15/16就不通</p>
+<p>直接ping 10.100.53.15/16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/9deff3045e3213df81c3ad785cfddefa.gif   alt="youku-mac-ip.gif"  ></p>
+<p><strong>上图是不通的IP，下图是正常IP</strong></p>
+<p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
+<h3 id="当时交换机上发现的两条记录" class="headerLink">
+    <a href="#%e5%bd%93%e6%97%b6%e4%ba%a4%e6%8d%a2%e6%9c%ba%e4%b8%8a%e5%8f%91%e7%8e%b0%e7%9a%84%e4%b8%a4%e6%9d%a1%e8%ae%b0%e5%bd%95" class="header-mark"></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
+8c:dc:d4:b3:af:14 10.100.10.201
+</code></pre>
+]]></description>
+</item><item>
+    <title>如何徒手撕Bug</title>
+    <link>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/</link>
+    <pubDate>Sat, 25 Aug 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%BE%92%E6%89%8B%E6%92%95bug/</guid>
+    <description><![CDATA[<h1 id="如何徒手撕bug" class="headerLink">
+    <a href="#%e5%a6%82%e4%bd%95%e5%be%92%e6%89%8b%e6%92%95bug" class="header-mark"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
+<p>所以不到万不得已不要碰复杂的源代码</p>
+<h2 id="问题" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98" class="header-mark"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps/exec 都没有任何响应，同时能看到很多这样的进程：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ed7f275935b32c7fd5fef3e0caf2eb0c.png   alt="image.png"  ></p>
+<p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
+<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/901fd2057fb3b32ff79dc5a29c9cdd67.png   alt="image.png"  ></p>
+<pre><code>$sudo fuser /run/xtables.lock 
+/run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
+</code></pre>
+<p>通过上面的命令基本可以看到哪些进程在等iptables这个锁，之所以有这么多进程在等这个锁，应该是拿到锁的进程执行比较慢所以导致后面的进程拿不到锁，卡在这里</p>
+<h2 id="跟踪具体拿到锁的进程" class="headerLink">
+    <a href="#%e8%b7%9f%e8%b8%aa%e5%85%b7%e4%bd%93%e6%8b%bf%e5%88%b0%e9%94%81%e7%9a%84%e8%bf%9b%e7%a8%8b" class="header-mark"></a>跟踪具体拿到锁的进程</h2><pre><code>$sudo lsof  /run/xtables.lock | grep 3rW
+iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
+</code></pre>
+<p>通过strace这个拿到锁的进程可以看到：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/27d266ab8fd492f009fb7047d9337518.png   alt="image.png"  ></p>
+<p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
+<p>看看物理机上的dns服务器配置：</p>
+<pre><code>$cat /etc/resolv.conf   
+options timeout:2 attempts:2   
+nameserver 10.0.0.1  
+nameserver 10.0.0.2
+nameserver 10.0.0.3
+</code></pre>
+<p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
+<h2 id="strace某个等锁的进程拿到锁后非常快" class="headerLink">
+    <a href="#strace%e6%9f%90%e4%b8%aa%e7%ad%89%e9%94%81%e7%9a%84%e8%bf%9b%e7%a8%8b%e6%8b%bf%e5%88%b0%e9%94%81%e5%90%8e%e9%9d%9e%e5%b8%b8%e5%bf%ab" class="header-mark"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/25ab3e2385e08e8e23eeb1309d949839.png   alt="image.png"  ></p>
+<p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
+<h2 id="strace工作原理" class="headerLink">
+    <a href="#strace%e5%b7%a5%e4%bd%9c%e5%8e%9f%e7%90%86" class="header-mark"></a>strace工作原理</h2><blockquote>
+  <p>strace -T -tt -ff -p pid -o strace.out</p>
+<p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
+
+</blockquote><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/19c681e7393bda67ab0a4d8f62f1a853.png   alt="image.png"  ></p>
+<p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
+<p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
+<p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
+<p>两个术语：</p>
+<ol>
+<li>tracer：跟踪（其他程序的）程序</li>
+<li>tracee：被跟踪程序</li>
+</ol>
+<p>tracer 跟踪 tracee 的过程：</p>
+<p>首先，<strong>attach 到 tracee 进程</strong>：调用 <code>ptrace</code>，带 <code>PTRACE_ATTACH</code> 及 tracee 进程 ID 作为参数。</p>
+<p>之后当 <strong>tracee 运行到系统调用函数时就会被内核暂停</strong>；对 tracer 来说，就像 tracee 收到了 <code>SIGTRAP</code> 信号而停下来一样。接下来 tracer 就可以查看这次系统调 用的参数，打印相关的信息。</p>
+<p>然后，<strong>恢复 tracee 执行</strong>：再次调用 <code>ptrace</code>，带 <code>PTRACE_SYSCALL</code> 和 tracee 进程 ID。 tracee 会继续运行，进入到系统调用；在退出系统调用之前，再次被内核暂停。</p>
+<p>以上“暂停-采集-恢复执行”过程不断重复，tracer 就可以获取每次系统调用的信息，打印 出参数、返回值、时间等等。</p>
+<h3 id="strace-常用用法" class="headerLink">
+    <a href="#strace-%e5%b8%b8%e7%94%a8%e7%94%a8%e6%b3%95" class="header-mark"></a>strace 常用用法</h3><ol>
+<li>
+<p>sudo strace -tt -e poll,select,connect,recvfrom,sendto nc <a href="https://www.baidu.com" target="_blank" rel="noopener noreferrer">www.baidu.com</a> 80 //网络连接不上，卡在哪里</p>
+</li>
+<li>
+<p>如何确认一个程序为什么卡住和停止在什么地方?</p>
+</li>
+</ol>
+<p>有些时候，某个进程看似不在做什么事情，也许它被停止在某个地方。</p>
+<p>$ strace -p 22067 Process 22067 attached - interrupt to quit flock(3, LOCK_EX</p>
+<p>这里我们看到，该进程在处理一个独占锁(LOCK_EX),且它的文件描述符为3,so 这是一个什么文件呢?</p>
+<p>$ readlink /proc/22067/fd/3 /tmp/foobar.lock</p>
+<p>aha, 原来是 /tmp/foobar.lock。可是为什么程序会被停止在这里呢?</p>
+<p>$ lsof | grep /tmp/foobar.lock command   21856       price    3uW     REG 253,88       0 34443743 /tmp/foobar.lock command   22067       price    3u      REG 253,88       0 34443743 /tmp/foobar.lock</p>
+<p>原来是进程 21856 hold住了锁。此时，真相大白 21856 和 22067 读到了相同的锁。</p>
+<p>strace -cp  // strace  可以按操作汇总时间</p>
+<h2 id="我的分析" class="headerLink">
+    <a href="#%e6%88%91%e7%9a%84%e5%88%86%e6%9e%90" class="header-mark"></a>我的分析</h2><p>docker启动的时候要修改每个容器的dns（iptables规则），如果这个时候又收到了dns查询，但是查询的时候dns还没配置好，所以只能等待dns默认超时，等到超时完了再往后执行修改dns动作然后释放iptables锁。这里会发生恶性循环，导致dns修改时占用iptables的时间非常长，进而看着像把物理机iptables锁死，同时docker daemon不响应任何请求。</p>
+<p>这应该是docker daemon实现上的小bug，也就是改iptables这里没加锁，如果修改dns的时候同时收到了dns查询，要是让查询等锁的话就不至于出现这种恶性循环</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>其实这个问题还是挺容易出现的，daemon重启，上面有很多容器，容器里面的任务启动的时候都要做dns解析，这个时候daemon还在修改dns，冲进来很多dns查询的话会导致修改进程变慢</p>
+<p>这也跟物理机的 /etc/resolv.conf 配置有关</p>
+<p>暂时先只留一个dns server，同时把timeout改成1秒（似乎没法改成比1秒更小），同时 attempts:1 ，也就是加快dns查询的失败，当然这会导致应用启动的时候dns解析失败，最终还是需要从docker的源代码修复这个问题。</p>
+<p>解决过程中无数次想放弃，但是反复在那里strace，正是看到了有dns和没有dns查询的两个strace才想清楚这个问题，感谢自己的坚持和很多同事的帮助，手撕的过程中必然有很多不理解的东西，需要请教同事</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/how-does-strace-work-zh/" target="_blank" rel="noopener noreferrer">strace 是如何工作的（2016）</a></p>
+]]></description>
+</item><item>
+    <title>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</title>
+    <link>http://localhost:1313/posts/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AAspringmvc-%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/</link>
+    <pubDate>Thu, 26 Jul 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AAspringmvc-%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/</guid>
+    <description><![CDATA[<h1 id="双11全链路压测中通过perf发现的一个springmvc-的性能问题" class="headerLink">
+    <a href="#%e5%8f%8c11%e5%85%a8%e9%93%be%e8%b7%af%e5%8e%8b%e6%b5%8b%e4%b8%ad%e9%80%9a%e8%bf%87perf%e5%8f%91%e7%8e%b0%e7%9a%84%e4%b8%80%e4%b8%aaspringmvc-%e7%9a%84%e6%80%a7%e8%83%bd%e9%97%ae%e9%a2%98" class="header-mark"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
+  <p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
+
+</blockquote><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b5610fa7e994b1e4578d38347a1478a7   alt="screenshot"  ></p>
+<h2 id="再来看cpu消耗的火焰图" class="headerLink">
+    <a href="#%e5%86%8d%e6%9d%a5%e7%9c%8bcpu%e6%b6%88%e8%80%97%e7%9a%84%e7%81%ab%e7%84%b0%e5%9b%be" class="header-mark"></a>再来看CPU消耗的火焰图：</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d228b47200f56fbbf5aadf0da56cbf15   alt="screenshot"  ></p>
+<p>图中CPU的消耗占21%，不太正常。</p>
+<blockquote>
+  <p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到
+@RequestMapping
+@PathVariable
+带来使用上的便利</p>
+
+</blockquote><h2 id="业务方修改代码去掉spring中的methodmapping解析后的结果性能提升了40" class="headerLink">
+    <a href="#%e4%b8%9a%e5%8a%a1%e6%96%b9%e4%bf%ae%e6%94%b9%e4%bb%a3%e7%a0%81%e5%8e%bb%e6%8e%89spring%e4%b8%ad%e7%9a%84methodmapping%e8%a7%a3%e6%9e%90%e5%90%8e%e7%9a%84%e7%bb%93%e6%9e%9c%e6%80%a7%e8%83%bd%e6%8f%90%e5%8d%87%e4%ba%8640" class="header-mark"></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/a97e6f1da93173055b1385eebba8e327.png   alt="screenshot.png"  ></p>
+<p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
+<h3 id="spring收到请求url后要取出请求变量和做业务运算具体代码对照第一个图的调用堆栈" class="headerLink">
+    <a href="#spring%e6%94%b6%e5%88%b0%e8%af%b7%e6%b1%82url%e5%90%8e%e8%a6%81%e5%8f%96%e5%87%ba%e8%af%b7%e6%b1%82%e5%8f%98%e9%87%8f%e5%92%8c%e5%81%9a%e4%b8%9a%e5%8a%a1%e8%bf%90%e7%ae%97%e5%85%b7%e4%bd%93%e4%bb%a3%e7%a0%81%e5%af%b9%e7%85%a7%e7%ac%ac%e4%b8%80%e4%b8%aa%e5%9b%be%e7%9a%84%e8%b0%83%e7%94%a8%e5%a0%86%e6%a0%88" class="header-mark"></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) {
+</span></span><span class="line"><span class="cl">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">176
+</span></span><span class="line"><span class="cl">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) {
+</span></span><span class="line"><span class="cl">178			return null;
+</span></span><span class="line"><span class="cl">179		}
+</span></span><span class="line"><span class="cl">180
+</span></span><span class="line"><span class="cl">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">182		if (patterns == null) {
+</span></span><span class="line"><span class="cl">183			return null;
+</span></span><span class="line"><span class="cl">184		}
+</span></span><span class="line"><span class="cl">185
+</span></span><span class="line"><span class="cl">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);
+</span></span><span class="line"><span class="cl">187		if (custom == null) {
+</span></span><span class="line"><span class="cl">188			return null;
+</span></span><span class="line"><span class="cl">189		}
+</span></span><span class="line"><span class="cl">190
+</span></span><span class="line"><span class="cl">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());
+</span></span><span class="line"><span class="cl">192	}</span></span></code></pre>
+</div>
+<h3 id="domatch-代码" class="headerLink">
+    <a href="#domatch-%e4%bb%a3%e7%a0%81" class="header-mark"></a>doMatch 代码：</h3><div class="code-block highlight is-closed show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">96 
+</span></span><span class="line"><span class="cl">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,
+</span></span><span class="line"><span class="cl">98 			Map&lt;String, String&gt; uriTemplateVariables) {
+</span></span><span class="line"><span class="cl">99 
+</span></span><span class="line"><span class="cl">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) {
+</span></span><span class="line"><span class="cl">101			return false;
+</span></span><span class="line"><span class="cl">102		}
+</span></span><span class="line"><span class="cl">103
+</span></span><span class="line"><span class="cl">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);
+</span></span><span class="line"><span class="cl">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);
+</span></span><span class="line"><span class="cl">106
+</span></span><span class="line"><span class="cl">107		int pattIdxStart = 0;
+</span></span><span class="line"><span class="cl">108		int pattIdxEnd = pattDirs.length - 1;
+</span></span><span class="line"><span class="cl">109		int pathIdxStart = 0;
+</span></span><span class="line"><span class="cl">110		int pathIdxEnd = pathDirs.length - 1;
+</span></span><span class="line"><span class="cl">111
+</span></span><span class="line"><span class="cl">112		// Match all elements up to the first **
+</span></span><span class="line"><span class="cl">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) {
+</span></span><span class="line"><span class="cl">114			String patDir = pattDirs[pattIdxStart];
+</span></span><span class="line"><span class="cl">115			if (&#34;**&#34;.equals(patDir)) {
+</span></span><span class="line"><span class="cl">116				break;
+</span></span><span class="line"><span class="cl">117			}
+</span></span><span class="line"><span class="cl">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) {
+</span></span><span class="line"><span class="cl">119				return false;
+</span></span><span class="line"><span class="cl">120			}
+</span></span><span class="line"><span class="cl">121			pattIdxStart++;
+</span></span><span class="line"><span class="cl">122			pathIdxStart++;
+</span></span><span class="line"><span class="cl">123		}
+</span></span><span class="line"><span class="cl">124
+</span></span><span class="line"><span class="cl">125		if (pathIdxStart &gt; pathIdxEnd) {
+</span></span><span class="line"><span class="cl">126			// Path is exhausted, only match if rest of pattern is * or **&#39;s
+</span></span><span class="line"><span class="cl">127			if (pattIdxStart &gt; pattIdxEnd) {
+</span></span><span class="line"><span class="cl">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :
+</span></span><span class="line"><span class="cl">129						!path.endsWith(this.pathSeparator));
+</span></span><span class="line"><span class="cl">130			}
+</span></span><span class="line"><span class="cl">131			if (!fullMatch) {
+</span></span><span class="line"><span class="cl">132				return true;
+</span></span><span class="line"><span class="cl">133			}
+</span></span><span class="line"><span class="cl">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&#34;*&#34;) &amp;&amp; path.endsWith(this.pathSeparator)) {
+</span></span><span class="line"><span class="cl">135				return true;
+</span></span><span class="line"><span class="cl">136			}
+</span></span><span class="line"><span class="cl">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) {
+</span></span><span class="line"><span class="cl">138				if (!pattDirs[i].equals(&#34;**&#34;)) {
+</span></span><span class="line"><span class="cl">139					return false;
+</span></span><span class="line"><span class="cl">140				}
+</span></span><span class="line"><span class="cl">141			}
+</span></span><span class="line"><span class="cl">142			return true;
+</span></span><span class="line"><span class="cl">143		}
+</span></span><span class="line"><span class="cl">144		else if (pattIdxStart &gt; pattIdxEnd) {
+</span></span><span class="line"><span class="cl">145			// String not exhausted, but pattern is. Failure.
+</span></span><span class="line"><span class="cl">146			return false;
+</span></span><span class="line"><span class="cl">147		}
+</span></span><span class="line"><span class="cl">148		else if (!fullMatch &amp;&amp; &#34;**&#34;.equals(pattDirs[pattIdxStart])) {
+</span></span><span class="line"><span class="cl">149			// Path start definitely matches due to &#34;**&#34; part in pattern.
+</span></span><span class="line"><span class="cl">150			return true;
+</span></span><span class="line"><span class="cl">151		}
+</span></span><span class="line"><span class="cl">152
+</span></span><span class="line"><span class="cl">153		// up to last &#39;**&#39;
+</span></span><span class="line"><span class="cl">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) {
+</span></span><span class="line"><span class="cl">155			String patDir = pattDirs[pattIdxEnd];
+</span></span><span class="line"><span class="cl">156			if (patDir.equals(&#34;**&#34;)) {
+</span></span><span class="line"><span class="cl">157				break;
+</span></span><span class="line"><span class="cl">158			}
+</span></span><span class="line"><span class="cl">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) {
+</span></span><span class="line"><span class="cl">160				return false;
+</span></span><span class="line"><span class="cl">161			}
+</span></span><span class="line"><span class="cl">162			pattIdxEnd--;
+</span></span><span class="line"><span class="cl">163			pathIdxEnd--;
+</span></span><span class="line"><span class="cl">164		}
+</span></span><span class="line"><span class="cl">165		if (pathIdxStart &gt; pathIdxEnd) {
+</span></span><span class="line"><span class="cl">166			// String is exhausted
+</span></span><span class="line"><span class="cl">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) {
+</span></span><span class="line"><span class="cl">168				if (!pattDirs[i].equals(&#34;**&#34;)) {
+</span></span><span class="line"><span class="cl">169					return false;
+</span></span><span class="line"><span class="cl">170				}
+</span></span><span class="line"><span class="cl">171			}
+</span></span><span class="line"><span class="cl">172			return true;
+</span></span><span class="line"><span class="cl">173		}
+</span></span><span class="line"><span class="cl">174
+</span></span><span class="line"><span class="cl">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) {
+</span></span><span class="line"><span class="cl">176			int patIdxTmp = -1;
+</span></span><span class="line"><span class="cl">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) {
+</span></span><span class="line"><span class="cl">178				if (pattDirs[i].equals(&#34;**&#34;)) {
+</span></span><span class="line"><span class="cl">179					patIdxTmp = i;
+</span></span><span class="line"><span class="cl">180					break;
+</span></span><span class="line"><span class="cl">181				}
+</span></span><span class="line"><span class="cl">182			}
+</span></span><span class="line"><span class="cl">183			if (patIdxTmp == pattIdxStart + 1) {
+</span></span><span class="line"><span class="cl">184				// &#39;**/**&#39; situation, so skip one
+</span></span><span class="line"><span class="cl">185				pattIdxStart++;
+</span></span><span class="line"><span class="cl">186				continue;
+</span></span><span class="line"><span class="cl">187			}
+</span></span><span class="line"><span class="cl">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between
+</span></span><span class="line"><span class="cl">189			// strIdxStart &amp; strIdxEnd
+</span></span><span class="line"><span class="cl">190			int patLength = (patIdxTmp - pattIdxStart - 1);
+</span></span><span class="line"><span class="cl">191			int strLength = (pathIdxEnd - pathIdxStart + 1);
+</span></span><span class="line"><span class="cl">192			int foundIdx = -1;
+</span></span><span class="line"><span class="cl">193
+</span></span><span class="line"><span class="cl">194			strLoop:
+</span></span><span class="line"><span class="cl">195			for (int i = 0; i &lt;= strLength - patLength; i++) {
+</span></span><span class="line"><span class="cl">196				for (int j = 0; j &lt; patLength; j++) {
+</span></span><span class="line"><span class="cl">197					String subPat = pattDirs[pattIdxStart + j + 1];
+</span></span><span class="line"><span class="cl">198					String subStr = pathDirs[pathIdxStart + i + j];
+</span></span><span class="line"><span class="cl">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) {
+</span></span><span class="line"><span class="cl">200						continue strLoop;
+</span></span><span class="line"><span class="cl">201					}
+</span></span><span class="line"><span class="cl">202				}
+</span></span><span class="line"><span class="cl">203				foundIdx = pathIdxStart + i;
+</span></span><span class="line"><span class="cl">204				break;
+</span></span><span class="line"><span class="cl">205			}
+</span></span><span class="line"><span class="cl">206
+</span></span><span class="line"><span class="cl">207			if (foundIdx == -1) {
+</span></span><span class="line"><span class="cl">208				return false;
+</span></span><span class="line"><span class="cl">209			}
+</span></span><span class="line"><span class="cl">210
+</span></span><span class="line"><span class="cl">211			pattIdxStart = patIdxTmp;
+</span></span><span class="line"><span class="cl">212			pathIdxStart = foundIdx + patLength;
+</span></span><span class="line"><span class="cl">213		}
+</span></span><span class="line"><span class="cl">214
+</span></span><span class="line"><span class="cl">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) {
+</span></span><span class="line"><span class="cl">216			if (!pattDirs[i].equals(&#34;**&#34;)) {
+</span></span><span class="line"><span class="cl">217				return false;
+</span></span><span class="line"><span class="cl">218			}
+</span></span><span class="line"><span class="cl">219		}
+</span></span><span class="line"><span class="cl">220
+</span></span><span class="line"><span class="cl">221		return true;
+</span></span><span class="line"><span class="cl">222	}</span></span></code></pre>
+</div>
+<p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a href="http://www.cnblogs.com/ucos/articles/5542012.html" target="_blank" rel="noopener noreferrer">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
+<p>以及这篇文章中给出的优化前后对比图：
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/3c61ad759ae5f44bbb2a24e4714c2ee8   alt="screenshot"  ></p>
+]]></description>
+</item><item>
+    <title>如何定位上亿次调用才出现一次的Bug</title>
+    <link>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84bug/</link>
+    <pubDate>Thu, 26 Apr 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84bug/</guid>
+    <description><![CDATA[<h1 id="如何定位上亿次调用才出现一次的bug" class="headerLink">
+    <a href="#%e5%a6%82%e4%bd%95%e5%ae%9a%e4%bd%8d%e4%b8%8a%e4%ba%bf%e6%ac%a1%e8%b0%83%e7%94%a8%e6%89%8d%e5%87%ba%e7%8e%b0%e4%b8%80%e6%ac%a1%e7%9a%84bug" class="header-mark"></a>如何定位上亿次调用才出现一次的Bug</h1><h2 id="引文" class="headerLink">
+    <a href="#%e5%bc%95%e6%96%87" class="header-mark"></a>引文</h2><p>对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如<a href="https://zhuanlan.zhihu.com/p/21348220?f3fb8ead20=e041f967b1b416071a11f7702126d7a0&amp;from=singlemessage&amp;isappinstalled=0" target="_blank" rel="noopener noreferrer">这个问题</a></p>
+<p>正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。</p>
+<h2 id="问题背景" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e8%83%8c%e6%99%af" class="header-mark"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
+<p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
+<h3 id="tcpdump-抓包所看到的问题表现" class="headerLink">
+    <a href="#tcpdump-%e6%8a%93%e5%8c%85%e6%89%80%e7%9c%8b%e5%88%b0%e7%9a%84%e9%97%ae%e9%a2%98%e8%a1%a8%e7%8e%b0" class="header-mark"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
+<p>比如，通过tcpdump分析到的会话是这样的：
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ed9b5b2d81bdc58b9cf41217763939e5.png   alt="screenshot.png"  ></p>
+<p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
+<p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
+<h3 id="开发增加debug日志" class="headerLink">
+    <a href="#%e5%bc%80%e5%8f%91%e5%a2%9e%e5%8a%a0debug%e6%97%a5%e5%bf%97" class="header-mark"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据&ndash;实际不能排除）</p>
+<h3 id="怀疑ecs网络抖动是个好背锅侠什么锅都可以背" class="headerLink">
+    <a href="#%e6%80%80%e7%96%91ecs%e7%bd%91%e7%bb%9c%e6%8a%96%e5%8a%a8%e6%98%af%e4%b8%aa%e5%a5%bd%e8%83%8c%e9%94%85%e4%be%a0%e4%bb%80%e4%b9%88%e9%94%85%e9%83%bd%e5%8f%af%e4%bb%a5%e8%83%8c" class="header-mark"></a>怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）</h3><p>申请单独的物理机资源给客户，保证没有其它应用来争抢网络和其它资源，前三天一次异常也没有发生（在ECS上一天发生1-2次），非常高兴以为找到问题了。结果第四天异常再次出现，更换物理机也只是好像偶然性地降低了发生频率而已。</p>
+<h3 id="去底层挖掘tcp协议到底什么条件下会出现主动断开连接" class="headerLink">
+    <a href="#%e5%8e%bb%e5%ba%95%e5%b1%82%e6%8c%96%e6%8e%98tcp%e5%8d%8f%e8%ae%ae%e5%88%b0%e5%ba%95%e4%bb%80%e4%b9%88%e6%9d%a1%e4%bb%b6%e4%b8%8b%e4%bc%9a%e5%87%ba%e7%8e%b0%e4%b8%bb%e5%8a%a8%e6%96%ad%e5%bc%80%e8%bf%9e%e6%8e%a5" class="header-mark"></a>去底层挖掘tcp协议，到底什么条件下会出现主动断开连接</h3><p>实际也没有什么进展</p>
+<h3 id="用stracepstack去监控-socketclose-这个事件" class="headerLink">
+    <a href="#%e7%94%a8stracepstack%e5%8e%bb%e7%9b%91%e6%8e%a7-socketclose-%e8%bf%99%e4%b8%aa%e4%ba%8b%e4%bb%b6" class="header-mark"></a>用strace、pstack去监控 socket.close 这个事件</h3><p>但实际可能在上亿次正常的 socket.close (查询全部结束，client主动请求断开连接）才会出现一次不正常的 socket.close .量太大，还没发在这么多事件中区分那个是不正常的close</p>
+<h3 id="应用被-oom-kill" class="headerLink">
+    <a href="#%e5%ba%94%e7%94%a8%e8%a2%ab-oom-kill" class="header-mark"></a>应用被 OOM kill</h3><p>调查过程中为了更快地重现异常，将客户端连接都改成长连接，这样应用不再去调 socket.close ，除非超时、异常之类的，这样一旦出现不正常的 socket.close 就更容易定位了。</p>
+<p>实际跑了一段时间后，发现确实 tcpdump 能抓到很多 server在接收到request还没有返回response的时候主动发送 fin包来断开连接的情况，跟前面的症状是一模一样的。但是最终发现这个时候应用被杀掉了，只是说明应用被杀的情况下 server会主动去掉 socket.close关闭连接，但这只是充分条件，而不是必要条件。实际生产线上也没有被 OOM kill过。</p>
+<h3 id="给力的开发同学" class="headerLink">
+    <a href="#%e7%bb%99%e5%8a%9b%e7%9a%84%e5%bc%80%e5%8f%91%e5%90%8c%e5%ad%a6" class="header-mark"></a>给力的开发同学</h3><p>分析了这个异常后，开发简化了整个测试，实现client上跑一行PHP代码反复调用就能够让这个bug触发，这一下把整个测试重现bug的过程简化了，终于不再需要客户配合了，让问题的定位效率快了一个数量级。</p>
+<p>为了快速地定位到异常的具体连接，实现脚本来自动分析tcpdump结果找到异常close的连接</p>
+<p>快速在tcpdump包中找到出问题的那个stream（这个命令行要求tshark的版本为1.12及以上，默认的阿里服务器上的版本都太低，解析不了_ws.col.Info列）：</p>
+<pre><code>tshark -r capture.pcap135 -T fields -e frame.number -e frame.time_epoch -e ip.addr -e tcp.port  -e tcp.stream   -e _ws.col.Info | egrep &quot;FIN|Request Quit&quot; | awk '{ print $5, $6 $7 }' | sort -k1n | awk '{ print $1 }' | uniq -c | grep -v &quot;^      3&quot; | less
+</code></pre>
+<p>在这一系列的工具作用下，稳定跑上一天，异常能发生3、4次，产生的日志和网络包有几百G。</p>
+<p>出现问题的后，通过上面的脚本分析连接异常断开的client ip+port和时间，同时拿这三个信息到下面的异常堆栈中搜索匹配找到调用 socket.close()的堆栈。</p>
+<h3 id="上btrace-监听所有-socketclose-事件" class="headerLink">
+    <a href="#%e4%b8%8abtrace-%e7%9b%91%e5%90%ac%e6%89%80%e6%9c%89-socketclose-%e4%ba%8b%e4%bb%b6" class="header-mark"></a>上Btrace 监听所有 socket.close 事件</h3><pre><code>	@OnMethod(clazz=&quot;+java.net.Socket&quot;, method=&quot;close&quot;)
+	public static void onSocketClose(@Self Object me) {
+      println(&quot;\n==== java.net.Socket#close ====&quot;);
+      BTraceUtils.println(BTraceUtils.timestamp() );
+      BTraceUtils.println(BTraceUtils.Time.millis() );
+      println(concat(&quot;Socket closing:&quot;, str(me)));
+      println(concat(&quot;thread: &quot;, str(currentThread())));
+      printFields(me);
+      jstack();
+}
+</code></pre>
+<p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/02bcccd66af82c929c4eee8c88875733.png   alt="screenshot.png"  ></p>
+<p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
+<p>实际上这里可能有几个问题：</p>
+<ol>
+<li>buffer.position 是不可能为0的；</li>
+<li>即使buffer.position 等于0 也不应该直接 socket.close, 可能发送error信息给客户端更好；</li>
+</ol>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><ul>
+<li>最终原因是因为NIO过程中buffer有极低的概率被两个socket重用，从而导致出现正在使用的buffer被另外一个socket拿过去并且设置了buffer.position为0，进而导致前一个socket认为数据异常赶紧close了。</li>
+<li>开发简化问题的重现步骤非常关键，同时对异常进行分类分析，加快了定位效率</li>
+<li>能够通过tcpdump去抓包定位到具体问题大概所在点这是比较关键的一步，同时通过btrace再去监控出问题的调用堆栈从而找到具体代码行。</li>
+<li>过程看似简单，实际牵扯了一大波工程师进来，经过几个月才最终定位到出问题的代码行，确实不容易</li>
+</ul>
+]]></description>
+</item></channel>
+</rss>

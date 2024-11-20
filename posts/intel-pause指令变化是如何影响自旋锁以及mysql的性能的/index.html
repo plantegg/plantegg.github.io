@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8Amysql%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">
+  <meta property="og:description" content="Intel PAUSE指令变化如何影响MySQL的性能 导读x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2019-12-16T12:30:03+00:00">
+    <meta property="article:modified_time" content="2019-12-16T12:30:03+00:00">
+    <meta property="article:tag" content="Performance">
+    <meta property="article:tag" content="MySQL">
+    <meta property="article:tag" content="Perf">
+    <meta property="article:tag" content="Intel">
+    <meta property="article:tag" content="Pause">
+    <meta property="article:tag" content="Innodb_spin_wait_delay">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">
+  <meta name="twitter:description" content="Intel PAUSE指令变化如何影响MySQL的性能 导读x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8Amysql%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/" /><link rel="prev" href="http://localhost:1313/posts/epoll%E7%9A%84lt%E5%92%8Cet/" /><link rel="next" href="http://localhost:1313/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8Dmysql%E7%9A%84%E6%80%A7%E8%83%BD/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8Amysql%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/"
+        },"genre": "posts","keywords":["performance","mysql","perf","intel","Pause","innodb_spin_wait_delay"],"wordcount":  5569 ,
+        "url": "http://localhost:1313/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8Amysql%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/","datePublished": "2019-12-16T12:30:03+00:00","dateModified": "2019-12-16T12:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#导读">导读</a></li>
+    <li><a href="#业务结构">业务结构</a></li>
+    <li><a href="#场景描述">场景描述</a></li>
+    <li><a href="#监控指标说明">监控指标说明</a></li>
+    <li><a href="#问题描述">问题描述：</a></li>
+    <li><a href="#排查-mysql">排查 MySQL</a></li>
+    <li><a href="#lvs和网络的嫌疑">LVS和网络的嫌疑</a></li>
+    <li><a href="#问题的确认">问题的确认</a></li>
+    <li><a href="#重心再次转向mysql">重心再次转向MySQL</a></li>
+    <li><a href="#perf-top">perf top</a></li>
+    <li><a href="#最终的性能">最终的性能</a></li>
+    <li><a href="#事后思考和分析">事后思考和分析</a></li>
+    <li><a href="#原理解析">原理解析</a>
+      <ul>
+        <li><a href="#关于-innodb_spin_wait_delay">关于 innodb_spin_wait_delay</a></li>
+        <li><a href="#自旋锁如何减少了cache-ping-pong">自旋锁如何减少了cache ping-pong</a></li>
+        <li><a href="#x86-pause-指令">X86 PAUSE 指令</a></li>
+        <li><a href="#cpu-为什么要有pause">CPU 为什么要有Pause</a></li>
+        <li><a href="#skylake-架构的8163-和-broadwell架构-e5-2682-cpu型号的不同">Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结分析">总结分析</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2019-12-16" data-pagefind-body>Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/cpu/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>CPU</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2019-12-16">2019-12-16</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2019-12-16">2019-12-16</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 5569 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 25 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#导读">导读</a></li>
+    <li><a href="#业务结构">业务结构</a></li>
+    <li><a href="#场景描述">场景描述</a></li>
+    <li><a href="#监控指标说明">监控指标说明</a></li>
+    <li><a href="#问题描述">问题描述：</a></li>
+    <li><a href="#排查-mysql">排查 MySQL</a></li>
+    <li><a href="#lvs和网络的嫌疑">LVS和网络的嫌疑</a></li>
+    <li><a href="#问题的确认">问题的确认</a></li>
+    <li><a href="#重心再次转向mysql">重心再次转向MySQL</a></li>
+    <li><a href="#perf-top">perf top</a></li>
+    <li><a href="#最终的性能">最终的性能</a></li>
+    <li><a href="#事后思考和分析">事后思考和分析</a></li>
+    <li><a href="#原理解析">原理解析</a>
+      <ul>
+        <li><a href="#关于-innodb_spin_wait_delay">关于 innodb_spin_wait_delay</a></li>
+        <li><a href="#自旋锁如何减少了cache-ping-pong">自旋锁如何减少了cache ping-pong</a></li>
+        <li><a href="#x86-pause-指令">X86 PAUSE 指令</a></li>
+        <li><a href="#cpu-为什么要有pause">CPU 为什么要有Pause</a></li>
+        <li><a href="#skylake-架构的8163-和-broadwell架构-e5-2682-cpu型号的不同">Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结分析">总结分析</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="intel-pause指令变化如何影响mysql的性能" class="headerLink">
+    <a href="#intel-pause%e6%8c%87%e4%bb%a4%e5%8f%98%e5%8c%96%e5%a6%82%e4%bd%95%e5%bd%b1%e5%93%8dmysql%e7%9a%84%e6%80%a7%e8%83%bd" class="header-mark"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读" class="headerLink">
+    <a href="#%e5%af%bc%e8%af%bb" class="header-mark"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
+<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
+<h2 id="业务结构" class="headerLink">
+    <a href="#%e4%b8%9a%e5%8a%a1%e7%bb%93%e6%9e%84" class="header-mark"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
+<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
+<h2 id="场景描述" class="headerLink">
+    <a href="#%e5%9c%ba%e6%99%af%e6%8f%8f%e8%bf%b0" class="header-mark"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
+<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
+<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE='310' AND Revs_Flag='Z' AND accrym='201910' AND emp_no='1050457';
+</code></pre>
+<h2 id="监控指标说明" class="headerLink">
+    <a href="#%e7%9b%91%e6%8e%a7%e6%8c%87%e6%a0%87%e8%af%b4%e6%98%8e" class="header-mark"></a>监控指标说明</h2><ul>
+<li>后述或者截图中的逻辑RT/QPS是指 client 上看到的Tomcat的 RT 和 QPS；</li>
+<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
+<li>物理RT/QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
+</ul>
+<h2 id="问题描述" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e6%8f%8f%e8%bf%b0" class="header-mark"></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
+<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
+<p>性能压测原则：</p>
+<blockquote>
+  <p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
+
+</blockquote><p><img class="tw-inline" loading="lazy" src=/images/951413iMgBlog/image-20221026145848312.png   alt="image-20221026145848312"  ></p>
+<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
+<h2 id="排查-mysql" class="headerLink">
+    <a href="#%e6%8e%92%e6%9f%a5-mysql" class="header-mark"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
+<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
+<h2 id="lvs和网络的嫌疑" class="headerLink">
+    <a href="#lvs%e5%92%8c%e7%bd%91%e7%bb%9c%e7%9a%84%e5%ab%8c%e7%96%91" class="header-mark"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
+<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32/4=72万
+<img class="tw-inline" loading="lazy" src=/images/oss/b84245c17e213de528f2ad8090d504f6.png   alt="image.png"  ></p>
+<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
+<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
+<h2 id="问题的确认" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e7%9a%84%e7%a1%ae%e8%ae%a4" class="header-mark"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
+<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
+<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
+<p><img class="tw-inline" loading="lazy" src=/images/oss/ffd66d9a6098979b555dfb00d3494255.png   alt="image.png"  ></p>
+<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
+<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
+<h2 id="重心再次转向mysql" class="headerLink">
+    <a href="#%e9%87%8d%e5%bf%83%e5%86%8d%e6%ac%a1%e8%bd%ac%e5%90%91mysql" class="header-mark"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
+<blockquote>
+  <p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
+
+</blockquote><p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
+<p>这是Tomcat上监控到的MySQL状态：
+<img class="tw-inline" loading="lazy" src=/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png   alt="image.png"  ></p>
+<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：
+<img class="tw-inline" loading="lazy" src=/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png   alt="image.png"  ></p>
+<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
+<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
+<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
+<h2 id="perf-top" class="headerLink">
+    <a href="#perf-top" class="header-mark"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
+<p><img class="tw-inline" loading="lazy" src=/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png   alt="image.png"  ></p>
+<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
+<!-- raw HTML omitted -->
+<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
+<!-- raw HTML omitted -->
+<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
+<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
+<blockquote>
+  <p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
+
+</blockquote><h2 id="最终的性能" class="headerLink">
+    <a href="#%e6%9c%80%e7%bb%88%e7%9a%84%e6%80%a7%e8%83%bd" class="header-mark"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay=6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS
+<img class="tw-inline" loading="lazy" src=/images/oss/48c976f989747266f9892403794996c0.png   alt="image.png"  ></p>
+<p>再跟调整前比较一下，innodb_spin_wait_delay=30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%
+<img class="tw-inline" loading="lazy" src=/images/oss/fdb459972926cff371f5f5ab703790bb.png   alt="image.png"  ></p>
+<p>再看看调整前压测的时候的vmstat和tsar &ndash;cpu，可以看到process running抖动明显
+<img class="tw-inline" loading="lazy" src=/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png   alt="image.png"  ></p>
+<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍
+<img class="tw-inline" loading="lazy" src=/images/oss/ed46d35161ea28352acd4289a3e9ddad.png   alt="image.png"  ></p>
+<h2 id="事后思考和分析" class="headerLink">
+    <a href="#%e4%ba%8b%e5%90%8e%e6%80%9d%e8%80%83%e5%92%8c%e5%88%86%e6%9e%90" class="header-mark"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
+<h2 id="原理解析" class="headerLink">
+    <a href="#%e5%8e%9f%e7%90%86%e8%a7%a3%e6%9e%90" class="header-mark"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
+<h3 id="关于-innodb_spin_wait_delay" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8e-innodb_spin_wait_delay" class="header-mark"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex" target="_blank" rel="noopener noreferrer">mutexes</a> and <a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock" target="_blank" rel="noopener noreferrer">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same" target="_blank" rel="noopener noreferrer">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="noopener noreferrer">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
+<h3 id="自旋锁如何减少了cache-ping-pong" class="headerLink">
+    <a href="#%e8%87%aa%e6%97%8b%e9%94%81%e5%a6%82%e4%bd%95%e5%87%8f%e5%b0%91%e4%ba%86cache-ping-pong" class="header-mark"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
+<h3 id="x86-pause-指令" class="headerLink">
+    <a href="#x86-pause-%e6%8c%87%e4%bb%a4" class="header-mark"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
+<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
+<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
+<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
+<pre><code>/***************************MySQL代码****************************//**
+Runs an idle loop on CPU. The argument gives the desired delay
+in microseconds on 100 MHz Pentium + Visual C++.
+@return dummy value */
+UNIV_INTERN
+ulint
+ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
+{
+        ulint   i, j;
+
+        UT_LOW_PRIORITY_CPU();
+
+        j = 0;
+
+        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
+                j += i;
+                UT_RELAX_CPU();             //调用 CPU Pause
+        }
+
+        UT_RESUME_PRIORITY_CPU();
+
+        return(j);
+}
+</code></pre>
+<p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
+<h3 id="cpu-为什么要有pause" class="headerLink">
+    <a href="#cpu-%e4%b8%ba%e4%bb%80%e4%b9%88%e8%a6%81%e6%9c%89pause" class="header-mark"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
+<ul>
+<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
+<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
+<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
+</ul>
+<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
+<blockquote>
+  <p><a href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/" target="_blank" rel="noopener noreferrer">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
+<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
+
+</blockquote><p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
+<h3 id="skylake-架构的8163-和-broadwell架构-e5-2682-cpu型号的不同" class="headerLink">
+    <a href="#skylake-%e6%9e%b6%e6%9e%84%e7%9a%848163-%e5%92%8c-broadwell%e6%9e%b6%e6%9e%84-e5-2682-cpu%e5%9e%8b%e5%8f%b7%e7%9a%84%e4%b8%8d%e5%90%8c" class="header-mark"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
+<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
+<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
+<blockquote>
+  <p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
+<p><a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html" target="_blank" rel="noopener noreferrer">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-
+pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html" target="_blank" rel="noopener noreferrer"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
+
+</blockquote><p>也就是**Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。**这可是14倍的变化呀。</p>
+<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。
+以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：
+30 * 50 * 10=15000 cycles，对于2.5GHz的CPU，等待时间为6us。
+对应计算 Skylake CPU的等待时间：30 *50 *140=210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
+<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img class="tw-inline" loading="lazy" src=/images/951413iMgBlog/image-20221026153750159.png   alt="image-20221026153750159"  ></p>
+<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
+<p><img class="tw-inline" loading="lazy" src=/images/951413iMgBlog/image-20221026153813774.png   alt="image-20221026153813774"  ></p>
+<p>==因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。==</p>
+<h2 id="总结分析" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93%e5%88%86%e6%9e%90" class="header-mark"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause* innodb_spin_wait_delay*N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
+<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
+<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章</h2><p><a href="https://cloud.tencent.com/developer/article/1005284" target="_blank" rel="noopener noreferrer">https://cloud.tencent.com/developer/article/1005284</a></p>
+<p><a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html" target="_blank" rel="noopener noreferrer">mysql doc</a></p>
+<p><a href="http://oliveryang.net/2018/01/cache-false-sharing-debug" target="_blank" rel="noopener noreferrer">Cache Line 伪共享发现与优化</a></p>
+<p><a href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf" target="_blank" rel="noopener noreferrer">intel spec</a></p>
+<p><a href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q" target="_blank" rel="noopener noreferrer">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
+<p><a href="https://topic.atatech.org/articles/173194" target="_blank" rel="noopener noreferrer">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
+<p><a href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html" target="_blank" rel="noopener noreferrer">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
+<p><a href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/" target="_blank" rel="noopener noreferrer">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2019-12-16</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/performance/">Performance</a>,&nbsp;<a href="/tags/mysql/">MySQL</a>,&nbsp;<a href="/tags/perf/">Perf</a>,&nbsp;<a href="/tags/intel/">Intel</a>,&nbsp;<a href="/tags/pause/">Pause</a>,&nbsp;<a href="/tags/innodb_spin_wait_delay/">Innodb_spin_wait_delay</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/epoll%E7%9A%84lt%E5%92%8Cet/" class="prev" rel="prev" title="epoll的LT和ET"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>epoll的LT和ET</a>
+            <a href="/posts/intel-pause%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8Dmysql%E7%9A%84%E6%80%A7%E8%83%BD/" class="next" rel="next" title="Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

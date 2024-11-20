@@ -1,0 +1,723 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Wmem - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/wmem/</link>
+        <description>Wmem - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Sat, 28 Sep 2019 12:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/wmem/" rel="self" type="application/rss+xml" /><item>
+    <title>TCP性能和发送接收窗口、Buffer的关系</title>
+    <link>http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6buffer%E7%9A%84%E5%85%B3%E7%B3%BB/</link>
+    <pubDate>Sat, 28 Sep 2019 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6buffer%E7%9A%84%E5%85%B3%E7%B3%BB/</guid>
+    <description><![CDATA[<h1 id="前言" class="headerLink">
+    <a href="#%e5%89%8d%e8%a8%80" class="header-mark"></a>前言</h1><p>本文希望解析清楚，当我们在代码中写下 socket.setSendBufferSize 和 sysctl 看到的rmem/wmem系统参数以及最终我们在TCP常常谈到的接收发送窗口的关系，以及他们怎样影响TCP传输的性能，同时如何通过图形来展示哪里是传输瓶颈。</p>
+<p>拥塞窗口相关文章比较多，他们跟带宽紧密相关，所以大家比较好判断，反而是接收、发送窗口一旦出现瓶颈，就没这么好判断了。</p>
+<p>先明确一下：<strong>文章标题中所说的Buffer指的是sysctl中的 rmem或者wmem，如果是代码中指定的话对应着SO_SNDBUF或者SO_RCVBUF，从TCP的概念来看对应着发送窗口或者接收窗口</strong></p>
+<p>最后补充各种场景下的传输案例，一站式将影响传输速度的各种原因都拿下，值得收藏。</p>
+<p>本文主要分析rt、buffer如何影响TCP的传输性能，更多其他因素影响TCP性能的案例见：<a href="/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/" rel="">TCP传输速度案例分析</a></p>
+<h1 id="tcp性能和发送接收buffer的关系" class="headerLink">
+    <a href="#tcp%e6%80%a7%e8%83%bd%e5%92%8c%e5%8f%91%e9%80%81%e6%8e%a5%e6%94%b6buffer%e7%9a%84%e5%85%b3%e7%b3%bb" class="header-mark"></a>TCP性能和发送接收Buffer的关系</h1><p>先从碰到的一个实际问题看起：</p>
+<blockquote>
+  <p>应用通过专线跨网络访问云上的服务，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这太慢了，不正常。</p>
+<p>如果通过云上client访问云上服务执行这个SQL那么1-2秒就返回了（不跨网络服务是正常的，说明服务本身没有问题）。</p>
+<p>如果通过http或者scp从云下向云上传输这22M的数据大概两秒钟也传送完毕了（说明网络带宽不是瓶颈），</p>
+<p>所以这里问题的原因基本上是我们的服务在这种网络条件下有性能问题，需要找出为什么。</p>
+
+</blockquote><h2 id="抓包分析-tcpdumpwireshark" class="headerLink">
+    <a href="#%e6%8a%93%e5%8c%85%e5%88%86%e6%9e%90-tcpdumpwireshark" class="header-mark"></a>抓包分析 tcpdump+wireshark</h2><p>抓包分析这22M的数据传输，如下图（wireshark 时序图），横轴是时间，纵轴是sequence number：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d188530df31712e8341f5687a960743a.png   alt="image.png"  ></p>
+<p>粗一看没啥问题，因为时间太长掩盖了问题。把这个图形放大，只看中间50ms内的传输情况（横轴是时间，纵轴是sequence number，一个点代表一个包）</p>
+<!-- raw HTML omitted -->
+<p>可以看到传输过程总有一个20ms的等待平台，这20ms没有发送任何包，换个角度，看看窗口尺寸图形：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/7ae26e844629258de173a05d5ad595f9.png   alt="image.png"  ></p>
+<p>从bytes in flight也大致能算出来总的传输速度 16K*1000/20=800Kb/秒</p>
+<p>我们的应用代码中会默认设置 socketSendBuffer 为16K:</p>
+<blockquote>
+  <p>socket.setSendBufferSize(16*1024) //16K send buffer</p>
+
+</blockquote><h2 id="原理解析" class="headerLink">
+    <a href="#%e5%8e%9f%e7%90%86%e8%a7%a3%e6%9e%90" class="header-mark"></a>原理解析</h2><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，在这等ack的20ms 的时间内应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]</p>
+<p>比如下图，wmem大小是8，发出1-8后，buffer不能释放，等到收到ack1-4后，释放1-4，buffer也就是释放了一半，这一半可以填充新的发送数据进来了。 上面的问题在于ack花了很久，导致buffer一直不能释放。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/3d9e77f8c9b0cab1484c870d2c0d2473.png   alt="image.png"  ></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立即腾出来发新的货物，而是要等对方确认收到了(ack)才能腾出来发新的货物。 传输速度取决于发送仓库（sendbuffer）、接收仓库（recvbuffer）、路宽（带宽）的大小，如果发送仓库（sendbuffer）足够大了之后接下来的瓶颈就会是高速公路了（带宽、拥塞窗口）。而实际上这个案例中带宽够、接收仓库也够，但是发送仓库太小了，导致发送过程断断续续，所以非常慢。</strong></p>
+<p>如果是UDP，就没有可靠的概念，有数据统统发出去，根本不关心对方是否收到，也就不需要ack和这个发送buffer了。</p>
+<h2 id="几个发送buffer相关的内核参数" class="headerLink">
+    <a href="#%e5%87%a0%e4%b8%aa%e5%8f%91%e9%80%81buffer%e7%9b%b8%e5%85%b3%e7%9a%84%e5%86%85%e6%a0%b8%e5%8f%82%e6%95%b0" class="header-mark"></a>几个发送buffer相关的内核参数</h2><pre><code>$sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1 //
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+vm.lowmem_reserve_ratio = 256   256     32
+</code></pre>
+<p>net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从 Cobar 中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<blockquote>
+  <p>net.ipv4.tcp_moderate_rcvbuf</p>
+
+</blockquote><h2 id="解决方案" class="headerLink">
+    <a href="#%e8%a7%a3%e5%86%b3%e6%96%b9%e6%a1%88" class="header-mark"></a>解决方案</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，继续调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了握手和慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/3dcfd469fe1e2f7e1d938a5289b83826.png   alt="image.png"  ></p>
+<p>如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="这个案例关于wmem的结论" class="headerLink">
+    <a href="#%e8%bf%99%e4%b8%aa%e6%a1%88%e4%be%8b%e5%85%b3%e4%ba%8ewmem%e7%9a%84%e7%bb%93%e8%ae%ba" class="header-mark"></a>这个案例关于wmem的结论</h2><p>默认情况下Linux系统会自动调整这个buffer（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>从这里我们可以看到，有些理论知识点虽然我们知道，但是在实践中很难联系起来，也就是常说的无法学以致用，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践没联系上。</p>
+<h2 id="bdpbandwidth-delay-producthttpshpbncobuilding-blocks-of-tcpbandwidth-delay-product-带宽时延积" class="headerLink">
+    <a href="#bdpbandwidth-delay-producthttpshpbncobuilding-blocks-of-tcpbandwidth-delay-product-%e5%b8%a6%e5%ae%bd%e6%97%b6%e5%bb%b6%e7%a7%af" class="header-mark"></a>BDP(<a href="https://hpbn.co/building-blocks-of-tcp/#bandwidth-delay-product" target="_blank" rel="noopener noreferrer">Bandwidth-Delay Product</a>) 带宽时延积</h2><p>BDP=rtt*(带宽/8)</p>
+<p>这个 buffer 调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100Mb/8)=250KB  所以 *<strong>SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大也没有什么实际意义了</strong> 。也就是前面所说的仓库足够后瓶颈在带宽上了。</p>
+<p>因为这里根据带宽、rtt计算得到的BDP是250K，BDP跑满后拥塞窗口（带宽、接收窗口和rt决定的）即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<blockquote>
+  <p>Bandwidth-delay product (BDP)</p>
+<p>Product of data link’s capacity and its end-to-end delay. The result is the maximum amount of unacknowledged data that can be in flight at any point in time.</p>
+
+</blockquote><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg   alt="Figure 2-7. Transmission gaps due to low congestion window size"  ></p>
+<h2 id="接下来看看接收bufferrmem和接收窗口的关系" class="headerLink">
+    <a href="#%e6%8e%a5%e4%b8%8b%e6%9d%a5%e7%9c%8b%e7%9c%8b%e6%8e%a5%e6%94%b6bufferrmem%e5%92%8c%e6%8e%a5%e6%94%b6%e7%aa%97%e5%8f%a3%e7%9a%84%e5%85%b3%e7%b3%bb" class="header-mark"></a>接下来看看接收buffer(rmem)和接收窗口的关系</h2><p>用这样一个案例下来验证接收窗口的作用：</p>
+<blockquote>
+  <p>有一个batch insert语句，整个一次要插入5532条记录，所有记录大小总共是376K，也就是这个sql语句本身是376K。</p>
+
+</blockquote><h2 id="so_rcvbuf很小的时候并且rtt很大对性能的影响" class="headerLink">
+    <a href="#so_rcvbuf%e5%be%88%e5%b0%8f%e7%9a%84%e6%97%b6%e5%80%99%e5%b9%b6%e4%b8%94rtt%e5%be%88%e5%a4%a7%e5%af%b9%e6%80%a7%e8%83%bd%e7%9a%84%e5%bd%b1%e5%93%8d" class="header-mark"></a>SO_RCVBUF很小的时候并且rtt很大对性能的影响</h2><p>如果rtt是40ms，总共需要5-6秒钟：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/4af4765c045e9eed2e36d9760d4a2aba.png   alt="image.png"  ></p>
+<p>基本可以看到server一旦空出来点窗口，client马上就发送数据，由于这点窗口太小，rtt是40ms，也就是一个rtt才能传3456字节的数据，整个带宽才用到80-90K，完全没跑满。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1984258c0300921799476777f5f0a38a.png   alt="image.png"  ></p>
+<p>比较明显间隔 40ms 一个等待台阶，台阶之间两个包大概3K数据，总的传输效率如下：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/5ec50ecf25444e96d81fab975b5a79e6.png   alt="image.png"  ></p>
+<p><strong>斜线越陡表示速度越快，从上图看整体SQL上传花了5.5秒，执行0.5秒。</strong></p>
+<p>此时对应的窗口尺寸：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/05d6357ed53c1c16f0dd0454251916ef.png   alt="image.png"  ></p>
+<p>窗口由最开始28K(20个1448）很快降到了不到4K的样子，然后基本游走在即将满的边缘，虽然读取慢，幸好rtt也大，导致最终也没有满。（这个是3.1的Linux，应用SO_RCVBUF设置的是8K，用一半来做接收窗口）</p>
+<h2 id="so_rcvbuf很小的时候并且rtt很小对性能的影响" class="headerLink">
+    <a href="#so_rcvbuf%e5%be%88%e5%b0%8f%e7%9a%84%e6%97%b6%e5%80%99%e5%b9%b6%e4%b8%94rtt%e5%be%88%e5%b0%8f%e5%af%b9%e6%80%a7%e8%83%bd%e7%9a%84%e5%bd%b1%e5%93%8d" class="header-mark"></a>SO_RCVBUF很小的时候并且rtt很小对性能的影响</h2><p>如果同样的语句在 rtt 是0.1ms的话</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/67f280a1cf499ae388fc44d6418869a7.png   alt="image.png"  ></p>
+<p>虽然明显看到接收窗口经常跑满，但是因为rtt很小，一旦窗口空出来很快就通知到对方了，所以整个过小的接收窗口也没怎么影响到整体性能</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/15b7d6852e44fc179d60d76f322695c7.png   alt="image.png"  ></p>
+<p>如上图11.4秒整个SQL开始，到11.41秒SQL上传完毕，11.89秒执行完毕（执行花了0.5秒），上传只花了0.01秒</p>
+<p>接收窗口情况：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/0f3050cd98db40a352410a11a521e8b2.png   alt="image.png"  ></p>
+<p>如图，接收窗口由最开始的28K降下来，然后一直在5880和满了之间跳动</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/0db5c3684a9314907f9158ac15b6ac71.png   alt="image.png"  ></p>
+<p>从这里可以得出结论，接收窗口的大小对性能的影响，rtt越大影响越明显，当然这里还需要应用程序配合，如果应用程序一直不读走数据即使接收窗口再大也会堆满的。</p>
+<h2 id="so_rcvbuf和tcp-window-full的坏case" class="headerLink">
+    <a href="#so_rcvbuf%e5%92%8ctcp-window-full%e7%9a%84%e5%9d%8fcase" class="header-mark"></a>SO_RCVBUF和tcp window full的坏case</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/55cf9875d24d76a077c442327d54fa34.png   alt="image.png"  ></p>
+<p>上图中红色平台部分，停顿了大概6秒钟没有发任何有内容的数据包，这6秒钟具体在做什么如下图所示，可以看到这个时候接收方的TCP Window Full，同时也能看到接收方（3306端口）的TCP Window Size是8192（8K），发送方（27545端口）是20480.</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/da48878ce0c01bcdedb1e6d6a6cc6d1c.png   alt="image.png"  ></p>
+<p>这个状况跟前面描述的recv buffer太小不一样，8K是很小，但是因为rtt也很小，所以server总是能很快就ack收到了，接收窗口也一直不容易达到full状态，但是一旦接收窗口达到了full状态，居然需要惊人的6秒钟才能恢复，这等待的时间有点太长了。这里应该是应用读取数据太慢导致了耗时6秒才恢复，所以最终这个请求执行会非常非常慢（时间主要耗在了上传SQL而不是执行SQL）.</p>
+<p>实际原因不知道，从读取TCP数据的逻辑来看这里没有明显的block，可能的原因：</p>
+<ul>
+<li>request的SQL太大，Server（3306端口上的服务）从TCP读取SQL需要放到一块分配好的内存，内存不够的时候需要扩容，扩容有可能触发fgc，从图形来看，第一次满就卡顿了，而且每次满都卡顿，不像是这个原因</li>
+<li>request请求一次发过来的是多个SQL，应用读取SQL后，将SQL分成多个，然后先执行第一个，第一个执行完后返回response，再读取第二个。图形中卡顿前没有response返回，所以也不是这个原因</li>
+<li>……其它未知原因</li>
+</ul>
+<h2 id="接收方不读取数据导致的接收窗口满同时有丢包发生" class="headerLink">
+    <a href="#%e6%8e%a5%e6%94%b6%e6%96%b9%e4%b8%8d%e8%af%bb%e5%8f%96%e6%95%b0%e6%8d%ae%e5%af%bc%e8%87%b4%e7%9a%84%e6%8e%a5%e6%94%b6%e7%aa%97%e5%8f%a3%e6%bb%a1%e5%90%8c%e6%97%b6%e6%9c%89%e4%b8%a2%e5%8c%85%e5%8f%91%e7%94%9f" class="header-mark"></a>接收方不读取数据导致的接收窗口满同时有丢包发生</h2><p>服务端返回数据到client端，TCP协议栈ack这些包，但是应用层没读走包，这个时候 SO_RCVBUF 堆积满，client的TCP协议栈发送 ZeroWindow 标志给服务端。也就是接收端的 buffer 堆满了（但是服务端这个时候看到的bytes in fly是0，因为都ack了），这时服务端不能继续发数据，要等 ZeroWindow 恢复。</p>
+<p>那么接收端上层应用不读走包可能的原因：</p>
+<ul>
+<li>应用代码卡顿、GC等等</li>
+<li>应用代码逻辑上在做其它事情（比如Server将SQL分片到多个DB上，Server先读取第一个分片，如果第一个分片数据很大很大，处理也慢，那么即使第二个分片数据都返回到了TCP 的recv buffer，应用也没去读取其它分片的结果集，直到第一个分片读取完毕。如果SQL带排序，那么Server会轮询读取多个分片，造成这种卡顿的概率小了很多）</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/49e2635a7c4025d44b915a1f17dd272a.png   alt="image.png"  ></p>
+<p>上图这个流因为应用层不读取TCP数据，导致TCP接收Buffer满，进而接收窗口为0，server端不能再发送数据而卡住，但是ZeroWindow的探测包，client都有正常回复，所以1903秒之后接收方窗口不为0后（window update）传输恢复。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/2e493d8dc32bb63f2126375de6675351.png   alt="image.png"  ></p>
+<p>这个截图和前一个类似，是在Server上(3003端口)抓到的包，不同的是接收窗口为0后，server端多次探测（Server上抓包能看到），但是client端没有回复 ZeroWindow（也有可能是回复了，但是中间环节把ack包丢了,或者这个探测包client没收到），造成server端认为client死了、不可达之类，进而反复重传，重传超过15次之后，server端认为这个连接死了，粗暴单方面断开（没有reset和fin,因为没必要，server认为网络连通性出了问题）。</p>
+<p>等到1800秒后，client的接收窗口恢复了，发个window update给server，这个时候server认为这个连接已经断开了，只能回复reset</p>
+<p>网络不通，重传超过一定的时间（tcp_retries2)然后断开这个连接是正常的，这里的问题是：</p>
+<ol>
+<li>为什么这种场景下丢包了，而且是针对某个stream一直丢包</li>
+</ol>
+<p>可能是因为这种场景下触发了中间环节的流量管控，故意丢包了（比如proxy、slb、交换机都有可能做这种选择性的丢包）</p>
+<p>这里server认为连接断开，没有发reset和fin,因为没必要，server认为网络连通性出了问题。client还不知道server上这个连接清理掉了，等client回复了一个window update，server早就认为这个连接早断了，突然收到一个update，莫名其妙，只能reset</p>
+<h2 id="接收窗口和so_rcvbuf的关系" class="headerLink">
+    <a href="#%e6%8e%a5%e6%94%b6%e7%aa%97%e5%8f%a3%e5%92%8cso_rcvbuf%e7%9a%84%e5%85%b3%e7%b3%bb" class="header-mark"></a>接收窗口和SO_RCVBUF的关系</h2><h3 id="ss-查看socket-buffer大小" class="headerLink">
+    <a href="#ss-%e6%9f%a5%e7%9c%8bsocket-buffer%e5%a4%a7%e5%b0%8f" class="header-mark"></a>ss 查看socket buffer大小</h3><p>初始接收窗口一般是 <strong>mss乘以初始cwnd（为了和慢启动逻辑兼容，不想一下子冲击到网络）</strong>，如果没有设置SO_RCVBUF，那么会根据 net.ipv4.tcp_rmem 动态变化，如果设置了SO_RCVBUF，那么接收窗口要向下面描述的值靠拢。</p>
+<p><a href="https://access.redhat.com/discussions/3624151" target="_blank" rel="noopener noreferrer">初始cwnd可以大致通过查看到</a>：</p>
+<pre><code>ss -itmpn dst &quot;10.81.212.8&quot;
+State      Recv-Q Send-Q Local Address:Port  Peer Address:Port
+ESTAB      0      0      10.xx.xx.xxx:22     10.yy.yy.yyy:12345  users:((&quot;sshd&quot;,pid=1442,fd=3))
+         skmem:(r0,rb369280,t0,tb87040,f4096,w0,o0,bl0,d92)
+
+Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.Keep in mind the kernel will double any socket buffer allocation for overhead. 
+So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
+</code></pre>
+<p>初始窗口计算的代码逻辑，重点在17行：</p>
+<pre><code>    /* TCP initial congestion window as per rfc6928 */
+    #define TCP_INIT_CWND           10
+    /* 3. Try to fixup all. It is made immediately after connection enters
+
+       established state.
+             */
+            void tcp_init_buffer_space(struct sock *sk)
+            {
+          int tcp_app_win = sock_net(sk)-&gt;ipv4.sysctl_tcp_app_win;
+          struct tcp_sock *tp = tcp_sk(sk);
+          int maxwin;
+        
+        if (!(sk-&gt;sk_userlocks &amp; SOCK_SNDBUF_LOCK))
+                tcp_sndbuf_expand(sk);
+
+		//初始最大接收窗口计算过程
+        tp-&gt;rcvq_space.space = min_t(u32, tp-&gt;rcv_wnd, TCP_INIT_CWND * tp-&gt;advmss);
+        tcp_mstamp_refresh(tp);
+        tp-&gt;rcvq_space.time = tp-&gt;tcp_mstamp;
+        tp-&gt;rcvq_space.seq = tp-&gt;copied_seq;
+
+        maxwin = tcp_full_space(sk);
+
+        if (tp-&gt;window_clamp &gt;= maxwin) {
+                tp-&gt;window_clamp = maxwin;
+
+                if (tcp_app_win &amp;&amp; maxwin &gt; 4 * tp-&gt;advmss)
+                        tp-&gt;window_clamp = max(maxwin -
+                                               (maxwin &gt;&gt; tcp_app_win),
+                                               4 * tp-&gt;advmss);
+        }
+
+        /* Force reservation of one segment. */
+        if (tcp_app_win &amp;&amp;
+            tp-&gt;window_clamp &gt; 2 * tp-&gt;advmss &amp;&amp;
+            tp-&gt;window_clamp + tp-&gt;advmss &gt; maxwin)
+                tp-&gt;window_clamp = max(2 * tp-&gt;advmss, maxwin - tp-&gt;advmss);
+
+        tp-&gt;rcv_ssthresh = min(tp-&gt;rcv_ssthresh, tp-&gt;window_clamp);
+        tp-&gt;snd_cwnd_stamp = tcp_jiffies32;
+}
+</code></pre>
+<p>传输过程中，最大接收窗口会动态调整，当指定了SO_RCVBUF后，实际buffer是两倍SO_RCVBUF，但是要分出一部分（2^net.ipv4.tcp_adv_win_scale)来作为乱序报文缓存以及metadata</p>
+<blockquote>
+  <ol>
+<li>net.ipv4.tcp_adv_win_scale = 2  //2.6内核，3.1中这个值默认是1</li>
+</ol>
+
+</blockquote><p>如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K（64-16）</p>
+<p>​    static inline int tcp_win_from_space(const struct sock <em>sk, int space)
+​    {//space 传入的时候就已经是 2</em>SO_RCVBUF了
+​            int tcp_adv_win_scale = sock_net(sk)-&gt;ipv4.sysctl_tcp_adv_win_scale;</p>
+<pre><code>        return tcp_adv_win_scale &lt;= 0 ?
+                (space&gt;&gt;(-tcp_adv_win_scale)) :
+                space - (space&gt;&gt;tcp_adv_win_scale); //sysctl参数tcp_adv_win_scale 
+}
+</code></pre>
+<p>tcp_adv_win_scale 的取值</p>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+        <tr>
+            <th style="text-align: center">tcp_adv_win_scale</th>
+            <th style="text-align: center">TCP window size</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td style="text-align: center">4</td>
+            <td style="text-align: center">15/16 * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">3</td>
+            <td style="text-align: center">⅞ * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">2</td>
+            <td style="text-align: center">¾ * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">1</td>
+            <td style="text-align: center">½ * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">0</td>
+            <td style="text-align: center">available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">-1</td>
+            <td style="text-align: center">½ * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">-2</td>
+            <td style="text-align: center">¼ * available memory in receive buffer</td>
+        </tr>
+        <tr>
+            <td style="text-align: center">-3</td>
+            <td style="text-align: center">⅛ * available memory in receive buffer</td>
+        </tr>
+    </tbody>
+  </table>
+</div>
+<p>接收窗口有最大接收窗口和当前可用接收窗口。</p>
+<p>一般来说一次中断基本都会将 buffer 中的包都取走。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d7d3af2c03653e6cf8ae2befa0022832.png   alt="image.png"  ></p>
+<p>绿线是最大接收窗口动态调整的过程，最开始是1460*10，握手完毕后略微调整到1472*10（可利用body增加了12），随着数据的传输开始跳涨</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d0e12e8bad8764385549f9b391c62ab0.png   alt="image.png"  ></p>
+<p>上图是四个batch insert语句，可以看到绿色接收窗口随着数据的传输越来越大，图中蓝色竖直部分基本表示SQL上传，两个蓝色竖直条的间隔代表这个insert在服务器上真正的执行时间。这图非常陡峭，表示上传没有任何瓶颈.</p>
+<h3 id="设置-so_rcvbuf-后通过wireshark观察到的接收窗口基本" class="headerLink">
+    <a href="#%e8%ae%be%e7%bd%ae-so_rcvbuf-%e5%90%8e%e9%80%9a%e8%bf%87wireshark%e8%a7%82%e5%af%9f%e5%88%b0%e7%9a%84%e6%8e%a5%e6%94%b6%e7%aa%97%e5%8f%a3%e5%9f%ba%e6%9c%ac" class="header-mark"></a>设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本</h3><p>下图是设置了 SO_RCVBUF 为8192的实际情况：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d0e12e8bad8764385549f9b391c62ab0.png   alt="image.png"  ></p>
+<p>从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值</p>
+<h2 id="实验分别改小server-wmemclient-rmem-来对比对速度的影响" class="headerLink">
+    <a href="#%e5%ae%9e%e9%aa%8c%e5%88%86%e5%88%ab%e6%94%b9%e5%b0%8fserver-wmemclient-rmem-%e6%9d%a5%e5%af%b9%e6%af%94%e5%af%b9%e9%80%9f%e5%ba%a6%e7%9a%84%e5%bd%b1%e5%93%8d" class="header-mark"></a>实验：分别改小server wmem/client rmem 来对比对速度的影响</h2><blockquote>
+  <p>server 设置 wmem=4096, client curl get server的文件，速度60mbps, 两边的rtt都很好</p>
+<p>client 设置 rmem=4096，client curl get server的文件，速度6mbps, 为什么速度差别这么大？</p>
+
+</blockquote><p>为什么server 设置 wmem=4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230414092751721.png   alt="image-20230414092751721"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1460000039103606.png   alt="img"  ></p>
+<h1 id="从kernel来看buffer相关信息" class="headerLink">
+    <a href="#%e4%bb%8ekernel%e6%9d%a5%e7%9c%8bbuffer%e7%9b%b8%e5%85%b3%e4%bf%a1%e6%81%af" class="header-mark"></a>从kernel来看buffer相关信息</h1><h2 id="kernel相关参数" class="headerLink">
+    <a href="#kernel%e7%9b%b8%e5%85%b3%e5%8f%82%e6%95%b0" class="header-mark"></a>kernel相关参数</h2><pre><code>sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp有自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+</code></pre>
+<p>发送buffer系统比较好自动调节，依靠发送数据大小和rt延时大小，可以相应地进行调整；但是接受buffer就不一定了，接受buffer的使用取决于收到的数据快慢和应用读走数据的速度，只能是OS根据系统内存的压力来调整接受buffer。系统内存的压力取决于 net.ipv4.tcp_mem.</p>
+<p>需要特别注意：<strong>tcp_wmem 和 tcp_rmem 的单位是字节，而 tcp_mem 的单位的页面</strong></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ea04e40acda986675bf0ad0ea7b9b8ff.png   alt="image.png"  ></p>
+<h2 id="kernel相关源码" class="headerLink">
+    <a href="#kernel%e7%9b%b8%e5%85%b3%e6%ba%90%e7%a0%81" class="header-mark"></a>kernel相关源码</h2><p>从内核代码来看如果应用代码设置了sndbuf(比如java代码中：socket.setOption(sndbuf, socketSendBuffer))那么实际会分配socketSendBuffer*2的大小出来</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1de3f2916346e390be55263d59f5730d.png   alt="image.png"  ></p>
+<p>比如应用代码有如下设置：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">			protected int socketRecvBuffer = 32 * 1024;   //接收32K
+</span></span><span class="line"><span class="cl">			protected int socketSendBuffer = 64 * 1024;   //发送64K，实际会分配128K
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">        // If bufs set 0, using &#39;/etc/sysctl.conf&#39; system settings on default
+</span></span><span class="line"><span class="cl">        // refer: net.ipv4.tcp_wmem / net.ipv4.tcp_rmem
+</span></span><span class="line"><span class="cl">        if (socketRecvBuffer &gt; 0) {
+</span></span><span class="line"><span class="cl">            socket.setReceiveBufferSize(socketRecvBuffer);
+</span></span><span class="line"><span class="cl">        }
+</span></span><span class="line"><span class="cl">        if (socketSendBuffer &gt; 0) {
+</span></span><span class="line"><span class="cl">            socket.setSendBufferSize(socketSendBuffer);
+</span></span><span class="line"><span class="cl">        }</span></span></code></pre>
+</div>
+<p><a href="https://man7.org/linux/man-pages/man8/ss.8.html" target="_blank" rel="noopener noreferrer">实际会看到这样</a>的：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">tcp ESTAB 45 0 10.0.186.140:3306 10.0.186.70:26494 skmem:(r768,rb65536,t0,tb131072,f3328,w0,o0,bl0,d0)
+</span></span><span class="line"><span class="cl">tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,f4096,w0,o0,bl0,d0)</span></span></code></pre>
+</div>
+<p>为什么kernel要double 接收和发送buffer可以<a href="https://man7.org/linux/man-pages/man7/socket.7.html" target="_blank" rel="noopener noreferrer">参考man7中的socket帮助信息</a></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/4e2b2e12c754f01a2f99f9f47dd5fd8e.png   alt="image.png"  ></p>
+<h2 id="tcp包发送流程" class="headerLink">
+    <a href="#tcp%e5%8c%85%e5%8f%91%e9%80%81%e6%b5%81%e7%a8%8b" class="header-mark"></a>tcp包发送流程</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/d385a7dad76ec4031dfb6c096bca434b.png   alt="image.png"  ></p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境" class="headerLink">
+    <a href="#%e7%94%a8tc%e6%9e%84%e9%80%a0%e5%bb%b6%e6%97%b6%e5%92%8c%e5%b8%a6%e5%ae%bd%e9%99%90%e5%88%b6%e7%9a%84%e6%a8%a1%e6%8b%9f%e9%87%8d%e7%8e%b0%e7%8e%af%e5%a2%83" class="header-mark"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre>
+<h2 id="内核观测tcp_mem是否不足" class="headerLink">
+    <a href="#%e5%86%85%e6%a0%b8%e8%a7%82%e6%b5%8btcp_mem%e6%98%af%e5%90%a6%e4%b8%8d%e8%b6%b3" class="header-mark"></a>内核观测tcp_mem是否不足</h2><p>因 tcp_mem 达到限制而无法发包或者产生抖动的问题，我们也是可以观测到的。为了方便地观测这类问题，Linux 内核里面预置了静态观测点：sock_exceed_buf_limit（需要 4.16+ 的内核版本）。</p>
+<blockquote>
+  <p>$ echo 1 &gt; /sys/kernel/debug/tracing/events/sock/sock_exceed_buf_limit/enable</p>
+
+</blockquote><p>然后去看是否有该事件发生：</p>
+<blockquote>
+  <p>$ cat /sys/kernel/debug/tracing/trace_pipe</p>
+
+</blockquote><p>如果有日志输出（即发生了该事件），就意味着你需要调大 tcp_mem 了，或者是需要断开一些 TCP 连接了。</p>
+<h2 id="或者通过systemtap来观察" class="headerLink">
+    <a href="#%e6%88%96%e8%80%85%e9%80%9a%e8%bf%87systemtap%e6%9d%a5%e8%a7%82%e5%af%9f" class="header-mark"></a>或者通过systemtap来观察</h2><p>如下是tcp_sendmsg流程，sk_stream_wait_memory就是tcp_wmem不够的时候触发等待：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ff025f076a4a2bc2b1b13d11f32a97d3.png   alt="image.png"  ></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code> #!/usr/bin/stap
+    # Simple probe to detect when a process is waiting for more socket send
+    # buffer memory. Usually means the process is doing writes larger than the
+    # socket send buffer size or there is a slow receiver at the other side.
+    # Increasing the socket's send buffer size might help decrease application
+    # latencies, but it might also make it worse, so buyer beware.
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+</code></pre>
+<h1 id="其它案例分析" class="headerLink">
+    <a href="#%e5%85%b6%e5%ae%83%e6%a1%88%e4%be%8b%e5%88%86%e6%9e%90" class="header-mark"></a>其它案例分析</h1><p>从如下案例可以看到在时延5ms和1ms的时候，分别执行相同的SQL，SQL查询结果13M，耗时分别为4.6和0.8秒</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">$time mysql  -h127.1  -e &#34;select * from test;&#34; &gt;/tmp/result.txt
+</span></span><span class="line"><span class="cl">real    0m3.078s
+</span></span><span class="line"><span class="cl">user    0m0.273s
+</span></span><span class="line"><span class="cl">sys     0m0.028s
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">$ping -c 1 127.0.0.1
+</span></span><span class="line"><span class="cl">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.
+</span></span><span class="line"><span class="cl">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=5.01 ms
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">--- 127.0.0.1 ping statistics ---
+</span></span><span class="line"><span class="cl">1 packets transmitted, 1 received, 0% packet loss, time 0ms
+</span></span><span class="line"><span class="cl">rtt min/avg/max/mdev = 5.018/5.018/5.018/0.000 ms
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">$ls -lh /tmp/result.txt
+</span></span><span class="line"><span class="cl">-rw-rw-r-- 1 admin admin 13M Mar 12 12:51 /tmp/result.txt
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">//减小时延后继续测试
+</span></span><span class="line"><span class="cl">$ping 127.0.0.1
+</span></span><span class="line"><span class="cl">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.
+</span></span><span class="line"><span class="cl">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=1.01 ms
+</span></span><span class="line"><span class="cl">64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=1.02 ms
+</span></span><span class="line"><span class="cl">^C
+</span></span><span class="line"><span class="cl">--- 127.0.0.1 ping statistics ---
+</span></span><span class="line"><span class="cl">2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+</span></span><span class="line"><span class="cl">rtt min/avg/max/mdev = 1.016/1.019/1.022/0.003 ms
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">$time mysql  -h127.1  -e &#34;select * from test;&#34; &gt;/tmp/result.txt
+</span></span><span class="line"><span class="cl">real    0m0.838s
+</span></span><span class="line"><span class="cl">user    0m0.271s
+</span></span><span class="line"><span class="cl">sys     0m0.030s
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">//通过ss可以看到这个连接的buffer 大小相关信息，3306端口socket的send buffer为32K；
+</span></span><span class="line"><span class="cl">//7226为客户端，发送buffer为128K，OS默认参数 
+</span></span><span class="line"><span class="cl">tcp ESTAB 0 0 127.0.0.1:7226 127.0.0.1:3306 skmem:(r0,rb131072,t2,tb2626560,f24576,w0,o0,bl0,d0)
+</span></span><span class="line"><span class="cl">tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f1792,w26880,o0,bl0,d0)</span></span></code></pre>
+</div>
+<p>在这个案例中 send buffer为32K（代码中设置的16K，内核会再翻倍，所以是32K），如果时延5毫秒时，一秒钟最多执行200次来回，也就是一秒钟能传输：200*32K=6.4M，总大小为13M，也就是最快需要2秒钟才能传输行完，另外MySQL innodb执行耗时0.5ms，也就是极限速度也就是2.5秒+了。</p>
+<p>这个场景下想要快得减少rt或者增加send buffer， 增加接收端的buffer没有意义，比如如下代码增加client的 &ndash;net-buffer-length=163840000  没有任何帮助</p>
+<blockquote>
+  <p>time mysql &ndash;net-buffer-length=163840000  -h127.1  -e &ldquo;select * from test;&rdquo; &gt;/tmp/result.txt</p>
+
+</blockquote><h2 id="在2-mib-buffer下rt和-throughput的关系" class="headerLink">
+    <a href="#%e5%9c%a82-mib-buffer%e4%b8%8brt%e5%92%8c-throughput%e7%9a%84%e5%85%b3%e7%b3%bb" class="header-mark"></a>在2 MiB buffer下rt和 throughput的关系</h2><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image10-5.png   alt="img"  ></p>
+<h2 id="wmem-和send_buffer的关系httpsunixstackexchangecomquestions551444what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued" class="headerLink">
+    <a href="#wmem-%e5%92%8csend_buffer%e7%9a%84%e5%85%b3%e7%b3%bbhttpsunixstackexchangecomquestions551444what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued" class="header-mark"></a><a href="https://unix.stackexchange.com/questions/551444/what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued" target="_blank" rel="noopener noreferrer">wmem 和send_buffer的关系</a></h2><p>设置 net.ipv4.tcp_wmem=4096 4096 4096（单位是bytes），目的是想控制wmem很小，实际测试发现bytes in flight(发走还没有ack的数据）超过了4096，那么tcp_wmem和 send_buffer/bytes in flight 到底是什么关系呢？</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/lQLPJwQZZ7TDbHrNBTTNBdCwIxliw-QP0oQEMVPcZwCyAA_1488_1332.png   alt="img"  ></p>
+<p>应用write-&gt;wmem/snd_buffer-&gt;wmem_queued(在这里等ack，ack没来queued不释放)-&gt;client</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231007152649201.png   alt="image-20231007152649201"  ></p>
+<p>skmem:(r0,rb369280,t0,tb4096,f6000,w157840,o0,bl0</p>
+<p>w157840&ndash;这个对应我们理解的send buffer. 也就是wmem 不负责等ack，send完就释放，wmem_queued负责等</p>
+<h1 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h1><ul>
+<li>一般来说绝对不要在程序中手工设置SO_SNDBUF和SO_RCVBUF，内核自动调整比你做的要好；</li>
+<li>SO_SNDBUF一般会比发送滑动窗口要大，因为发送出去并且ack了的才能从SO_SNDBUF中释放；</li>
+<li>代码中设置的SO_SNDBUF和SO_RCVBUF在内核中会翻倍分配；</li>
+<li>TCP接收窗口跟SO_RCVBUF关系很复杂；</li>
+<li>SO_RCVBUF太小并且rtt很大的时候会严重影响性能；</li>
+<li>接收窗口比发送窗口复杂多了；</li>
+<li>发送窗口/SO_SNDBUF&ndash;发送仓库，带宽/拥塞窗口&ndash;马路通畅程度，接收窗口/SO_RCVBUF&ndash;接收仓库；</li>
+<li>发送仓库、马路宽度、长度（rt）、接收仓库一起决定了传输速度&ndash;类比一下快递过程。</li>
+</ul>
+<p><strong>总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF</strong></p>
+<p>关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满</p>
+<h1 id="相关和参考文章" class="headerLink">
+    <a href="#%e7%9b%b8%e5%85%b3%e5%92%8c%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>相关和参考文章</h1><p>2024 Netflix： <a href="https://netflixtechblog.medium.com/investigation-of-a-cross-regional-network-performance-issue-422d6218fdf1" target="_blank" rel="noopener noreferrer">Investigation of a Cross-regional Network Performance Issue</a>  因为内核升级去掉了内核参数 sysctl_tcp_adv_win_scale，换了一个新的计算方式，导致原来30秒 内能传输完毕的请求在新内核机制下传输不完，从而导致了业务端的请求超时  <a href="https://lore.kernel.org/netdev/20230717152917.751987-1-edumazet@google.com/T/" target="_blank" rel="noopener noreferrer">This commit</a> obsoleted <em>sysctl_tcp_adv_win_scale</em> and introduced a <em>scaling_ratio</em> that can more accurately calculate the overhead or window size, which is the right thing to do. With the change, the window size is now <em>rcvbuf * scaling_ratio</em>. 简而言之，内核升级后，接收缓存大小减半。因此，吞吐量也减半，导致数据传输时间翻倍。</p>
+<p>Netflix 这次业务问题是Kafka， 其代码里不应该设置TCP 接收buffer 大小，而是要让kernel来自动调节</p>
+<p>2022 <a href="https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think" target="_blank" rel="noopener noreferrer">https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think</a> 你设置的rmem 不会全部用来存放数据，每个包还有一些meta数据需要存放，元数据的大小会有很大的差异，导致内核需要来保守预估</p>
+<blockquote>
+  <p>receive window is not fully opened immediately. Linux keeps the receive window small, as it tries to predict the metadata cost and avoid overshooting the memory budget, therefore hitting TCP collapse. By default, with the net.ipv4.tcp_adv_win_scale=1, the upper limit for the advertised window is 50% of &ldquo;free&rdquo; memory. rcv_ssthresh starts up with 64KiB and grows linearly up to that limit.</p>
+
+</blockquote><p><a href="https://blog.csdn.net/dog250/article/details/113020804" target="_blank" rel="noopener noreferrer">用stap从内核角度来分析buffer、rt和速度</a></p>
+<p>[The story of one latency spike][https://blog.cloudflare.com/the-story-of-one-latency-spike/] : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点</p>
+<blockquote>
+  <p>Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is <code>tcp_collapse</code> and it will merge adjacent TCP packets into one larger <code>sk_buff</code>. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.</p>
+
+</blockquote><p>原因：将 tcp_rmem 最大值设置得太大，在内存压力场景下触发了GC（tcp_collapse），将 tcp_rmem 调小后（32M-&gt;2M）不再有偶发性 rt 很高的延时</p>
+<p>从 net_rx_action 追到 tcp_collapse 的逻辑没太理解（可能是对内核足够了解）</p>
+<p>[What is rcv_space in the &lsquo;ss &ndash;info&rsquo; output, and why it&rsquo;s value is larger than net.core.rmem_max][28]</p>
+]]></description>
+</item></channel>
+</rss>

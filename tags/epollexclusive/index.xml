@@ -1,0 +1,902 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>EPOLLEXCLUSIVE - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/epollexclusive/</link>
+        <description>EPOLLEXCLUSIVE - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Mon, 09 Dec 2019 12:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/epollexclusive/" rel="self" type="application/rss+xml" /><item>
+    <title>epoll的LT和ET</title>
+    <link>http://localhost:1313/posts/epoll%E7%9A%84lt%E5%92%8Cet/</link>
+    <pubDate>Mon, 09 Dec 2019 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/epoll%E7%9A%84lt%E5%92%8Cet/</guid>
+    <description><![CDATA[<h1 id="epoll的lt和et" class="headerLink">
+    <a href="#epoll%e7%9a%84lt%e5%92%8cet" class="header-mark"></a>epoll的LT和ET</h1><ul>
+<li>LT水平触发(翻译为 条件触发 更合适）</li>
+</ul>
+<blockquote>
+  <p>如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。比如来了，打印一行通知，但是不去处理事件，那么会不停滴打印通知。水平触发模式的 epoll 的扩展性很差。</p>
+
+</blockquote><ul>
+<li>ET边沿触发</li>
+</ul>
+<blockquote>
+  <p>如果事件来了，不管来了几个，你若不处理或者没有处理完，除非下一个事件到来，否则epoll将不会再通知你。 比如事件来了，打印一行通知，但是不去处理事件，那么不再通知，除非下个事件来了</p>
+
+</blockquote><p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
+<p>举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。</p>
+<h3 id="条件触发的问题不必要的唤醒" class="headerLink">
+    <a href="#%e6%9d%a1%e4%bb%b6%e8%a7%a6%e5%8f%91%e7%9a%84%e9%97%ae%e9%a2%98%e4%b8%8d%e5%bf%85%e8%a6%81%e7%9a%84%e5%94%a4%e9%86%92" class="header-mark"></a>条件触发的问题：不必要的唤醒</h3><ol>
+<li>内核：收到一个新建连接的请求</li>
+<li>内核：由于 &ldquo;惊群效应&rdquo; ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程B：epoll_wait() 返回</li>
+<li>线程A：执行 accept() 并且成功</li>
+<li>线程B：执行 accept() 失败，accept() 返回 EAGAIN</li>
+</ol>
+<h3 id="边缘触发的问题不必要的唤醒以及饥饿" class="headerLink">
+    <a href="#%e8%be%b9%e7%bc%98%e8%a7%a6%e5%8f%91%e7%9a%84%e9%97%ae%e9%a2%98%e4%b8%8d%e5%bf%85%e8%a6%81%e7%9a%84%e5%94%a4%e9%86%92%e4%bb%a5%e5%8f%8a%e9%a5%a5%e9%a5%bf" class="header-mark"></a>边缘触发的问题：不必要的唤醒以及饥饿</h3><p>不必要的唤醒：</p>
+<ol>
+<li>内核：收到第一个连接请求。线程 A 和 线程 B 两个线程都在 epoll_wait() 上等待。由于采用边缘触发模式，所以只有一个线程会收到通知。这里假定线程 A 收到通知</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：此时 accept queue 为空，所以将边缘触发的 socket 的状态从可读置成不可读</li>
+<li>内核：收到第二个建连请求</li>
+<li>内核：此时，由于线程 A 还在执行 accept() 处理，只剩下线程 B 在等待 epoll_wait()，于是唤醒线程 B</li>
+<li>线程A：继续执行 accept() 直到返回 EAGAIN</li>
+<li>线程B：执行 accept()，并返回 EAGAIN，此时线程 B 可能有点困惑(&ldquo;明明通知我有事件，结果却返回 EAGAIN&rdquo;)</li>
+<li>线程A：再次执行 accept()，这次终于返回 EAGAIN</li>
+</ol>
+<p>饥饿：</p>
+<ol>
+<li>内核：接收到两个建连请求。线程 A 和 线程 B 两个线程都在等在 epoll_wait()。由于采用边缘触发模式，只有一个线程会被唤醒，我们这里假定线程 A 先被唤醒</li>
+<li>线程A：epoll_wait() 返回</li>
+<li>线程A：调用 accpet() 并且成功</li>
+<li>内核：收到第三个建连请求。由于线程 A 还没有处理完(没有返回 EAGAIN)，当前 socket 还处于可读的状态，由于是边缘触发模式，所有不会产生新的事件</li>
+<li>线程A：继续执行 accept() 希望返回 EAGAIN 再进入 epoll_wait() 等待，然而它又 accept() 成功并处理了一个新连接</li>
+<li>内核：又收到了第四个建连请求</li>
+<li>线程A：又继续执行 accept()，结果又返回成功</li>
+</ol>
+<p>ET的话会要求应用一直要把消息处理完毕，比如nginx用ET模式，来了一个上传大文件并压缩的任务，会造成这么一个循环：</p>
+<blockquote>
+  <p>nginx读数据（未读完）-&gt;Gzip(需要时间，套接字又有数据过来)-&gt;读数据（未读完）-&gt;Gzip &hellip;..</p>
+
+</blockquote><p>新的accpt进来，因为前一个nginx worker已经被唤醒并且还在read(这个时候内核因为accept queue为空所以已经将socket设置成不可读），所以即使其它worker 被唤醒，看到的也是一个不可读的socket，所以很快因为EAGAIN返回了。</p>
+<p>这样就会造成nginx的这个worker假死了一样。如果上传速度慢，这个循环无法持续存在，也就是一旦读完nginx切走（再有数据进来等待下次触发），不会造成假死。</p>
+<p>JDK中的NIO是条件触发（level-triggered），不支持ET。netty，nginx和redis默认是边缘触发（edge-triggered），netty因为JDK不支持ET，所以自己实现了Netty-native的抽象，不依赖JDK来提供ET。</p>
+<p>边缘触发会比条件触发更高效一些，因为边缘触发不会让同一个文件描述符多次被处理,比如有些文件描述符已经不需要再读写了,但是在条件触发下每次都会返回,而边缘触发只会返回一次。</p>
+<p>如果设置边缘触发,则必须将对应的文件描述符设置为非阻塞模式并且循环读取数据。否则会导致程序的效率大大下降或丢消息。</p>
+<p>poll和epoll默认采用的都是条件触发,只是epoll可以修改成边缘触发。条件触发同时支持block和non-block，使用更简单一些。</p>
+<h3 id="epoll-lt惊群的发生" class="headerLink">
+    <a href="#epoll-lt%e6%83%8a%e7%be%a4%e7%9a%84%e5%8f%91%e7%94%9f" class="header-mark"></a>epoll LT惊群的发生</h3><div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">// 否则会阻塞在IO系统调用，导致没有机会再epoll
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="nf">set_socket_nonblocking</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="n">epfd</span> <span class="o">=</span> <span class="nf">epoll_create</span><span class="p">(</span><span class="mi">64</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="n">event</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">fd</span> <span class="o">=</span> <span class="n">sd</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="nf">epoll_ctl</span><span class="p">(</span><span class="n">epfd</span><span class="p">,</span> <span class="n">EPOLL_CTL_ADD</span><span class="p">,</span> <span class="n">sd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">event</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">epoll_wait</span><span class="p">(</span><span class="n">epfd</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">xx</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">...</span> <span class="c1">// 危险区域！如果有共享同一个epfd的进程/线程调用epoll_wait，它们也将会被唤醒！
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 这个accept将会有多个进程/线程调用，如果并发请求数很少，那么将仅有几个进程会成功：
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 1. 假设accept队列中有n个请求，则仅有n个进程能成功，其它将全部返回EAGAIN (Resource temporarily unavailable)
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="c1">// 2. 如果n很大(即增加请求负载)，虽然返回EAGAIN的比率会降低，但这些进程也并不一定取到了epoll_wait返回当下的那个预期的请求。
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="n">csd</span> <span class="o">=</span> <span class="nf">accept</span><span class="p">(</span><span class="n">sd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">in_addr</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">in_len</span><span class="p">);</span> 
+</span></span><span class="line"><span class="cl">    <span class="p">...</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span></span></span></code></pre>
+</div>
+<p>再看一遍LT的描述“如果事件来了，不管来了几个，只要仍然有未处理的事件，epoll都会通知你。”，显然，epoll_wait刚刚取到事件的时候的时候，不可能马上就调用accept去处理，事实上，逻辑在epoll_wait函数调用的ep_poll中还没返回的，这个时候，显然符合“仍然有未处理的事件”这个条件，显然这个时候为了实现这个语义，需要做的就是通知别的同样阻塞在同一个epoll句柄睡眠队列上的进程！在实现上，这个语义由两点来保证：</p>
+<p>保证1：在LT模式下，“就绪链表”上取出的epi上报完事件后会重新加回“就绪链表”；
+保证2：如果“就绪链表”不为空，且此时有进程阻塞在同一个epoll句柄的睡眠队列上，则唤醒它。</p>
+<p>epoll LT模式下有进程被不必要唤醒，这一点并不是内核无意而为之的，内核肯定是知道这件事的，这个并不像之前accept惊群那样算是内核的一个缺陷。epoll LT模式只是提供了一种模式，误用这种模式将会造成类似惊群那样的效应。但是不管怎么说，为了讨论上的方便，后面我们姑且将这种效应称作epoll LT惊群吧。</p>
+<h3 id="epoll-et模式可以解决上面的问题但是带来了新的麻烦" class="headerLink">
+    <a href="#epoll-et%e6%a8%a1%e5%bc%8f%e5%8f%af%e4%bb%a5%e8%a7%a3%e5%86%b3%e4%b8%8a%e9%9d%a2%e7%9a%84%e9%97%ae%e9%a2%98%e4%bd%86%e6%98%af%e5%b8%a6%e6%9d%a5%e4%ba%86%e6%96%b0%e7%9a%84%e9%ba%bb%e7%83%a6" class="header-mark"></a>epoll ET模式可以解决上面的问题，但是带来了新的麻烦</h3><p>由于epi entry的callback即ep_poll_callback所做的事情仅仅是将该epi自身加入到epoll句柄的“就绪链表”，同时唤醒在epoll句柄睡眠队列上的task，所以这里并不对事件的细节进行计数，比如说，<strong>如果ep_poll_callback在将一个epi加入“就绪链表”之前发现它已经在“就绪链表”了，那么就不会再次添加，因此可以说，一个epi可能pending了多个事件，注意到这点非常重要！</strong></p>
+<p>一个epi上pending多个事件，这个在LT模式下没有任何问题，因为获取事件的epi总是会被重新添加回“就绪链表”，那么如果还有事件，在下次check的时候总会取到。然而对于ET模式，仅仅将epi从“就绪链表”删除并将事件本身上报后就返回了，因此如果该epi里还有事件，则只能等待再次发生事件，进而调用ep_poll_callback时将该epi加入“就绪队列”。这意味着什么？</p>
+<p>这意味着，应用程序，即epoll_wait的调用进程必须自己在获取事件后将其处理干净后方可再次调用epoll_wait，否则epoll_wait不会返回，而是必须等到下次产生事件的时候方可返回。这会导致事件堆积，所以一般会死循环一直拉取事件，直到拉取不到了再返回。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://www.atatech.org/articles/157349" target="_blank" rel="noopener noreferrer">Epoll is fundamentally broken</a></p>
+<p><a href="https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12" target="_blank" rel="noopener noreferrer">Epoll is fundamentally broken 1/2</a></p>
+<p><a href="https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/" target="_blank" rel="noopener noreferrer">https://wenfh2020.com/2021/11/21/question-nginx-epoll-et/</a></p>
+]]></description>
+</item><item>
+    <title>epoll和惊群</title>
+    <link>http://localhost:1313/posts/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/</link>
+    <pubDate>Thu, 31 Oct 2019 12:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/</guid>
+    <description><![CDATA[<h1 id="epoll和惊群" class="headerLink">
+    <a href="#epoll%e5%92%8c%e6%83%8a%e7%be%a4" class="header-mark"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
+<h2 id="什么是惊群" class="headerLink">
+    <a href="#%e4%bb%80%e4%b9%88%e6%98%af%e6%83%8a%e7%be%a4" class="header-mark"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
+<p>惊群的本质在于多个线程处理同一个事件。</p>
+<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
+<p>linux 内核通过睡眠队列来组织所有等待某个事件的 task，而 wakeup 机制则可以异步唤醒整个睡眠队列上的 task，wakeup 逻辑在唤醒睡眠队列时，会遍历该队列链表上的每一个节点，调用每一个节点的 callback，从而唤醒睡眠队列上的每个 task，为什么要欢行所有的task，关键在于内核不知道这个消息是一个task处理就够了还是从逻辑上这些wakeup的所有task都要处理，所以只能全部唤醒。这样，在一个 connect 到达这个 lisent socket 的时候，内核会唤醒所有睡眠在 accept 队列上的 task。N 个 task 进程(线程)同时从 accept 返回，但是，只有一个 task 返回这个 connect 的 fd，其他 task 都返回-1(EAGAIN)。这是典型的 accept&quot;惊群&quot;现象。</p>
+<p>如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。</p>
+<p>连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）</p>
+<p>关键点：多个进程监听相同事件（或者说一个epoll有多个进程来处理）</p>
+<h2 id="先上总结" class="headerLink">
+    <a href="#%e5%85%88%e4%b8%8a%e6%80%bb%e7%bb%93" class="header-mark"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
+<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read/write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read/write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
+<h2 id="无io复用时accept" class="headerLink">
+    <a href="#%e6%97%a0io%e5%a4%8d%e7%94%a8%e6%97%b6accept" class="header-mark"></a>无IO复用时Accept</h2><blockquote>
+  <p>无IO复用（就只能一个进程监听listen 端口）的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
+
+</blockquote><p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"> <span class="cm">/* nr_exclusive的值默认设为1 */</span>
+</span></span><span class="line"><span class="cl"> <span class="cp">#define wake_up_interruptible_sync_poll(x, m)              \
+</span></span></span><span class="line"><span class="cl"><span class="cp">    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, 1, (void *) (m))
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="n">tcp_v4_rcv</span>
+</span></span><span class="line"><span class="cl"><span class="n">tcp_v4_do_rcv</span>
+</span></span><span class="line"><span class="cl"><span class="n">tcp_child_process</span>
+</span></span><span class="line"><span class="cl"><span class="n">sock_def_readable</span>
+</span></span><span class="line"><span class="cl"><span class="n">wake_up_interruptible_sync_poll</span>
+</span></span><span class="line"><span class="cl"><span class="n">__wake_up_common</span>
+</span></span><span class="line"><span class="cl"> <span class="cm">/* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */</span>
+</span></span><span class="line"><span class="cl"><span class="nf">list_for_each_entry_safe</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span> <span class="n">next</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">q</span><span class="o">-&gt;</span><span class="n">task_list</span><span class="p">,</span> <span class="n">task_list</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="cm">/* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">curr</span><span class="o">-&gt;</span><span class="nf">func</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">wake_flags</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="n">flags</span> <span class="o">&amp;</span> <span class="n">WQ_FLAG_EXCLUSIVE</span><span class="p">)</span>  <span class="o">&amp;&amp;</span>
+</span></span><span class="line"><span class="cl">       <span class="o">!--</span><span class="n">nr_exclusive</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="k">break</span><span class="p">;</span> 
+</span></span></code></pre>
+</div>
+<p>sock中定义了几个I/O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
+<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
+<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll&ndash;因为epoll除了有accept，还有其它IO事件）</p>
+<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
+<h2 id="epoll的accept" class="headerLink">
+    <a href="#epoll%e7%9a%84accept" class="header-mark"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read/write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2021-11-05-10-49-41.png   alt="img"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2021-10-14-11-21-46.png   alt="img"  ></p>
+<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">//主进程中：
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="n">ngx_init_cycle</span>
+</span></span><span class="line"><span class="cl"><span class="n">ngx_open_listening_sockets</span>
+</span></span><span class="line"><span class="cl">    <span class="n">socket</span>
+</span></span><span class="line"><span class="cl">    <span class="n">bind</span>
+</span></span><span class="line"><span class="cl">    <span class="n">listen</span>
+</span></span><span class="line"><span class="cl">    <span class="n">epoll_create</span>
+</span></span><span class="line"><span class="cl">    <span class="n">epoll_ctl</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">//子进程中：
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="n">ngx_event_process_init</span>
+</span></span><span class="line"><span class="cl"><span class="n">ngx_prcocess_events_and_timers</span>
+</span></span><span class="line"><span class="cl"><span class="n">ngx_epoll_process_events</span>
+</span></span><span class="line"><span class="cl">    <span class="n">epoll_wait</span>
+</span></span><span class="line"><span class="cl">    <span class="n">rev</span><span class="o">-&gt;</span><span class="nf">handler</span><span class="p">(</span><span class="n">rev</span><span class="p">)</span> <span class="c1">// 对于listening socket，handler是ngx_event_accept
+</span></span></span></code></pre>
+</div>
+<p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
+<pre><code>epoll_wait
+ep_poll
+    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
+    init_waitqueue_entry(&amp;wait, current) 
+    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
+    ...
+    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
+</code></pre>
+<p>回调触发逻辑：</p>
+<pre><code>tcp_v4_rcv
+tcp_v4_do_rcv
+tcp_child_process
+sock_def_readable /* sock I/O 有数据可读事件 */
+wake_up_interruptible_sync_poll
+__wake_up_common
+    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
+    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
+        !--nr_exclusive)
+        break;
+</code></pre>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png   alt="img"  ></p>
+<p>那么这种情况下内核如何来解决惊群呢？</p>
+<h3 id="so_reuseport" class="headerLink">
+    <a href="#so_reuseport" class="header-mark"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
+<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
+<p>linux man文档中一段文字描述其作用：</p>
+<blockquote>
+  <p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
+
+</blockquote><p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
+<ul>
+<li>允许多个套接字 bind()/listen() 同一个TCP/UDP端口</li>
+<li>每一个线程拥有自己的服务器套接字</li>
+<li>在服务器套接字上没有了锁的竞争</li>
+<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
+<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
+</ul>
+<p>其核心的实现主要有三点：</p>
+<ul>
+<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
+<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
+<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png   alt="image.png"  ></p>
+<ul>
+<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
+<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
+<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
+</ul>
+<p>以nginx为例，一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker/线程来处理。</p>
+<ul>
+<li>每个 Worker 都会有一个属于自己的 epoll 对象</li>
+<li>每个 Worker 会关注所有的 listen 状态上的新连接事件（可以通过accept_mutex或者reuseport来解决惊群）</li>
+<li>对于用户连接，只有一个 Worker 会处理，其它 Worker 不会持有该用户连接的 socket（不会惊群）</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-9645142.png   alt="Image"  ></p>
+<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-9645236.     ></p>
+<p>因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05.png   alt="img"  ></p>
+<p>图片来自：https://wenfh2020.com/2021/11/22/question-thundering-herd/</p>
+<h4 id="nginx下so_reuseport-带来的小问题" class="headerLink">
+    <a href="#nginx%e4%b8%8bso_reuseport-%e5%b8%a6%e6%9d%a5%e7%9a%84%e5%b0%8f%e9%97%ae%e9%a2%98" class="header-mark"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read/write，如果一个read/write比较耗时的话也会影响到这个worker下的别的socket上的read/write或者accept</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png   alt="image.png"  ></p>
+<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png   alt="image.png"  ></p>
+<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
+<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener noreferrer">因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接（或者这个worker上的其它请求），但是这个时候worker一直在压缩如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read/write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
+<blockquote>
+  <p>上面Nginx Hang死的原因是：Nginx 使用了边缘触发模式，因此Nginx 在套接字有可读性事件的情况下，必须把所有数据都读掉才行，在gzip buffer &lt; connection rcvbuf 同时后端比较快时候，一次性读不完连接上所有数据，就会出现读数据-&gt;压缩-&gt;新数据到达-&gt;继续读数据-&gt; 继续压缩&hellip; 的循环，由于压缩需要时间，此时套接字上又来了新的数据，只要数据来的速度比压缩的快，就会出现数据一直读不完的情况，CPU 就一直切不出去。</p>
+<p>解决：OSS gzip_buffers 配置为 64*8k = 512K，给后端进程增加了设置sndbuf/rcvbuf 指令之后通过配置Tengine 与后 oss_server 之间的连接的rcvbuf 到512k 以内，这样就能解决这个问题了，实测这个修改几乎不影响后端整体吞吐，同时也不会出现Nginx worker Hang 的情况。</p>
+
+</blockquote><p>如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
+<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
+<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" rel="">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
+<p>用图形展示大概如下：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png   alt="image.png"  ></p>
+<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲, 这会导致 RT 抖动加大：</p>
+<p>Here is the same test run against the SO_REUSEPORT multi-queue NGINX setup (c):</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">undefined</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/
+</span></span><span class="line"><span class="cl">        | cut -d &#34; &#34; -f 1
+</span></span><span class="line"><span class="cl">        | ./mmhistogram -t &#34;Duration in ms (multiple queues)&#34;
+</span></span><span class="line"><span class="cl">min:1.49 avg:31.37 med=24.67 max:144.55 dev:25.27 count:100000
+</span></span><span class="line"><span class="cl">Duration in ms (multiple queues):
+</span></span><span class="line"><span class="cl"> value |-------------------------------------------------- count
+</span></span><span class="line"><span class="cl">     0 |                                                   0
+</span></span><span class="line"><span class="cl">     1 |                                                 * 1023
+</span></span><span class="line"><span class="cl">     2 |                                         ********* 5321
+</span></span><span class="line"><span class="cl">     4 |                                 ***************** 9986
+</span></span><span class="line"><span class="cl">     8 |                  ******************************** 18443
+</span></span><span class="line"><span class="cl">    16 |    ********************************************** 25852
+</span></span><span class="line"><span class="cl">    32 |************************************************** 27949
+</span></span><span class="line"><span class="cl">    64 |                              ******************** 11368
+</span></span><span class="line"><span class="cl">   128 |                                                   58</span></span></code></pre>
+</div>
+<p>相对地一个accept queue多个 worker的模式 running against a single-queue NGINX:</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">undefined</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/
+</span></span><span class="line"><span class="cl">        | cut -d &#34; &#34; -f 1
+</span></span><span class="line"><span class="cl">        | ./mmhistogram -t &#34;Duration in ms (single queue)&#34;
+</span></span><span class="line"><span class="cl">min:3.61 avg:30.39 med=30.28 max:72.65 dev:1.58 count:100000
+</span></span><span class="line"><span class="cl">Duration in ms (single queue):
+</span></span><span class="line"><span class="cl"> value |-------------------------------------------------- count
+</span></span><span class="line"><span class="cl">     0 |                                                   0
+</span></span><span class="line"><span class="cl">     1 |                                                   0
+</span></span><span class="line"><span class="cl">     2 |                                                   1
+</span></span><span class="line"><span class="cl">     4 |                                                   16
+</span></span><span class="line"><span class="cl">     8 |                                                   67
+</span></span><span class="line"><span class="cl">    16 |************************************************** 91760
+</span></span><span class="line"><span class="cl">    32 |                                              **** 8155
+</span></span><span class="line"><span class="cl">    64 |                                                   1</span></span></code></pre>
+</div>
+<p>可以看到一个accept queue多个 worker的模式下 RT 极其稳定</p>
+<h4 id="so_reuseport另外的问题" class="headerLink">
+    <a href="#so_reuseport%e5%8f%a6%e5%a4%96%e7%9a%84%e9%97%ae%e9%a2%98" class="header-mark"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html" target="_blank" rel="noopener noreferrer">参考</a> 和 LWN 上的 <a href="https://lwn.net/Articles/542866/" target="_blank" rel="noopener noreferrer">comment</a></p>
+<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
+<h3 id="epollexclusive" class="headerLink">
+    <a href="#epollexclusive" class="header-mark"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
+<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="n">epoll_ctl</span>
+</span></span><span class="line"><span class="cl"><span class="n">ep_insert</span>
+</span></span><span class="line"><span class="cl"><span class="n">ep_ptable_queue_proc</span>
+</span></span><span class="line"><span class="cl">    <span class="cm">/* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */</span>
+</span></span><span class="line"><span class="cl">     <span class="o">*</span> <span class="err">注意，和标准</span><span class="n">accept的等待任务不同</span><span class="err">，这里并没有给等待任务设置</span><span class="n">WQ_FLAG_EXCLUSIVE</span><span class="err">。</span>
+</span></span><span class="line"><span class="cl">     <span class="err">*/</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">init_waitqueue_func_entry</span><span class="p">(</span><span class="o">&amp;</span><span class="n">pwq</span><span class="o">-&gt;</span><span class="n">wait</span><span class="p">,</span> <span class="n">ep_poll_callback</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="cm">/* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="n">epi</span><span class="o">-&gt;</span><span class="n">event</span><span class="p">.</span><span class="n">events</span> <span class="o">&amp;</span> <span class="n">EPOLLEXCLUSIVE</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="cm">/* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">add_wait_queue_exclusive</span><span class="p">(</span><span class="n">whead</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">pwq</span><span class="o">-&gt;</span><span class="n">wait</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="k">else</span>
+</span></span><span class="line"><span class="cl">        <span class="cm">/* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */</span>
+</span></span><span class="line"><span class="cl">        <span class="nf">add_wait_queue</span><span class="p">(</span><span class="n">whead</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">pwq</span><span class="o">-&gt;</span><span class="n">wait</span><span class="p">);</span></span></span></code></pre>
+</div>
+<p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.
+调用栈如下：</p>
+<pre><code>//  tcp_v4_do_rcv()
+//  --&gt;tcp_child_process()
+//  ---&gt;sock_def_readable()
+//  ----&gt;wake_up_interruptible_sync_poll()
+//  -----&gt;__wake_up_sync_key()
+</code></pre>
+<p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/worker2.png     ></p>
+<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png   alt="image.png"  ></p>
+<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
+<h4 id="多个worker共享一个-accept-queue-带来的问题httpsblogcloudflarecomthe-sad-state-of-linux-socket-balancing" class="headerLink">
+    <a href="#%e5%a4%9a%e4%b8%aaworker%e5%85%b1%e4%ba%ab%e4%b8%80%e4%b8%aa-accept-queue-%e5%b8%a6%e6%9d%a5%e7%9a%84%e9%97%ae%e9%a2%98httpsblogcloudflarecomthe-sad-state-of-linux-socket-balancing" class="header-mark"></a><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="noopener noreferrer">多个worker共享一个 accept queue 带来的问题</a></h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png   alt="image.png"  ></p>
+<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
+<p>图中LIFO场景出现是在多个worker共享一个accept queue的epoll场景下，如果用 SO_REUSEPORT 搞成每个worker一个accept queue就不存在这个问题了</p>
+<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
+<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
+<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/sharedqueue.png     ></p>
+<h3 id="比较下epollexclusive-和-so_reuseport" class="headerLink">
+    <a href="#%e6%af%94%e8%be%83%e4%b8%8bepollexclusive-%e5%92%8c-so_reuseport" class="header-mark"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
+<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://blog.csdn.net/lyztyycode/article/details/78648798" target="_blank" rel="noopener noreferrer">Linux惊群效应详解（最详细的了吧）</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/80837278" target="_blank" rel="noopener noreferrer">再谈Linux epoll惊群问题的原因和解决方案</a></p>
+<p><a href="https://www.atatech.org/articles/117111" target="_blank" rel="noopener noreferrer">epoll lifo引发的nginx “负载不均”</a></p>
+<p><a href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/" target="_blank" rel="noopener noreferrer">Why does one NGINX worker take all the load?</a></p>
+<p><a href="https://www.atatech.org/articles/89653" target="_blank" rel="noopener noreferrer">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a></p>
+<p><a href="https://www.atatech.org/articles/174248" target="_blank" rel="noopener noreferrer">Gzip 导致 Nginx worker Hang 问题解法</a></p>
+<p><a href="https://www.atatech.org/articles/112471" target="_blank" rel="noopener noreferrer">Socket多进程分发原理</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/107227145" target="_blank" rel="noopener noreferrer">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
+<p><a href="https://my.oschina.net/alchemystar/blog/3008840" target="_blank" rel="noopener noreferrer">https://my.oschina.net/alchemystar/blog/3008840</a></p>
+]]></description>
+</item></channel>
+</rss>

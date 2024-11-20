@@ -1,0 +1,1218 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Zone_reclaim_mode - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/zone_reclaim_mode/</link>
+        <description>Zone_reclaim_mode - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Fri, 14 May 2021 17:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/zone_reclaim_mode/" rel="self" type="application/rss+xml" /><item>
+    <title>十年后数据库还是不敢拥抱NUMA？</title>
+    <link>http://localhost:1313/posts/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1numa/</link>
+    <pubDate>Fri, 14 May 2021 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1numa/</guid>
+    <description><![CDATA[<h1 id="十年后数据库还是不敢拥抱numa" class="headerLink">
+    <a href="#%e5%8d%81%e5%b9%b4%e5%90%8e%e6%95%b0%e6%8d%ae%e5%ba%93%e8%bf%98%e6%98%af%e4%b8%8d%e6%95%a2%e6%8b%a5%e6%8a%b1numa" class="header-mark"></a>十年后数据库还是不敢拥抱NUMA？</h1><p>在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  <a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="noopener noreferrer">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a> 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在<a href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82" target="_blank" rel="noopener noreferrer">2014年修复了</a>，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。</p>
+<h2 id="背景" class="headerLink">
+    <a href="#%e8%83%8c%e6%99%af" class="header-mark"></a>背景</h2><p>最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png   alt="undefined"  ></p>
+<p>从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，执行的SQL也是一样</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png   alt="undefined"  >
+所有MySQL实例流量一样</p>
+<p>那么问题来了为什么在同样的机器上、同样的流量下CPU使用率差了这么多？ 换句话来问就是CPU使用率高就有效率吗？</p>
+<p>这台物理机CPU 信息</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#lscpu
+</span></span><span class="line"><span class="cl">Architecture:          aarch64
+</span></span><span class="line"><span class="cl">Byte Order:            Little Endian
+</span></span><span class="line"><span class="cl">CPU(s):                128
+</span></span><span class="line"><span class="cl">On-line CPU(s) list:   0-127
+</span></span><span class="line"><span class="cl">Thread(s) per core:    1
+</span></span><span class="line"><span class="cl">Core(s) per socket:    64
+</span></span><span class="line"><span class="cl">Socket(s):             2
+</span></span><span class="line"><span class="cl">NUMA node(s):          1
+</span></span><span class="line"><span class="cl">Model:                 3
+</span></span><span class="line"><span class="cl">BogoMIPS:              100.00
+</span></span><span class="line"><span class="cl">L1d cache:             32K
+</span></span><span class="line"><span class="cl">L1i cache:             32K
+</span></span><span class="line"><span class="cl">L2 cache:              2048K
+</span></span><span class="line"><span class="cl">L3 cache:              65536K
+</span></span><span class="line"><span class="cl">NUMA node0 CPU(s):     0-127
+</span></span><span class="line"><span class="cl">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</span></span></code></pre>
+</div>
+<h2 id="原因分析" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0%e5%88%86%e6%9e%90" class="header-mark"></a>原因分析</h2><p>先来看这两个MySQL 进程的Perf数据</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">#第二个 MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多</span>
+</span></span><span class="line"><span class="cl"><span class="n">perf</span> <span class="n">stat</span> <span class="o">-</span><span class="n">e</span> <span class="n">branch</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">bus</span><span class="o">-</span><span class="n">cycles</span><span class="p">,</span><span class="n">cache</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">cache</span><span class="o">-</span><span class="n">references</span><span class="p">,</span><span class="n">cpu</span><span class="o">-</span><span class="n">cycles</span><span class="p">,</span><span class="n">instructions</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">store</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">stores</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">branch</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">branch</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">dTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">iTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>  <span class="o">-</span><span class="n">a</span> <span class="o">-</span><span class="n">p</span> <span class="mi">61238</span>
+</span></span><span class="line"><span class="cl"><span class="o">^</span><span class="n">C</span>
+</span></span><span class="line"><span class="cl"> <span class="ne">Performance</span> <span class="n">counter</span> <span class="n">stats</span> <span class="k">for</span> <span class="n">process</span> <span class="n">id</span> <span class="s1">&#39;61238&#39;</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">        <span class="mi">86</span><span class="p">,</span><span class="mi">491</span><span class="p">,</span><span class="mi">052</span>      <span class="n">branch</span><span class="o">-</span><span class="n">misses</span>                                                 <span class="p">(</span><span class="mf">58.55</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="mi">98</span><span class="p">,</span><span class="mi">481</span><span class="p">,</span><span class="mi">418</span><span class="p">,</span><span class="mi">793</span>      <span class="n">bus</span><span class="o">-</span><span class="n">cycles</span>                                                    <span class="p">(</span><span class="mf">55.64</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">113</span><span class="p">,</span><span class="mi">095</span><span class="p">,</span><span class="mi">618</span>      <span class="n">cache</span><span class="o">-</span><span class="n">misses</span>              <span class="c1">#    6.169 % of all cache refs      (53.20%)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">1</span><span class="p">,</span><span class="mi">833</span><span class="p">,</span><span class="mi">344</span><span class="p">,</span><span class="mi">484</span>      <span class="n">cache</span><span class="o">-</span><span class="n">references</span>                                              <span class="p">(</span><span class="mf">52.00</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">   <span class="mi">101</span><span class="p">,</span><span class="mi">516</span><span class="p">,</span><span class="mi">165</span><span class="p">,</span><span class="mi">898</span>      <span class="n">cpu</span><span class="o">-</span><span class="n">cycles</span>                                                    <span class="p">(</span><span class="mf">57.09</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">4</span><span class="p">,</span><span class="mi">229</span><span class="p">,</span><span class="mi">190</span><span class="p">,</span><span class="mi">014</span>      <span class="n">instructions</span>              <span class="c1">#    0.04  insns per cycle          (55.91%)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">111</span><span class="p">,</span><span class="mi">780</span><span class="p">,</span><span class="mi">025</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>     <span class="c1">#    6.34% of all L1-dcache hits    (55.40%)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">1</span><span class="p">,</span><span class="mi">764</span><span class="p">,</span><span class="mi">421</span><span class="p">,</span><span class="mi">570</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">loads</span>                                               <span class="p">(</span><span class="mf">52.62</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">112</span><span class="p">,</span><span class="mi">261</span><span class="p">,</span><span class="mi">128</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">store</span><span class="o">-</span><span class="n">misses</span>                                        <span class="p">(</span><span class="mf">49.34</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">1</span><span class="p">,</span><span class="mi">814</span><span class="p">,</span><span class="mi">998</span><span class="p">,</span><span class="mi">338</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">stores</span>                                              <span class="p">(</span><span class="mf">48.51</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">219</span><span class="p">,</span><span class="mi">372</span><span class="p">,</span><span class="mi">119</span>      <span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                         <span class="p">(</span><span class="mf">49.56</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">2</span><span class="p">,</span><span class="mi">816</span><span class="p">,</span><span class="mi">279</span><span class="p">,</span><span class="mi">627</span>      <span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="n">loads</span>                                               <span class="p">(</span><span class="mf">49.15</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="mi">85</span><span class="p">,</span><span class="mi">321</span><span class="p">,</span><span class="mi">093</span>      <span class="n">branch</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                            <span class="p">(</span><span class="mf">50.38</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">1</span><span class="p">,</span><span class="mi">038</span><span class="p">,</span><span class="mi">572</span><span class="p">,</span><span class="mi">653</span>      <span class="n">branch</span><span class="o">-</span><span class="n">loads</span>                                                  <span class="p">(</span><span class="mf">50.65</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="mi">45</span><span class="p">,</span><span class="mi">166</span><span class="p">,</span><span class="mi">831</span>      <span class="n">dTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                              <span class="p">(</span><span class="mf">51.98</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="mi">29</span><span class="p">,</span><span class="mi">892</span><span class="p">,</span><span class="mi">473</span>      <span class="n">iTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                              <span class="p">(</span><span class="mf">52.56</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">       <span class="mf">1.163750756</span> <span class="n">seconds</span> <span class="n">time</span> <span class="n">elapsed</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">#第三个 MySQL</span>
+</span></span><span class="line"><span class="cl"><span class="n">perf</span> <span class="n">stat</span> <span class="o">-</span><span class="n">e</span> <span class="n">branch</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">bus</span><span class="o">-</span><span class="n">cycles</span><span class="p">,</span><span class="n">cache</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">cache</span><span class="o">-</span><span class="n">references</span><span class="p">,</span><span class="n">cpu</span><span class="o">-</span><span class="n">cycles</span><span class="p">,</span><span class="n">instructions</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">store</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">stores</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">branch</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">branch</span><span class="o">-</span><span class="n">loads</span><span class="p">,</span><span class="n">dTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span><span class="p">,</span><span class="n">iTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>  <span class="o">-</span><span class="n">a</span> <span class="o">-</span><span class="n">p</span> <span class="mi">53400</span>
+</span></span><span class="line"><span class="cl"><span class="o">^</span><span class="n">C</span>
+</span></span><span class="line"><span class="cl"> <span class="ne">Performance</span> <span class="n">counter</span> <span class="n">stats</span> <span class="k">for</span> <span class="n">process</span> <span class="n">id</span> <span class="s1">&#39;53400&#39;</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">       <span class="mi">295</span><span class="p">,</span><span class="mi">575</span><span class="p">,</span><span class="mi">513</span>      <span class="n">branch</span><span class="o">-</span><span class="n">misses</span>                                                 <span class="p">(</span><span class="mf">40.51</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">   <span class="mi">110</span><span class="p">,</span><span class="mi">934</span><span class="p">,</span><span class="mi">600</span><span class="p">,</span><span class="mi">206</span>      <span class="n">bus</span><span class="o">-</span><span class="n">cycles</span>                                                    <span class="p">(</span><span class="mf">39.30</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">537</span><span class="p">,</span><span class="mi">938</span><span class="p">,</span><span class="mi">496</span>      <span class="n">cache</span><span class="o">-</span><span class="n">misses</span>              <span class="c1">#    8.310 % of all cache refs      (38.99%)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">6</span><span class="p">,</span><span class="mi">473</span><span class="p">,</span><span class="mi">688</span><span class="p">,</span><span class="mi">885</span>      <span class="n">cache</span><span class="o">-</span><span class="n">references</span>                                              <span class="p">(</span><span class="mf">39.80</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">   <span class="mi">110</span><span class="p">,</span><span class="mi">540</span><span class="p">,</span><span class="mi">950</span><span class="p">,</span><span class="mi">757</span>      <span class="n">cpu</span><span class="o">-</span><span class="n">cycles</span>                                                    <span class="p">(</span><span class="mf">46.10</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="mi">14</span><span class="p">,</span><span class="mi">766</span><span class="p">,</span><span class="mi">013</span><span class="p">,</span><span class="mi">708</span>      <span class="n">instructions</span>              <span class="c1">#    0.14  insns per cycle          (46.85%)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">538</span><span class="p">,</span><span class="mi">521</span><span class="p">,</span><span class="mi">226</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>     <span class="c1">#    8.36% of all L1-dcache hits    (48.00%)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">6</span><span class="p">,</span><span class="mi">440</span><span class="p">,</span><span class="mi">728</span><span class="p">,</span><span class="mi">959</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">loads</span>                                               <span class="p">(</span><span class="mf">46.69</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">533</span><span class="p">,</span><span class="mi">693</span><span class="p">,</span><span class="mi">357</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">store</span><span class="o">-</span><span class="n">misses</span>                                        <span class="p">(</span><span class="mf">45.91</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">6</span><span class="p">,</span><span class="mi">413</span><span class="p">,</span><span class="mi">111</span><span class="p">,</span><span class="mi">024</span>      <span class="n">L1</span><span class="o">-</span><span class="n">dcache</span><span class="o">-</span><span class="n">stores</span>                                              <span class="p">(</span><span class="mf">44.92</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">673</span><span class="p">,</span><span class="mi">725</span><span class="p">,</span><span class="mi">952</span>      <span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                         <span class="p">(</span><span class="mf">42.76</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">9</span><span class="p">,</span><span class="mi">216</span><span class="p">,</span><span class="mi">663</span><span class="p">,</span><span class="mi">639</span>      <span class="n">L1</span><span class="o">-</span><span class="n">icache</span><span class="o">-</span><span class="n">loads</span>                                               <span class="p">(</span><span class="mf">38.27</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">299</span><span class="p">,</span><span class="mi">202</span><span class="p">,</span><span class="mi">001</span>      <span class="n">branch</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                            <span class="p">(</span><span class="mf">37.62</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">     <span class="mi">3</span><span class="p">,</span><span class="mi">285</span><span class="p">,</span><span class="mi">957</span><span class="p">,</span><span class="mi">082</span>      <span class="n">branch</span><span class="o">-</span><span class="n">loads</span>                                                  <span class="p">(</span><span class="mf">36.10</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">149</span><span class="p">,</span><span class="mi">348</span><span class="p">,</span><span class="mi">740</span>      <span class="n">dTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                              <span class="p">(</span><span class="mf">35.20</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">       <span class="mi">102</span><span class="p">,</span><span class="mi">444</span><span class="p">,</span><span class="mi">469</span>      <span class="n">iTLB</span><span class="o">-</span><span class="nb">load</span><span class="o">-</span><span class="n">misses</span>                                              <span class="p">(</span><span class="mf">34.78</span><span class="o">%</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">       <span class="mf">8.080841166</span> <span class="n">seconds</span> <span class="n">time</span> <span class="n">elapsed</span></span></span></code></pre>
+</div>
+<p>从上面可以看到 IPC 差异巨大0.04 VS 0.14 ，也就是第一个MySQL的CPU效率很低，我们看到的CPU running实际是CPU在等待(stall)。</p>
+<h3 id="cpu的实际信息" class="headerLink">
+    <a href="#cpu%e7%9a%84%e5%ae%9e%e9%99%85%e4%bf%a1%e6%81%af" class="header-mark"></a>CPU的实际信息</h3><p>找到同一个机型，但是NUMA开着的查了一下：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#lscpu
+</span></span><span class="line"><span class="cl">Architecture:          aarch64
+</span></span><span class="line"><span class="cl">Byte Order:            Little Endian
+</span></span><span class="line"><span class="cl">CPU(s):                128
+</span></span><span class="line"><span class="cl">On-line CPU(s) list:   0-127
+</span></span><span class="line"><span class="cl">Thread(s) per core:    1
+</span></span><span class="line"><span class="cl">Core(s) per socket:    64
+</span></span><span class="line"><span class="cl">Socket(s):             2
+</span></span><span class="line"><span class="cl">NUMA node(s):          16
+</span></span><span class="line"><span class="cl">Model:                 3
+</span></span><span class="line"><span class="cl">BogoMIPS:              100.00
+</span></span><span class="line"><span class="cl">L1d cache:             32K
+</span></span><span class="line"><span class="cl">L1i cache:             32K
+</span></span><span class="line"><span class="cl">L2 cache:              2048K
+</span></span><span class="line"><span class="cl">L3 cache:              65536K
+</span></span><span class="line"><span class="cl">NUMA node0 CPU(s):     0-7
+</span></span><span class="line"><span class="cl">NUMA node1 CPU(s):     8-15
+</span></span><span class="line"><span class="cl">NUMA node2 CPU(s):     16-23
+</span></span><span class="line"><span class="cl">NUMA node3 CPU(s):     24-31
+</span></span><span class="line"><span class="cl">NUMA node4 CPU(s):     32-39
+</span></span><span class="line"><span class="cl">NUMA node5 CPU(s):     40-47
+</span></span><span class="line"><span class="cl">NUMA node6 CPU(s):     48-55
+</span></span><span class="line"><span class="cl">NUMA node7 CPU(s):     56-63
+</span></span><span class="line"><span class="cl">NUMA node8 CPU(s):     64-71
+</span></span><span class="line"><span class="cl">NUMA node9 CPU(s):     72-79
+</span></span><span class="line"><span class="cl">NUMA node10 CPU(s):    80-87
+</span></span><span class="line"><span class="cl">NUMA node11 CPU(s):    88-95
+</span></span><span class="line"><span class="cl">NUMA node12 CPU(s):    96-103
+</span></span><span class="line"><span class="cl">NUMA node13 CPU(s):    104-111
+</span></span><span class="line"><span class="cl">NUMA node14 CPU(s):    112-119
+</span></span><span class="line"><span class="cl">NUMA node15 CPU(s):    120-127
+</span></span><span class="line"><span class="cl">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</span></span></code></pre>
+</div>
+<p>这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。</p>
+<h2 id="关于numa" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8enuma" class="header-mark"></a>关于NUMA</h2><p>如下图，是一个Intel Xeon E5 CPU的架构信息，左右两边的大红框分别是两个NUMA，每个NUMA的core访问直接插在自己红环上的内存必然很快，如果访问插在其它NUMA上的内存还要走两个红环之间上下的黑色箭头线路，所以要慢很多。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png   alt="img"  ></p>
+<p>实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket（这两块CPU内部不再是上图的红环Bus,而是改用了Mesh Bus一个Die就是一个NUMA，服务器有两路，也就是一个Socket就是一个NUMA），也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。<a href="https://software.intel.com/content/www/us/en/develop/articles/intelr-memory-latency-checker.html" target="_blank" rel="noopener noreferrer">测试工具从这里下载</a></p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">//E5-2682
+</span></span><span class="line"><span class="cl">Intel(R) Memory Latency Checker - v3.9
+</span></span><span class="line"><span class="cl">Measuring idle latencies (in ns)...
+</span></span><span class="line"><span class="cl">		Numa node
+</span></span><span class="line"><span class="cl">Numa node	     0	     1
+</span></span><span class="line"><span class="cl">       0	  85.0	 136.3
+</span></span><span class="line"><span class="cl">       1	 137.2	  84.2
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">//8269
+</span></span><span class="line"><span class="cl">Intel(R) Memory Latency Checker - v3.9  
+</span></span><span class="line"><span class="cl">Measuring idle latencies (in ns)...
+</span></span><span class="line"><span class="cl">    Numa node
+</span></span><span class="line"><span class="cl">Numa node      0       1
+</span></span><span class="line"><span class="cl">       0    78.6   144.1
+</span></span><span class="line"><span class="cl">       1   144.7    78.5 </span></span></code></pre>
+</div>
+<p>开启NUMA会优先就近使用内存，在本NUMA上的内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是可以通过Linux参数 zone_reclaim_mode 来配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。</p>
+<p><strong>这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃。</strong></p>
+<p>以上理论告诉我们：<strong>也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。</strong></p>
+<h4 id="uma和numa对比" class="headerLink">
+    <a href="#uma%e5%92%8cnuma%e5%af%b9%e6%af%94" class="header-mark"></a>UMA和NUMA对比</h4><p>The SMP/UMA architecture</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/uma-architecture.png   alt="img"  ></p>
+<p>The NUMA architecture</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/numa-architecture.png   alt="img"  ></p>
+<p>Modern multiprocessor systems mix these basic architectures as seen in the following diagram:</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/39354-figure-3-184398.jpg   alt="img"  ></p>
+<p>In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg   alt="03-05-Broadwell_HCC_Architecture"  ></p>
+<h2 id="对比测试intel-numa-性能" class="headerLink">
+    <a href="#%e5%af%b9%e6%af%94%e6%b5%8b%e8%af%95intel-numa-%e6%80%a7%e8%83%bd" class="header-mark"></a>对比测试Intel NUMA 性能</h2><p>对如下Intel CPU进行一些测试，在开启NUMA的情况下</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">#lscpu</span>
+</span></span><span class="line"><span class="cl"><span class="n">Architecture</span><span class="p">:</span>          <span class="n">x86_64</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span> <span class="n">op</span><span class="o">-</span><span class="n">mode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>        <span class="mi">32</span><span class="o">-</span><span class="n">bit</span><span class="p">,</span> <span class="mi">64</span><span class="o">-</span><span class="n">bit</span>
+</span></span><span class="line"><span class="cl"><span class="n">Byte</span> <span class="n">Order</span><span class="p">:</span>            <span class="n">Little</span> <span class="n">Endian</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>                <span class="mi">64</span>
+</span></span><span class="line"><span class="cl"><span class="n">On</span><span class="o">-</span><span class="n">line</span> <span class="n">CPU</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="n">list</span><span class="p">:</span>   <span class="mi">0</span><span class="o">-</span><span class="mi">63</span>
+</span></span><span class="line"><span class="cl"><span class="ne">Thread</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="n">per</span> <span class="n">core</span><span class="p">:</span>    <span class="mi">2</span>
+</span></span><span class="line"><span class="cl"><span class="n">Core</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="n">per</span> <span class="n">socket</span><span class="p">:</span>    <span class="mi">16</span>
+</span></span><span class="line"><span class="cl"><span class="n">Socket</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>             <span class="mi">2</span>
+</span></span><span class="line"><span class="cl"><span class="n">NUMA</span> <span class="n">node</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>          <span class="mi">2</span>
+</span></span><span class="line"><span class="cl"><span class="n">Vendor</span> <span class="n">ID</span><span class="p">:</span>             <span class="n">GenuineIntel</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span> <span class="n">family</span><span class="p">:</span>            <span class="mi">6</span>
+</span></span><span class="line"><span class="cl"><span class="n">Model</span><span class="p">:</span>                 <span class="mi">79</span>
+</span></span><span class="line"><span class="cl"><span class="n">Model</span> <span class="n">name</span><span class="p">:</span>            <span class="n">Intel</span><span class="p">(</span><span class="n">R</span><span class="p">)</span> <span class="n">Xeon</span><span class="p">(</span><span class="n">R</span><span class="p">)</span> <span class="n">CPU</span> <span class="n">E5</span><span class="o">-</span><span class="mi">2682</span> <span class="n">v4</span> <span class="err">@</span> <span class="mf">2.50</span><span class="n">GHz</span>
+</span></span><span class="line"><span class="cl"><span class="n">Stepping</span><span class="p">:</span>              <span class="mi">1</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span> <span class="n">MHz</span><span class="p">:</span>               <span class="mf">2500.000</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span> <span class="nb">max</span> <span class="n">MHz</span><span class="p">:</span>           <span class="mf">3000.0000</span>
+</span></span><span class="line"><span class="cl"><span class="n">CPU</span> <span class="nb">min</span> <span class="n">MHz</span><span class="p">:</span>           <span class="mf">1200.0000</span>
+</span></span><span class="line"><span class="cl"><span class="n">BogoMIPS</span><span class="p">:</span>              <span class="mf">5000.06</span>
+</span></span><span class="line"><span class="cl"><span class="n">Virtualization</span><span class="p">:</span>        <span class="n">VT</span><span class="o">-</span><span class="n">x</span>
+</span></span><span class="line"><span class="cl"><span class="n">L1d</span> <span class="n">cache</span><span class="p">:</span>             <span class="mi">32</span><span class="n">K</span>
+</span></span><span class="line"><span class="cl"><span class="n">L1i</span> <span class="n">cache</span><span class="p">:</span>             <span class="mi">32</span><span class="n">K</span>
+</span></span><span class="line"><span class="cl"><span class="n">L2</span> <span class="n">cache</span><span class="p">:</span>              <span class="mi">256</span><span class="n">K</span>
+</span></span><span class="line"><span class="cl"><span class="n">L3</span> <span class="n">cache</span><span class="p">:</span>              <span class="mi">40960</span><span class="n">K</span>
+</span></span><span class="line"><span class="cl"><span class="n">NUMA</span> <span class="n">node0</span> <span class="n">CPU</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>     <span class="mi">0</span><span class="o">-</span><span class="mi">15</span><span class="p">,</span><span class="mi">32</span><span class="o">-</span><span class="mi">47</span>
+</span></span><span class="line"><span class="cl"><span class="n">NUMA</span> <span class="n">node1</span> <span class="n">CPU</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>     <span class="mi">16</span><span class="o">-</span><span class="mi">31</span><span class="p">,</span><span class="mi">48</span><span class="o">-</span><span class="mi">63</span>
+</span></span><span class="line"><span class="cl"><span class="n">Flags</span><span class="p">:</span>                 <span class="n">fpu</span> <span class="n">vme</span> <span class="n">de</span> <span class="n">pse</span> <span class="n">tsc</span> <span class="n">msr</span> <span class="n">pae</span> <span class="n">mce</span> <span class="n">cx8</span> <span class="n">apic</span> <span class="n">sep</span> <span class="n">mtrr</span> <span class="n">pge</span> <span class="n">mca</span> <span class="n">cmov</span> <span class="n">pat</span> <span class="n">pse36</span> <span class="n">clflush</span> <span class="n">dts</span> <span class="n">acpi</span> <span class="n">mmx</span> <span class="n">fxsr</span> <span class="n">sse</span> <span class="n">sse2</span> <span class="n">ss</span> <span class="n">ht</span> <span class="n">tm</span> <span class="n">pbe</span> <span class="n">syscall</span> <span class="n">nx</span> <span class="n">pdpe1gb</span> <span class="n">rdtscp</span> <span class="n">lm</span> <span class="n">constant_tsc</span> <span class="n">arch_perfmon</span> <span class="n">pebs</span> <span class="n">bts</span> <span class="n">rep_good</span> <span class="n">nopl</span> <span class="n">xtopology</span> <span class="n">nonstop_tsc</span> <span class="n">aperfmperf</span> <span class="n">eagerfpu</span> <span class="n">pni</span> <span class="n">pclmulqdq</span> <span class="n">dtes64</span> <span class="n">ds_cpl</span> <span class="n">vmx</span> <span class="n">smx</span> <span class="n">est</span> <span class="n">tm2</span> <span class="n">ssse3</span> <span class="n">fma</span> <span class="n">cx16</span> <span class="n">xtpr</span> <span class="n">pdcm</span> <span class="n">pcid</span> <span class="n">dca</span> <span class="n">sse4_1</span> <span class="n">sse4_2</span> <span class="n">x2apic</span> <span class="n">movbe</span> <span class="n">popcnt</span> <span class="n">tsc_deadline_timer</span> <span class="n">aes</span> <span class="n">xsave</span> <span class="n">avx</span> <span class="n">f16c</span> <span class="n">rdrand</span> <span class="n">lahf_lm</span> <span class="n">abm</span> <span class="mi">3</span><span class="n">dnowprefetch</span> <span class="n">ida</span> <span class="n">arat</span> <span class="n">epb</span> <span class="n">invpcid_single</span> <span class="n">pln</span> <span class="n">pts</span> <span class="n">dtherm</span> <span class="n">spec_ctrl</span> <span class="n">ibpb_support</span> <span class="n">tpr_shadow</span> <span class="n">vnmi</span> <span class="n">flexpriority</span> <span class="n">ept</span> <span class="n">vpid</span> <span class="n">fsgsbase</span> <span class="n">tsc_adjust</span> <span class="n">bmi1</span> <span class="n">hle</span> <span class="n">avx2</span> <span class="n">smep</span> <span class="n">bmi2</span> <span class="n">erms</span> <span class="n">invpcid</span> <span class="n">rtm</span> <span class="n">cqm</span> <span class="n">rdt</span> <span class="n">rdseed</span> <span class="n">adx</span> <span class="n">smap</span> <span class="n">xsaveopt</span> <span class="n">cqm_llc</span> <span class="n">cqm_occup_llc</span> <span class="n">cqm_mbm_total</span> <span class="n">cqm_mbm_local</span> <span class="n">cat_l3</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">#numastat</span>
+</span></span><span class="line"><span class="cl">                           <span class="n">node0</span>           <span class="n">node1</span>
+</span></span><span class="line"><span class="cl"><span class="n">numa_hit</span>               <span class="mi">129600200</span>        <span class="mi">60501102</span>
+</span></span><span class="line"><span class="cl"><span class="n">numa_miss</span>                      <span class="mi">0</span>               <span class="mi">0</span>
+</span></span><span class="line"><span class="cl"><span class="n">numa_foreign</span>                   <span class="mi">0</span>               <span class="mi">0</span>
+</span></span><span class="line"><span class="cl"><span class="n">interleave_hit</span>            <span class="mi">108648</span>          <span class="mi">108429</span>
+</span></span><span class="line"><span class="cl"><span class="n">local_node</span>             <span class="mi">129576548</span>        <span class="mi">60395061</span>
+</span></span><span class="line"><span class="cl"><span class="n">other_node</span>                 <span class="mi">23652</span>          <span class="mi">106041</span></span></span></code></pre>
+</div>
+<p>我在这个64core的物理机上运行一个MySQL 实例，先将MySQL进程绑定在0-63core，0-31core，以及0-15,32-47上</p>
+<p>用sysbench对一亿条记录跑点查，数据都加载到内存中了：</p>
+<ul>
+<li>绑0-63core qps 不到8万，总cpu跑到5000%，降低并发的话qps能到11万；</li>
+<li>如果绑0-31core qps 12万，总cpu跑到3200%，IPC 0.29；</li>
+<li>如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%  IPC: 0.42；</li>
+<li>绑0-15个物理core，qps能到17万，绑32-47也是一样的效果；</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png   alt="undefined"  ></p>
+<p>从这个数据看起来<strong>即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下</strong>， NUMA更多性能差异应该会更大。</p>
+<p>说明前面的理论是正确的。</p>
+<p>来看看不通绑核情况下node之间的带宽利用情况：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210525151537507.png   alt="image-20210525151537507"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210525151622425.png   alt="image-20210525151622425"  ></p>
+<p>实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。</p>
+<p>如果比较读写混合场景的话肯定会因为写锁导致CPU跑起来，最终的性能差异也不会这么大，但是绑在同一个NUMA下的性能肯定要好，IPC也会高一些。具体好多少取决于锁的竞争程度。</p>
+<h2 id="为什么集团内外所有物理机都把numa关掉了呢" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e9%9b%86%e5%9b%a2%e5%86%85%e5%a4%96%e6%89%80%e6%9c%89%e7%89%a9%e7%90%86%e6%9c%ba%e9%83%bd%e6%8a%8anuma%e5%85%b3%e6%8e%89%e4%ba%86%e5%91%a2" class="header-mark"></a>为什么集团内外所有物理机都把NUMA关掉了呢？</h2><p>10年前几乎所有的运维都会多多少少被NUMA坑害过，让我们看看究竟有多少种在NUMA上栽的方式：</p>
+<ul>
+<li><a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="noopener noreferrer">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></li>
+<li><a href="http://frosty-postgres.blogspot.com/2012/08/postgresql-numa-and-zone-reclaim-mode.html" target="_blank" rel="noopener noreferrer">PostgreSQL – PostgreSQL, NUMA and zone reclaim mode on linux</a></li>
+<li><a href="http://blog.yannickjaquier.com/hpux/non-uniform-memory-access-numa-architecture-with-oracle-database-by-examples.html" target="_blank" rel="noopener noreferrer">Oracle – Non-Uniform Memory Access (NUMA) architecture with Oracle database by examples</a></li>
+<li><a href="http://engineering.linkedin.com/performance/optimizing-linux-memory-management-low-latency-high-throughput-databases" target="_blank" rel="noopener noreferrer">Java – Optimizing Linux Memory Management for Low-latency / High-throughput Databases</a></li>
+</ul>
+<p>最有名的是这篇  <a href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/" target="_blank" rel="noopener noreferrer">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></p>
+<p>我总结下这篇2010年的文章说的是啥：</p>
+<ul>
+<li>如果本NUMA内存不够的时候，Linux会优先回收PageCache内存，即使其它NUMA还有内存</li>
+<li>回收PageCache经常会造成系统卡顿，这个卡顿不能接受</li>
+</ul>
+<p>所以文章给出的解决方案就是（三选一）：</p>
+<ul>
+<li>关掉NUMA</li>
+<li>或者启动MySQL的时候指定不分NUMA,比如：/usr/bin/numactl &ndash;interleave all $cmd</li>
+<li>或者启动MySQL的时候先回收所有PageCache</li>
+</ul>
+<p>我想这就是这么多人在上面栽了跟头，所以干脆一不做二不休干脆关了NUMA 一了百了。</p>
+<p>但真的NUMA有这么糟糕？或者说Linux Kernel有这么笨，默认优先去回收PageCache吗？</p>
+<h2 id="linux-kernel对numa内存的使用" class="headerLink">
+    <a href="#linux-kernel%e5%af%b9numa%e5%86%85%e5%ad%98%e7%9a%84%e4%bd%bf%e7%94%a8" class="header-mark"></a>Linux Kernel对NUMA内存的使用</h2><p>实际我们使用NUMA的时候期望是：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。</p>
+<h3 id="zone_reclaim_mode" class="headerLink">
+    <a href="#zone_reclaim_mode" class="header-mark"></a>zone_reclaim_mode</h3><p>事实上Linux识别到NUMA架构后，默认的内存分配方案就是：优先尝试在请求线程当前所处的CPU的Local内存上分配空间。<strong>如果local内存不足，优先淘汰local内存中无用的Page（Inactive，Unmapped）</strong>。然后才到其它NUMA上分配内存。</p>
+<p>intel 芯片跨node延迟远低于其他家，所以跨node性能损耗不大</p>
+<p>zone_reclaim_mode，它用来管理当一个内存区域(zone)内部的内存耗尽时，是从其内部进行内存回收还是可以从其他zone进行回收的选项：</p>
+<p>zone_reclaim_mode:</p>
+<blockquote>
+  <p>Zone_reclaim_mode allows someone to set more or less aggressive approaches to
+reclaim memory when a zone runs out of memory. If it is set to zero then no
+zone reclaim occurs. Allocations will be satisfied from other zones / nodes
+in the system.</p>
+
+</blockquote><p>zone_reclaim_mode的四个参数值的意义分别是：</p>
+<p>0   = Allocate from all nodes before reclaiming memory
+1   = Reclaim memory from local node vs allocating from next node
+2   = Zone reclaim writes dirty pages out
+4   = Zone reclaim swaps pages</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-6" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"># cat /proc/sys/vm/zone_reclaim_mode
+</span></span><span class="line"><span class="cl">0</span></span></code></pre>
+</div>
+<p>我查了2.6.32以及4.19.91内核的机器 zone_reclaim_mode 都是默认0 ，也就是kernel会：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。这也是我们想要的</p>
+<p>Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收了PageCache呢？</p>
+<h3 id="查看kernel提交记录" class="headerLink">
+    <a href="#%e6%9f%a5%e7%9c%8bkernel%e6%8f%90%e4%ba%a4%e8%ae%b0%e5%bd%95" class="header-mark"></a>查看kernel提交记录</h3><p><a href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82" target="_blank" rel="noopener noreferrer">github kernel commit</a></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png   alt="undefined"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png   alt="undefined"  ></p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png   alt="undefined"  ></p>
+<p>关键是上图红框中的代码，node distance比较大（也就是开启了NUMA的话），强制将 zone_reclaim_mode设为1，这是2014年提交的代码，将这个强制设为1的逻辑去掉了。</p>
+<p>这也就是为什么之前大佬们碰到NUMA问题后尝试修改 zone_reclaim_mode 没有效果，<strong>也就是2014年前只要开启了NUMA就强制线回收PageCache，即使设置zone_reclaim_mode也没有意义，真是个可怕的Bug。</strong></p>
+<h3 id="验证一下zone_reclaim_mode-0是生效的" class="headerLink">
+    <a href="#%e9%aa%8c%e8%af%81%e4%b8%80%e4%b8%8bzone_reclaim_mode-0%e6%98%af%e7%94%9f%e6%95%88%e7%9a%84" class="header-mark"></a>验证一下zone_reclaim_mode 0是生效的</h3><p>内核版本：3.10.0-327.ali2017.alios7.x86_64</p>
+<h4 id="测试方法httpsgithubcomtorvaldslinuxcommite02dc017c3032dcdce1b993af0db135462e1b4b7" class="headerLink">
+    <a href="#%e6%b5%8b%e8%af%95%e6%96%b9%e6%b3%95httpsgithubcomtorvaldslinuxcommite02dc017c3032dcdce1b993af0db135462e1b4b7" class="header-mark"></a><a href="https://github.com/torvalds/linux/commit/e02dc017c3032dcdce1b993af0db135462e1b4b7" target="_blank" rel="noopener noreferrer">测试方法</a></h4><p>先将一个160G的文件加载到内存里，然后再用代码分配64G的内存出来使用。
+单个NUMA node的内存为256G，本身用掉了60G，加上这次的160G的PageCache，和之前的一些其他PageCache,总的 PageCache用了179G，那么这个node总内存还剩256G-60G-179G，</p>
+<p>如果这个时候再分配64G内存的话，本node肯定不够了，我们来看在 zone_reclaim_mode=0 的时候是优先回收PageCache还是分配了到另外一个NUMA node(这个NUMA node 有240G以上的内存空闲）</p>
+<h4 id="测试过程" class="headerLink">
+    <a href="#%e6%b5%8b%e8%af%95%e8%bf%87%e7%a8%8b" class="header-mark"></a>测试过程</h4><p>分配64G内存</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-7" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#taskset -c 0 ./alloc 64
+</span></span><span class="line"><span class="cl">To allocate 64GB memory
+</span></span><span class="line"><span class="cl">Used time: 39 seconds
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">#grep FilePages /sys/devices/system/node/node0/meminfo</span></span></code></pre>
+</div>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png   alt="undefined"  ></p>
+<p>从如上截图来看，再分配64G内存的时候即使node0不够了也没有回收node0上的PageCache，而是将内存跨NUMA分配到了node1上，符合预期！</p>
+<p>释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：
+<img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png   alt="undefined"  ></p>
+<h3 id="将-procsysvmzone_reclaim_mode-改成-1-继续同样的测试" class="headerLink">
+    <a href="#%e5%b0%86-procsysvmzone_reclaim_mode-%e6%94%b9%e6%88%90-1-%e7%bb%a7%e7%bb%ad%e5%90%8c%e6%a0%b7%e7%9a%84%e6%b5%8b%e8%af%95" class="header-mark"></a>将 /proc/sys/vm/zone_reclaim_mode 改成 1 继续同样的测试</h3><p>可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png   alt="undefined"  ></p>
+<p>测试结论：<strong>从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了</strong></p>
+<h3 id="innodb_numa_interleave" class="headerLink">
+    <a href="#innodb_numa_interleave" class="header-mark"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的无感知：<a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="noopener noreferrer">innodb_numa_interleave</a>，也就是在开了NUMA的机器上，使用内错交错来分配内存，相当于使用上关掉 NUMA</p>
+<blockquote>
+  <p>For the <a href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave" target="_blank" rel="noopener noreferrer"><code>innodb_numa_interleave</code></a> option to be available, MySQL must be compiled on a NUMA-enabled Linux system.</p>
+
+</blockquote><p>当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 <a href="https://linux.die.net/man/2/set_mempolicy" target="_blank" rel="noopener noreferrer">NUMA memory policy</a> 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。</p>
+<p>innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，<strong>修复后这个参数没有意义了</strong>。</p>
+<h3 id="automatic-numa-balancinghttpsaccessredhatcomdocumentationen-usred_hat_enterprise_linux7htmlvirtualization_tuning_and_optimization_guidesect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing" class="headerLink">
+    <a href="#automatic-numa-balancinghttpsaccessredhatcomdocumentationen-usred_hat_enterprise_linux7htmlvirtualization_tuning_and_optimization_guidesect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing" class="header-mark"></a><a href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing" target="_blank" rel="noopener noreferrer">AUTOMATIC NUMA BALANCING</a></h3><p>RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离更近以达到最好的效果</p>
+<blockquote>
+  <p>Automatic NUMA balancing improves the performance of applications running on NUMA hardware systems. It is enabled by default on Red Hat Enterprise Linux 7 systems.</p>
+<p>An application will generally perform best when the threads of its processes are accessing memory on the same NUMA node as the threads are scheduled. Automatic NUMA balancing moves tasks (which can be threads or processes) closer to the memory they are accessing. It also moves application data to memory closer to the tasks that reference it. This is all done automatically by the kernel when automatic NUMA balancing is active.</p>
+
+</blockquote><p>对应参数</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-8" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">cat /proc/sys/kernel/numa_balancing shows 1</span></span></code></pre>
+</div>
+<h3 id="监控" class="headerLink">
+    <a href="#%e7%9b%91%e6%8e%a7" class="header-mark"></a>监控</h3><p>查找相应的内存和调度器事件</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">shell</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-9" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="c1">#perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 7191</span>
+</span></span><span class="line"><span class="cl"> Performance counter stats <span class="k">for</span> process id <span class="s1">&#39;7191&#39;</span>:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">                 <span class="m">0</span>      sched:sched_stick_numa                                        <span class="o">(</span>100.00%<span class="o">)</span>
+</span></span><span class="line"><span class="cl">                 <span class="m">1</span>      sched:sched_move_numa                                         <span class="o">(</span>100.00%<span class="o">)</span>
+</span></span><span class="line"><span class="cl">                 <span class="m">0</span>      sched:sched_swap_numa
+</span></span><span class="line"><span class="cl">                 <span class="m">0</span>      migrate:mm_migrate_pages
+</span></span><span class="line"><span class="cl">               <span class="m">286</span>      minor-faults
+</span></span><span class="line"><span class="cl">               
+</span></span><span class="line"><span class="cl"><span class="c1"># perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p PID</span>
+</span></span><span class="line"><span class="cl">...
+</span></span><span class="line"><span class="cl">                 <span class="m">1</span>      sched:sched_stick_numa
+</span></span><span class="line"><span class="cl">                 <span class="m">3</span>      sched:sched_move_numa
+</span></span><span class="line"><span class="cl">                <span class="m">41</span>      sched:sched_swap_numa
+</span></span><span class="line"><span class="cl">             5,239      migrate:mm_migrate_pages
+</span></span><span class="line"><span class="cl">            50,161      minor-faults
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">#perf stat -e sched:sched_stick_numa,sched:sched_move_numa,sched:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 676322</span>
+</span></span><span class="line"><span class="cl"> Performance counter stats <span class="k">for</span> process id <span class="s1">&#39;676322&#39;</span>:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">                 <span class="m">0</span>      sched:sched_stick_numa
+</span></span><span class="line"><span class="cl">                <span class="m">16</span>      sched:sched_move_numa
+</span></span><span class="line"><span class="cl">                 <span class="m">0</span>      sched:sched_swap_numa
+</span></span><span class="line"><span class="cl">                <span class="m">24</span>      migrate:mm_migrate_pages
+</span></span><span class="line"><span class="cl">             2,079      minor-faults               </span></span></code></pre>
+</div>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><ul>
+<li>放弃对NUMA的偏见吧，优先回收 PageCache 这个Bug早已修复了</li>
+<li>按NUMA绑定core收益巨大，即使只有两个NUMA的intel芯片，也有一倍以上的性能提升，在飞腾等其他芯片上收益更大</li>
+<li>没必要自欺欺人关掉NUMA了</li>
+<li>RDS这样独占物理机的服务可以做到按NUMA来绑定core，收益可观</li>
+<li>ECS售卖如果能够精确地按NUMA绑核的话性能，超卖比能高很多</li>
+<li>在刷tpcc数据的时候更应该开NUMA和正确绑核</li>
+</ul>
+<p>我个人一直对集团所有机器默认关闭NUMA耿耿于怀，因为定制的物理机（BIOS也是定制的）BIOS默认就是关闭NUMA的，装机还得一台台手工打开（跪了，几十万台啊），算是理清了来龙去脉。因为一个kernel的bug让大家对NUMA一直有偏见，即使14年已经修复了，大家还是以讹传讹，没必要。</p>
+<p>关于cpu为什么高但是没有产出的原因是因为CPU流水线长期stall，导致很低的IPC，所以性能自然上不去，可以看<a href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank" rel="noopener noreferrer">这篇文章</a></p>
+<p>其他同学测试的结论：</p>
+<ul>
+<li>Hadoop离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores/socket * 2, Turbo Off 下打开NUMA后性能提升8%</li>
+</ul>
+<p>一些其它不好解释的现象：</p>
+<ol>
+<li>增加少量跨NUMA 的core进来时能增加QPS的，但是随着跨NUMA core越来越多（总core也越来越多）QPS反而会达到一个峰值后下降&mdash;效率低的core多了，抢走任务，执行得慢</li>
+<li>压12-19和8-15同样8core，不跨NUMA的8-15性能只好5%左右(87873 VS 92801) &mdash; 难以解释</li>
+<li>由1、2所知在测试少量core的时候跨NUMA性能下降体现不出来</li>
+<li>在压0-31core的时候，如果运行 perf这个时候QPS反而会增加（13万上升到15万）&mdash; 抢走了一些CPU资源，让某个地方竞争反而减小了</li>
+<li>综上在我个人理解是core越多的时候UPI压力到了瓶颈，才会出现加core性能反而下降</li>
+</ol>
+<h2 id="系列文章" class="headerLink">
+    <a href="#%e7%b3%bb%e5%88%97%e6%96%87%e7%ab%a0" class="header-mark"></a>系列文章</h2><p><a href="/2021/06/01/CPU%e7%9a%84%e5%88%b6%e9%80%a0%e5%92%8c%e6%a6%82%e5%bf%b5/" rel="">CPU的制造和概念</a></p>
+<p>[CPU 性能和Cache Line](/2021/05/16/CPU Cache Line 和性能/)</p>
+<p>[Perf IPC以及CPU性能](/2021/05/16/Perf IPC以及CPU利用率/)</p>
+<p><a href="/2021/06/18/%e5%87%a0%e6%ac%beCPU%e6%80%a7%e8%83%bd%e5%af%b9%e6%af%94/" rel="">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/%e9%a3%9e%e8%85%beARM%e8%8a%af%e7%89%87%28FT2500%29%e7%9a%84%e6%80%a7%e8%83%bd%e6%b5%8b%e8%af%95/" rel="">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><a href="/2021/05/14/%e5%8d%81%e5%b9%b4%e5%90%8e%e6%95%b0%e6%8d%ae%e5%ba%93%e8%bf%98%e6%98%af%e4%b8%8d%e6%95%a2%e6%8b%a5%e6%8a%b1NUMA/" rel="">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/%e4%b8%80%e6%ac%a1%e6%b5%b7%e5%85%89%e7%89%a9%e7%90%86%e6%9c%ba%e8%b5%84%e6%ba%90%e7%ab%9e%e4%ba%89%e5%8e%8b%e6%b5%8b%e7%9a%84%e8%ae%b0%e5%bd%95/" rel="">一次海光物理机资源竞争压测的记录</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](/2019/12/16/Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的/)</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf" target="_blank" rel="noopener noreferrer">https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf</a></p>
+<p><a href="https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/" target="_blank" rel="noopener noreferrer">https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/</a></p>
+<p><a href="https://queue.acm.org/detail.cfm?id=2513149" target="_blank" rel="noopener noreferrer">https://queue.acm.org/detail.cfm?id=2513149</a></p>
+<p><a href="https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/" target="_blank" rel="noopener noreferrer">NUMA DEEP DIVE PART 1: FROM UMA TO NUMA</a> 这是一个系列，都很干货，值得推荐</p>
+<p><a href="https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf" target="_blank" rel="noopener noreferrer">https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf</a> Morsel-Driven Parallelism: A NUMA-Aware Query Evaluation Framework for the Many-Core Age 论文给出了很多numa-aware下的bandwidth、latency数据，以及对THC-H的影响</p>
+]]></description>
+</item></channel>
+</rss>

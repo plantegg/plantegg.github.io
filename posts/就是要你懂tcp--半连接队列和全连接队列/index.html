@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>就是要你懂TCP--半连接队列和全连接队列 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="就是要你懂TCP--半连接队列和全连接队列">
+  <meta property="og:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2017-06-07T17:30:03+00:00">
+    <meta property="article:modified_time" content="2017-06-07T17:30:03+00:00">
+    <meta property="article:tag" content="TCP Queue">
+    <meta property="article:tag" content="Accept Queue">
+    <meta property="article:tag" content="Syn Queue">
+    <meta property="article:tag" content="Syn Flood">
+    <meta property="article:tag" content="Netstat">
+    <meta property="article:tag" content="Ss">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="就是要你懂TCP--半连接队列和全连接队列">
+  <meta name="twitter:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/" /><link rel="prev" href="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E8%BF%9E%E6%8E%A5%E5%92%8C%E6%8F%A1%E6%89%8B/" /><link rel="next" href="http://localhost:1313/posts/netstat-%E7%AD%89%E7%BD%91%E7%BB%9C%E5%B7%A5%E5%85%B7/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "就是要你懂TCP--半连接队列和全连接队列",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/"
+        },"genre": "posts","keywords":["TCP queue","accept queue","syn queue","syn flood","netstat","ss","overflows","dropped"],"wordcount":  8359 ,
+        "url": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/","datePublished": "2017-06-07T17:30:03+00:00","dateModified": "2017-06-07T17:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题描述">问题描述</a></li>
+    <li><a href="#分析问题">分析问题</a>
+      <ul>
+        <li><a href="#正常tcp建连接三次握手过程">正常TCP建连接三次握手过程：</a></li>
+      </ul>
+    </li>
+    <li><a href="#深入理解tcp握手过程中建连接的流程和队列">深入理解TCP握手过程中建连接的流程和队列</a></li>
+    <li><a href="#如果tcp连接队列溢出有哪些指标可以看呢">如果TCP连接队列溢出，有哪些指标可以看呢？</a>
+      <ul>
+        <li><a href="#netstat--s">netstat -s</a></li>
+        <li><a href="#ss-命令">ss 命令</a></li>
+      </ul>
+    </li>
+    <li><a href="#案列如果tcp连接队列溢出抓包是什么现象呢">案列：如果TCP连接队列溢出，抓包是什么现象呢？</a>
+      <ul>
+        <li><a href="#通过ss和netstat所观察到的状态">通过ss和netstat所观察到的状态</a></li>
+      </ul>
+    </li>
+    <li><a href="#实践验证一下上面的理解">实践验证一下上面的理解</a>
+      <ul>
+        <li><a href="#tomcat和nginx中的accept队列参数">Tomcat和Nginx中的Accept队列参数</a></li>
+      </ul>
+    </li>
+    <li><a href="#进一步思考-client-fooling-问题">进一步思考 client fooling 问题</a></li>
+    <li><a href="#过程中发现的一个奇怪问题">过程中发现的一个奇怪问题</a></li>
+    <li><a href="#那么全连接队列满了会影响半连接队列吗">那么全连接队列满了会影响半连接队列吗？</a></li>
+    <li><a href="#半连接队列的长度">半连接队列的长度</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#为什么-netstat-看到的-listen-状态的-send-q-总是0">为什么 netstat 看到的 listen 状态的 SEND-Q 总是0</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2017-06-07" data-pagefind-body>就是要你懂TCP--半连接队列和全连接队列</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/tcp/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>TCP</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2017-06-07">2017-06-07</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2017-06-07">2017-06-07</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 8359 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 37 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题描述">问题描述</a></li>
+    <li><a href="#分析问题">分析问题</a>
+      <ul>
+        <li><a href="#正常tcp建连接三次握手过程">正常TCP建连接三次握手过程：</a></li>
+      </ul>
+    </li>
+    <li><a href="#深入理解tcp握手过程中建连接的流程和队列">深入理解TCP握手过程中建连接的流程和队列</a></li>
+    <li><a href="#如果tcp连接队列溢出有哪些指标可以看呢">如果TCP连接队列溢出，有哪些指标可以看呢？</a>
+      <ul>
+        <li><a href="#netstat--s">netstat -s</a></li>
+        <li><a href="#ss-命令">ss 命令</a></li>
+      </ul>
+    </li>
+    <li><a href="#案列如果tcp连接队列溢出抓包是什么现象呢">案列：如果TCP连接队列溢出，抓包是什么现象呢？</a>
+      <ul>
+        <li><a href="#通过ss和netstat所观察到的状态">通过ss和netstat所观察到的状态</a></li>
+      </ul>
+    </li>
+    <li><a href="#实践验证一下上面的理解">实践验证一下上面的理解</a>
+      <ul>
+        <li><a href="#tomcat和nginx中的accept队列参数">Tomcat和Nginx中的Accept队列参数</a></li>
+      </ul>
+    </li>
+    <li><a href="#进一步思考-client-fooling-问题">进一步思考 client fooling 问题</a></li>
+    <li><a href="#过程中发现的一个奇怪问题">过程中发现的一个奇怪问题</a></li>
+    <li><a href="#那么全连接队列满了会影响半连接队列吗">那么全连接队列满了会影响半连接队列吗？</a></li>
+    <li><a href="#半连接队列的长度">半连接队列的长度</a></li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#为什么-netstat-看到的-listen-状态的-send-q-总是0">为什么 netstat 看到的 listen 状态的 SEND-Q 总是0</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="关于tcp-半连接队列和全连接队列" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8etcp-%e5%8d%8a%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e5%92%8c%e5%85%a8%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97" class="header-mark"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+  <p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
+<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
+<ol>
+<li>这两个队列是干什么用的；</li>
+</ol>
+<p>2）怎么设置和观察他们的最大值；</p>
+<p>3）怎么查看这两个队列当前使用到了多少；</p>
+<p>4）一旦溢出的后果和现象是什么</p>
+
+</blockquote><h2 id="问题描述" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e6%8f%8f%e8%bf%b0" class="header-mark"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
+
+1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
+2.出问题的时间点，会同时有很多连接出现这个问题。
+3.selector没有销毁重建，一直用的都是一个。
+4.程序刚启动的时候必会出现一些，之后会间歇性出现。
+</code></pre>
+<h2 id="分析问题" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90%e9%97%ae%e9%a2%98" class="header-mark"></a>分析问题</h2><h3 id="正常tcp建连接三次握手过程" class="headerLink">
+    <a href="#%e6%ad%a3%e5%b8%b8tcp%e5%bb%ba%e8%bf%9e%e6%8e%a5%e4%b8%89%e6%ac%a1%e6%8f%a1%e6%89%8b%e8%bf%87%e7%a8%8b" class="header-mark"></a>正常TCP建连接三次握手过程：</h3><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/159a331ff8cdd4b8994dfe6a209d035f.png   alt="image.png"  ></p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
+</ul>
+<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep &ldquo;listen&rdquo; 去看队列的溢出统计数据：</p>
+<pre><code>667399 times the listen queue of a socket overflowed
+</code></pre>
+<p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
+<p>接着查看溢出后，OS怎么处理：</p>
+<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
+0
+</code></pre>
+<p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么 server 扔掉 client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
+<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
+<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
+<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
+<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
+<blockquote>
+  <p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
+
+</blockquote><h2 id="深入理解tcp握手过程中建连接的流程和队列" class="headerLink">
+    <a href="#%e6%b7%b1%e5%85%a5%e7%90%86%e8%a7%a3tcp%e6%8f%a1%e6%89%8b%e8%bf%87%e7%a8%8b%e4%b8%ad%e5%bb%ba%e8%bf%9e%e6%8e%a5%e7%9a%84%e6%b5%81%e7%a8%8b%e5%92%8c%e9%98%9f%e5%88%97" class="header-mark"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/bcf463efeb677d5749d8d7571274ee79.png   alt="image.png"  ></p>
+<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
+<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
+</code></pre>
+<p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
+<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
+<pre><code>net.ipv4.tcp_synack_retries = 2
+</code></pre>
+<h2 id="如果tcp连接队列溢出有哪些指标可以看呢" class="headerLink">
+    <a href="#%e5%a6%82%e6%9e%9ctcp%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e6%ba%a2%e5%87%ba%e6%9c%89%e5%93%aa%e4%ba%9b%e6%8c%87%e6%a0%87%e5%8f%af%e4%bb%a5%e7%9c%8b%e5%91%a2" class="header-mark"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
+<p>（<em>通过具体的、可见的东西来强化我们对知识点的理解和吸收</em>）</p>
+<h3 id="netstat--s" class="headerLink">
+    <a href="#netstat--s" class="header-mark"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
+667399 times the listen queue of a socket overflowed  //全连接队列溢出
+//以下两行是一个意思， netstat版本不同，新版本显示为 dropped
+667399 SYNs to LISTEN sockets ignored                 //含全连接/半连接队列溢出+PAWSPassive 等
+905080 SYNs to LISTEN sockets dropped                 //含全连接/半连接队列溢出+PAWSPassive 等
+ 
+//和本文无关的一些其它指标 
+919614 passive connections rejected because of time stamp //tcp_recycle 丢 syn 包，对应/proc/net/netstat 中 PAWSPassive
+TCPTimeWaitOverflow: 65000                                //tcp_max_tw_buckets 溢出
+</code></pre>
+<p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了</p>
+<p>ignored 和 dropped：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240807112156872.png   alt="image-20240807112156872"  ></p>
+<p>这些指标都是从 /proc/net/netstat 中采集，含义可以参考 <a href="https://github.com/ecki/net-tools.git" target="_blank" rel="noopener noreferrer">net-tool 工具(netstat 命令来源)中的源码</a>：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240807112356787.png   alt="image-20240807112356787"  ></p>
+<h3 id="ss-命令" class="headerLink">
+    <a href="#ss-%e5%91%bd%e4%bb%a4" class="header-mark"></a>ss 命令</h3><pre><code>[root@server ~]# ss -lnt
+Recv-Q Send-Q Local Address:Port  Peer Address:Port 
+0        50               *:3306             *:* 
+</code></pre>
+<p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
+<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
+<p>《Unix Network Programming》中关于backlog的描述</p>
+<blockquote>
+  <p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
+<p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it &ldquo;defines the maximum length the queue of pending connections may grow to.&rdquo; Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
+
+</blockquote><p>关于 <a href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4" target="_blank" rel="noopener noreferrer">somaxconn 终于在2019年将默认值从128调整到了2048</a>, 这个调整合并到了kernel 5.17中</p>
+<blockquote>
+  <p>SOMAXCONN is /proc/sys/net/core/somaxconn default value.</p>
+<p>It has been defined as 128 more than 20 years ago.</p>
+<p>Since it caps the listen() backlog values, the very small value has
+caused numerous problems over the years, and many people had
+to raise it on their hosts after beeing hit by problems.</p>
+<p>Google has been using 1024 for at least 15 years, and we increased
+this to 4096 after TCP listener rework has been completed, more than
+4 years ago. We got no complain of this change breaking any
+legacy application.</p>
+<p>Many applications indeed setup a TCP listener with listen(fd, -1);
+meaning they let the system select the backlog.</p>
+<p>Raising SOMAXCONN lowers chance of the port being unavailable under
+even small SYNFLOOD attack, and reduces possibilities of side channel
+vulnerabilities.</p>
+
+</blockquote><p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
+<pre><code>ServerSocket()
+	Creates an unbound server socket.
+ServerSocket(int port)
+	Creates a server socket, bound to the specified port.
+ServerSocket(int port, int backlog)
+	Creates a server socket and binds it to the specified local port number, with the specified backlog.
+ServerSocket(int port, int backlog, InetAddress bindAddr)
+	Create a server with the specified port, listen backlog, and local IP address to bind to.
+</code></pre>
+<p>（来自JDK帮助文档：https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</p>
+<p><strong>半连接队列的大小取决于：max(64,  /proc/sys/net/ipv4/tcp_max_syn_backlog)。 <a href="https://developer.aliyun.com/article/804896" target="_blank" rel="noopener noreferrer">不同版本的os会有些差异</a></strong></p>
+<blockquote>
+  <p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
+
+</blockquote><h4 id="netstat-命令" class="headerLink">
+    <a href="#netstat-%e5%91%bd%e4%bb%a4" class="header-mark"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp    0  0 server:8182  client-1:15260 SYN_RECV   
+tcp    0 28 server:22    client-1:51708  ESTABLISHED
+tcp    0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p><strong>netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆</strong></p>
+<p>所以ss看到的 Send-Q、Recv-Q是目前全连接队列使用情况和最大设置
+netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话就是发出的bytes并且没有ack的包、和os接收到的bytes还没交给应用</p>
+<p>我们看到的 Recv-Q、Send-Q获取源代码如下（ net/ipv4/tcp_diag.c ）：</p>
+<pre><code>static void tcp_diag_get_info(struct sock *sk, struct inet_diag_msg *r,
+  void *_info)
+{
+    const struct tcp_sock *tp = tcp_sk(sk);
+    struct tcp_info *info = _info;
+    
+    if (sk-&gt;sk_state == TCP_LISTEN) {  //LISTEN状态下的 Recv-Q、Send-Q
+	    r-&gt;idiag_rqueue = sk-&gt;sk_ack_backlog;
+	    r-&gt;idiag_wqueue = sk-&gt;sk_max_ack_backlog; //Send-Q 最大backlog
+    } else {						   //其它状态下的 Recv-Q、Send-Q
+	    r-&gt;idiag_rqueue = max_t(int, tp-&gt;rcv_nxt - tp-&gt;copied_seq, 0);
+	    r-&gt;idiag_wqueue = tp-&gt;write_seq - tp-&gt;snd_una;
+    }
+    if (info != NULL)
+    	tcp_get_info(sk, info);
+}
+</code></pre>
+<p>比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/77ed9ba81f70f7940546f0a22dabf010.png   alt="image.png"  ></p>
+<h4 id="netstat看到的listen状态的recv-qsend-q" class="headerLink">
+    <a href="#netstat%e7%9c%8b%e5%88%b0%e7%9a%84listen%e7%8a%b6%e6%80%81%e7%9a%84recv-qsend-q" class="header-mark"></a>netstat看到的listen状态的Recv-Q/Send-Q</h4><p>netstat 看到的listen状态下的Recv-Q/Send-Q意义跟 ss -lnt看到的完全不一样。上面的 netstat 对非listen的描述没问题，但是listen状态似乎Send-Q这个值总是0，这要去看netstat的代码了，实际上Listen状态它不是一个连接，所以肯定统计不到流量，netstat似乎只是针对连接的统计</p>
+<p>从网上找了两个Case，server的8765端口故意不去读取对方发过来的2000字节，所看到的是：</p>
+<pre><code>$ netstat -ano | grep 8765  
+tcp0  0 0.0.0.0:87650.0.0.0:*   LISTEN  off (0.00/0/0)  
+tcp 2000  0 10.100.70.140:8765  10.100.70.139:43634 ESTABLISHED off (0.00/0/0)
+</code></pre>
+<p>第二个Case，8000端口的半连接满了（129），但是这个时候Send-Q还是看到的0</p>
+<pre><code>$ netstat -ntap | grep 8000 
+tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- 
+tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    - 
+tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    - 
+tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -  
+</code></pre>
+<h2 id="案列如果tcp连接队列溢出抓包是什么现象呢" class="headerLink">
+    <a href="#%e6%a1%88%e5%88%97%e5%a6%82%e6%9e%9ctcp%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e6%ba%a2%e5%87%ba%e6%8a%93%e5%8c%85%e6%98%af%e4%bb%80%e4%b9%88%e7%8e%b0%e8%b1%a1%e5%91%a2" class="header-mark"></a>案列：如果TCP连接队列溢出，抓包是什么现象呢？</h2><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/c0849615ae52531887ce6b0313d7d2d1.png   alt="image.png"  ></p>
+<p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
+<h3 id="通过ss和netstat所观察到的状态" class="headerLink">
+    <a href="#%e9%80%9a%e8%bf%87ss%e5%92%8cnetstat%e6%89%80%e8%a7%82%e5%af%9f%e5%88%b0%e7%9a%84%e7%8a%b6%e6%80%81" class="header-mark"></a>通过ss和netstat所观察到的状态</h3><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/ec25ccb6cce8f554b7ef6927f05bd530.png   alt="image.png"  ></p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/2fbdd05162e9fd51e803682b8a18cc51.png   alt="image.png"  ></p>
+<p><a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/" rel="">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
+<h2 id="实践验证一下上面的理解" class="headerLink">
+    <a href="#%e5%ae%9e%e8%b7%b5%e9%aa%8c%e8%af%81%e4%b8%80%e4%b8%8b%e4%b8%8a%e9%9d%a2%e7%9a%84%e7%90%86%e8%a7%a3" class="header-mark"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下</p>
+<p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
+<pre><code>Fri May  5 13:50:23 CST 2017
+Recv-Q Send-QLocal Address:Port  Peer Address:Port
+11         10         *:3306               *:*
+</code></pre>
+<p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
+<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;=</strong> 。</p>
+<blockquote>
+  <p>Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果</p>
+<p>kill -19 pid 即可； kill -18 pid 恢复暂停进程</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#define SIGKILL     9    /* Kill, unblockable (POSIX). */
+</span></span><span class="line"><span class="cl">#define SIGCONT     18   /* Continue (POSIX).  */
+</span></span><span class="line"><span class="cl">#define SIGSTOP     19   /* Stop, unblockable (POSIX). */</span></span></code></pre>
+</div>
+
+</blockquote><p>tsar监控accept队列的溢出</p>
+<blockquote>
+  <p>tsar &ndash;tcpx -s=lisove -li 1</p>
+
+</blockquote><h3 id="tomcat和nginx中的accept队列参数" class="headerLink">
+    <a href="#tomcat%e5%92%8cnginx%e4%b8%ad%e7%9a%84accept%e9%98%9f%e5%88%97%e5%8f%82%e6%95%b0" class="header-mark"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100.</p>
+<pre><code>#ss -lnt
+Recv-Q Send-Q   Local Address:Port Peer Address:Port
+0       100                 *:8080            *:*
+</code></pre>
+<p>Nginx默认是511</p>
+<pre><code>$sudo ss -lnt
+State  Recv-Q Send-Q Local Address:PortPeer Address:Port
+LISTEN    0     511              *:8085           *:*
+LISTEN    0     511              *:8085           *:*
+</code></pre>
+<p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/01dc036aca4b445ed86e3e295bf245b8.png   alt="image.png"  ></p>
+<h2 id="进一步思考-client-fooling-问题" class="headerLink">
+    <a href="#%e8%bf%9b%e4%b8%80%e6%ad%a5%e6%80%9d%e8%80%83-client-fooling-%e9%97%ae%e9%a2%98" class="header-mark"></a>进一步思考 client fooling 问题</h2><p>如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）</p>
+<p>先来看一个例子：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/9179e08ac24ce3d53e74b92dbd044906.png   alt="image.png"  ></p>
+<p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png   alt="image.png"  ></p>
+<p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071 ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
+<p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
+<p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
+<h2 id="过程中发现的一个奇怪问题" class="headerLink">
+    <a href="#%e8%bf%87%e7%a8%8b%e4%b8%ad%e5%8f%91%e7%8e%b0%e7%9a%84%e4%b8%80%e4%b8%aa%e5%a5%87%e6%80%aa%e9%97%ae%e9%a2%98" class="header-mark"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:58 CST 2017
+1641685 times the listen queue of a socket overflowed  # 全连接队列溢出
+1641685 SYNs to LISTEN sockets ignored                 # 半连接队列溢出
+
+[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:59 CST 2017
+1641906 times the listen queue of a socket overflowed
+1641906 SYNs to LISTEN sockets ignored
+</code></pre>
+<p>如上所示：
+overflowed和ignored 总是一样多，并且都是同步增加，overflowed 表示全连接队列溢出次数，SYNs to LISTEN socket ignored 表示半连接队列溢出等等指标的次数，没这么巧吧。</p>
+<p>翻看内核源代码（http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/a5616904df3a505572d99d557b534db2.png   alt="image.png"  ></p>
+<p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
+<p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
+<pre><code>server1
+150 SYNs to LISTEN sockets dropped
+
+server2
+193 SYNs to LISTEN sockets dropped
+
+server3
+16329 times the listen queue of a socket overflowed
+16422 SYNs to LISTEN sockets dropped
+
+server4
+20 times the listen queue of a socket overflowed
+51 SYNs to LISTEN sockets dropped
+
+server5
+984932 times the listen queue of a socket overflowed
+988003 SYNs to LISTEN sockets dropped
+</code></pre>
+<p>总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接/半连接队列溢出以及PAWSPassive 等造成的 SYN 丢包</p>
+<h2 id="那么全连接队列满了会影响半连接队列吗" class="headerLink">
+    <a href="#%e9%82%a3%e4%b9%88%e5%85%a8%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e6%bb%a1%e4%ba%86%e4%bc%9a%e5%bd%b1%e5%93%8d%e5%8d%8a%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e5%90%97" class="header-mark"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/0c6bbb5d4a10f40c8b3c4ba6cab82292.png   alt="image.png"  ></p>
+<p>TCP 三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：</p>
+<pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
+//如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
+  if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
+      goto drop;
+</code></pre>
+<h2 id="半连接队列的长度" class="headerLink">
+    <a href="#%e5%8d%8a%e8%bf%9e%e6%8e%a5%e9%98%9f%e5%88%97%e7%9a%84%e9%95%bf%e5%ba%a6" class="header-mark"></a>半连接队列的长度</h2><p><strong>半连接队列的长度由三个参数指定：</strong></p>
+<ul>
+<li><strong>调用</strong> <strong>listen</strong> <strong>时，传入的 backlog</strong></li>
+<li><strong>/proc/sys/net/core/somaxconn</strong> <strong>默认值为 128</strong></li>
+<li><em>/proc/sys/net/ipv4/tcp_max_syn_backlog</em>* <strong>默认值为 1024</strong></li>
+</ul>
+<p>假设 listen 传入的 backlog = 128，其他配置采用默认值，来计算下半连接队列的最大长度</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-2" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">backlog = min(somaxconn, backlog) = min(128, 128) = 128
+</span></span><span class="line"><span class="cl">nr_table_entries = backlog = 128
+</span></span><span class="line"><span class="cl">nr_table_entries = min(backlog, sysctl_max_syn_backlog) = min(128, 1024) = 128
+</span></span><span class="line"><span class="cl">nr_table_entries = max(nr_table_entries, 8) = max(128, 8) = 128
+</span></span><span class="line"><span class="cl">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1) = 256
+</span></span><span class="line"><span class="cl">max_qlen_log = max(3, log2(nr_table_entries)) = max(3, 8) = 8
+</span></span><span class="line"><span class="cl">max_queue_length = 2^max_qlen_log = 2^8 = 256</span></span></code></pre>
+</div>
+<p>可以得到半队列大小是 256，以上计算方法：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-3" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">backlog = min(somaxconn, backlog)
+</span></span><span class="line"><span class="cl">nr_table_entries = backlog
+</span></span><span class="line"><span class="cl">nr_table_entries = min(backlog, sysctl_max_syn_backlog)
+</span></span><span class="line"><span class="cl">nr_table_entries = max(nr_table_entries, 8)
+</span></span><span class="line"><span class="cl">// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1
+</span></span><span class="line"><span class="cl">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)
+</span></span><span class="line"><span class="cl">max_qlen_log = max(3, log2(nr_table_entries))
+</span></span><span class="line"><span class="cl">max_queue_length = 2^max_qlen_log</span></span></code></pre>
+</div>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png     ></p>
+<p>没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了</p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是<strong>应用层代码还没有完成 accept() 的连接</strong>）两个概念，用于存放在握手中的连接。</p>
+<p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt=网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener noreferrer">《netty新建连接并发数很小的case》 </a>
+都是类似原因</p>
+<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
+<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
+<h2 id="为什么-netstat-看到的-listen-状态的-send-q-总是0" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88-netstat-%e7%9c%8b%e5%88%b0%e7%9a%84-listen-%e7%8a%b6%e6%80%81%e7%9a%84-send-q-%e6%80%bb%e6%98%af0" class="header-mark"></a>为什么 netstat 看到的 listen 状态的 SEND-Q 总是0</h2><p><a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e7073830cc8b52ef3df7dd150e4dac7706e0e104" target="_blank" rel="noopener noreferrer">https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e7073830cc8b52ef3df7dd150e4dac7706e0e104</a></p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-4" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#netstat -ntap | grep 8000
+</span></span><span class="line"><span class="cl">Proto Recv-Q Send-Q Local Address           Foreign Address         State
+</span></span><span class="line"><span class="cl">tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- //第三列总是0
+</span></span><span class="line"><span class="cl">tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    -
+</span></span><span class="line"><span class="cl">tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    -
+</span></span><span class="line"><span class="cl">tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -</span></span></code></pre>
+</div>
+<p>如下图代码，最开始 2 边一起支持了 LISTEN socket 显示 accept 队列当前长度，后来右边支持显示最大长度时，左边没有加。netstat 是读取的 /proc/net/tcp，然后 ss 走了 diag 接口去拿的：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506134119413.png   alt="image-20240506134119413"  ></p>
+<hr>
+<p>也就是改了 tcp_diag_get_info ，但是忘了改 get_tcp4_sock，但是写 man netstat 自己也没验证过就以讹传讹</p>
+<p>d31d2480d9840f0d88739941bed0654d5b581dcb ?</p>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章</h2><p>星球同学最详细的实践(代码、抓包等等，共13篇，含<a href="https://github.com/xiaodongQ/prog-playground/tree/main/network" target="_blank" rel="noopener noreferrer">演示代码</a>) <a href="https://xiaodongq.github.io/2024/05/30/tcp_syn_queue/" target="_blank" rel="noopener noreferrer">https://xiaodongq.github.io/2024/05/30/tcp_syn_queue/</a>  <a href="https://xiaodongq.github.io/2024/06/26/libbpf-trace-tcp_connect/" target="_blank" rel="noopener noreferrer">https://xiaodongq.github.io/2024/06/26/libbpf-trace-tcp_connect/</a></p>
+<p>X推友实验：https://wgzhao.github.io/notes/troubleshooting/deep-in-tcp-connect/</p>
+<p>张师傅：https://juejin.cn/post/6844904071367753736</p>
+<p>详细的实验以及分析，附Go 实验代码：https://www.51cto.com/article/687595.html</p>
+<p><a href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html" target="_blank" rel="noopener noreferrer">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<p><a href="http://www.cnblogs.com/zengkefu/p/5606696.html" target="_blank" rel="noopener noreferrer">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
+<p><a href="http://www.cnxct.com/something-about-phpfpm-s-backlog/" target="_blank" rel="noopener noreferrer">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
+<p><a href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/" target="_blank" rel="noopener noreferrer">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
+<p><a href="http://jin-yang.github.io/blog/network-synack-queue.html#" target="_blank" rel="noopener noreferrer">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
+<p><a href="http://blog.chinaunix.net/uid-20662820-id-4154399.html" target="_blank" rel="noopener noreferrer">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
+<p><a href="https://www.atatech.org/articles/12919" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/12919</a></p>
+<p><a href="https://blog.cloudflare.com/syn-packet-handling-in-the-wild/" target="_blank" rel="noopener noreferrer">https://blog.cloudflare.com/syn-packet-handling-in-the-wild/</a></p>
+<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="noopener noreferrer">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
+<p><a href="https://www.cnblogs.com/xiaolincoding/p/12995358.html" target="_blank" rel="noopener noreferrer">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
+<p><a href="https://developer.aliyun.com/article/804896" target="_blank" rel="noopener noreferrer">从一次线上问题说起，详解 TCP 半连接队列、全连接队列&ndash;详细的实验验证各种溢出</a></p>
+<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener noreferrer">案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">c</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-5" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="n">commit</span> <span class="mi">5</span><span class="n">ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</span>
+</span></span><span class="line"><span class="cl"><span class="nl">Author</span><span class="p">:</span> <span class="n">Eric</span> <span class="n">Dumazet</span> <span class="o">&lt;</span><span class="n">edumazet</span><span class="err">@</span><span class="n">google</span><span class="p">.</span><span class="n">com</span><span class="o">&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nl">Date</span><span class="p">:</span>   <span class="n">Thu</span> <span class="n">Oct</span> <span class="mi">27</span> <span class="mo">00</span><span class="o">:</span><span class="mi">27</span><span class="o">:</span><span class="mi">57</span> <span class="mi">2016</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"> <span class="n">tcp</span><span class="o">/</span><span class="nl">dccp</span><span class="p">:</span> <span class="n">drop</span> <span class="n">SYN</span> <span class="n">packets</span> <span class="k">if</span> <span class="n">accept</span> <span class="n">queue</span> <span class="n">is</span> <span class="n">full</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"> <span class="n">Per</span> <span class="nf">listen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">backlog</span><span class="p">)</span> <span class="n">rules</span><span class="p">,</span> <span class="n">there</span> <span class="n">is</span> <span class="n">really</span> <span class="n">no</span> <span class="n">point</span> <span class="n">accepting</span> <span class="n">a</span> <span class="n">SYN</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl"> <span class="n">sending</span> <span class="n">a</span> <span class="n">SYNACK</span><span class="p">,</span> <span class="n">and</span> <span class="n">dropping</span> <span class="n">the</span> <span class="n">following</span> <span class="n">ACK</span> <span class="n">packet</span> <span class="k">if</span> <span class="n">accept</span> <span class="n">queue</span>
+</span></span><span class="line"><span class="cl"> <span class="n">is</span> <span class="n">full</span><span class="p">,</span> <span class="n">because</span> <span class="n">application</span> <span class="n">is</span> <span class="n">not</span> <span class="n">draining</span> <span class="n">accept</span> <span class="n">queue</span> <span class="n">fast</span> <span class="n">enough</span><span class="p">.</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"> <span class="n">This</span> <span class="n">behavior</span> <span class="n">is</span> <span class="n">fooling</span> <span class="n">TCP</span> <span class="n">clients</span> <span class="n">that</span> <span class="n">believe</span> <span class="n">they</span> <span class="n">established</span> <span class="n">a</span>
+</span></span><span class="line"><span class="cl"> <span class="n">flow</span><span class="p">,</span> <span class="k">while</span> <span class="n">there</span> <span class="n">is</span> <span class="n">nothing</span> <span class="n">at</span> <span class="n">server</span> <span class="n">side</span><span class="p">.</span> <span class="n">They</span> <span class="n">might</span> <span class="n">then</span> <span class="n">send</span> <span class="n">about</span>
+</span></span><span class="line"><span class="cl"> <span class="mi">10</span> <span class="nf">MSS</span> <span class="p">(</span><span class="k">if</span> <span class="n">using</span> <span class="n">IW10</span><span class="p">)</span> <span class="n">that</span> <span class="n">will</span> <span class="n">be</span> <span class="n">dropped</span> <span class="n">anyway</span> <span class="k">while</span> <span class="n">server</span> <span class="n">is</span> <span class="n">under</span>
+</span></span><span class="line"><span class="cl"> <span class="n">stress</span><span class="p">.</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">   <span class="o">-</span>       <span class="cm">/* Accept backlog is full. If we have already queued enough
+</span></span></span><span class="line"><span class="cl"><span class="cm">   -        * of warm entries in syn queue, drop request. It is better than
+</span></span></span><span class="line"><span class="cl"><span class="cm">   -        * clogging syn queue with openreqs with exponentially increasing
+</span></span></span><span class="line"><span class="cl"><span class="cm">   -        * timeout.
+</span></span></span><span class="line"><span class="cl"><span class="cm">   -        */</span>
+</span></span><span class="line"><span class="cl">   <span class="o">-</span>       <span class="k">if</span> <span class="p">(</span><span class="nf">sk_acceptq_is_full</span><span class="p">(</span><span class="n">sk</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="nf">inet_csk_reqsk_queue_young</span><span class="p">(</span><span class="n">sk</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">   <span class="o">+</span>       <span class="k">if</span> <span class="p">(</span><span class="nf">sk_acceptq_is_full</span><span class="p">(</span><span class="n">sk</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">                   <span class="nf">NET_INC_STATS</span><span class="p">(</span><span class="nf">sock_net</span><span class="p">(</span><span class="n">sk</span><span class="p">),</span> <span class="n">LINUX_MIB_LISTENOVERFLOWS</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">                   <span class="k">goto</span> <span class="n">drop</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">           <span class="p">}</span></span></span></code></pre>
+</div>
+<p>Client 不断地 connect 建新连接：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-6" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#include&lt;stdio.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;stdlib.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;string.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;errno.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;sys/types.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;sys/socket.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;netinet/in.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;arpa/inet.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;unistd.h&gt;
+</span></span><span class="line"><span class="cl">#define MAXLINE 4096
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">int main(int argc, char** argv)
+</span></span><span class="line"><span class="cl">{
+</span></span><span class="line"><span class="cl">    int sockfd, n;
+</span></span><span class="line"><span class="cl">    char recvline[4096], sendline[4096];
+</span></span><span class="line"><span class="cl">    struct sockaddr_in servaddr;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    memset(&amp;servaddr, 0, sizeof(servaddr));
+</span></span><span class="line"><span class="cl">    servaddr.sin_family = AF_INET;
+</span></span><span class="line"><span class="cl">    servaddr.sin_port = htons(6666);
+</span></span><span class="line"><span class="cl">    inet_pton(AF_INET, &#34;127.0.0.1&#34;, &amp;servaddr.sin_addr);
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    for (n = 0; n &lt; 100; n++)
+</span></span><span class="line"><span class="cl">    {
+</span></span><span class="line"><span class="cl">        if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) &lt; 0){
+</span></span><span class="line"><span class="cl">            printf(&#34;create socket error: %s(errno: %d)\n&#34;, strerror(errno),errno);
+</span></span><span class="line"><span class="cl">            return 0;
+</span></span><span class="line"><span class="cl">        }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">        //客户端不停的向服务端发起新连接，成功之后继续发，没成功会阻塞在这里        //--------------
+</span></span><span class="line"><span class="cl">        if(connect(sockfd, (struct sockaddr*)&amp;servaddr, sizeof(servaddr)) &lt; 0)
+</span></span><span class="line"><span class="cl">        {
+</span></span><span class="line"><span class="cl">            printf(&#34;connect error: %s(errno: %d)\n&#34;,strerror(errno),errno);
+</span></span><span class="line"><span class="cl">            return 0;
+</span></span><span class="line"><span class="cl">        }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">        printf(&#34;connected to server: %d\n&#34;, n);
+</span></span><span class="line"><span class="cl">        close(sockfd);
+</span></span><span class="line"><span class="cl">    }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    return 0;
+</span></span><span class="line"><span class="cl">}</span></span></code></pre>
+</div>
+<p>server 故意不accept：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-7" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#include&lt;stdio.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;stdlib.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;string.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;errno.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;sys/types.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;sys/socket.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;netinet/in.h&gt;
+</span></span><span class="line"><span class="cl">#include&lt;unistd.h&gt;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">#define MAXLINE 4096
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">int main(int argc, char* argv[])
+</span></span><span class="line"><span class="cl">{
+</span></span><span class="line"><span class="cl">    int listenfd, connfd;
+</span></span><span class="line"><span class="cl">    struct sockaddr_in servaddr;
+</span></span><span class="line"><span class="cl">    char buff[4096];
+</span></span><span class="line"><span class="cl">    int  n;
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    if( (listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1 )
+</span></span><span class="line"><span class="cl">    {
+</span></span><span class="line"><span class="cl">        printf(&#34;create socket error: %s(errno: %d)\n&#34;, strerror(errno), errno);
+</span></span><span class="line"><span class="cl">        return 0;
+</span></span><span class="line"><span class="cl">    }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    memset(&amp;servaddr, 0, sizeof(servaddr));
+</span></span><span class="line"><span class="cl">    servaddr.sin_family = AF_INET;
+</span></span><span class="line"><span class="cl">    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+</span></span><span class="line"><span class="cl">    servaddr.sin_port = htons(6666);
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    if(bind(listenfd, (struct sockaddr*)&amp;servaddr, sizeof(servaddr)) == -1)
+</span></span><span class="line"><span class="cl">    {
+</span></span><span class="line"><span class="cl">        printf(&#34;bind socket error: %s(errno: %d)\n&#34;, strerror(errno), errno);
+</span></span><span class="line"><span class="cl">        return 1;
+</span></span><span class="line"><span class="cl">    }
+</span></span><span class="line"><span class="cl">    //全连接队列设置为10    //--------------
+</span></span><span class="line"><span class="cl">    if(listen(listenfd, 10) == -1)
+</span></span><span class="line"><span class="cl">    {
+</span></span><span class="line"><span class="cl">        printf(&#34;listen socket error: %s(errno: %d)\n&#34;, strerror(errno), errno);
+</span></span><span class="line"><span class="cl">        return 2;
+</span></span><span class="line"><span class="cl">    }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    if( (connfd = accept(listenfd, (struct sockaddr*)NULL, NULL)) == -1)
+</span></span><span class="line"><span class="cl">    {
+</span></span><span class="line"><span class="cl">        printf(&#34;accept socket error: %s(errno: %d)&#34;, strerror(errno), errno);
+</span></span><span class="line"><span class="cl">        return 3;
+</span></span><span class="line"><span class="cl">    }
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    printf(&#34;accepet a socket\n&#34;);
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">    //服务端仅accept一次，之后就不再accept，此时全连接队列会被堆满    //----------------------------------
+</span></span><span class="line"><span class="cl">    sleep(1000);
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">    close(connfd);
+</span></span><span class="line"><span class="cl">    close(listenfd);
+</span></span><span class="line"><span class="cl">    return 0;
+</span></span><span class="line"><span class="cl">}</span></span></code></pre>
+</div>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2017-06-07</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href=""></a>,&nbsp;<a href=""></a>,&nbsp;<a href=""></a>,&nbsp;<a href=""></a>,&nbsp;<a href="/tags/netstat/">Netstat</a>,&nbsp;<a href="/tags/ss/">Ss</a>,&nbsp;<a href="/tags/overflows/">Overflows</a>,&nbsp;<a href="/tags/dropped/">Dropped</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E8%BF%9E%E6%8E%A5%E5%92%8C%E6%8F%A1%E6%89%8B/" class="prev" rel="prev" title="就是要你懂TCP--握手和挥手"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>就是要你懂TCP--握手和挥手</a>
+            <a href="/posts/netstat-%E7%AD%89%E7%BD%91%E7%BB%9C%E5%B7%A5%E5%85%B7/" class="next" rel="next" title="netstat timer keepalive RTO explain">netstat timer keepalive RTO explain<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

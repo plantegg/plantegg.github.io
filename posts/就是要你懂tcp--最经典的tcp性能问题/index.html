@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>就是要你懂TCP--TCP性能问题 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84tcp%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="就是要你懂TCP--TCP性能问题">
+  <meta property="og:description" content="就是要你懂TCP–TCP性能问题先通过一个案例来看TCP 性能点
+案例描述某个PHP服务通过Nginx将后面的redis封装了一下，让其他应用可以通过http协议访问Nginx来get、set 操作redis
+上线后测试一切正常，每次操作几毫秒. 但是有个应用的value是300K，这个时候set一次需要300毫秒以上。 在没有任何并发压力单线程单次操作也需要这么久，这个操作需要这么久是不合理和无法接受的。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2018-06-14T10:30:03+00:00">
+    <meta property="article:modified_time" content="2018-06-14T10:30:03+00:00">
+    <meta property="article:tag" content="TCP">
+    <meta property="article:tag" content="Performance">
+    <meta property="article:tag" content="Delay Ack">
+    <meta property="article:tag" content="Nagles">
+    <meta property="article:tag" content="Network">
+    <meta property="article:tag" content="CWND">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="就是要你懂TCP--TCP性能问题">
+  <meta name="twitter:description" content="就是要你懂TCP–TCP性能问题先通过一个案例来看TCP 性能点
+案例描述某个PHP服务通过Nginx将后面的redis封装了一下，让其他应用可以通过http协议访问Nginx来get、set 操作redis
+上线后测试一切正常，每次操作几毫秒. 但是有个应用的value是300K，这个时候set一次需要300毫秒以上。 在没有任何并发压力单线程单次操作也需要这么久，这个操作需要这么久是不合理和无法接受的。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84tcp%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/" /><link rel="prev" href="http://localhost:1313/posts/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0v1.1/" /><link rel="next" href="http://localhost:1313/posts/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AAspringmvc-%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "就是要你懂TCP--TCP性能问题",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84tcp%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/"
+        },"genre": "posts","keywords":["TCP","performance","delay ack","nagles","network","CWND","SSTHRESH","tcp_metrics","tcp windows scale"],"wordcount":  8023 ,
+        "url": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82tcp--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84tcp%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/","datePublished": "2018-06-14T10:30:03+00:00","dateModified": "2018-06-14T10:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#案例描述">案例描述</a></li>
+    <li><a href="#问题的原因">问题的原因</a>
+      <ul>
+        <li><a href="#什么是delay-ack">什么是delay ack</a></li>
+      </ul>
+    </li>
+    <li><a href="#什么是nagle算法">什么是Nagle算法</a></li>
+    <li><a href="#如果client启用nagle并且server端启用了delay-ack会有什么后果呢">如果client启用Nagle，并且server端启用了delay ack会有什么后果呢？</a></li>
+    <li><a href="#再来看一个经典例子和数据分析">再来看一个经典例子和数据分析</a></li>
+    <li><a href="#回到前面的问题">回到前面的问题</a></li>
+    <li><a href="#一些概念和其它会导致tcp性能差的原因">一些概念和其它会导致TCP性能差的原因</a>
+      <ul>
+        <li><a href="#跟速度相关的几个概念">跟速度相关的几个概念</a></li>
+        <li><a href="#tcp性能优化点">TCP性能优化点</a></li>
+        <li><a href="#参数">参数</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考文章">参考文章:</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2018-06-14" data-pagefind-body>就是要你懂TCP--TCP性能问题</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/tcp/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>TCP</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2018-06-14">2018-06-14</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2018-06-14">2018-06-14</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 8023 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 36 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#案例描述">案例描述</a></li>
+    <li><a href="#问题的原因">问题的原因</a>
+      <ul>
+        <li><a href="#什么是delay-ack">什么是delay ack</a></li>
+      </ul>
+    </li>
+    <li><a href="#什么是nagle算法">什么是Nagle算法</a></li>
+    <li><a href="#如果client启用nagle并且server端启用了delay-ack会有什么后果呢">如果client启用Nagle，并且server端启用了delay ack会有什么后果呢？</a></li>
+    <li><a href="#再来看一个经典例子和数据分析">再来看一个经典例子和数据分析</a></li>
+    <li><a href="#回到前面的问题">回到前面的问题</a></li>
+    <li><a href="#一些概念和其它会导致tcp性能差的原因">一些概念和其它会导致TCP性能差的原因</a>
+      <ul>
+        <li><a href="#跟速度相关的几个概念">跟速度相关的几个概念</a></li>
+        <li><a href="#tcp性能优化点">TCP性能优化点</a></li>
+        <li><a href="#参数">参数</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考文章">参考文章:</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="就是要你懂tcp--tcp性能问题" class="headerLink">
+    <a href="#%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82tcp--tcp%e6%80%a7%e8%83%bd%e9%97%ae%e9%a2%98" class="header-mark"></a>就是要你懂TCP&ndash;TCP性能问题</h1><p>先通过一个案例来看TCP 性能点</p>
+<h2 id="案例描述" class="headerLink">
+    <a href="#%e6%a1%88%e4%be%8b%e6%8f%8f%e8%bf%b0" class="header-mark"></a>案例描述</h2><p>某个PHP服务通过Nginx将后面的redis封装了一下，让其他应用可以通过http协议访问Nginx来get、set 操作redis</p>
+<p>上线后测试一切正常，每次操作几毫秒. 但是有个应用的value是300K，这个时候set一次需要300毫秒以上。 在没有任何并发压力单线程单次操作也需要这么久，这个操作需要这么久是不合理和无法接受的。</p>
+<h2 id="问题的原因" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e7%9a%84%e5%8e%9f%e5%9b%a0" class="header-mark"></a>问题的原因</h2><p>因为TCP协议为了对带宽利用率、性能方面优化，而做了一些特殊处理。比如Delay Ack和Nagle算法。</p>
+<p>这个原因对大家理解TCP基本的概念后能在实战中了解一些TCP其它方面的性能和影响。</p>
+<h3 id="什么是delay-ack" class="headerLink">
+    <a href="#%e4%bb%80%e4%b9%88%e6%98%afdelay-ack" class="header-mark"></a>什么是delay ack</h3><p>由我前面的TCP介绍文章大家都知道，TCP是可靠传输，可靠的核心是收到包后回复一个ack来告诉对方收到了。</p>
+<p>来看一个例子：
+<img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/06e6b04614ce57e4624346ea6311a411.png   alt="image.png"  ></p>
+<p>截图中的Nignx(8085端口），收到了一个http request请求，然后立即回复了一个ack包给client，接着又回复了一个http response 给client。大家注意回复的ack包长度66，实际内容长度为0，ack信息放在TCP包头里面，也就是这里发了一个66字节的空包给客户端来告诉客户端我收到你的请求了。</p>
+<p>这里没毛病，逻辑很对，符合TCP的核心可靠传输的意义。但是带来的一个问题是：性能不够好（用了一个空包用于特意回复ack，有点浪费）。那能不能优化呢？</p>
+<p>这里的优化方法就是delay ack。</p>
+<p>**delay ack **是指收到包后不立即ack，而是等一小会（比如40毫秒）看看，如果这40毫秒内有其它包（比如上面的http response）要发给client，那么这个ack包就跟着发过去（顺风车，http reponse包不需要增加任何大小和包的数量），这样节省了资源。 当然如果超过这个时间还没有包发给client（比如nginx处理需要 40毫秒以上），那么这个ack也要发给client了（即使为空，要不client以为丢包了，又要重发http request，划不来）。</p>
+<p>假如这个时候ack包还在等待延迟发送的时候，又收到了client的一个包，那么这个时候server有两个ack包要回复，那么os会把这两个ack包合起来<strong>立即</strong>回复一个ack包给client，告诉client前两个包都收到了。</p>
+<p><strong>也就是delay ack开启的情况下：ack包有顺风车就搭；如果凑两个ack包那么包个车也立即发车；再如果等了40毫秒以上也没顺风车或者拼车的，那么自己打个专车也要发车。</strong></p>
+<p>截图中Nginx<strong>没有开delay ack</strong>，所以你看红框中的ack是完全可以跟着绿框（http response）一起发给client的，但是没有，红框的ack立即打车跑了</p>
+<h2 id="什么是nagle算法" class="headerLink">
+    <a href="#%e4%bb%80%e4%b9%88%e6%98%afnagle%e7%ae%97%e6%b3%95" class="header-mark"></a>什么是Nagle算法</h2><p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener noreferrer">下面的伪代码就是Nagle算法的基本逻辑，摘自wiki</a>：</p>
+<pre><code>if there is new data to send
+  if the window size &gt;= MSS and available data is &gt;= MSS
+		send complete MSS segment now
+  else
+	if there is unconfirmed data still in the pipe
+  		enqueue data in the buffer until an acknowledge is received
+	else
+  		send data immediately
+	end if
+  end if
+end if
+</code></pre>
+<p>这段代码的意思是如果接收窗口大于MSS  并且  要发送的数据大于 MSS的话，立即发送。
+否则：
+看前面发出去的包是不是还有没有ack的，如果有没有ack的那么我这个小包不急着发送，等前面的ack回来再发送</p>
+<p>我总结下Nagle算法逻辑就是：如果发送的包很小（不足MSS），又有包发给了对方对方还没回复说收到了，那我也不急着发，等前面的包回复收到了再发。这样可以优化带宽利用率（早些年带宽资源还是很宝贵的），Nagle算法也是用来优化改进tcp传输效率的。</p>
+<h2 id="如果client启用nagle并且server端启用了delay-ack会有什么后果呢" class="headerLink">
+    <a href="#%e5%a6%82%e6%9e%9cclient%e5%90%af%e7%94%a8nagle%e5%b9%b6%e4%b8%94server%e7%ab%af%e5%90%af%e7%94%a8%e4%ba%86delay-ack%e4%bc%9a%e6%9c%89%e4%bb%80%e4%b9%88%e5%90%8e%e6%9e%9c%e5%91%a2" class="header-mark"></a>如果client启用Nagle，并且server端启用了delay ack会有什么后果呢？</h2><p>假如client要发送一个http请求给server，这个请求有1600个bytes，通过握手协商好的MSS是1460，那么这1600个bytes就会分成2个TCP包，第一个包1460，剩下的140bytes放在第二个包。第一个包发出去后，server收到第一个包，因为delay ack所以没有回复ack，同时因为server没有收全这个HTTP请求，所以也没法回复HTTP response（server的应用层在等一个完整的HTTP请求然后才能回复，或者TCP层在等超过40毫秒的delay时间）。client这边开启了Nagle算法（默认开启）第二个包比较小（140&lt;MSS),第一个包的ack还没有回来，那么第二个包就不发了，<strong>等！互相等</strong>！一直到Delay Ack的Delay时间到了！</p>
+<p>这就是悲剧的核心原因。</p>
+<h2 id="再来看一个经典例子和数据分析" class="headerLink">
+    <a href="#%e5%86%8d%e6%9d%a5%e7%9c%8b%e4%b8%80%e4%b8%aa%e7%bb%8f%e5%85%b8%e4%be%8b%e5%ad%90%e5%92%8c%e6%95%b0%e6%8d%ae%e5%88%86%e6%9e%90" class="header-mark"></a>再来看一个经典例子和数据分析</h2><p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener noreferrer">这个案例的原始出处</a></p>
+<p>案例核心奇怪的现象是：</p>
+<ul>
+<li>如果传输的数据是 99,900 bytes，速度5.2M/秒；</li>
+<li>如果传输的数据是 100,000 bytes 速度2.7M/秒，多了10个bytes，不至于传输速度差这么多。</li>
+</ul>
+<p>原因就是：</p>
+<pre><code> 99,900 bytes = 68 full-sized 1448-byte packets, plus 1436 bytes extra
+100,000 bytes = 69 full-sized 1448-byte packets, plus   88 bytes extra
+</code></pre>
+<p>99,900 bytes：</p>
+<blockquote>
+  <p>68个整包会立即发送（都是整包，不受Nagle算法的影响），因为68是偶数，对方收到最后两个包后立即回复ack（delay ack凑够两个也立即ack），那么剩下的1436也很快发出去（根据Nagle算法，没有没ack的包了，立即发）</p>
+
+</blockquote><p>100,000 bytes:</p>
+<blockquote>
+  <p>前面68个整包很快发出去也收到ack回复了，然后发了第69个整包，剩下88bytes（不够一个整包）根据Nagle算法要等一等，server收到第69个ack后，因为delay ack不回复（手里只攒下一个没有回复的包），所以client、server两边等在等，一直等到server的delay ack超时了。</p>
+
+</blockquote><p>挺奇怪和挺有意思吧，作者还给出了传输数据的图表：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/Fail.jpg     ></p>
+<p>这是有问题的传输图，明显有个平台层，这个平台层就是两边在互相等，整个速度肯定就上不去。</p>
+<p>如果传输的都是99,900，那么整个图形就很平整：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/Pass.jpg     ></p>
+<h2 id="回到前面的问题" class="headerLink">
+    <a href="#%e5%9b%9e%e5%88%b0%e5%89%8d%e9%9d%a2%e7%9a%84%e9%97%ae%e9%a2%98" class="header-mark"></a>回到前面的问题</h2><p>服务写好后，开始测试都没有问题，rt很正常（一般测试的都是小对象），没有触发这个问题。后来碰到一个300K的rt就到几百毫秒了，就是因为这个原因。</p>
+<p>另外有些http post会故意把包头和包内容分成两个包，再加一个Expect 参数之类的，更容易触发这个问题。</p>
+<p>这是修改后的C代码</p>
+<pre><code>    struct curl_slist *list = NULL;
+	//合并post包
+    list = curl_slist_append(list, &quot;Expect:&quot;);  
+
+    CURLcode code(CURLE_FAILED_INIT);
+    if (CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_URL, oss.str().c_str())) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &amp;write_callback)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_POST, 1L)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, pooh.sizeleft)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback)) &amp;&amp;
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_READDATA, &amp;pooh)) &amp;&amp;                
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L)) &amp;&amp; //1000 ms curl bug
+            CURLE_OK == (code = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list))                
+            ) {
+
+			//这里如果是小包就不开delay ack，实际不科学
+            if (request.size() &lt; 1024) {
+                    code = curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
+            } else {
+                    code = curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 0L);
+            }
+            if(CURLE_OK == code) {
+                    code = curl_easy_perform(curl);
+            }
+</code></pre>
+<p>上面中文注释的部分是后来的改进，然后经过测试同一个300K的对象也能在几毫秒以内完成get、set了。</p>
+<p>尤其是在 Post请求将HTTP Header 和Body内容分成两个包后，容易出现这种延迟问题。</p>
+<h2 id="一些概念和其它会导致tcp性能差的原因" class="headerLink">
+    <a href="#%e4%b8%80%e4%ba%9b%e6%a6%82%e5%bf%b5%e5%92%8c%e5%85%b6%e5%ae%83%e4%bc%9a%e5%af%bc%e8%87%b4tcp%e6%80%a7%e8%83%bd%e5%b7%ae%e7%9a%84%e5%8e%9f%e5%9b%a0" class="header-mark"></a>一些概念和其它会导致TCP性能差的原因</h2><h3 id="跟速度相关的几个概念" class="headerLink">
+    <a href="#%e8%b7%9f%e9%80%9f%e5%ba%a6%e7%9b%b8%e5%85%b3%e7%9a%84%e5%87%a0%e4%b8%aa%e6%a6%82%e5%bf%b5" class="header-mark"></a>跟速度相关的几个概念</h3><ul>
+<li>CWND：Congestion Window，拥塞窗口，负责控制单位时间内，数据发送端的报文发送量。TCP 协议规定，一个 RTT（Round-Trip Time，往返时延，大家常说的 ping 值）时间内，数据发送端只能发送 CWND 个数据包（注意不是字节数）。TCP 协议利用 CWND/RTT 来控制速度。这个值是根据丢包动态计算出来的</li>
+<li>SS：Slow Start，慢启动阶段。TCP 刚开始传输的时候，速度是慢慢涨起来的，除非遇到丢包，否则速度会一直指数性增长（标准 TCP 协议的拥塞控制算法，例如 cubic 就是如此。很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合指数特性）。</li>
+<li>CA：Congestion Avoid，拥塞避免阶段。当 TCP 数据发送方感知到有丢包后，会降低 CWND，此时速度会下降，CWND 再次增长时，不再像 SS 那样指数增，而是线性增（同理，标准 TCP 协议的拥塞控制算法，例如 cubic 是这样，很多其它拥塞控制算法或其它厂商可能修改过慢启动增长特性，未必符合这个特性）。</li>
+<li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;= 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
+<li>tcp_wmem 对应send buffer，也就是滑动窗口大小</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/1a468a5a3060792647713d3cf307c986.png   alt="image.png"  ></p>
+<p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd/2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
+<p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/e24ad7655c10a82f35879503ecabc98f.png   alt="image.png"  ></p>
+<h3 id="tcp性能优化点" class="headerLink">
+    <a href="#tcp%e6%80%a7%e8%83%bd%e4%bc%98%e5%8c%96%e7%82%b9" class="header-mark"></a>TCP性能优化点</h3><ul>
+<li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
+<li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 &ldquo;HTTP/&rdquo; 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 &ldquo;HTTP/&rdquo; 的，其实是一种作弊行为。</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/28532cb2bc6aa674be3d7693595f6f2b.png   alt="image.png"  ></p>
+<ul>
+<li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
+<li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
+<li>RTO 探测：如前文讲 TCP 基础时说过的，若始终收不到 ACK 报文，则需要触发 RTO 定时器。RTO 定时器一般都时间非常长，会浪费很多等待时间，而且一旦 RTO，CWND 就会骤降（标准 TCP），因此利用 Probe 提前与 RTO 去试探，可以规避由于 ACK 报文丢失而导致的速度下降问题。</li>
+<li>带宽评估：通过单位时间内收到的 ACK 或 SACK 信息可以得知客户端有效接收速率，通过这个速率可以更合理的控制发包速度。</li>
+<li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1/3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2/(2+1+1) * 2Mbps = 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
+<li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/68314efb651bcb3144d4243bf0c15820.png   alt="image.png"  ></p>
+<h3 id="参数" class="headerLink">
+    <a href="#%e5%8f%82%e6%95%b0" class="header-mark"></a>参数</h3><h4 id="netipv4tcp_slow_start_after_idle" class="headerLink">
+    <a href="#netipv4tcp_slow_start_after_idle" class="header-mark"></a>net.ipv4.tcp_slow_start_after_idle</h4><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
+<p>这种友善的保护机制，对于 CDN 来说是帮倒忙，因此我们可以通过命令将此功能关闭，以提高 HTTP Connection: keep-alive 环境下的用户体验感。</p>
+<pre><code> sysctl net.ipv4.tcp_slow_start_after_idle=0
+</code></pre>
+<h4 id="运行中每个连接-cwndssthreshslow-start-threshold-的确认" class="headerLink">
+    <a href="#%e8%bf%90%e8%a1%8c%e4%b8%ad%e6%af%8f%e4%b8%aa%e8%bf%9e%e6%8e%a5-cwndssthreshslow-start-threshold-%e7%9a%84%e7%a1%ae%e8%ae%a4" class="header-mark"></a>运行中每个连接 CWND/ssthresh(slow start threshold) 的确认</h4><pre><code>#for i in {1..1000}; do ss -i dst 172.16.250.239:22 ; sleep 0.2; done
+Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+tcp        ESTAB      0           2068920           192.168.99.211:43090           172.16.250.239:ssh
+	 cubic wscale:7,7 rto:224 rtt:22.821/0.037 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:139275001 bytes_acked:137206082 bytes_received:46033 segs_out:99114 segs_in:9398 data_segs_out:99102 data_segs_in:1203 send 1524.8Mbps lastrcv:4 pacing_rate 1829.8Mbps delivery_rate 753.9Mbps delivered:97631 app_limited busy:2024ms unacked:1472 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 minrtt:22.724
+Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+tcp        ESTAB      0           2036080           192.168.99.211:43090           172.16.250.239:ssh
+	 cubic wscale:7,7 rto:224 rtt:22.814/0.022 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:157304161 bytes_acked:155284502 bytes_received:51685 segs_out:111955 segs_in:10597 data_segs_out:111943 data_segs_in:1360 send 1525.3Mbps pacing_rate 1830.3Mbps delivery_rate 745.7Mbps delivered:110506 app_limited busy:2228ms unacked:1438 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 notsent:16420 minrtt:22.724
+Netid      State      Recv-Q      Send-Q             Local Address:Port              Peer Address:Port     Process
+tcp        ESTAB      0           1970400           192.168.99.211:43090           172.16.250.239:ssh
+	 cubic wscale:7,7 rto:224 rtt:22.816/0.028 ato:40 mss:1448 pmtu:1500 rcvmss:1056 advmss:1448 cwnd:3004 ssthresh:3004 bytes_sent:174955661 bytes_acked:172985262 bytes_received:57229 segs_out:124507 segs_in:11775 data_segs_out:124495 data_segs_in:1514 send 1525.2Mbps pacing_rate 1830.2Mbps delivery_rate 746.7Mbps delivered:123097 app_limited busy:2432ms unacked:1399 rcv_rtt:23 rcv_space:14480 rcv_ssthresh:64088 minrtt:22.724
+</code></pre>
+<h4 id="从系统cache中查看-tcp_metrics-item" class="headerLink">
+    <a href="#%e4%bb%8e%e7%b3%bb%e7%bb%9fcache%e4%b8%ad%e6%9f%a5%e7%9c%8b-tcp_metrics-item" class="header-mark"></a>从系统cache中查看 tcp_metrics item</h4><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 metric_5 8710 metric_6 4258
+</code></pre>
+<p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<p>如果因为之前的网络状况等其它原因导致tcp_metrics缓存了一个非常小的ssthresh（这个值默应该非常大），ssthresh太小的话tcp的CWND指数增长阶段很快就结束，然后进入CWND+1的慢增加阶段导致整个速度感觉很慢</p>
+<pre><code>清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre>
+<blockquote>
+  <p>tcp_metrics会记录下之前已关闭TCP连接的状态，包括发送端CWND和ssthresh，如果之前<strong>网络有一段时间比较差或者丢包比较严重，就会导致TCP的ssthresh降低到一个很低的值</strong>，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值。</p>
+<p>对于rt很高的网络环境，新连接经历短暂的“慢启动”后(ssthresh太小)，随即进入缓慢的拥塞控制阶段（rt太高，CWND增长太慢），导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下(比如，传输一个很大的文件)才能将ssthresh 再次推到一个比较高的值更新掉之前的缓存值，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平。</p>
+
+</blockquote><h5 id="ssthresh-是如何降低的" class="headerLink">
+    <a href="#ssthresh-%e6%98%af%e5%a6%82%e4%bd%95%e9%99%8d%e4%bd%8e%e7%9a%84" class="header-mark"></a>ssthresh 是如何降低的</h5><p>在网络情况较差，并且出现连续dup ack情况下，ssthresh 会设置为 cwnd/2， cwnd 设置为当前值的一半，
+如果网络持续比较差那么ssthresh 会持续降低到一个比较低的水平，并在此连接结束后被tcp_metrics 缓存下来。下次新建连接后会使用这些值，即使当前网络状况已经恢复，但是ssthresh 依然继承一个比较低的值。</p>
+<h5 id="ssthresh-降低后为何长时间不恢复正常" class="headerLink">
+    <a href="#ssthresh-%e9%99%8d%e4%bd%8e%e5%90%8e%e4%b8%ba%e4%bd%95%e9%95%bf%e6%97%b6%e9%97%b4%e4%b8%8d%e6%81%a2%e5%a4%8d%e6%ad%a3%e5%b8%b8" class="header-mark"></a>ssthresh 降低后为何长时间不恢复正常</h5><p>ssthresh 降低之后需要在检测到有丢包的之后才会变动，因此就需要机缘巧合才会增长到一个比较大的值。
+此时需要有一个持续时间比较长的请求，在长时间进行拥塞避免之后在cwnd 加到一个比较大的值，而到一个比较
+大的值之后需要有因dup ack 检测出来的丢包行为将 ssthresh 设置为 cwnd/2, 当这个连接结束后，一个
+较大的ssthresh 值会被缓存下来，供下次新建连接使用。</p>
+<p>也就是如果ssthresh 降低之后，需要传一个非常大的文件，并且网络状况超级好一直不丢包，这样能让CWND一直慢慢稳定增长，一直到CWND达到带宽的限制后出现丢包，这个时候CWND和ssthresh降到CWND的一半那么新的比较大的ssthresh值就能被缓存下来了。</p>
+<h4 id="tcp-windows-scale" class="headerLink">
+    <a href="#tcp-windows-scale" class="header-mark"></a>tcp windows scale</h4><p>网络传输速度：单位时间内（一个 RTT）发送量（再折算到每秒），不是 CWND(Congestion Window 拥塞窗口)，而是 min(CWND, RWND)。除了数据发送端有个 CWND 以外，数据接收端还有个 RWND（Receive Window，接收窗口）。在带宽不是瓶颈的情况下，单连接上的速度极限为 MIN(cwnd, slide_windows)*1000ms/rt</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">#修改初始拥塞窗口
+</span></span><span class="line"><span class="cl">sudo ip route change default via ip dev eth0 proto dhcp src ip metric 100 initcwnd 20</span></span></code></pre>
+</div>
+<p>tcp windows scale用来协商RWND的大小，它在tcp协议中占16个位，如果通讯双方有一方不支持tcp windows scale的话，TCP Windows size 最大只能到2^16 = 65535 也就是64k</p>
+<p>如果网络rt是35ms，滑动窗口&lt;CWND，那么单连接的传输速度最大是： 64K*1000/35=1792K(1.8M)</p>
+<p>如果网络rt是30ms，滑动窗口&gt;CWND的话，传输速度：CWND*1500(MTU)*1000(ms)/rt</p>
+<p>一般通讯双方都是支持tcp windows scale的，但是如果连接中间通过了lvs，并且lvs打开了 synproxy功能的话，就会导致 tcp windows scale 无法起作用，那么传输速度就被滑动窗口限制死了（<strong>rt小的话会没那么明显</strong>）。</p>
+<h4 id="rtt越大传输速度越慢" class="headerLink">
+    <a href="#rtt%e8%b6%8a%e5%a4%a7%e4%bc%a0%e8%be%93%e9%80%9f%e5%ba%a6%e8%b6%8a%e6%85%a2" class="header-mark"></a>RTT越大，传输速度越慢</h4><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显
+带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。
+TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
+<p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
+<h4 id="socket-sendrcv-buf" class="headerLink">
+    <a href="#socket-sendrcv-buf" class="header-mark"></a>socket send/rcv buf</h4><p>有些应用会默认设置 socketSendBuffer 为16K，在高rt的环境下，延时20ms，带宽100M，如果一个查询结果22M的话需要25秒</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/d188530df31712e8341f5687a960743a.png   alt="image.png"  ></p>
+<p>细化看下问题所在：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/e177d59ecb886daef5905ed80a84dfd2.png   alt="image.png"  ></p>
+<p>这个时候也就是buf中的16K数据全部发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、OS什么都不能做。</p>
+<p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/3dcfd469fe1e2f7e1d938a5289b83826.png   alt="image.png"  ></p>
+<pre><code>$sudo sysctl -a | grep --color wmem
+vm.lowmem_reserve_ratio = 256   256     32
+net.core.wmem_max = 131071
+net.core.wmem_default = 124928
+net.ipv4.tcp_wmem = 4096        16384   4194304
+net.ipv4.udp_wmem_min = 4096
+</code></pre>
+<p>如果指定了tcp_wmem，则net.core.wmem_default被tcp_wmem的覆盖。send Buffer在tcp_wmem的最小值和最大值之间自动调节。如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<p>默认情况下Linux系统会自动调整这个buf（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>这个buf调到1M有没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100MB/8)=250Kb  所以SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大实际意义也不大了。</p>
+<pre><code>ip route | while read p; do sudo ip route change $p initcwnd 30 ; done
+</code></pre>
+<hr>
+<p>就是要你懂TCP相关文章：</p>
+<p><a href="https://www.atatech.org/articles/78858" target="_blank" rel="noopener noreferrer">关于TCP 半连接队列和全连接队列</a></p>
+<p><a href="https://www.atatech.org/articles/60633" target="_blank" rel="noopener noreferrer">MSS和MTU导致的悲剧</a></p>
+<p><a href="https://www.atatech.org/articles/73174" target="_blank" rel="noopener noreferrer">双11通过网络优化提升10倍性能</a></p>
+<p><a href="https://www.atatech.org/articles/79660" target="_blank" rel="noopener noreferrer">就是要你懂TCP的握手和挥手</a></p>
+<hr>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>影响性能的几个点：</p>
+<ul>
+<li>nagle，影响主要是针对响应时间;</li>
+<li>tcp_metrics(缓存 ssthresh)， 影响主要是传输大文件时速度上不去或者上升缓慢，明明带宽还有余;</li>
+<li>tcp windows scale(lvs介在中间，不生效，导致接受窗口非常小）， 影响主要是传输大文件时速度上不去，明明带宽还有余。</li>
+</ul>
+<p>Nagle这个问题确实经典，非常隐晦一般不容易碰到，碰到一次决不放过她。文中所有client、server的概念都是相对的，client也有delay ack的问题。 Nagle算法一般默认开启的。</p>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章:</h2><p><a href="https://access.redhat.com/solutions/407743" target="_blank" rel="noopener noreferrer">https://access.redhat.com/solutions/407743</a></p>
+<p><a href="http://www.stuartcheshire.org/papers/nagledelayedack/" target="_blank" rel="noopener noreferrer">http://www.stuartcheshire.org/papers/nagledelayedack/</a></p>
+<p><a href="https://en.wikipedia.org/wiki/Nagle%27s_algorithm" target="_blank" rel="noopener noreferrer">https://en.wikipedia.org/wiki/Nagle%27s_algorithm</a></p>
+<p><a href="https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment" target="_blank" rel="noopener noreferrer">https://en.wikipedia.org/wiki/TCP_delayed_acknowledgment</a></p>
+<p><a href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt" target="_blank" rel="noopener noreferrer">https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt</a></p>
+<p><a href="https://www.atatech.org/articles/109721" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/109721</a></p>
+<p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/109967</a></p>
+<p><a href="https://www.atatech.org/articles/27189" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/27189</a></p>
+<p><a href="https://www.atatech.org/articles/45084" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/45084</a></p>
+<p><a href="https://www.atatech.org/articles/13203" target="_blank" rel="noopener noreferrer">高性能网络编程7&ndash;tcp连接的内存使用</a></p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2018-06-14</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/tcp/">TCP</a>,&nbsp;<a href="/tags/performance/">Performance</a>,&nbsp;<a href=""></a>,&nbsp;<a href="/tags/nagles/">Nagles</a>,&nbsp;<a href="/tags/network/">Network</a>,&nbsp;<a href="/tags/cwnd/">CWND</a>,&nbsp;<a href="/tags/ssthresh/">SSTHRESH</a>,&nbsp;<a href="/tags/tcp_metrics/">Tcp_metrics</a>,&nbsp;<a href=""></a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0v1.1/" class="prev" rel="prev" title="如何在工作中学习V1.1"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>如何在工作中学习V1.1</a>
+            <a href="/posts/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AAspringmvc-%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/" class="next" rel="next" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题">双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

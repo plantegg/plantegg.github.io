@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>MySQL针对秒杀场景的优化 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/mysql%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="MySQL针对秒杀场景的优化">
+  <meta property="og:description" content="MySQL针对秒杀场景的优化 背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2020-11-18T07:30:03+00:00">
+    <meta property="article:modified_time" content="2020-11-18T07:30:03+00:00">
+    <meta property="article:tag" content="秒杀">
+    <meta property="article:tag" content="MySQL">
+    <meta property="article:tag" content="Performance">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="MySQL针对秒杀场景的优化">
+  <meta name="twitter:description" content="MySQL针对秒杀场景的优化 背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/mysql%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/" /><link rel="prev" href="http://localhost:1313/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" /><link rel="next" href="http://localhost:1313/posts/tcp%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "MySQL针对秒杀场景的优化",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/mysql%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/"
+        },"genre": "posts","keywords":["秒杀","MySQL","performance"],"wordcount":  3088 ,
+        "url": "http://localhost:1313/posts/mysql%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/","datePublished": "2020-11-18T07:30:03+00:00","dateModified": "2020-11-18T07:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#背景">背景</a></li>
+    <li><a href="#过程">过程</a>
+      <ul>
+        <li><a href="#排队控制并发">排队控制并发</a></li>
+        <li><a href="#缩短锁时间">缩短锁时间</a></li>
+        <li><a href="#批量提交">批量提交</a></li>
+        <li><a href="#业务优化">业务优化</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2020-11-18" data-pagefind-body>MySQL针对秒杀场景的优化</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/mysql/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>MySQL</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2020-11-18">2020-11-18</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2020-11-18">2020-11-18</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 3088 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 14 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#背景">背景</a></li>
+    <li><a href="#过程">过程</a>
+      <ul>
+        <li><a href="#排队控制并发">排队控制并发</a></li>
+        <li><a href="#缩短锁时间">缩短锁时间</a></li>
+        <li><a href="#批量提交">批量提交</a></li>
+        <li><a href="#业务优化">业务优化</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="mysql针对秒杀场景的优化" class="headerLink">
+    <a href="#mysql%e9%92%88%e5%af%b9%e7%a7%92%e6%9d%80%e5%9c%ba%e6%99%af%e7%9a%84%e4%bc%98%e5%8c%96" class="header-mark"></a>MySQL针对秒杀场景的优化</h1><h2 id="背景" class="headerLink">
+    <a href="#%e8%83%8c%e6%99%af" class="header-mark"></a>背景</h2><p>对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。</p>
+<h2 id="过程" class="headerLink">
+    <a href="#%e8%bf%87%e7%a8%8b" class="header-mark"></a>过程</h2><p>对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过新语法来消除网络rtt对加锁时间的控制这样达到了 4000 TPS。最后合并多个扣减到一个，累积比如10ms提交，能将TPS 能升到4万以上这个能力。</p>
+<h3 id="排队控制并发" class="headerLink">
+    <a href="#%e6%8e%92%e9%98%9f%e6%8e%a7%e5%88%b6%e5%b9%b6%e5%8f%91" class="header-mark"></a>排队控制并发</h3><p>拍减模式在整个交易过程中只有一次扣减交互，所以是不需要付款减库存那样的判重逻辑，就是说，拍减的减库存sql只有一条update语句就搞定了。而付减有两条，一条insert判重+一条update减库存（双十一拍减接口在高峰的rt约为8ms，而付减接口在高峰的rt约为15ms）；</p>
+<p>其次，当大量请求（线程）落到mysql的同一条记录上进行减库存时，线程之间会存在竞争关系，因为要争夺InnoDB的行锁，当一个线程获得了行锁，其他并发线程就只能等待（InnoDB内部还有死锁检测等机制会严重影响性能），当并发度越高时，等待的线程就越多，此时tps会急剧下降，rt会飙升，性能就不能满足要求了。那如何减少锁竞争？答案是：排队！库存中心从几个层面做了排队策略。</p>
+<p>首先，在应用端进行排队，因为很多商品都是有sku的，当sku库存变化时item的库存也要做相应变化，所以需要根据itemId来进行排队，相同itemId的减库存操作会进入串行化排队处理逻辑，不过应用端的排队只能做到单机内存排队，当应用服务器数量过多时，落到db的并发请求仍然很多，所以最好的办法是在db端也加上排队策略，今年库存中心db部署了两个的排队patch，一个叫“并发控制”，是做在InnoDB层的，另一个叫“queue on pk”，是做在mysql的server层的，两个patch各有优缺点，前者不需要应用修改代码，db自动判断，后者需要应用程序写特殊的sql hint，前者控制的全局的sql，后者是根据hint来控制指定sql，两个patch的本质和应用端的排队逻辑是一致的，具体实现不同。双十一库存中心使用的是“并发控制”的patch。</p>
+<blockquote>
+  <p>2013年的单减库存TPS最高记录是1381次每秒。</p>
+
+</blockquote><p>对于秒杀热点场景，官方版本500tps每秒，问题在于同时涌入的请求太多，每次取锁都要检查其它等锁的线程（防止死锁），这个线程队列太长的话导致这个检查时间太长； 继续在前面增加能够进入到后面的并发数的控制，通过增加线程池、控制并发能到1400（no deadlock list check）；</p>
+<blockquote>
+  <p><strong>热点更新下的死锁检测(<strong>no deadlock list check</strong>)</strong></p>
+<p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
+<p>原生版本的MySQL对于正常业务链接没有拒绝机制（除了TDDL的链接池或者MySQL的user_connnection不够用），对于同一行记录到innodb层修改的时候，凡是到innodb层的任务都必须拿到innodb_thread_concurrency的槽位才能执行(当然这里也有很多细节，这里就说最主要的代码改动点)，举例来说：开启一个事务，对于id=1的行记录更新，进到innodb层，占着1个innodb_thread_concurrency，等到id=1的事务结束，会释放innodb_thread_concurrency,从而达到innodb_thread_concurrency的平衡；</p>
+<p>再进一步，开启一个事务，对id=1的行记录更新进到innodb层，占着1个innodb_thread_concurrency，事务不提交（假设innodb_thread_concurrency=32)，如果有下一个对id=1记录来更新的话，进到innodb层，又占着1个innodb_thread_concurrency，检测发现是对id=1的更新，排到第1个对id=1的队列的后面，同时释放innodb_thread_concurrency;以此类推这个链表有可能会很长比如1024；执行的时候又需要做死锁检测等一系列工作，都需要用到一个叫做kernel_mutex的mutex（这是一个全局互斥量用来管理锁系统，事务系统，MVCC多版本控制），对于大并发，整个链表非常长的时候，可想而知kernel_metex的竞争多么激烈，从而在链表检测的时间变长。</p>
+
+</blockquote><h3 id="缩短锁时间" class="headerLink">
+    <a href="#%e7%bc%a9%e7%9f%ad%e9%94%81%e6%97%b6%e9%97%b4" class="header-mark"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
+<p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
+<p>（1）begin;</p>
+<p>（2）insert 交易流水表; &ndash; 交易流水对账</p>
+<p>（3）update 库存明细表 where id in (sku_id，item_id);</p>
+<p>（4）select 库存明细表;</p>
+<p>（5）commit</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/TB1yvFqOpXXX.png   alt="Snip20161116_88.png"  ></p>
+<p>SQL case：</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">sql</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"><span class="mi">4059550</span><span class="w"> </span><span class="n">Query</span><span class="w">   </span><span class="k">SET</span><span class="w"> </span><span class="n">autocommit</span><span class="o">=</span><span class="mi">0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="mi">4059550</span><span class="w"> </span><span class="n">Query</span><span class="w">   </span><span class="k">update</span><span class="w"> </span><span class="n">ROLLBACK_ON_FAIL</span><span class="w"> </span><span class="n">TARGET_AFFECT_ROW</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="n">trade</span><span class="w"> </span><span class="k">set</span><span class="w"> </span><span class="k">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">version</span><span class="o">+</span><span class="mi">3</span><span class="w"> </span><span class="p">,</span><span class="n">gmt_modified</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w">    </span><span class="p">,</span><span class="w">           </span><span class="n">optype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="w">          </span><span class="p">,</span><span class="w">      </span><span class="n">feature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;;abc;&#39;</span><span class="w">  </span><span class="k">where</span><span class="w"> </span><span class="n">sub_biz_order_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;15&#39;</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">biz_order_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">ti_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">and</span><span class="w">      </span><span class="n">optype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="w">          </span><span class="k">and</span><span class="w">      </span><span class="n">root_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">11</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="mi">4059550</span><span class="w"> </span><span class="n">Query</span><span class="w">   </span><span class="k">select</span><span class="w">      </span><span class="n">id</span><span class="p">,</span><span class="o">*</span><span class="w">     </span><span class="k">from</span><span class="w">   </span><span class="k">update</span><span class="w"> </span><span class="n">COMMIT_ON_SUCCESS</span><span class="w"> </span><span class="n">ROLLBACK_ON_FAIL</span><span class="w"> </span><span class="n">TARGET_AFFECT_ROW</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="n">invetory</span><span class="w">   </span><span class="k">set</span><span class="w">                                           </span><span class="n">withholding_quantity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">withholding_quantity</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="n">flag</span><span class="o">=</span><span class="n">flag</span><span class="w"> </span><span class="o">&amp;~</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;~</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">11</span><span class="p">)</span><span class="w"> </span><span class="p">,</span><span class="w"> </span><span class="k">version</span><span class="o">=</span><span class="k">version</span><span class="o">+</span><span class="mi">3</span><span class="p">,</span><span class="n">gmt_modified</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w">         </span><span class="k">WHERE</span><span class="w">  </span><span class="n">root_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">11</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="k">in</span><span class="w">    </span><span class="p">(</span><span class="w">     </span><span class="mi">1</span><span class="w">    </span><span class="p">)</span><span class="w">  </span><span class="k">and</span><span class="w"> </span><span class="p">(</span><span class="n">withholding_quantity</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="mi">4059550</span><span class="w"> </span><span class="n">Query</span><span class="w">   </span><span class="k">commit</span></span></span></code></pre>
+</div>
+<h3 id="批量提交" class="headerLink">
+    <a href="#%e6%89%b9%e9%87%8f%e6%8f%90%e4%ba%a4" class="header-mark"></a>批量提交</h3><p>其主要的核心思想是：针对应用层SQL做轻量化改造，带上&quot;热点行SQL&quot;的hint，当这种SQL进入内核后，在内存中维护一个hash表，将主键或唯一键相同的请求(一般也就是同一商品id)hash到同一个地方做请求的合并，经过一段时间后(默认100us)统一提交，从而实现了将串行处理变成了批处理，让每个热点行更新请求并不需要都去扫描和更新btree。</p>
+<ol>
+<li>热点的自动识别:前面已经讲过了，库存的扣减SQL都会有commit on success标记。mysql内部分为普通通道和热点扣减通道。普通通道里是正常的事务。热点通道里收集带有commit on success标记的事务。在一定的时间区间段内(0.1ms)，将收集到的热点按照主键或者唯一键进行hash; hash到同一个桶中为相同的sku; 分批组提交这0.1ms收集到的热点商品。</li>
+<li>轮询处理: 第一批进行提交时，第二批进行收集； 当第一批完成了提交开始收集时，第二批就可以进行提交了。不断轮询，提高效率</li>
+</ol>
+<p>通过内存合并库存减操作，干到100000（每个减库存操作生成一条独立的update binlog，不影响其他业务2016年双11），实际这里还可以调整批提交时间间隔来进一步提升扣减QPS</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png   alt="Snip20161116_87.png"  ></p>
+<p>超卖：付款减库存会超卖，拍减库存要防止恶意拍不付款。拍减的话可以通过增加SQL新语法来进一步优化DB响应(select update)</p>
+<p>innodb_buffer_pool_instance: 将buffer pool 分成几个（hash），避免高并发修改的时候一个大锁mutex导致性能不高</p>
+<p>批量提交的压测效果：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230814104356084.png   alt="image-20230814104356084"  ></p>
+<h3 id="业务优化" class="headerLink">
+    <a href="#%e4%b8%9a%e5%8a%a1%e4%bc%98%e5%8c%96" class="header-mark"></a>业务优化</h3><p>延迟扣减item，一般一个item下会有多个sku（比如 iPhone14 不同的颜色、配置就是一个不同的sku），而库存会有总库存（item），也有sku 库存，sku库存加起来就是item库存</p>
+<p>导致扣减的时候 item库存更热</p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2020-11-18</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/%E7%A7%92%E6%9D%80/">秒杀</a>,&nbsp;<a href="/tags/mysql/">MySQL</a>,&nbsp;<a href="/tags/performance/">Performance</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/mysql%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" class="prev" rel="prev" title="MySQL线程池导致的延时卡顿排查"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>MySQL线程池导致的延时卡顿排查</a>
+            <a href="/posts/tcp%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/" class="next" rel="next" title="活久见，TCP连接互串了">活久见，TCP连接互串了<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

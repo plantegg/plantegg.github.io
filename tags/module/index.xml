@@ -1,0 +1,280 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Module - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/module/</link>
+        <description>Module - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Thu, 24 Jan 2019 17:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/module/" rel="self" type="application/rss+xml" /><item>
+    <title>Linux Module and make debug</title>
+    <link>http://localhost:1313/posts/linux-module/</link>
+    <pubDate>Thu, 24 Jan 2019 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/linux-module/</guid>
+    <description><![CDATA[<h1 id="linux-module-and-make-debug" class="headerLink">
+    <a href="#linux-module-and-make-debug" class="header-mark"></a>Linux Module and make debug</h1><h2 id="makefile-中的-tab-键" class="headerLink">
+    <a href="#makefile-%e4%b8%ad%e7%9a%84-tab-%e9%94%ae" class="header-mark"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
+Makefile:4: *** missing separator.  Stop.
+</code></pre>
+<p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
+<h2 id="pwd" class="headerLink">
+    <a href="#pwd" class="header-mark"></a>pwd</h2><pre><code>$sudo make
+make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
+make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64'
+make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl', needed by `arch/x86/include/generated/asm/syscalls_32.h'.  Stop.
+make[1]: *** [archheaders] Error 2
+make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64'
+make: *** [all] Error 2
+</code></pre>
+<p>Makefile中的：
+make -C /lib/modules/$(shell uname -r)/build M=$(pwd) modules</p>
+<p>$(pwd) 需要修改成：$(shell pwd)</p>
+<h2 id="makefile调试的法宝" class="headerLink">
+    <a href="#makefile%e8%b0%83%e8%af%95%e7%9a%84%e6%b3%95%e5%ae%9d" class="header-mark"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1" class="headerLink">
+    <a href="#makefile%e8%b0%83%e8%af%95%e7%9a%84%e6%b3%95%e5%ae%9d1" class="header-mark"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
+$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
+$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
+$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
+
+推荐版本(会输出执行的具体命令)：
+make --debug=b SHELL=&quot;bash -x&quot;  &gt; make.log.simple  2&gt;&amp;1
+or
+make V=1
+</code></pre>
+<h3 id="makefile调试的法宝2" class="headerLink">
+    <a href="#makefile%e8%b0%83%e8%af%95%e7%9a%84%e6%b3%95%e5%ae%9d2" class="header-mark"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
+<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 '^# makefile' | grep -v '^--' | awk '/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}' | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
+$ cat variable.log
+# makefile (from `Makefile', line 1) ; aa := 11
+# makefile (from `Makefile', line 3) ; cc := 11
+# makefile (from `Makefile', line 4) ; bb := 9999
+# makefile (from `cfg_makefile', line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
+# makefile (from `cfg_makefile', line 1) ; xx := 4444
+# makefile (from `cfg_makefile', line 2) ; yy := 4444
+# makefile (from `cfg_makefile', line 3) ; zz := 4444
+# makefile (from `sub_makefile', line 1) ; MAKEFILE_LIST :=  sub_makefile
+# makefile (from `sub_makefile', line 1) ; aaaa := 222222
+# makefile (from `sub_makefile', line 2) ; bbbb := 222222
+# makefile (from `sub_makefile', line 3) ; cccc := 222222
+</code></pre>
+<h3 id="makefile调试的法宝3" class="headerLink">
+    <a href="#makefile%e8%b0%83%e8%af%95%e7%9a%84%e6%b3%95%e5%ae%9d3" class="header-mark"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
+<pre><code>$(warning $(var123))
+</code></pre>
+<p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
+<h2 id="make-时ld报找不到lib" class="headerLink">
+    <a href="#make-%e6%97%b6ld%e6%8a%a5%e6%89%be%e4%b8%8d%e5%88%b0lib" class="header-mark"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc &ndash;verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener noreferrer">debug方法</a></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/f76b841375bb5ed5c5a946614fe494e1.png   alt="image.png"  ></p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/19e493900f7d1ae1937d27366129e8aa.png   alt="image.png"  ></p>
+<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
+<h2 id="依赖错误" class="headerLink">
+    <a href="#%e4%be%9d%e8%b5%96%e9%94%99%e8%af%af" class="header-mark"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison/flex)</p>
+<h2 id="hping3" class="headerLink">
+    <a href="#hping3" class="header-mark"></a>hping3</h2><p>构造半连接：</p>
+<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
+</code></pre>
+<h2 id="tcp-sk_state" class="headerLink">
+    <a href="#tcp-sk_state" class="header-mark"></a>tcp sk_state</h2><pre><code>enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING,    /* Now a valid state */
+
+    TCP_MAX_STATES  /* Leave at the end! */
+};
+</code></pre>
+<h2 id="kdumphttpsmpweixinqqcoms__bizmzaxodi5odmwoamid2666565525idx2snf5adc9ad8f192dac9d1d46f6c2140749" class="headerLink">
+    <a href="#kdumphttpsmpweixinqqcoms__bizmzaxodi5odmwoamid2666565525idx2snf5adc9ad8f192dac9d1d46f6c2140749" class="header-mark"></a><a href="https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&amp;mid=2666565525&amp;idx=2&amp;sn=f5adc9ad8f192dac9d1d46f6c2140749" target="_blank" rel="noopener noreferrer">kdump</a></h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(/var/crash)</p>
+<pre><code>sudo systemctl start kdump
+</code></pre>
+<p>参考：<a href="https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/" target="_blank" rel="noopener noreferrer">Linux 系统内核崩溃分析处理简介</a></p>
+<p>Kdump 的概念出现在 2005 左右，是迄今为止最可靠的内核转存机制，已经被主要的 linux™ 厂商选用。kdump是一种先进的基于 kexec 的内核崩溃转储机制。当系统崩溃时，kdump 使用 kexec 启动到第二个内核。第二个内核通常叫做捕获内核，以很小的内存启动以捕获转储镜像。</p>
+<p>第一个内核保留了内存的一部分给第二个内核启动用。由于 kdump 利用 kexec 启动捕获内核，绕过了 BIOS，所以第一个内核的内存得以保留。这是内核崩溃转储的本质。</p>
+<p>kdump 需要两个不同目的的内核，生产内核和捕获内核。生产内核是捕获内核服务的对象。捕获内核会在生产内核崩溃时启动起来，与相应的 ramdisk 一起组建一个微环境，用以对生产内核下的内存进行收集和转存。</p>
+<h3 id="什么是-kexec-" class="headerLink">
+    <a href="#%e4%bb%80%e4%b9%88%e6%98%af-kexec-" class="header-mark"></a>什么是 kexec ？</h3><p>Kexec 是实现 kdump 机制的关键，它包括 2 一是组成部分：一是内核空间的系统调用 kexec_load，负责在生产内核（production kernel 或 first kernel）启动时将捕获内核（capture kernel 或 sencond kernel）加载到指定地址。二是用户空间的工具 kexec-tools，他将捕获内核的地址传递给生产内核，从而在系统崩溃的时候能够找到捕获内核的地址并运行。</p>
+<p>没有 kexec 就没有 kdump。先有 kexec 实现了在一个内核中可以启动另一个内核，才让 kdump 有了用武之地。kexec 原来的目的是为了节省时间 kernel 开发人员重启系统的时间，谁能想到这个“偷懒”的技术却孕育了最成功的内存转存机制呢？</p>
+<h2 id="crash" class="headerLink">
+    <a href="#crash" class="header-mark"></a>crash</h2><pre><code>sudo yum install crash -y
+//手动触发crash
+#echo 1 &gt; /proc/sys/kernel/sysrq
+#echo c &gt; /proc/sysrq-trigger
+//系统crash，然后重启，重启后分析：
+sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
+</code></pre>
+<p>可以触发dump但是系统没有crash, 以下两个命令都可以</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore
+</span></span><span class="line"><span class="cl">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">写内存hack内核，那就在crash命令执行前，先执行下面的命令：
+</span></span><span class="line"><span class="cl">stap -g -e &#39;probe kernel.function(&#34;devmem_is_allowed&#34;).return { $return = 1 }&#39;</span></span></code></pre>
+</div>
+<h2 id="内核函数替换" class="headerLink">
+    <a href="#%e5%86%85%e6%a0%b8%e5%87%bd%e6%95%b0%e6%9b%bf%e6%8d%a2" class="header-mark"></a>内核函数替换</h2><p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png   alt="image.png"  ></p>
+<pre><code>static int __init hotfix_init(void)
+{
+  unsigned char e8_call[POKE_LENGTH];
+  s32 offset, i;
+
+  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
+  if (!addr) {
+    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
+    return -1;
+  }
+
+  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
+  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
+
+  stub = (void *)test_stub1;
+
+  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
+
+  e8_call[0] = 0xe8;
+  (*(s32 *)(&amp;e8_call[1])) = offset;
+  for (i = 5; i &lt; POKE_LENGTH; i++) {
+    e8_call[i] = 0x90;
+  }
+  get_online_cpus();
+  mutex_lock(_text_mutex);
+  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
+  mutex_unlock(_text_mutex);
+  put_online_cpus();
+
+  return 0;
+}
+
+void test_stub1(void)
+{
+  struct sock *sk = NULL;
+  unsigned long sk_addr = 0;
+  char buf[MAX_BUF_SIZE];
+  int size=0;
+  asm (&quot;push %rdi&quot;);
+
+  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
+  sk = (struct sock *)sk_addr;
+
+  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
+      sk-&gt;sk_state,
+      sk-&gt;sk_rcv_saddr,
+      sk-&gt;sk_daddr);
+/*
+  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
+                     get_seconds(),
+                     sk-&gt;sk_state,
+                     &amp;(inet_sk(sk)-&gt;inet_saddr),
+                     ntohs(inet_sk(sk)-&gt;inet_sport),
+                     ntohs(inet_sk(sk)-&gt;inet_dport),
+                     &amp;(inet_sk(sk)-&gt;inet_daddr));
+*/
+//  tcp_rt_log_output(buf,size,1);
+
+  asm (&quot;pop %rdi&quot;);
+}
+</code></pre>
+<h2 id="参考文档" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e6%a1%a3" class="header-mark"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener noreferrer">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
+<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener noreferrer">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
+<p><a href="https://blog.csdn.net/dog250/article/details/105394840" target="_blank" rel="noopener noreferrer">Linux系统中如何彻底隐藏一个TCP连接</a></p>
+]]></description>
+</item></channel>
+</rss>

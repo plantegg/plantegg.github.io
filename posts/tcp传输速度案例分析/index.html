@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>TCP传输速度案例分析 - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/tcp%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="TCP传输速度案例分析">
+  <meta property="og:description" content="TCP传输速度案例分析 前言TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。
+详细的buffer、rt对TCP传输速度的影响请看这篇：
+就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的
+以及 就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack
+上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2021-01-15T17:30:03+00:00">
+    <meta property="article:modified_time" content="2021-01-15T17:30:03+00:00">
+    <meta property="article:tag" content="Linux">
+    <meta property="article:tag" content="TCP">
+    <meta property="article:tag" content="Network">
+    <meta property="article:tag" content="Performance">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="TCP传输速度案例分析">
+  <meta name="twitter:description" content="TCP传输速度案例分析 前言TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。
+详细的buffer、rt对TCP传输速度的影响请看这篇：
+就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的
+以及 就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack
+上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/tcp%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/" /><link rel="prev" href="http://localhost:1313/posts/mac%E8%B7%AF%E7%94%B1%E5%92%8Cdsn%E7%9B%B8%E5%85%B3%E7%9F%A5%E8%AF%86/" /><link rel="next" href="http://localhost:1313/posts/journald%E5%92%8Crsyslog/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "TCP传输速度案例分析",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/tcp%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/"
+        },"genre": "posts","keywords":["Linux","TCP","network","performance"],"wordcount":  3618 ,
+        "url": "http://localhost:1313/posts/tcp%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/","datePublished": "2021-01-15T17:30:03+00:00","dateModified": "2021-01-15T17:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#前后端rtt差异大vip下载慢的案例">前后端rtt差异大+vip下载慢的案例</a>
+      <ul>
+        <li><a href="#原因tcplossprobe">原因TCPLossProbe：</a></li>
+        <li><a href="#观察">观察：</a></li>
+        <li><a href="#解决">解决：</a></li>
+        <li><a href="#小结">小结</a></li>
+      </ul>
+    </li>
+    <li><a href="#长肥网络高rtt场景下tcp_metrics记录的ssthresh太小导致传输慢的案例">长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</a>
+      <ul>
+        <li><a href="#从系统cache中查看-tcp_metrics-item">从系统cache中查看 tcp_metrics item</a></li>
+      </ul>
+    </li>
+    <li><a href="#长肥网络rt很高带宽也高下接收窗口对传输性能的影响">长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</a>
+      <ul>
+        <li><a href="#nginx上抓包">Nginx上抓包</a></li>
+        <li><a href="#client上抓包">client上抓包</a></li>
+        <li><a href="#将buffer改大">将buffer改大</a></li>
+      </ul>
+    </li>
+    <li><a href="#应用层发包逻辑影响了bdp不能跑满">应用层发包逻辑影响了BDP不能跑满</a></li>
+    <li><a href="#delay-ack拉高实际rt的案例">delay ack拉高实际rt的案例</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2021-01-15" data-pagefind-body>TCP传输速度案例分析</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/tcp/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>TCP</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2021-01-15">2021-01-15</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2021-01-15">2021-01-15</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 3618 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 16 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#前言">前言</a></li>
+    <li><a href="#前后端rtt差异大vip下载慢的案例">前后端rtt差异大+vip下载慢的案例</a>
+      <ul>
+        <li><a href="#原因tcplossprobe">原因TCPLossProbe：</a></li>
+        <li><a href="#观察">观察：</a></li>
+        <li><a href="#解决">解决：</a></li>
+        <li><a href="#小结">小结</a></li>
+      </ul>
+    </li>
+    <li><a href="#长肥网络高rtt场景下tcp_metrics记录的ssthresh太小导致传输慢的案例">长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</a>
+      <ul>
+        <li><a href="#从系统cache中查看-tcp_metrics-item">从系统cache中查看 tcp_metrics item</a></li>
+      </ul>
+    </li>
+    <li><a href="#长肥网络rt很高带宽也高下接收窗口对传输性能的影响">长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</a>
+      <ul>
+        <li><a href="#nginx上抓包">Nginx上抓包</a></li>
+        <li><a href="#client上抓包">client上抓包</a></li>
+        <li><a href="#将buffer改大">将buffer改大</a></li>
+      </ul>
+    </li>
+    <li><a href="#应用层发包逻辑影响了bdp不能跑满">应用层发包逻辑影响了BDP不能跑满</a></li>
+    <li><a href="#delay-ack拉高实际rt的案例">delay ack拉高实际rt的案例</a></li>
+    <li><a href="#参考资料">参考资料</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="tcp传输速度案例分析" class="headerLink">
+    <a href="#tcp%e4%bc%a0%e8%be%93%e9%80%9f%e5%ba%a6%e6%a1%88%e4%be%8b%e5%88%86%e6%9e%90" class="header-mark"></a>TCP传输速度案例分析</h1><h2 id="前言" class="headerLink">
+    <a href="#%e5%89%8d%e8%a8%80" class="header-mark"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
+<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
+<p><a href="/2019/09/28/%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82TCP--%e6%80%a7%e8%83%bd%e5%92%8c%e5%8f%91%e9%80%81%e6%8e%a5%e6%94%b6Buffer%e7%9a%84%e5%85%b3%e7%b3%bb/" rel="">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/" rel="">就是要你懂TCP&ndash;最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。</p>
+<h2 id="前后端rtt差异大vip下载慢的案例" class="headerLink">
+    <a href="#%e5%89%8d%e5%90%8e%e7%ab%afrtt%e5%b7%ae%e5%bc%82%e5%a4%a7vip%e4%b8%8b%e8%bd%bd%e6%85%a2%e7%9a%84%e6%a1%88%e4%be%8b" class="header-mark"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng 文章中的trace-cmd工具也不错</p>
+<p>如下三个链路，有一个不正常了</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/2422ae219d3b27cfe8c799642662d5b2.png   alt="image.png"  ></p>
+<p>首先通过 ss -it dst &ldquo;ip:port&rdquo; 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
+<h3 id="原因tcplossprobe" class="headerLink">
+    <a href="#%e5%8e%9f%e5%9b%a0tcplossprobe" class="header-mark"></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
+<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO=max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
+<p>握手完毕后第七号包很快重传了</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/2867daa600363af61f8f971479246858.png   alt="image.png"  ></p>
+<h3 id="观察" class="headerLink">
+    <a href="#%e8%a7%82%e5%af%9f" class="header-mark"></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
+<h3 id="解决" class="headerLink">
+    <a href="#%e8%a7%a3%e5%86%b3" class="header-mark"></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans=2 关掉TLP</p>
+<h3 id="小结" class="headerLink">
+    <a href="#%e5%b0%8f%e7%bb%93" class="header-mark"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
+<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
+<h2 id="长肥网络高rtt场景下tcp_metrics记录的ssthresh太小导致传输慢的案例" class="headerLink">
+    <a href="#%e9%95%bf%e8%82%a5%e7%bd%91%e7%bb%9c%e9%ab%98rtt%e5%9c%ba%e6%99%af%e4%b8%8btcp_metrics%e8%ae%b0%e5%bd%95%e7%9a%84ssthresh%e5%a4%aa%e5%b0%8f%e5%af%bc%e8%87%b4%e4%bc%a0%e8%be%93%e6%85%a2%e7%9a%84%e6%a1%88%e4%be%8b" class="header-mark"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a href="https://www.atatech.org/articles/109967" target="_blank" rel="noopener noreferrer">https://www.atatech.org/articles/109967</a></p>
+<blockquote>
+  <p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
+
+</blockquote><p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
+<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save = 1</p>
+<p>或者清除： sudo ip tcp_metrics flush all</p>
+<h3 id="从系统cache中查看-tcp_metrics-item" class="headerLink">
+    <a href="#%e4%bb%8e%e7%b3%bb%e7%bb%9fcache%e4%b8%ad%e6%9f%a5%e7%9c%8b-tcp_metrics-item" class="header-mark"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
+
+192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
+
+清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre>
+<p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<h2 id="长肥网络rt很高带宽也高下接收窗口对传输性能的影响" class="headerLink">
+    <a href="#%e9%95%bf%e8%82%a5%e7%bd%91%e7%bb%9crt%e5%be%88%e9%ab%98%e5%b8%a6%e5%ae%bd%e4%b9%9f%e9%ab%98%e4%b8%8b%e6%8e%a5%e6%94%b6%e7%aa%97%e5%8f%a3%e5%af%b9%e4%bc%a0%e8%be%93%e6%80%a7%e8%83%bd%e7%9a%84%e5%bd%b1%e5%93%8d" class="header-mark"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
+<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
+<p>client &mdash;&mdash;150ms&mdash;&ndash;&raquo;&gt;LVS&mdash;1ms&ndash;&raquo;&gt;美国的统一接入server&mdash;&ndash;1ms&mdash;&ndash;&raquo;&gt;nginx</p>
+<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
+<h3 id="nginx上抓包" class="headerLink">
+    <a href="#nginx%e4%b8%8a%e6%8a%93%e5%8c%85" class="header-mark"></a>Nginx上抓包</h3><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/259767fb17f7dbffe7f77ab059c47dbd.png   alt="image.png"  ></p>
+<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
+<h3 id="client上抓包" class="headerLink">
+    <a href="#client%e4%b8%8a%e6%8a%93%e5%8c%85" class="header-mark"></a>client上抓包</h3><p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/466fba92829f6a922ccd2d57a7e3fdac.png   alt="image.png"  ></p>
+<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
+<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
+<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
+<h3 id="将buffer改大" class="headerLink">
+    <a href="#%e5%b0%86buffer%e6%94%b9%e5%a4%a7" class="header-mark"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/93e254c5154ce2e065bec9fb34f3db2b.png   alt="image.png"  ></p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/0a8c68a58da6f169573b57cde0ffba93.png   alt="image.png"  ></p>
+<p>接着看一下client上的抓包</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/822737a4ed6ffe6b920d4b225a1be5bf.png   alt="image.png"  ></p>
+<p>可以清楚看到 client的接收窗口是64K， 64K*1000/150=426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
+<p>那么继续分析一下握手包，syn：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/004886698ddbaa1cbc8342a9cd667c76.png   alt="image.png"  ></p>
+<p>说明client是支持的，再看 syn+ack：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/70155e021390cb1ee07091c306c375f4.png   alt="image.png"  ></p>
+<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
+<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
+<p>比如这是这个应用的开发人员的反馈：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/a08a204ec7ad4bba7867dacea1668322.png   alt="image.png"  ></p>
+<p><a href="https://datatracker.ietf.org/doc/html/rfc1072" target="_blank" rel="noopener noreferrer">长肥网络</a>就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。
+在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
+<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑程序员连自己的业务结构都描述不清）：</p>
+<p>client &mdash;&mdash;150ms&mdash;&ndash;&raquo;&gt;nginx</p>
+<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
+<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
+<p>nginx buffer 分析参考案例：https://juejin.cn/post/6875223721615818765 nginx上下游收发包速率不一致导致nginx buffer打爆, 关闭nginx proxy_buffering 可解 （作者：挖坑的张师傅）</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/433762.png   alt="image.png"  ></p>
+<h2 id="应用层发包逻辑影响了bdp不能跑满" class="headerLink">
+    <a href="#%e5%ba%94%e7%94%a8%e5%b1%82%e5%8f%91%e5%8c%85%e9%80%bb%e8%be%91%e5%bd%b1%e5%93%8d%e4%ba%86bdp%e4%b8%8d%e8%83%bd%e8%b7%91%e6%bb%a1" class="header-mark"></a>应用层发包逻辑影响了BDP不能跑满</h2><p>来自 dog250: <a href="https://zhuanlan.zhihu.com/p/413732839" target="_blank" rel="noopener noreferrer">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a></p>
+<blockquote>
+  <p>用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
+<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
+<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
+
+</blockquote><h2 id="delay-ack拉高实际rt的案例" class="headerLink">
+    <a href="#delay-ack%e6%8b%89%e9%ab%98%e5%ae%9e%e9%99%85rt%e7%9a%84%e6%a1%88%e4%be%8b" class="header-mark"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
+<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/d56f87a19a10b0ac9a3b7009641247a0.png   alt="image.png"  ></p>
+<p>抓包来分析原因：</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/d5e2e358dd1a24e104f54815c84875c9.png   alt="image.png"  ></p>
+<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
+<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
+<p><img class="tw-inline" loading="lazy" src=/Users/ren/case/ossimg/48eae3dcd7c78a68b0afd5c66f783f23.png   alt="image.png"  ></p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf" target="_blank" rel="noopener noreferrer">SSH Performance</a></p>
+<p><a href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp" target="_blank" rel="noopener noreferrer">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2021-01-15</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/linux/">Linux</a>,&nbsp;<a href="/tags/tcp/">TCP</a>,&nbsp;<a href="/tags/network/">Network</a>,&nbsp;<a href="/tags/performance/">Performance</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/mac%E8%B7%AF%E7%94%B1%E5%92%8Cdsn%E7%9B%B8%E5%85%B3%E7%9F%A5%E8%AF%86/" class="prev" rel="prev" title="mac 路由和DSN相关知识"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>mac 路由和DSN相关知识</a>
+            <a href="/posts/journald%E5%92%8Crsyslog/" class="next" rel="next" title="journald和rsyslogd">journald和rsyslogd<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

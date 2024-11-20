@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noodp" /><title>LVS 20倍的负载不均衡，原来是内核的这个Bug - plantegg</title><meta name="Description" content=""><meta property="og:url" content="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/">
+  <meta property="og:site_name" content="plantegg">
+  <meta property="og:title" content="LVS 20倍的负载不均衡，原来是内核的这个Bug">
+  <meta property="og:description" content="LVS 20倍的负载不均衡，原来是内核的这个Bug姊妹篇：就是要你懂负载均衡–lvs和转发模式
+问题由来最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。">
+  <meta property="og:locale" content="zh_Hans">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2019-07-19T15:30:03+00:00">
+    <meta property="article:modified_time" content="2019-07-19T15:30:03+00:00">
+    <meta property="article:tag" content="LVS">
+    <meta property="article:tag" content="Network">
+    <meta property="article:tag" content="LoadBalance">
+    <meta property="article:tag" content="Wrr">
+    <meta property="article:tag" content="Wlc">
+    <meta property="article:tag" content="Linux">
+
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="LVS 20倍的负载不均衡，原来是内核的这个Bug">
+  <meta name="twitter:description" content="LVS 20倍的负载不均衡，原来是内核的这个Bug姊妹篇：就是要你懂负载均衡–lvs和转发模式
+问题由来最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。">
+      <meta name="twitter:site" content="@plantegg">
+<meta name="application-name" content="plantegg">
+<meta name="apple-mobile-web-app-title" content="plantegg">
+
+<meta name="theme-color" content="#f8f8f8"><meta name="twitter:creator" content="@plantegg" /><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+
+<link rel="canonical" href="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/" /><link rel="prev" href="http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--wireshark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/" /><link rel="next" href="http://localhost:1313/posts/nio%E5%92%8Cepoll/" />
+<link rel="stylesheet" href="/css/main.min.css"><link rel="stylesheet" href="/css/style.min.css"><script type="application/ld+json">{"@context": "https://schema.org","@type": "BlogPosting",
+        "headline": "LVS 20倍的负载不均衡，原来是内核的这个Bug",
+        "inLanguage": "zh-Hans",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/"
+        },"genre": "posts","keywords":["LVS","network","LoadBalance","wrr","wlc","Linux"],"wordcount":  4120 ,
+        "url": "http://localhost:1313/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/","datePublished": "2019-07-19T15:30:03+00:00","dateModified": "2019-07-19T15:30:03+00:00","publisher": {
+            "@type": "Organization",
+            "name": "作者"},"author": {
+                "@type": "Person",
+                "name": "作者",
+                "url": "/"
+            },"description": ""
+    }</script></head>
+
+
+<body data-instant-intensity="viewport" ><script type="text/javascript">
+        function setTheme(theme) {
+          document.body.setAttribute('theme', theme); 
+          document.documentElement.className = theme;
+          document.documentElement.style.setProperty('color-scheme', theme === 'light' ? 'light' : 'dark');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('tw-dark')
+          } else {
+            document.documentElement.classList.add('tw-dark')
+          }
+          window.theme = theme;   
+          window.isDark = window.theme !== 'light' 
+        }
+        function saveTheme(theme) {window.localStorage && localStorage.setItem('theme', theme);}
+        function getMeta(metaName) {const metas = document.getElementsByTagName('meta'); for (let i = 0; i < metas.length; i++) if (metas[i].getAttribute('name') === metaName) return metas[i]; return '';}
+        if (window.localStorage && localStorage.getItem('theme')) {
+            let theme = localStorage.getItem('theme');
+            if (theme === 'light' || theme === 'dark') {
+            setTheme(theme);
+            } else {
+                if ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    setTheme('dark');
+                } else {
+                    setTheme('light');
+                }
+            }
+         } else { 
+            if ('' === 'light' || '' === 'dark') 
+                setTheme(''), saveTheme(''); 
+            else saveTheme('auto'), window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? setTheme('dark') : setTheme('light');
+        }
+        let metaColors = {'light': '#f8f8f8','dark': '#161b22'}
+        getMeta('theme-color').content = metaColors[document.body.getAttribute('theme')];
+        window.switchThemeEventSet = new Set()
+    </script>
+    <div id="back-to-top"></div>
+    <div id="mask"></div><div class="wrapper"><header class="desktop print:!tw-hidden" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="plantegg">plantegg</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item"
+                    href="/posts/" > 文章 </a><a class="menu-item"
+                    href="/categories/" > 分类 </a><a class="menu-item"
+                    href="/tags/" > 标签 </a><span class="menu-item delimiter"></span><button class="menu-item theme-switch" aria-label="切换主题">
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+                </button></div>
+        </div>
+    </div>
+</header><header class="mobile print:!tw-hidden" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="plantegg">plantegg</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><a class="menu-item" href="/posts/" title="" >文章</a><a class="menu-item" href="/categories/" title="" >分类</a><a class="menu-item" href="/tags/" title="" >标签</a><button class="menu-item theme-switch tw-w-full" aria-label="切换主题">
+                <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705 0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg>
+            </button></div>
+    </div>
+</header>
+<div class="search-dropdown desktop">
+    <div id="search-dropdown-desktop"></div>
+</div>
+<div class="search-dropdown mobile">
+    <div id="search-dropdown-mobile"></div>
+</div><main class="main">
+            <div class="container"><div class="toc print:!tw-hidden" id="toc-auto">
+        <h2 class="toc-title">目录</h2>
+        <div class="toc-content always-active" id="toc-content-auto"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题由来">问题由来</a></li>
+    <li><a href="#几个术语和缩写">几个术语和缩写</a></li>
+    <li><a href="#负载均衡调度算法">负载均衡调度算法</a>
+      <ul>
+        <li><a href="#rr轮询调度round-robin-scheduling">rr轮询调度(Round-Robin Scheduling)</a></li>
+        <li><a href="#wrr加权轮询调度weighted-round-robin-scheduling">wrr加权轮询调度(Weighted Round-Robin Scheduling)</a></li>
+        <li><a href="#lc最小连接调度least-connection-scheduling">lc最小连接调度(Least-Connection Scheduling)</a></li>
+        <li><a href="#wlc加权最小连接调度weighted-least-connection-scheduling">wlc加权最小连接调度(Weighted Least-Connection Scheduling)</a></li>
+      </ul>
+    </li>
+    <li><a href="#为什么会不均衡">为什么会不均衡</a>
+      <ul>
+        <li><a href="#wrr算法">wrr算法</a></li>
+        <li><a href="#案例">案例</a></li>
+        <li><a href="#wlc算法">wlc算法</a></li>
+        <li><a href="#sysbench验证wlc均衡逻辑">sysbench验证wlc均衡逻辑</a></li>
+        <li><a href="#session-persistence-导致的负载不均衡">Session Persistence 导致的负载不均衡</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+    </div><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC", "true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class="single-title" data-pagefind-meta="date:2019-07-19" data-pagefind-body>LVS 20倍的负载不均衡，原来是内核的这个Bug</h1><div class="post-meta">
+            <div class="post-meta-line">
+                <span class="post-author"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6 0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7 0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4 0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9 14.3 0 28-2.7 40.9-6.9 2.3-.7 4.7-1.1 7.1-1.1 42.9 0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href="/" title="Author" rel=" author" class="author">作者</a>
+                </span>&nbsp;<span class="post-category">收录于 </span>&nbsp;<span class="post-category">类别 <a href="/categories/lvs/"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>LVS</a></span></div>
+            <div class="post-meta-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M148 288h-40c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6 0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6 0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6 0 12 5.4 12 12v52h48c26.5 0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3 0 6-2.7 6-6z"/></svg>&nbsp;<time datetime="2019-07-19">2019-07-19</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime="2019-07-19">2019-07-19</time>&nbsp;<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 4120 字&nbsp;
+                    <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5 0-200-89.5-200-200S145.5 56 256 56s200 89.5 200 200-89.5 200-200 200zm61.8-104.4l-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6 0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 19 分钟&nbsp;<i class="fas fa-eye fa-fw"></i>
+                    <span id="busuanzi_container_page_pv">本文阅读量 <span id="busuanzi_value_page_pv"></span> 次</span></div>
+        </div><div class="details toc print:!tw-block" id="toc-static"  kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#问题由来">问题由来</a></li>
+    <li><a href="#几个术语和缩写">几个术语和缩写</a></li>
+    <li><a href="#负载均衡调度算法">负载均衡调度算法</a>
+      <ul>
+        <li><a href="#rr轮询调度round-robin-scheduling">rr轮询调度(Round-Robin Scheduling)</a></li>
+        <li><a href="#wrr加权轮询调度weighted-round-robin-scheduling">wrr加权轮询调度(Weighted Round-Robin Scheduling)</a></li>
+        <li><a href="#lc最小连接调度least-connection-scheduling">lc最小连接调度(Least-Connection Scheduling)</a></li>
+        <li><a href="#wlc加权最小连接调度weighted-least-connection-scheduling">wlc加权最小连接调度(Weighted Least-Connection Scheduling)</a></li>
+      </ul>
+    </li>
+    <li><a href="#为什么会不均衡">为什么会不均衡</a>
+      <ul>
+        <li><a href="#wrr算法">wrr算法</a></li>
+        <li><a href="#案例">案例</a></li>
+        <li><a href="#wlc算法">wlc算法</a></li>
+        <li><a href="#sysbench验证wlc均衡逻辑">sysbench验证wlc均衡逻辑</a></li>
+        <li><a href="#session-persistence-导致的负载不均衡">Session Persistence 导致的负载不均衡</a></li>
+      </ul>
+    </li>
+    <li><a href="#总结">总结</a></li>
+    <li><a href="#参考文章">参考文章</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content" data-pagefind-body><h1 id="lvs-20倍的负载不均衡原来是内核的这个bug" class="headerLink">
+    <a href="#lvs-20%e5%80%8d%e7%9a%84%e8%b4%9f%e8%bd%bd%e4%b8%8d%e5%9d%87%e8%a1%a1%e5%8e%9f%e6%9d%a5%e6%98%af%e5%86%85%e6%a0%b8%e7%9a%84%e8%bf%99%e4%b8%aabug" class="header-mark"></a>LVS 20倍的负载不均衡，原来是内核的这个Bug</h1><p>姊妹篇：<a href="https://plantegg.github.io/2019/06/20/%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1--lvs%e5%92%8c%e8%bd%ac%e5%8f%91%e6%a8%a1%e5%bc%8f/" target="_blank" rel="noopener noreferrer">就是要你懂负载均衡&ndash;lvs和转发模式</a></p>
+<h2 id="问题由来" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e7%94%b1%e6%9d%a5" class="header-mark"></a>问题由来</h2><p>最近用 sysbench 做压测的时候，sysbench每次创建100个长连接，lvs后面两台RS（通过wlc来均衡），发现每次都是其中一台差不多95个连接，另外一台大概5个连接，不均衡得太离谱了，并且稳定重现，所以想要搞清楚为什么会出现20倍的不均衡。</p>
+<p>前面是啰嗦的基础知识部分，<a href="#bug" rel="">bug直达文章末尾</a></p>
+<h2 id="几个术语和缩写" class="headerLink">
+    <a href="#%e5%87%a0%e4%b8%aa%e6%9c%af%e8%af%ad%e5%92%8c%e7%bc%a9%e5%86%99" class="header-mark"></a>几个术语和缩写</h2><pre><code>vip：Virtual IP，LVS实例IP
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+</code></pre>
+<h2 id="负载均衡调度算法" class="headerLink">
+    <a href="#%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1%e8%b0%83%e5%ba%a6%e7%ae%97%e6%b3%95" class="header-mark"></a>负载均衡调度算法</h2><p>LVS的负载调度算法有10种，其它不常用的就不说了，凑数没有意义。基本常用的如下四种，这四种又可以分成两大种：rr轮询调度和lc最小连接调度。</p>
+<h3 id="rr轮询调度round-robin-scheduling" class="headerLink">
+    <a href="#rr%e8%bd%ae%e8%af%a2%e8%b0%83%e5%ba%a6round-robin-scheduling" class="header-mark"></a>rr轮询调度(Round-Robin Scheduling)</h3><p>轮询调度（Round Robin Scheduling）算法就是以轮询的方式依次将请求调度到不同的服务器，即每次调度执行i = (i + 1) mod n，并选出第i台服务器。算法的优点是其简洁性，它无需记录当前所有连接的状态，不管服务器上实际的连接数和系统负载，所以它是一种无状态调度。</p>
+<h3 id="wrr加权轮询调度weighted-round-robin-scheduling" class="headerLink">
+    <a href="#wrr%e5%8a%a0%e6%9d%83%e8%bd%ae%e8%af%a2%e8%b0%83%e5%ba%a6weighted-round-robin-scheduling" class="header-mark"></a>wrr加权轮询调度(Weighted Round-Robin Scheduling)</h3><p>加权轮询调度（Weighted Round-Robin Scheduling）算法可以解决服务器间性能不一的情况，它用相应的权值表示服务器的处理性能，服务器的缺省权值为1。假设服务器A的权值为1，B的权值为2，则表示服务器B的处理性能是A的两倍。加权轮叫调度算法是按权值的高低和轮叫方式分配请求到各服务器。权值高的服务器先收到的连接，权值高的服务器比权值低的服务器处理更多的连接，相同权值的服务器处理相同数目的连接数。</p>
+<h3 id="lc最小连接调度least-connection-scheduling" class="headerLink">
+    <a href="#lc%e6%9c%80%e5%b0%8f%e8%bf%9e%e6%8e%a5%e8%b0%83%e5%ba%a6least-connection-scheduling" class="header-mark"></a>lc最小连接调度(Least-Connection Scheduling)</h3><p>最小连接调度（Least-Connection Scheduling）算法是把新的连接请求分配到当前连接数最小的服务器。最小连接调度是一种动态调度算法，它通过服务器当前所活跃的连接数来估计服务器的负载情况。调度器需要记录各个服务器已建立连接的数目，当一个请求被调度到某台服务器，其连接数加1；当连接中止或超时，其连接数减一。</p>
+<p>如果集群系统的真实服务器具有相近的系统性能，采用”最小连接”调度算法可以较好地均衡负载。</p>
+<p><strong>特别注意：这种调度算法还需要考虑active（权重*256）和inactive连接的状态，这个实现考量实际会带来严重的不均衡问题。</strong></p>
+<h3 id="wlc加权最小连接调度weighted-least-connection-scheduling" class="headerLink">
+    <a href="#wlc%e5%8a%a0%e6%9d%83%e6%9c%80%e5%b0%8f%e8%bf%9e%e6%8e%a5%e8%b0%83%e5%ba%a6weighted-least-connection-scheduling" class="header-mark"></a>wlc加权最小连接调度(Weighted Least-Connection Scheduling)</h3><p>加权最小连接调度（Weighted Least-Connection Scheduling）算法是最小连接调度的超集，各个服务器用相应的权值表示其处理性能。服务器的缺省权值为1，系统管理员可以动态地设置服务器的权值。加权最小连接调度在调度新连接时尽可能使服务器的已建立连接数和其权值成比例。</p>
+<p>调度器可以自动问询真实服务器的负载情况，并动态地调整其权值。</p>
+<p>其中wlc和lc可以看成一种，wrr和rr可以看成另外一种。下面只重点说wrr和wlc为什么不均衡</p>
+<h2 id="为什么会不均衡" class="headerLink">
+    <a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e4%bc%9a%e4%b8%8d%e5%9d%87%e8%a1%a1" class="header-mark"></a>为什么会不均衡</h2><h3 id="wrr算法" class="headerLink">
+    <a href="#wrr%e7%ae%97%e6%b3%95" class="header-mark"></a>wrr算法</h3><p>非常简单，来了新连接向各个RS转发就行，比如一段时间内创建100个连接，那这100个连接能基本均匀分布在后端所有RS上。</p>
+<h4 id="长连接" class="headerLink">
+    <a href="#%e9%95%bf%e8%bf%9e%e6%8e%a5" class="header-mark"></a>长连接</h4><p>如果所有请求都是长连接，如果后端有RS重启（宕机、OOM服务不响应、日常性重启等等），那么其上面的连接一般会重建，重建的新连接会均匀分布到其它RS上，当重启的RS正常加入到LVS后，它上面的连接是最少的，即使后面大批量建新的连接，也只是新连接在这些RS上均匀分布，重新加入的RS没法感知到历史已经存在的老连接所以容易导致负载不均衡。</p>
+<p>批量重启所有RS（升级等，多个RS进入服务状态肯定有先后），第一个起来的RS最容易获取到更多的连接，压力明显比其它RS要大，这肯定也是不符合预期的。</p>
+<p><strong>总之wrr/rr算法因为不考虑已存在的连接问题，在长连接的情况下对RS重启、扩容（增加新的RS）十分不友好，容易导致长连接的不均衡。</strong></p>
+<p>当然对于短连接不存在这个问题，所以可以考虑让应用端的连接不要那么长，比如几个小时候断开重新连接一下。升级的时候等所有RS都启动好后再让LVS开始工作等</p>
+<h4 id="lvs-集群下不均衡" class="headerLink">
+    <a href="#lvs-%e9%9b%86%e7%be%a4%e4%b8%8b%e4%b8%8d%e5%9d%87%e8%a1%a1" class="header-mark"></a>LVS 集群下不均衡</h4><p>一般一个负载均衡由多个（4个）LVS 机器组成。</p>
+<p>假设每批请求发来四个新连接，经过4台负载均衡机器每个机器一个连接，这一个连接都打到了 RS 的第一个节点上。主要是4台负载均衡机器之间没有协商机制，互相没有同步信息。</p>
+<p>可以的解决方案：LVS 机器加入随机因子，让每个LVS 认为的第一个节点不一样</p>
+<h5 id="权值相等的wrr算法是否与rr算法等效" class="headerLink">
+    <a href="#%e6%9d%83%e5%80%bc%e7%9b%b8%e7%ad%89%e7%9a%84wrr%e7%ae%97%e6%b3%95%e6%98%af%e5%90%a6%e4%b8%8err%e7%ae%97%e6%b3%95%e7%ad%89%e6%95%88" class="header-mark"></a>权值相等的WRR算法是否与RR算法等效？</h5><p>不等效。原因是由于RR调试算法加入了<strong>初始随机因子</strong>，而WRR由于算法的限制没有此功能。因此在新建连接数少，同时并发连接少，也没有预热的情况下，RR算法会有更好的均衡性表现。</p>
+<p>WRR在每一次健康检查抖动的时候，会重置调度器，从头开始WRR的逻辑，因此可能会导致调度部分调度不均匀。</p>
+<h3 id="案例" class="headerLink">
+    <a href="#%e6%a1%88%e4%be%8b" class="header-mark"></a>案例</h3><p>比如如下这个负载不均衡，因为第一个RS CPU特别忙，QPS的不均衡大致能说明工作连接的差异</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171244718.png   alt="image-20210422171244718"  ></p>
+<ol>
+<li>连接数差距大有一部分是因为机器忙，断开慢。lvs监控的累积连接数是200:250的差距, 流量差距是1:2</li>
+<li>wrr会经常重置调度逻辑，经常从第一台开始轮询，导致第一台压力更大</li>
+</ol>
+<p>和lvs负载监控数据对比来看是一致的：</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210422171155401.png   alt="image-20210422171155401"  ></p>
+<h3 id="wlc算法" class="headerLink">
+    <a href="#wlc%e7%ae%97%e6%b3%95" class="header-mark"></a>wlc算法</h3><p>针对wrr对长连接的上述不均衡，所以wlc算法考虑当前已存在的连接数，尽量把新连接发送到连接数较少的RS上，看起来比较完美地修复了wrr的上述不均衡问题。</p>
+<p>wlc将连接分成active（ESTABLISHED）和inactive(syn/fin等其它状态），收到syn包后LVS按照如下算法判定该将syn发给哪个RS</p>
+<pre><code>static inline int
+ip_vs_dest_conn_overhead(struct ip_vs_dest *dest)
+{
+        /* We think the overhead of processing active connections is 256
+         * times higher than that of inactive connections in average. (This
+         * 256 times might not be accurate, we will change it later) We
+         * use the following formula to estimate the overhead now:
+         *                dest-&gt;activeconns*256 + dest-&gt;inactconns
+         */
+        return (atomic_read(&amp;dest-&gt;activeconns) &lt;&lt; 8) +
+                atomic_read(&amp;dest-&gt;inactconns);
+}
+</code></pre>
+<p>也就是一个active状态的连接权重是256，一个inactive权重是1，然后将syn发给总连接负载最轻的RS。</p>
+<p>这里会导致不均衡过程: 短时间内有一批syn冲过来（同时并发创建一批连接），必然有一个RS（假如这里总共两个RS）先建立第一个active的连接，在第二个RS也建立第一个active连接之前，后面的syn都会发给第二个RS，那么最终会看到第二个RS的连接远大于第一个RS，这样就导致了最终连接数的负载不均衡。</p>
+<p>主要是因为这里对inactive 连接的判定比较糙，active连接的权重直接<em>256就更糙了（作者都说了是拍脑袋的）。实际握手阶段的连接直接都判定为active比较妥当，挥手阶段的连接判定为inactive是可以的，但是active的权重取</em>4或者8就够了，256有点夸张。</p>
+<p>这个不均衡场景可以通过 sysbench 稳定重现，<strong>如果两个RS的rt差异大一点会更明显</strong>。</p>
+<p>RS到LVS之间的时延差异会放大这个不均衡，这个差异必然会存在，再就是vpc网络环境下首包延时很大（因为overlay之类的网络，连接的首包都会去网关拉取路由信息，所以首包都很慢），差异会更明显，因为这些都会影响第一个active连接的建立。</p>
+<h4 id="what-is-an-activeconninactconn-activeinactive-connnection" class="headerLink">
+    <a href="#what-is-an-activeconninactconn-activeinactive-connnection" class="header-mark"></a>What is an ActiveConn/InActConn (Active/Inactive) connnection?</h4><ul>
+<li>ActiveConn in ESTABLISHED state</li>
+<li>InActConn any other state</li>
+</ul>
+<p>只对NAT模式下有效：</p>
+<p>With LVS-NAT, the director sees all the packets between the client and the realserver, so always knows the state of tcp connections and the listing from ipvsadm is accurate. However for LVS-DR, LVS-Tun, the director does not see the packets from the realserver to the client.</p>
+<p>Example with my Apache Web server.</p>
+<pre><code>Client  	    &lt;---&gt; Server
+
+A client request an object on the web server on port 80 :
+
+SYN REQUEST     ----&gt;
+SYN ACK 	    &lt;----
+ACK             ----&gt; *** ActiveConn=1 and 1 ESTABLISHED socket on realserver.
+HTTP get        ----&gt; *** The client request the object
+HTTP response   &lt;---- *** The server sends the object
+APACHE closes the socket : *** ActiveConn=1 and 0 ESTABLISHED socket on realserver
+The CLIENT receives the object. (took 15 seconds in my test)
+ACK-FIN         ----&gt; *** ActiveConn=0 and 0 ESTABLISHED socket on realserver
+</code></pre>
+<h4 id="slb下的wlc" class="headerLink">
+    <a href="#slb%e4%b8%8b%e7%9a%84wlc" class="header-mark"></a>slb下的wlc</h4><p>阿里slb集群下多台LVS服务器之间是开启的session同步功能，因此WLC在计算后端RS的连接权重时会将其它LVS服务器同步的连接计算进来，所以说实际上是一个准全局的调度算法，因此它的调度均衡性最好</p>
+<p>WLC由于要计算所有连接的权重，因此消耗的CPU最多，性能最差。由于Session同步不是实时的，同时WLC算法对完成三次握手连接与半开连接的计算权重不同，因此WLC算法不适合突发新建连接的场景。</p>
+<h3 id="sysbench验证wlc均衡逻辑" class="headerLink">
+    <a href="#sysbench%e9%aa%8c%e8%af%81wlc%e5%9d%87%e8%a1%a1%e9%80%bb%e8%be%91" class="header-mark"></a>sysbench验证wlc均衡逻辑</h3><p>lvs（多个LVS节点的集群）后面总共两个RS，如果<strong>一次性同时</strong>创建100个连接，那么基本上这个100个连接都在第一个RS上，如果先创建50个，这时这50个基本在第一个RS上，休息几秒钟，再创建50个，那么第二批的50个基本落在第二个RS上。</p>
+<p>如果先创建50个，这时这50个基本在第一个RS上，休息几秒钟，再创建100个，那么第二批的100个中前50个基本落在第二个RS上，后面50个又都跑到第一个RS上了。</p>
+<h3 id="session-persistence-导致的负载不均衡" class="headerLink">
+    <a href="#session-persistence-%e5%af%bc%e8%87%b4%e7%9a%84%e8%b4%9f%e8%bd%bd%e4%b8%8d%e5%9d%87%e8%a1%a1" class="header-mark"></a>Session Persistence 导致的负载不均衡</h3><p>LB 上开启了“会话保持”（Session Persistence），会将会话黏在某个RS上，如果刚好某个请求端访问量大，就会导致这个RS访问量大，从而不均衡</p>
+<p>LVS的会话保持有这两种</p>
+<ol>
+<li>
+<p>把同一个client的请求信息记录到lvs的hash表里，保存时间使用persistence_timeout控制，单位为秒。 persistence_granularity 参数是配合persistence_timeout的，在某些情况特别有用，他的值是子网掩码，表示持久连接的粒度，默认是 255.255.255.255，也就是单独的client ip，如果改成，255.255.255.0就是client ip一个网段的都会被分配到同一个real server。</p>
+</li>
+<li>
+<p>一个连接创建后空闲时的超时时间，这个时间为3种</p>
+<ul>
+<li>
+<p>tcp的空闲超时时间</p>
+</li>
+<li>
+<p>lvs收到客户端tcp fin的超时时间</p>
+</li>
+<li>
+<p>udp的超时时间</p>
+</li>
+</ul>
+</li>
+</ol>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><ul>
+<li>wrr/rr在长连接下，RS比较害怕动态扩容、重启机器、升级应用等场景</li>
+<li>wrr会因为没有随机因子在小流量、探活失败重置场景下导致第一个RS 压力大，总的来说推荐rr而不是wrr</li>
+<li>wlc/lc在长连接下，如果同时创建的大量连接（比如sysbench压测），因为内核的lvs逻辑对active和inactive判定不太合理导致了这种场景下连接会严重不均衡。</li>
+<li>如果是druid这种连接池一个个创建的连接在wlc/lc算法是不会触发不均衡</li>
+<li>如果lvs到两个RS的rt差异越大会加剧wlc/lc的不平衡（rt差异肯定是会存在的）</li>
+</ul>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章</h2><p><a href="http://www.austintek.com/LVS/LVS-HOWTO/HOWTO/LVS-HOWTO.ipvsadm.html#ActiveConn" target="_blank" rel="noopener noreferrer">What is an ActiveConn/InActConn (Active/Inactive) connnection?</a></p>
+</div>
+
+        <div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2019-07-19</span>
+            </div>
+            <div class="post-info-license"></div>
+        </div>
+        <div class="post-info-line print:!tw-hidden">
+            <div class="post-info-md"></div>
+            <div class="post-info-share"></div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.941 225.941L286.059 14.059A48 48 0 0 0 252.118 0H48C21.49 0 0 21.49 0 48v204.118a48 48 0 0 0 14.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882 0l204.118-204.118c18.745-18.745 18.745-49.137 0-67.882zM112 160c-26.51 0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882 0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397 0h48.721a48 48 0 0 1 33.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137 0 67.882z"/></svg>&nbsp;<a href="/tags/lvs/">LVS</a>,&nbsp;<a href="/tags/network/">Network</a>,&nbsp;<a href="/tags/loadbalance/">LoadBalance</a>,&nbsp;<a href="/tags/wrr/">Wrr</a>,&nbsp;<a href="/tags/wlc/">Wlc</a>,&nbsp;<a href="/tags/linux/">Linux</a></section>
+        <section class="print:!tw-hidden">
+            <span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick="window.history.back();">返回</button></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav print:tw-hidden"><a href="/posts/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--wireshark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/" class="prev" rel="prev" title="就是要你懂抓包--WireShark之命令行版tshark"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9 0l22.6 22.6c9.4 9.4 9.4 24.6 0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6 0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9 0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>就是要你懂抓包--WireShark之命令行版tshark</a>
+            <a href="/posts/nio%E5%92%8Cepoll/" class="next" rel="next" title="NIO和epoll">NIO和epoll<svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div>
+</div>
+</article></div>
+        </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">
+                    由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreferrer" title="Hugo 0.139.0">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href="https://github.com/HEIGE-PCloud/DoIt" target="_blank" rel="noopener noreferrer" title="DoIt 0.4.0"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1 0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7 0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174L402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7l-43.2-43.2c-4.1-4.1-10.8-4.1-14.8 0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a>
+                </div><div class="footer-line"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532 0-200-89.451-200-200 0-110.531 89.451-200 200-200 110.532 0 200 89.451 200 200 0 110.532-89.451 200-200 200zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43 0-140.484-61.425-140.484-141.567 0-79.152 60.275-139.401 139.762-139.401 55.531 0 88.738 26.62 97.593 34.779a11.965 11.965 0 0 1 1.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303 0-77.916 35.33-77.916 80.082 0 41.589 26.888 83.692 78.277 83.692 32.657 0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947 0 0 1-1.152 15.518z"/></svg>2024<span class="author">&nbsp;<a href="/" target="_blank" rel="noopener noreferrer"></a></span></div>
+            <div class="footer-line">
+                    <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+                    <span class="post-meta-item" id="busuanzi_container_site_pv" style="display: inline;">
+                        <span class="post-meta-item-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M288 144a110.94 110.94 0 0 0-31.24 5 55.4 55.4 0 0 1 7.24 27 56 56 0 0 1-56 56 55.4 55.4 0 0 1-27-7.24A111.71 111.71 0 1 0 288 144zm284.52 97.4C518.29 135.59 410.93 64 288 64S57.68 135.64 3.48 241.41a32.35 32.35 0 0 0 0 29.19C57.71 376.41 165.07 448 288 448s230.32-71.64 284.52-177.41a32.35 32.35 0 0 0 0-29.19zM288 400c-98.65 0-189.09-55-237.93-144C98.91 167 189.34 112 288 112s189.09 55 237.93 144C477.1 345 386.66 400 288 400z"/></svg></span>
+                        <span class="site-pv" title="总访问量"><span id="busuanzi_value_site_pv"></span></span>
+                    </span></div>
+            <div class="footer-line">
+            </div>
+        </div></footer></div>
+
+    <div id="fixed-buttons" class="print:!tw-hidden"><a href="#back-to-top" id="back-to-top-button" class="fixed-button tw-transition-opacity tw-opacity-0" title="回到顶部">
+            <svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6 0-33.9L207 39c9.4-9.4 24.6-9.4 33.9 0l194.3 194.3c9.4 9.4 9.4 24.6 0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3 0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+        </a></div>
+<script>window.config={"comment":{}};</script><script
+    src="/js/theme.min.js"
+    
+      defer
+    
+  ></script>
+    
+    <script type="speculationrules">
+        {
+          "prerender": [
+            {
+              "where": { "href_matches": "/*" },
+              "eagerness": "moderate"
+            }
+          ]
+        }
+    </script>
+      
+</body>
+
+</html>

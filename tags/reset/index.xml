@@ -1,0 +1,201 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Reset - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/reset/</link>
+        <description>Reset - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Wed, 18 Nov 2020 17:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/reset/" rel="self" type="application/rss+xml" /><item>
+    <title>活久见，TCP连接互串了</title>
+    <link>http://localhost:1313/posts/tcp%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/</link>
+    <pubDate>Wed, 18 Nov 2020 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/tcp%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/</guid>
+    <description><![CDATA[<h1 id="活久见tcp连接互串了" class="headerLink">
+    <a href="#%e6%b4%bb%e4%b9%85%e8%a7%81tcp%e8%bf%9e%e6%8e%a5%e4%ba%92%e4%b8%b2%e4%ba%86" class="header-mark"></a>活久见，TCP连接互串了</h1><h2 id="背景" class="headerLink">
+    <a href="#%e8%83%8c%e6%99%af" class="header-mark"></a>背景</h2><p>应用每过一段时间总是会抛出几个连接异常的错误，需要查明原因。</p>
+<p>排查后发现是TCP连接互串了，这个案例实在是很珍惜，所以记录一下。</p>
+<h2 id="抓包" class="headerLink">
+    <a href="#%e6%8a%93%e5%8c%85" class="header-mark"></a>抓包</h2><p>业务结构： 应用-&gt;MySQL(10.112.61.163)</p>
+<p>在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/dd657fee9d961a786c05e8d3cccbc297.png   alt="image.png"  ></p>
+<p>粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）</p>
+<p>于是我过滤了一下端口61902上的所有包：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/8ca7da8ccec0041dd5d3f66f94d1f574.png   alt="image.png"  ></p>
+<p>可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。</p>
+<p>明明他们应该是两个连接：</p>
+<blockquote>
+  <p>61902-&gt;10.141.16.0:3306</p>
+<p>61902-&gt;10.112.61.163:3269</p>
+
+</blockquote><p>他们虽然用的本地ip端口（61902）是一样的， 但是根据四元组不一样，还是不同的TCP连接，所以应该是不会互相干扰的。但是实际看起来<strong>seq、id都重复了</strong>，不会有这么巧，非常像是TCP互串了。</p>
+<h2 id="分析原因" class="headerLink">
+    <a href="#%e5%88%86%e6%9e%90%e5%8e%9f%e5%9b%a0" class="header-mark"></a>分析原因</h2><p>10.141.16.0 这个ip看起来像是lvs的ip，查了一下系统，果然是lvs，然后这个lvs 后面的rs就是10.112.61.163</p>
+<p>那么这个连结构就是10.141.16.0:3306：</p>
+<blockquote>
+  <p>应用 -&gt; lvs(10.141.16.0:3306)-&gt; 10.112.61.163:3269  跟应用直接连MySQL是一回事了</p>
+
+</blockquote><p>所以这里的疑问就变成了：<strong>10.141.16.0 这个IP的3306端口为啥能知道 10.112.61.163:3269端口的seq和id，也许是TCP连接串了</strong></p>
+<p>接着往下排查</p>
+<h3 id="先打个岔分析下这里的lvs的原理20190620就是要你懂负载均衡--lvs和转发模式" class="headerLink">
+    <a href="#%e5%85%88%e6%89%93%e4%b8%aa%e5%b2%94%e5%88%86%e6%9e%90%e4%b8%8b%e8%bf%99%e9%87%8c%e7%9a%84lvs%e7%9a%84%e5%8e%9f%e7%90%8620190620%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1--lvs%e5%92%8c%e8%bd%ac%e5%8f%91%e6%a8%a1%e5%bc%8f" class="header-mark"></a><a href="/2019/06/20/%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1--lvs%e5%92%8c%e8%bd%ac%e5%8f%91%e6%a8%a1%e5%bc%8f/" rel="">先打个岔，分析下这里的LVS的原理</a></h3><p>这里使用的是 full NAT模型(full NetWork Address Translation-全部网络地址转换)</p>
+<p>基本流程（类似NAT）：</p>
+<ol>
+<li>client发出请求（sip 200.200.200.2 dip 200.200.200.1）</li>
+<li>请求包到达lvs，lvs修改请求包为**（sip 200.200.200.1， dip rip）** 注意这里sip/dip都被修改了</li>
+<li>请求包到达rs， rs回复（sip rip，dip 200.200.200.1）</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client</li>
+</ol>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/94d55b926b5bb1573c4cab8353428712.png   alt="image.png"  ></p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>本来这个模型下都是正常的，但是为了Real Server能拿到client ip，也就是Real Server记录来源ip的时候希望记录的是client ip而不是LVS ip。这个时候LVS会将client ip放在tcp的options里面，然后在RealServer机器的内核里面将options中的client ip取出替换掉 lvs ip。所以Real Server上感知到的对端ip就是client ip。</p>
+<p>回包的时候RealServer上的内核模块同样将目标地址从client ip改成lvs ip，同时将client ip放入options中。</p>
+<h2 id="回到问题" class="headerLink">
+    <a href="#%e5%9b%9e%e5%88%b0%e9%97%ae%e9%a2%98" class="header-mark"></a>回到问题</h2><p>看完理论，再来分析这两个连接的行为</p>
+<p>fulnat模式下连接经过lvs到达mysql后，mysql上看到的连接信息是，cip+port，也就是在MySQL上的连接</p>
+<p>**lvs-ip:port -&gt; 10.112.61.163:3269  被修改成了 **client-ip:61902 **-&gt; 10.112.61.163:3269</p>
+<p>那么跟不走LVS的连接：</p>
+<p><strong>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) 完全重复了。</strong></p>
+<p>MySQL端看到的两个连接四元组一模一样了：</p>
+<blockquote>
+  <p>10.112.61.163:3269 -&gt; client-ip:61902 (走LVS，本来应该是lvs ip的，但是被替换成了client ip)</p>
+<p>10.112.61.163:3269 -&gt; client-ip:61902 (直连)</p>
+
+</blockquote><p>这个时候应用端看到的还是两个连接：</p>
+<blockquote>
+  <p>client-ip:61902 -&gt; 10.141.16.0:3306 （走LVS）</p>
+<p>client-ip:61902 -&gt;  10.112.61.163:3269 (直连)</p>
+
+</blockquote><p>总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了</p>
+<blockquote>
+  <p>这个时候用 netstat 看到的应该是两个连接(vtoa 没有替换), 一个是client-&gt;rs, 一个是lvs-&gt;rs, 内核层面看到的还是两个连接, 只是get_peername接口被toa hook修改后, 两个连接返回的srcip是同一个</p>
+
+</blockquote><p>实际两个连接建立的情况：</p>
+<blockquote>
+  <p>和mysqlserver的61902是04:22建起来的，和lvs的61902端口 是42:10建起来的，和lvs的61902建起来之后马上就出问题了</p>
+
+</blockquote><h2 id="问题出现的条件" class="headerLink">
+    <a href="#%e9%97%ae%e9%a2%98%e5%87%ba%e7%8e%b0%e7%9a%84%e6%9d%a1%e4%bb%b6" class="header-mark"></a>问题出现的条件</h2><ul>
+<li>fulnat模式的LVS，RS上装有ip转换模块（RS上会将LVS ip还原成client ip）</li>
+<li>client端正好重用一个相同的本地端口分别和RS以及LVS建立了两个连接</li>
+</ul>
+<p>这个时候这两个连接在MySQL端就会变成一个，然后两个连接的内容互串，必然导致rst</p>
+<p>这个问题还挺有意思的，估计没几个程序员一辈子能碰上一次。推荐另外一个好玩的连接：<a href="/2020/07/01/%e5%a6%82%e4%bd%95%e5%88%9b%e5%bb%ba%e4%b8%80%e4%b8%aa%e8%87%aa%e5%b7%b1%e8%bf%9e%e8%87%aa%e5%b7%b1%e7%9a%84TCP%e8%bf%9e%e6%8e%a5/" rel="">如何创建一个自己连自己的TCP连接</a></p>
+<h2 id="其他场景" class="headerLink">
+    <a href="#%e5%85%b6%e4%bb%96%e5%9c%ba%e6%99%af" class="header-mark"></a>其他场景</h2><p>比如在 HA 场景下，需要通过直连节点去做心跳检查(B链路)；同时又要走A链路去跨机房检测，这两个链路下连接的目标IP一直、端口不一样，但是经过转换后都是MySQL-Server+3306端口，容易出现两条连接转换后变成一条连接</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240723203828093.png   alt="image-20240723203828093"  ></p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="/2019/06/20/%e5%b0%b1%e6%98%af%e8%a6%81%e4%bd%a0%e6%87%82%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1--lvs%e5%92%8c%e8%bd%ac%e5%8f%91%e6%a8%a1%e5%bc%8f/" rel="">就是要你懂负载均衡&ndash;lvs和转发模式</a></p>
+<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="noopener noreferrer">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
+<p><a href="https://github.com/kubernetes/kubernetes/issues/81775" target="_blank" rel="noopener noreferrer">no route to host</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener noreferrer">另一种形式的tcp连接互串，新连接重用了time_wait的port，导致命中lvs内核表中的维护的旧连接发给了老的realserver</a></p>
+]]></description>
+</item><item>
+    <title>到底是谁reset了你的连接</title>
+    <link>http://localhost:1313/posts/%E5%88%B0%E5%BA%95%E6%98%AF%E8%B0%81reset%E4%BA%86%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5/</link>
+    <pubDate>Sun, 24 Nov 2019 17:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%88%B0%E5%BA%95%E6%98%AF%E8%B0%81reset%E4%BA%86%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5/</guid>
+    <description><![CDATA[<h1 id="到底是谁reset了你的连接" class="headerLink">
+    <a href="#%e5%88%b0%e5%ba%95%e6%98%af%e8%b0%81reset%e4%ba%86%e4%bd%a0%e7%9a%84%e8%bf%9e%e6%8e%a5" class="header-mark"></a>到底是谁reset了你的连接</h1><p>通过一个案例展示TCP连接是如何被reset的，以及identification、ttl都可以帮我们干点啥。</p>
+<h2 id="背景" class="headerLink">
+    <a href="#%e8%83%8c%e6%99%af" class="header-mark"></a>背景</h2><p>用户经常连不上服务，经过抓包发现是链路上连接被reset了，需要定位到是哪个设备发起的reset</p>
+<p>比如：</p>
+<ol>
+<li>用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错）</li>
+<li>某家居客户通过专线访问云上MySQL，总是被reset( 内网ip地址重复&ndash;都是192.168.*， 导致连接被reset)</li>
+</ol>
+<blockquote>
+  <p><strong>进程被kill、异常退出时，针对它打开的连接，内核就会发送 RST 报文来关闭</strong>。RST 的全称是 Reset 复位的意思，它可以不走四次挥手强制关闭连接，但当报文延迟或者重复传输时，这种方式会导致数据错乱，所以这是不得已而为之的关闭连接方案。当然还有其它场景也会触发reset</p>
+
+</blockquote><h2 id="抓包" class="headerLink">
+    <a href="#%e6%8a%93%e5%8c%85" class="header-mark"></a>抓包</h2><p>在 Navicat 机器上抓包如下：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/83b07725d92b9e4d3eb4a504cf83cc09.png   alt="image.png"  ></p>
+<p>从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/53b5dc8e0a90ed9ad641caf38399141b.png   alt="image.png"  ></p>
+<h2 id="mysql-server上抓包" class="headerLink">
+    <a href="#mysql-server%e4%b8%8a%e6%8a%93%e5%8c%85" class="header-mark"></a>MySQL Server上抓包</h2><p>特别说明下，MySQL上抓到的不是跟Navicat上抓到的同一次报错，所以报错的端口等会不一样</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/70287488290b38cd4753d9fce0bee945.png   alt="image.png"  ></p>
+<p>从这个图中可以清楚看到reset是从 Navicat 客户端发过来的，并且 Use Database被拦截了，没有发到MySQL上。</p>
+<p>从这里基本可以判断是客户的防火墙之类的中间设备监控到了关键字之类的触发了防火墙向两边发送了reset，导致了 Navicat 报错。</p>
+<h3 id="如果连接已经断开" class="headerLink">
+    <a href="#%e5%a6%82%e6%9e%9c%e8%bf%9e%e6%8e%a5%e5%b7%b2%e7%bb%8f%e6%96%ad%e5%bc%80" class="header-mark"></a>如果连接已经断开</h3><p>如果连接已经断开后还收到Client的请求包，因为连接在Server上是不存在的，这个时候Server收到这个包后也会发一个reset回去，这个reset的特点是identification是0.</p>
+<h2 id="到底是谁动了这个连接呢" class="headerLink">
+    <a href="#%e5%88%b0%e5%ba%95%e6%98%af%e8%b0%81%e5%8a%a8%e4%ba%86%e8%bf%99%e4%b8%aa%e8%bf%9e%e6%8e%a5%e5%91%a2" class="header-mark"></a>到底是谁动了这个连接呢？</h2><h3 id="得帮客户解决问题" class="headerLink">
+    <a href="#%e5%be%97%e5%b8%ae%e5%ae%a2%e6%88%b7%e8%a7%a3%e5%86%b3%e9%97%ae%e9%a2%98" class="header-mark"></a>得帮客户解决问题</h3><p>虽然原因很清楚，但是客户说连本地 MySQL就没这个问题，连你的云上MySQL就这样，你让我们怎么用？你们得帮我们找到是哪个设备。</p>
+<p>这不废话么，连本地没经过这么多防火墙、网关当然没事了。但是客户第一，不能这么说，得找到问题所在。</p>
+<h2 id="identification-和-ttl" class="headerLink">
+    <a href="#identification-%e5%92%8c-ttl" class="header-mark"></a>Identification 和 TTL</h2><h3 id="线索一-identification" class="headerLink">
+    <a href="#%e7%ba%bf%e7%b4%a2%e4%b8%80-identification" class="header-mark"></a>线索一 Identification</h3><p>还记得第一个截图中的两个相同的identification 13052吧，让我们来看看基础知识：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/eed9ba1f9ba492ed8954ae7f39e72803.png   alt="image.png"  ></p>
+<p>（摘自 TCP卷一），简单来说这个 identification 用来标识一个连接中的每个包，这个序号按包的个数依次递增，通信双方是两个不同的序列。<strong>主要是用于ip packet的reassemble</strong>。</p>
+<p>所以如果这个reset是MySQL发出来的话，因为MySQL发出的前一个包的 identification 是23403，所以这个必须是23404，实际上居然是13502（而且还和Navicat发出的 Use Database包是同一个 identification），这是非常不对的。</p>
+<p>所以可以大胆猜测，这里有个中间设备收到 Use Database后触发了不放行的逻辑，于是冒充 Navicat给 MySQL Server发了reset包，src ip/src port/seq等都直接用Navicat的，identification也用Navicat的，所以 MySQL Server收到的 Reset看起来很正常（啥都是对的，没留下一点冒充的痕迹）。</p>
+<p>但是这个中间设备还要冒充MySQL Server给 Navicat 也发个reset，有点难为中间设备了，这个时候中间设备手里只有 Navicat 发出来的包， src ip/src port/seq 都比较好反过来，但是 identification 就不好糊弄了，手里只有 Navicat的，因为 Navicat和MySQL Server是两个序列的 identification，这下中间设备搞不出来MySQL Server的identification，怎么办？ 只能糊弄了，就随手用 Navicat 自己的 identification填回去了（所以看到这么个奇怪的 identification）</p>
+<p><strong>identification不对不影响实际连接被reset，也就是验证包的时候不会判断identification的正确性。</strong></p>
+<h3 id="ttl" class="headerLink">
+    <a href="#ttl" class="header-mark"></a>TTL</h3><p>identification基本撇清了MySQL的嫌疑，还得进一步找到是哪个机器，我们先来看一个基础知识 TTL(Time-to-Live):</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ed8c624b704b0c94da2ca76a37b39916.png   alt="image.png"  ></p>
+<p>然后我们再看看 Navicat收到的这个reset包的ttl是63，而正常的MySQL Server回过来的包是47，而发出的第一个包初始ttl是64，所以这里可以很清楚地看到在Navicat 下一跳发出的这个reset</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b288a740f9f10007485e37fd339051f8.png   alt="image.png"  ></p>
+<p>既然是下一跳干的直接拿这个包的src mac地址，然后到内网中找这个内网设备就可以了，最终找到是一个锐捷的防火墙。</p>
+<p>如果不是下一跳可以通过 traceroute/mtr 来找到这个设备的ip</p>
+<h2 id="某家居的reset" class="headerLink">
+    <a href="#%e6%9f%90%e5%ae%b6%e5%b1%85%e7%9a%84reset" class="header-mark"></a>某家居的reset</h2><p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png   alt="undefined"  ></p>
+<p>从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。</p>
+<h2 id="某isv-vpn环境reset" class="headerLink">
+    <a href="#%e6%9f%90isv-vpn%e7%8e%af%e5%a2%83reset" class="header-mark"></a>某ISV vpn环境reset</h2><p>client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select * from table1 ; 就一定reset，但是select * from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询结果的大小比较相关。</p>
+<p>于是在server和client上同时抓到了一次完整的reset</p>
+<p>如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/89f584899a5e5e00ba5c2b16707ed24a.png   alt="image.png"  ></p>
+<p>下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/ec1f04befe56823668b4d1f831bd3ea4.png     ></p>
+<p>最终排查后client端</p>
+<blockquote>
+  <p>公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在运行正常了</p>
+
+</blockquote><h3 id="扩展一下" class="headerLink">
+    <a href="#%e6%89%a9%e5%b1%95%e4%b8%80%e4%b8%8b" class="header-mark"></a>扩展一下</h3><p>假如这里不是下一跳，而是隔了几跳发过来的reset，那么这个src mac地址就不是发reset设备的mac了，那该怎么办呢？</p>
+<p>可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip</p>
+<h2 id="slb-reset" class="headerLink">
+    <a href="#slb-reset" class="header-mark"></a>SLB reset</h2><p>如果连接闲置15分钟(900秒)后，SLB会给两端发送reset，设置的ttl为102（102年，下图经过3跳后到达RS 节点所以看到的是99），identification 为31415（π）</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220722161729776.png   alt="image-20220722161729776"  ></p>
+<h2 id="被忽略的resethttpsmpweixinqqcomsywzukbk3tmclejen2ziavq" class="headerLink">
+    <a href="#%e8%a2%ab%e5%bf%bd%e7%95%a5%e7%9a%84resethttpsmpweixinqqcomsywzukbk3tmclejen2ziavq" class="header-mark"></a><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener noreferrer">被忽略的reset</a></h2><p>不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。</p>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220224102640374.png   alt="Image"  ></p>
+<p>但是对于SLB来说，收到reset就会clean 连接的session（SLB没做合法性验证），一般等session失效后（10秒）</p>
+<h2 id="slb主动reset的话" class="headerLink">
+    <a href="#slb%e4%b8%bb%e5%8a%a8reset%e7%9a%84%e8%af%9d" class="header-mark"></a>SLB主动reset的话</h2><p>ttl是102, identification是31415，探活reset不是这样的。</p>
+<p>如下图就是SLB发出来的reset packet</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/9de70216-188c-4ca4-898f-0fa88e853c18.png   alt="img"  ></p>
+<h2 id="总结" class="headerLink">
+    <a href="#%e6%80%bb%e7%bb%93" class="header-mark"></a>总结</h2><p>基础知识很重要，但是知道ttl、identification到会用ttl、identification是两个不同的层次。只是看书的话未必会有很深的印象，实际也不一定会灵活使用。</p>
+<p>平时不要看那么多书，会用才是关键。</p>
+<h2 id="参考资料" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e8%b5%84%e6%96%99" class="header-mark"></a>参考资料</h2><p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener noreferrer">TCP中并不是所有的RST都有效</a></p>
+]]></description>
+</item><item>
+    <title>关于TCP连接的Keepalive和reset</title>
+    <link>http://localhost:1313/posts/%E5%85%B3%E4%BA%8Etcp%E8%BF%9E%E6%8E%A5%E7%9A%84keepalive%E5%92%8Creset/</link>
+    <pubDate>Sun, 26 Aug 2018 16:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E5%85%B3%E4%BA%8Etcp%E8%BF%9E%E6%8E%A5%E7%9A%84keepalive%E5%92%8Creset/</guid>
+    <description><![CDATA[<h1 id="关于tcp连接的keepalive和reset" class="headerLink">
+    <a href="#%e5%85%b3%e4%ba%8etcp%e8%bf%9e%e6%8e%a5%e7%9a%84keepalive%e5%92%8creset" class="header-mark"></a>关于TCP连接的Keepalive和reset</h1><p>先来看一个现象，下面是测试代码：</p>
+<pre><code>Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
+Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
+
+Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
+</code></pre>
+<p>server监听在2000端口，支持keepalive， client连接上server后每隔10秒发送一个keepalive包，一旦keepalive包得不对对方的响应，每隔1秒继续发送keepalive, 重试两次，如果一直得不到对方的响应那么这个时候client主动发送一个reset包，那么在client这边这个socket就断开了。server上会一直傻傻的等，直到真正要发送数据了才抛异常。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/90d1c4919d86764242ab726b4c69f006.png   alt="image.png"  ></p>
+<p>假如client连接层是一个Java应用的连接池，那么这个socket断开后Java能感知吗？</p>
+<p><a href="https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed" target="_blank" rel="noopener noreferrer">https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed</a></p>
+<p>Java对Socket的控制比较弱，比如只能指定是否keepalive，不能用特定的keepalive参数(intvl/cnt等），除非走JNI，不推荐。</p>
+<p>如下图（dup ack其实都是keepalive包，这是因为没有抓到握手包导致wireshark识别错误而已）
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/c2893e5ad89ee450c61a370ec7bf6f06.png   alt="image.png"  ></p>
+<p>如上图，client 21512在多次keepalive server都不响应后，发送了reset断开这个连接（server没收到），server以为还连着，这个时候当server正常发数据给client，如果防火墙还在就丢掉，server不停地重传，如果防火墙不在，那么对方os收到这个包后知道21512这个端口对应的连接已经关闭了，再次发送reset给server，这时候server抛异常，中断这个连接。</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/78427c329e72d526aa8908942409f092.png   alt="image.png"  ></p>
+<p>os层面目前看起来除了用socket去读数据感知到内核已经reset了连接外也没什么好办法检测到。</p>
+]]></description>
+</item></channel>
+</rss>

@@ -1,0 +1,222 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>/Etc/Nsswitch - 标签 - plantegg</title>
+        <link>http://localhost:1313/tags/etc/nsswitch/</link>
+        <description>/Etc/Nsswitch - 标签 - plantegg</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-Hans</language><lastBuildDate>Sun, 09 Jun 2019 10:30:03 &#43;0000</lastBuildDate><atom:link href="http://localhost:1313/tags/etc/nsswitch/" rel="self" type="application/rss+xml" /><item>
+    <title>就是要你懂DNS--一文搞懂域名解析相关问题</title>
+    <link>http://localhost:1313/posts/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/</link>
+    <pubDate>Sun, 09 Jun 2019 10:30:03 &#43;0000</pubDate><author>
+        <name>作者</name>
+    </author><guid>http://localhost:1313/posts/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/</guid>
+    <description><![CDATA[<h1 id="一文搞懂域名解析dns相关问题" class="headerLink">
+    <a href="#%e4%b8%80%e6%96%87%e6%90%9e%e6%87%82%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90dns%e7%9b%b8%e5%85%b3%e9%97%ae%e9%a2%98" class="header-mark"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
+  <p>本文希望通过一篇文章解决所有域名解析中相关的问题</p>
+<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
+
+</blockquote><p>这几个Case描述如下：</p>
+<ol>
+<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/" rel="">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" rel="">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" rel="">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" rel="">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
+<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
+<h2 id="linux下域名解析流程" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e6%b5%81%e7%a8%8b" class="header-mark"></a>Linux下域名解析流程</h2><ul>
+<li>DNS域名解析的时候先根据 /etc/host.conf、/etc/nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 /etc/hosts ； dns 代表 /etc/resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
+<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig /displaydns ipconfig /flushdns</li>
+<li>如果 /etc/resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/b7458f344de1d1b10c2a6f6ee7f1c501.png   alt="image.png"  ></p>
+<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener noreferrer">所以默认的nsswitch流程是</a>：</p>
+<p><img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/82489e801d8f7bd455053315d760614b.png   alt="image.png"  ></p>
+<p>以下是一个 /etc/nsswitch.conf</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    code-block-title 
+    
+    tw-flex 
+    tw-flex-row 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        tw-select-none 
+        tw-mx-2 
+        tw-block
+        group-[.is-open]:tw-rotate-90
+        tw-transition-[transform] 
+        tw-duration-500 
+        tw-ease-in-out
+        print:!tw-hidden"
+      disabled
+      aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></button>
+
+    <div class="code-block-title-bar tw-w-full">
+      <p class="tw-select-none !tw-my-1">text</p>
+    </div>
+    <div class="tw-flex">
+      <button 
+        class="
+          line-number-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.show-line-numbers]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle line numbers"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+
+      <button 
+        class="
+          wrap-code-button
+          tw-select-none 
+          tw-mx-2 
+          tw-hidden 
+          group-[.is-open]:tw-block 
+          group-[.is-wrap]:tw-text-fgColor-link 
+          print:!tw-hidden" 
+        title="Toggle code wrap"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+      
+      <button 
+        class="
+          copy-code-button
+          tw-select-none
+          tw-mx-2 
+          tw-hidden
+          group-[.is-open]:tw-block
+          hover:tw-text-fgColor-link 
+          print:!tw-hidden"
+        title="Copy code">
+          <span class="copy-icon tw-block"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
+          <span class="check-icon tw-hidden"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+      </button>
+        
+      <button 
+        class="
+          tw-select-none 
+          tw-mx-2 
+          tw-block 
+          group-[.is-open]:tw-hidden 
+          print:!tw-hidden" 
+        disabled
+        aria-hidden="true"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
+    </div>
+  </div>
+  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
+    id="codeblock-id-1" 
+    class="
+      chroma 
+      !tw-block 
+      tw-p-0
+      tw-m-0
+      tw-transition-[max-height] 
+      tw-duration-500 
+      tw-ease-in-out 
+      group-[.is-closed]:!tw-max-h-0 
+      group-[.is-wrap]:tw-text-wrap
+      tw-overflow-y-hidden
+      tw-overflow-x-auto
+      tw-scrollbar-thin
+      "><span class="line"><span class="cl"># cat /etc/nsswitch.conf |grep -v &#34;^#&#34; |grep -v &#34;^$&#34;
+</span></span><span class="line"><span class="cl">passwd:     files sss
+</span></span><span class="line"><span class="cl">shadow:     files sss
+</span></span><span class="line"><span class="cl">group:      files sss
+</span></span><span class="line"><span class="cl">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序
+</span></span><span class="line"><span class="cl">bootparams: nisplus [NOTFOUND=return] files
+</span></span><span class="line"><span class="cl">ethers:     files
+</span></span><span class="line"><span class="cl">netmasks:   files
+</span></span><span class="line"><span class="cl">networks:   files
+</span></span><span class="line"><span class="cl">protocols:  files
+</span></span><span class="line"><span class="cl">rpc:        files
+</span></span><span class="line"><span class="cl">services:   files sss
+</span></span><span class="line"><span class="cl">netgroup:   nisplus sss
+</span></span><span class="line"><span class="cl">publickey:  nisplus
+</span></span><span class="line"><span class="cl">automount:  files nisplus sss
+</span></span><span class="line"><span class="cl">aliases:    files nisplus</span></span></code></pre>
+</div>
+<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
+<h2 id="linux下域名解析流程需要注意的地方" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e6%b5%81%e7%a8%8b%e9%9c%80%e8%a6%81%e6%b3%a8%e6%84%8f%e7%9a%84%e5%9c%b0%e6%96%b9" class="header-mark"></a>Linux下域名解析流程需要注意的地方</h2><ul>
+<li>如果 /etc/resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a href="https://access.redhat.com/solutions/1426263" target="_blank" rel="noopener noreferrer">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+<li>如果被解析的域名不是以 &ldquo;.&rdquo; 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a href="https://access.redhat.com/solutions/58028" target="_blank" rel="noopener noreferrer">resolv.conf最多支持6个search域</a></li>
+<li>ping 调用的是 glibc的 gethostbyname() 函数流程&ndash;背后是NameServiceSwitch，nslookup 不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
+</ul>
+<h2 id="linux下域名解析诊断工具" class="headerLink">
+    <a href="#linux%e4%b8%8b%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e8%af%8a%e6%96%ad%e5%b7%a5%e5%85%b7" class="header-mark"></a>Linux下域名解析诊断工具</h2><ul>
+<li>ping</li>
+<li>nslookup (nslookup domain @dns-server-ip)</li>
+<li><a href="https://jvns.ca/blog/2021/12/04/how-to-use-dig/" target="_blank" rel="noopener noreferrer">dig</a> (dig +trace domain)</li>
+<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
+<li>strace</li>
+</ul>
+<p><img class="tw-inline" loading="lazy" src=https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/dig.png   alt="img"  ></p>
+<h3 id="案例httpsshawyeokgithubioarticleping-issuehtml" class="headerLink">
+    <a href="#%e6%a1%88%e4%be%8bhttpsshawyeokgithubioarticleping-issuehtml" class="header-mark"></a><a href="https://shawyeok.github.io/article/ping-issue.html" target="_blank" rel="noopener noreferrer">案例</a></h3><p>如下，向 /etc/hosts 中添加两条记录，一条是test.unknow.host 无法解析到，但是另一条 test.localhost 可以解析到，为啥呢？</p>
+<pre><code>$head -2 /etc/hosts
+127.0.0.1　 test.unknow.host
+127.0.0.1   test.localhost
+$ping test.unknow.host
+ping: unknown host test.unknow.host
+$ping -c 1 test.localhost
+PING test.localhost (127.0.0.1) 56(84) bytes of data.
+64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
+</code></pre>
+<p>为什么 test.unknow.host 没法解析到？ 可能有哪些因素导致这种现象？尝试 ping -c 1 test.localhost 的目的是做什么？</p>
+<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
+<ul>
+<li>/etc/hosts 没有启用</li>
+<li>有本地缓存记录了一个unknow host记录</li>
+</ul>
+<h4 id="验证" class="headerLink">
+    <a href="#%e9%aa%8c%e8%af%81" class="header-mark"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
+</code></pre>
+<p>可以通，说明 /etc/hosts 是在起作用的，所以最好验证 /etc/hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
+<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了
+<img class="tw-inline" loading="lazy" src=http://localhost:1313/Users/ren/case/ossimg/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png   alt="undefined"  ></p>
+<p>从上图可以清晰地看到读取了 /etc/host.conf, 然后读了 /etc/hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
+<p>到这里可能的情况要追加第三种了：</p>
+<ul>
+<li>/etc/hosts 中添加的记录没生效(比如中文符号）</li>
+</ul>
+<h3 id="dhcp" class="headerLink">
+    <a href="#dhcp" class="header-mark"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 /etc/resolv.conf</p>
+<h3 id="dnsmasq" class="headerLink">
+    <a href="#dnsmasq" class="header-mark"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：/run/dnsmasq/resolv.conf。集团内部的vipclient就是类似这个原理。</p>
+<h2 id="微服务下的域名解析负载均衡" class="headerLink">
+    <a href="#%e5%be%ae%e6%9c%8d%e5%8a%a1%e4%b8%8b%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e8%b4%9f%e8%bd%bd%e5%9d%87%e8%a1%a1" class="header-mark"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
+<h3 id="域名解析通过jarlib包" class="headerLink">
+    <a href="#%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e9%80%9a%e8%bf%87jarlib%e5%8c%85" class="header-mark"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
+<h3 id="域名解析通过dns-server" class="headerLink">
+    <a href="#%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90%e9%80%9a%e8%bf%87dns-server" class="header-mark"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是/etc/resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
+<p>如果这种情况下/etc/resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
+<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
+<h2 id="kubernetes-和-docker中的域名解析" class="headerLink">
+    <a href="#kubernetes-%e5%92%8c-docker%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90" class="header-mark"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
+<h2 id="nginx-中的域名解析" class="headerLink">
+    <a href="#nginx-%e4%b8%ad%e7%9a%84%e5%9f%9f%e5%90%8d%e8%a7%a3%e6%9e%90" class="header-mark"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 /etc/resolv.conf转换而来，要注意对 /etc/resolv.conf中 注释的<a href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf" target="_blank" rel="noopener noreferrer">兼容</a></p>
+<p><a href="https://github.com/blacklabelops-legacy/nginx/issues/36" target="_blank" rel="noopener noreferrer">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 /etc/resolv.conf没有处理好 # 注释的问题</p>
+<h2 id="进一步的case学习" class="headerLink">
+    <a href="#%e8%bf%9b%e4%b8%80%e6%ad%a5%e7%9a%84case%e5%ad%a6%e4%b9%a0" class="header-mark"></a>进一步的Case学习：</h2><ol>
+<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/" rel="">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
+<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/" rel="">Docker容器中的域名解析过程和原理</a></li>
+<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/" rel="">中间件的VipClient服务在centos7上域名解析失败</a></li>
+<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/" rel="">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
+</ol>
+<h2 id="参考文章" class="headerLink">
+    <a href="#%e5%8f%82%e8%80%83%e6%96%87%e7%ab%a0" class="header-mark"></a>参考文章：</h2><p><a href="https://blog.bruceding.me/516.html" target="_blank" rel="noopener noreferrer">GO DNS 原理解析</a></p>
+<p><a href="https://blog.arstercz.com/linux-%e7%b3%bb%e7%bb%9f%e5%a6%82%e4%bd%95%e5%a4%84%e7%90%86%e5%90%8d%e7%a7%b0%e8%a7%a3%e6%9e%90" target="_blank" rel="noopener noreferrer">Linux 系统如何处理名称解析</a></p>
+<p><a href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/" target="_blank" rel="noopener noreferrer">Anatomy of a Linux DNS Lookup – Part I</a></p>
+]]></description>
+</item></channel>
+</rss>
