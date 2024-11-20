@@ -103,14 +103,14 @@
 <meta property="og:site_name" content="plantegg">
 <meta property="og:description" content="一个历时5年的问题分析全网关于 JDBC 报错：net_write_timeout 的最好&amp;#x2F;最全总结 前言上一次为了讲如何分析几百万个抓包，所以把这个问题中的一部分简化写了这篇抓包篇：https://articles.zsxq.com/id_lznw3w4zieuc.html  建议你先去看看把场景简化下，然后本篇中的分析涉及抓包部分就不再啰嗦讲解，请看抓包篇 问题描述用户为了做数据分析">
 <meta property="og:locale" content="zh-Hans">
-<meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230706210452742.png">
-<meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620141017987.png">
-<meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230707150658392.png">
-<meta property="og:updated_time" content="2024-10-21T08:55:21.199Z">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20230706210452742.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20230620141017987.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20230707150658392.png">
+<meta property="og:updated_time" content="2024-11-20T07:08:05.490Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="一个历时5年的问题分析">
 <meta name="twitter:description" content="一个历时5年的问题分析全网关于 JDBC 报错：net_write_timeout 的最好&amp;#x2F;最全总结 前言上一次为了讲如何分析几百万个抓包，所以把这个问题中的一部分简化写了这篇抓包篇：https://articles.zsxq.com/id_lznw3w4zieuc.html  建议你先去看看把场景简化下，然后本篇中的分析涉及抓包部分就不再啰嗦讲解，请看抓包篇 问题描述用户为了做数据分析">
-<meta name="twitter:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230706210452742.png">
+<meta name="twitter:image" content="https://plantegg.github.io/Users/ren/src/blog/951413iMgBlog/image-20230706210452742.png">
 
 
 
@@ -394,7 +394,7 @@
 
 <p>这个异常堆栈告诉我们Tomcat 到Database之间的连接异常了，似乎是 net_write_timeout 超时导致的</p>
 <p>对应业务结构：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230706210452742.png" alt="image-20230706210452742"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20230706210452742.png" alt="image-20230706210452742"></p>
 <h2 id="net-write-timeout-原理简介"><a href="#net-write-timeout-原理简介" class="headerlink" title="net_write_timeout 原理简介"></a>net_write_timeout 原理简介</h2><p>先看下 <a href="https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_net_write_timeout" target="_blank" rel="noopener"><code>net_write_timeout</code></a>的解释：</p>
 <blockquote>
 <p>The number of seconds to wait for a block to be written to a connection before aborting the write. 只针对执行查询中的等待超时，网络不好，tcp buffer满了（应用迟迟不读走数据）等容易导致mysql server端报net_write_timeout错误，指的是mysql server hang在那里长时间无法发送查询结果。</p>
@@ -407,7 +407,7 @@
 <p>进一步提取迁移工具的SQL，然后走API手工提交给Tomcat 执行，问题仍然稳定重现，现在重现越来越简单了，效率高多了。</p>
 <h3 id="Tomcat-上抓包"><a href="#Tomcat-上抓包" class="headerlink" title="Tomcat 上抓包"></a>Tomcat 上抓包</h3><p>因为没有业务流量干扰，抓包很干净，但是因为DB 节点太多，所以量还是很大的，分析如抓包篇：<a href="https://articles.zsxq.com/id_lznw3w4zieuc.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_lznw3w4zieuc.html</a>  </p>
 <p>如下图红框所示的地方可以看到MySQL Server 传着传着居然带了个 fin 包在里面，表示MySQL Server要断开连接了，无奈Client只能也发送quit 断开连接。红框告诉我们一个无比有力的证据MySQL Server 在不应该断开的地方断开了连接，问题在 MySQL Server 端</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230620141017987.png" alt="image-20230620141017987"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20230620141017987.png" alt="image-20230620141017987"></p>
 <p>看起来是Database 主动端开了连接，因为这个过程Tomcat 不需要发任何东西给 Database。这个现象5年前在其它用户场景下就抓到过了，最后问题也不了了之，这次希望搞清楚</p>
 <h3 id="Database-分析"><a href="#Database-分析" class="headerlink" title="Database 分析"></a>Database 分析</h3><p>打开 DB 日志，捞取全量日志可以看到 DB 断开的原因是收到了kill Query！</p>
 <p>有这个结果记住上面抓包图，以后类似这样莫名起来 DB 主动断开大概率就是 kill Query 导致的(经验攒得不容易！)</p>
@@ -418,7 +418,7 @@
 <h3 id="继续尝试重现"><a href="#继续尝试重现" class="headerlink" title="继续尝试重现"></a>继续尝试重现</h3><p>分析完Tomcat 业务代码后感觉业务不会去kill，于是灵机一动在没有流量的Tomcat上跑了一个Sleep 600秒，不用任何数据，神奇的问题也稳定重现了，这下大概知道什么原因了，肯定是客户自己加了慢查询监控逻辑，一旦发现慢查询就 kill</p>
 <p>于是问客户是不是有这种监控，果然有，停掉后反复重试不再有问题！</p>
 <p>测试环境手工触发kill，然后能抓到下发的kill Query 给Database</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230707150658392.png" alt="image-20230707150658392"></p>
+<p><img src="/Users/ren/src/blog/951413iMgBlog/image-20230707150658392.png" alt="image-20230707150658392"></p>
 <h2 id="未解谜题"><a href="#未解谜题" class="headerlink" title="未解谜题"></a>未解谜题</h2><p>为什么在Tomcat 抓包到发给Database的 kill ？</p>
 <p>我反复去重现了，如果是我手工触发Tomcat kill是可以清晰地抓到Tomcat 会发160个kill 给Database，但是我任其自然等待用户监控来杀就一定抓不到kill 下发给DB</p>
 <p>我猜和 Tomcat 集群有关，首先用户监控是走的LVS，通过其中一个Tomcat 可以查询到所有 Tomcat 上的请求，然后发起 kill</p>
@@ -593,7 +593,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">274</span>
+                <span class="site-state-item-count">275</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
