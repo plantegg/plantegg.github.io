@@ -391,17 +391,17 @@
 <li>不用DHCP，而是手工填入一个DNS服务器，比如114.114.114.114【公司域名就无法解析了】</li>
 </ol>
 <p>如果只是停用一下wifi再启用问题还在。</p>
-<h2 id="找IT升级了网卡驱动不管用"><a href="#找IT升级了网卡驱动不管用" class="headerlink" title="找IT升级了网卡驱动不管用"></a>找IT升级了网卡驱动不管用</h2><h2 id="重现的时候抓包看看"><a href="#重现的时候抓包看看" class="headerlink" title="重现的时候抓包看看"></a>重现的时候抓包看看</h2><p><img src="/Users/ren/case/ossimg/c110f232829cbea9d5503166531d7f1d.png" alt="image.png"></p>
+<h2 id="找IT升级了网卡驱动不管用"><a href="#找IT升级了网卡驱动不管用" class="headerlink" title="找IT升级了网卡驱动不管用"></a>找IT升级了网卡驱动不管用</h2><h2 id="重现的时候抓包看看"><a href="#重现的时候抓包看看" class="headerlink" title="重现的时候抓包看看"></a>重现的时候抓包看看</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/c110f232829cbea9d5503166531d7f1d.png" alt="image.png"></p>
 <p>这肯定不对了，254上根本就没有跑DNS服务，可是当时没有检查 ipconfig，看看是否将网关IP动态配置到dns server里面去了，等下次重现后再确认吧。</p>
 <p>第二次重现后抓包，发现不一样了：</p>
-<p><img src="/Users/ren/case/ossimg/295797df3c311d6902d68fb16f6212d8.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/295797df3c311d6902d68fb16f6212d8.png" alt="image.png"></p>
 <p>出来一个 NBNS 的鬼东西，赶紧查了一下，把它禁掉，如下图所示：</p>
-<p><img src="/Users/ren/case/ossimg/9f06b680ae1f8b4cb781360f7c0ac2eb.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9f06b680ae1f8b4cb781360f7c0ac2eb.png" alt="image.png"></p>
 <p>把NBNS服务关了就能上网了，同时也能抓到各种DNS Query包</p>
 <h2 id="事情没有这么简单"><a href="#事情没有这么简单" class="headerlink" title="事情没有这么简单"></a>事情没有这么简单</h2><p>过一段时间后还是会出现上面的症状，但是因为NBNS关闭了，所以这次 ping <a href="http://www.baidu.com/" target="_blank" rel="noopener">www.baidu.com</a> 的时候没有任何包了，没有DNS Query包，也没有NBNS包，这下好尴尬。</p>
 <p>尝试Enable NBNS，又恢复了正常，看来<strong>开关 NBNS 仍然只是一个workaround，他不是导致问题的根因</strong>，开关一下没有真正解决问题，只是临时相当于重启了dns修复了问题而已。</p>
 <p>继续在网络不通的时候尝试直接ping dns server ip，发现一个奇怪的现象，丢包很多，丢包的时候还总是从 192.168.0.11返回来的，这就奇怪了，我的笔记本基本IP是30开头的，dns server ip也是30开头的，route 路由表也是对的，怎么就走到 192.168.0.11 上了啊（<a href="https://www.atatech.org/articles/80573" target="_blank" rel="noopener">参考我的另外一篇文章，网络到底通不通</a>），赶紧 ipconfig &#x2F;all | grep 192 </p>
-<p><img src="/Users/ren/case/ossimg/5212ee5e7496dafb122ce144293184e1.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5212ee5e7496dafb122ce144293184e1.png" alt="image.png"></p>
 <p>发现这个IP是VirtualBox虚拟机在笔记本上虚拟出来的网卡IP，这下我倒是能理解为啥总是我碰到这个问题了，因为我的工作笔记本一拿到后第一件事情就是装VirtualBox 跑虚拟机。</p>
 <p>VirtualBox为啥导致了这个问题就是一个很偏的方向，我实在无能为力了，尝试找到了一个和VirtualBox的DNS相关的开关命令，只能死马当活马医了（像极了算命大师和老中医）</p>
 <pre><code>./VBoxManage.exe  modifyvm &quot;ubuntu&quot; --natdnshostresolver1 on
@@ -645,7 +645,7 @@ IPv4 路由表
 <p>比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS &#x2F;etc&#x2F;resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。</p>
 <h3 id="风波再起"><a href="#风波再起" class="headerlink" title="风波再起"></a>风波再起</h3><p>本来以为问题彻底解决了，结果还是有一台机器ping仍然是unknow host，眼睛都看瞎了没发现啥问题，抓包发现总是把dns请求交给第二个nameserver，或者根本不发送dns请求，这就有意思了，跟我们理解的不太一样。</p>
 <p>看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：</p>
-<p><img src="/Users/ren/case/ossimg/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
 <p>ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 &#x2F;var&#x2F;run&#x2F;nscd&#x2F; 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。</p>
 <p><strong>从strace来看所有的ping都会尝试看看 nscd 是否在运行，在的话找nscd要域名解析结果，如果nscd没有运行，那么再找 &#x2F;etc&#x2F;resolv.conf中的nameserver做域名解析</strong></p>
 <p>而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。</p>
@@ -667,10 +667,10 @@ IPv4 路由表
 <h3 id="glibc函数"><a href="#glibc函数" class="headerlink" title="glibc函数"></a>glibc函数</h3><p>glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 地址的解析, gethostbyname 函数以同步阻塞的方式提供服务, 没有超时等选项, 仅提供 IPv4 的解析. getaddrinfo 则没有这些限制, 同时支持 IPv4, IPv6, 也支持 IPv4 到 IPv6 的映射选项. 包含 Linux 在内的很多系统都已废弃 gethostbyname 函数, 使用 getaddrinfo 函数代替. 不过从现实的情况来看, 还是有很多程序或网络库使用 gethostbyname 进行服务.</p>
 <p>备注:<br>线上开启 nscd 前, 建议做好程序的测试, nscd 仅支持通过 glibc, c 标准机制运行的程序, 没有基于 glibc 运行的程序可能不支持 nscd. 另外一些 go, perl 等编程语言网络库的解析函数是单独实现的, 不会走 nscd 的 socket, 这种情况下程序可以进行名称解析, 但不会使用 nscd 缓存. 不过我们在测试环境中使用go, java 的常规网络库都可以正常连接 nscd 的 socket 进行请求; perl 语言使用 Net::DNS 模块, 不会使用 nscd 缓存; python 语言使用 python-dns 模块, 不会使用 nscd 缓存. python 和 perl 不使用模块的时候进行解析还是遵循上述的过程, 同时使用 nscd 缓存.</p>
 <h2 id="下面是glibc中对rotate的处理："><a href="#下面是glibc中对rotate的处理：" class="headerlink" title="下面是glibc中对rotate的处理："></a>下面是glibc中对rotate的处理：</h2><p>这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：</p>
-<p><img src="/Users/ren/case/ossimg/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
 <p>在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了</p>
-<p><img src="/Users/ren/case/ossimg/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
-<p><img src="/Users/ren/case/ossimg/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
 <p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是&#x2F;etc&#x2F;resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
 <p><a href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570" target="_blank" rel="noopener">参考 glibc bug</a></p>
 <p><a href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc" target="_blank" rel="noopener">Linux内核与glibc</a></p>
@@ -862,8 +862,8 @@ IPv4 路由表
 <pre><code>net.core.netdev_max_backlog
 </code></pre>
 <p>Adapter buffer defaults are commonly set to a smaller size than the maximum&#x2F;&#x2F;网卡进出队列大小调整 ethtool -G eth rx 8192 tx 8192</p>
-<p><img src="/Users/ren/case/ossimg/5478d28fb7aaba3adeb4260bc15c0c65.png" alt="image.png"></p>
-<h2 id="核心流程"><a href="#核心流程" class="headerlink" title="核心流程"></a>核心流程</h2><p><img src="/Users/ren/case/ossimg/48fb8755f8e96b8df58c6c537650b81b.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5478d28fb7aaba3adeb4260bc15c0c65.png" alt="image.png"></p>
+<h2 id="核心流程"><a href="#核心流程" class="headerlink" title="核心流程"></a>核心流程</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/48fb8755f8e96b8df58c6c537650b81b.png" alt="image.png"></p>
 <p>接收数据包是一个复杂的过程，涉及很多底层的技术细节，但大致需要以下几个步骤：</p>
 <ol>
 <li>网卡收到数据包。</li>
@@ -873,7 +873,7 @@ IPv4 路由表
 <li>应用程序通过read()从socket buffer读取数据。</li>
 </ol>
 <h2 id="通过-dropwatch来查看丢包点"><a href="#通过-dropwatch来查看丢包点" class="headerlink" title="通过 dropwatch来查看丢包点"></a>通过 dropwatch来查看丢包点</h2><p>dropwatch -l kas (-l 加载符号表） &#x2F;&#x2F; 丢包点位置等于 ip_rcv地址+ cf(偏移量）</p>
-<p><img src="/Users/ren/case/ossimg/04283745fd082003e5f77e78a55e0d67.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/04283745fd082003e5f77e78a55e0d67.png" alt="image.png"></p>
 <p>一个典型的接收包调用堆栈：</p>
 <pre><code> 0xffffffff8157af10 : tcp_may_send_now+0x0/0x160 [kernel]
  0xffffffff815765f8 : tcp_fastretrans_alert+0x868/0xb50 [kernel]
@@ -1047,13 +1047,13 @@ IPv4 路由表
           
             <h1 id="网络环路"><a href="#网络环路" class="headerlink" title="网络环路"></a>网络环路</h1><pre><code>本文主要探讨网络环路的成因，危害以及预防
 </code></pre>
-<h2 id="交换机之间多条网线导致环路"><a href="#交换机之间多条网线导致环路" class="headerlink" title="交换机之间多条网线导致环路"></a>交换机之间多条网线导致环路</h2><p><img src="/Users/ren/case/ossimg/9acff2ad39b8700a0cc194483351ae69.png" alt="image.png"></p>
+<h2 id="交换机之间多条网线导致环路"><a href="#交换机之间多条网线导致环路" class="headerlink" title="交换机之间多条网线导致环路"></a>交换机之间多条网线导致环路</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9acff2ad39b8700a0cc194483351ae69.png" alt="image.png"></p>
 <p>如图sw1&#x2F;2&#x2F;3 三个交换机形成一个环路，一个arp广播包从sw1出来到sw2,然后到sw3，再然后又从sw3回到sw1，形成一个环路，这个arp包会重复前面的传播过程进而导致这个包一直在三个交换机之间死循环，进而把三个交换机的CPU、带宽全部打满，整个网络瘫痪</p>
 <p>对这种网络环路网络工程师们非常忌惮，因为一旦形成非常不好排查，并且整个网络瘫痪，基本上是严防死守。同时交换机也提供了各种功能（算法、策略）来自动检测网络环路并阻断网络环路。</p>
 <p>比如上图中交换机能检测到虚线形成了环路，并自动把这个交换机口Down掉以阻止成环。</p>
 <h2 id="交换机对环路的阻断–STP-Spanning-TreeProtocol-协议"><a href="#交换机对环路的阻断–STP-Spanning-TreeProtocol-协议" class="headerlink" title="交换机对环路的阻断–STP(Spanning TreeProtocol)协议"></a>交换机对环路的阻断–STP(Spanning TreeProtocol)协议</h2><p>STP协议的基本思想十分简单。大家知道，自然界中生长的树是不会出现环路的，如果网络也能够像一棵树一样生长就不会出现环路。于是，STP协议中定义了根桥(RootBridge)、根端口(RootPort)、指定端口(DesignatedPort)、路径开销(PathCost)等概念，目的就在于通过构造一棵自然树的方法达到裁剪冗余环路的目的，同时实现链路备份和路径最优化。用于构造这棵树的算法称为生成树算法SPA(Spanning TreeAlgorithm)。（摘自：<a href="http://network.51cto.com/art/201307/404013.htm%EF%BC%89" target="_blank" rel="noopener">http://network.51cto.com/art/201307/404013.htm）</a></p>
 <p>STP是通过BPDU的网络包来在交换机之间交换信息、判断是否成环</p>
-<h3 id="一个STP的Case"><a href="#一个STP的Case" class="headerlink" title="一个STP的Case"></a>一个STP的Case</h3><p>下图是抓到的STP网络包<br><img src="/Users/ren/case/ossimg/3cfb19b45b85d171eab9e656b02123e9.png" alt="image.png"></p>
+<h3 id="一个STP的Case"><a href="#一个STP的Case" class="headerlink" title="一个STP的Case"></a>一个STP的Case</h3><p>下图是抓到的STP网络包<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3cfb19b45b85d171eab9e656b02123e9.png" alt="image.png"></p>
 <p>STP协议的后果就是带宽效率低，所以出现了PVST、PVST+、RSTP、MISTP、MSTP，这些协议可能不同厂家的交换机都不一样，互相之间也不一定兼容，所以是否生效要以实际测试为准</p>
 <h3 id="用tcpdump抓取stp包"><a href="#用tcpdump抓取stp包" class="headerlink" title="用tcpdump抓取stp包"></a>用tcpdump抓取stp包</h3><pre><code>$ sudo tcpdump -vvv -p -n -i eth1 stp
 tcpdump: listening on eth1, link-type EN10MB (Ethernet), capture size 65535 bytes
@@ -1096,7 +1096,7 @@ interface GigabitEthernet1/31
 end
 </code></pre>
 <h2 id="SDN或者说OVS对网络环路的影响"><a href="#SDN或者说OVS对网络环路的影响" class="headerlink" title="SDN或者说OVS对网络环路的影响"></a>SDN或者说OVS对网络环路的影响</h2><p>前面讨论的都是硬件交换机之间的网络环路以及硬件交换机对这些环路的处理，那么在SDN和OVS的场景下有没有可能成环呢？ 成环后硬件交换机能不能检测到，或者软交换机自己能否检测到并阻止这些环路呢？</p>
-<h3 id="来看一个OVS场景下的成环Case"><a href="#来看一个OVS场景下的成环Case" class="headerlink" title="来看一个OVS场景下的成环Case"></a>来看一个OVS场景下的成环Case</h3><p><img src="/Users/ren/case/ossimg/9fdfaf409f5963c1ecb661dc0f957c20.png" alt="image.png"></p>
+<h3 id="来看一个OVS场景下的成环Case"><a href="#来看一个OVS场景下的成环Case" class="headerlink" title="来看一个OVS场景下的成环Case"></a>来看一个OVS场景下的成环Case</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9fdfaf409f5963c1ecb661dc0f957c20.png" alt="image.png"></p>
 <p>上图中红色虚线部分组成了一个环路，是为了组成环路而人为构造的场景，同时发现OVS只支持STP算法，打开也没有用，因为OVS和硬件交换机之间没法通过BPDU来协商判断环路（物理交换机丢掉了硬件交换机的BPDU包）。</p>
 <p>也就是在硬件网络环境固定的情况下，我们可以在Linux环境下鼓捣出来一个网络环路，同时让Linux所在的物理二层网络瘫痪掉（好屌）</p>
 <h3 id="在这种网络环路下后果"><a href="#在这种网络环路下后果" class="headerlink" title="在这种网络环路下后果"></a>在这种网络环路下后果</h3><ul>
@@ -1104,9 +1104,9 @@ end
 <li>连接在交换机上的所有服务器SYS CPU飙升到 30%左右（没有啥意义了，服务器没法跟外部做任何交流了）</li>
 </ul>
 <p>交换机的CPU状态：</p>
-<p><img src="/Users/ren/case/ossimg/e2e1972d0bf77bf5d0442cb976c4fc27.png" alt="image.png"> </p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e2e1972d0bf77bf5d0442cb976c4fc27.png" alt="image.png"> </p>
 <p>成环后抓到的arp广播风暴网络包（实际我只发了一个arp包）：</p>
-<p><img src="/Users/ren/case/ossimg/e4715913ef66fddcd0ca8ecd1e425d6f.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e4715913ef66fddcd0ca8ecd1e425d6f.png" alt="image.png"></p>
 <h2 id="其它网络环路"><a href="#其它网络环路" class="headerlink" title="其它网络环路"></a>其它网络环路</h2><ul>
 <li>直接把两个交换机用两根网线连接起来就是个环路</li>
 <li>拿一根网线两头连接在同一个交换机的两个网口上（短路） 2006年的一个Case： <a href="https://www.zhihu.com/question/49545070" target="_blank" rel="noopener">https://www.zhihu.com/question/49545070</a>，不过现在的交换机基本上都能识别这种短路</li>
@@ -1248,14 +1248,14 @@ end
         
           
             <h1 id="一个没有遵守tcp规则导致的问题"><a href="#一个没有遵守tcp规则导致的问题" class="headerlink" title="一个没有遵守tcp规则导致的问题"></a>一个没有遵守tcp规则导致的问题</h1><h3 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h3><p>应用连接数据库一段时间后，执行SQL的时候总是抛出异常，通过抓包分析发现每次发送SQL给数据的时候，数据库总是Reset这个连接</p>
-<p><img src="/Users/ren/case/ossimg/3ea1a415f772af24d8f619a38542eb7e.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3ea1a415f772af24d8f619a38542eb7e.png" alt="image.png"></p>
 <p>注意图中34号包，server（5029）发了一个fin包给client ，想要断开连接。client没断开，接着发了一个查询SQL给server。</p>
 <p>进一步分析所有断开连接（发送第一个fin包）的时间点，得到如图：</p>
-<p><img src="/Users/ren/case/ossimg/0ac00bfe8dcf87fa5c4997c89a16eb59.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0ac00bfe8dcf87fa5c4997c89a16eb59.png" alt="image.png"></p>
 <p>基本上可以猜测，server（5029端口）在建立连接100秒终止后如果没有任何请求过来就主动发送fin包给client，要断开连接，但是这个时候client比较无耻，收到端口请求后没搭理（除非是故意的），这个时候意味着server准备好关闭了，也不会再给client发送数据了（ack除外）。</p>
 <p>但是client虽然收到了fin断开连接的请求不但不理，过一会还不识时务发SQL查询给server，server一看不懂了（server早就申明连接关闭，没法发数据给client了），就只能回复reset，强制告诉client断开连接吧，client这时才迫于无奈断开了这次连接（图一绿框）</p>
 <p>client的应用代码层肯定会抛出异常。</p>
-<h3 id="server强行断开连接"><a href="#server强行断开连接" class="headerlink" title="server强行断开连接"></a>server强行断开连接</h3><p><img src="/Users/ren/case/ossimg/eca804fbb71e9cdfb033a9c072d8b72d.png" alt="image.png"></p>
+<h3 id="server强行断开连接"><a href="#server强行断开连接" class="headerlink" title="server强行断开连接"></a>server强行断开连接</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/eca804fbb71e9cdfb033a9c072d8b72d.png" alt="image.png"></p>
 <p>18745号包，client发了一个查询SQL给server，server先是回复ack 18941号包，然后回复fin 19604号包，强行断开连接，client端只能抛异常了</p>
 
           
@@ -1415,11 +1415,11 @@ end
 <p><strong>确认问题在宿主机网卡MTU设置为1350</strong>，从而导致容器发出的包被宿主机网卡丢掉</p>
 <h2 id="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名"><a href="#新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名" class="headerlink" title="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名"></a>新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名</h2><p>ping 这个域名能通，但是nslookup不行，基本可以确认网络没有大问题，之所以ping可以nslookup不行，是因为他们底层取dns server的逻辑不一样。</p>
 <p>先检查dns设置：</p>
-<p><img src="/Users/ren/case/ossimg/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
-<p><img src="/Users/ren/case/ossimg/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
 <p>多出来一个127.0.0.1肯定有问题，明明配置的时候只填了114.114.114.114. nslookup、浏览器默认把域名解析丢给了127.0.0.1，但是 ping丢给了114.114.114.114，所以看到如上描述的结果。</p>
 <p>经过思考发现应该是本机同时运行了easyconnect（vpn软件），127.0.0.1 是他强行塞进来的。马上停掉easyconnect再ipconfig &#x2F;all 验证一下这个时候的dns server，果然127.0.0.1不见了, nslookup 也正常了。</p>
-<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="/Users/ren/case/ossimg/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
+<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
 <p>能ping通说明网络能通，但是dns域名要能解析依赖于：</p>
 <ul>
 <li>网络能通</li>
@@ -1428,7 +1428,7 @@ end
 </ul>
 <p>如上图，这里的问题非常明显是中间的防火墙没放行 udp 53端口</p>
 <h2 id="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通"><a href="#方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通" class="headerlink" title="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通"></a>方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通</h2><p><a href="https://www.atatech.org/articles/93688" target="_blank" rel="noopener">nslookup 域名结果正确，但是 ping 域名失败</a></p>
-<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="/Users/ren/case/ossimg/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
+<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
 <p><strong>如图所示容器中发了 arp包（IP 10.100.2.2 寻找10.100.2.1 的mac地址），这个包从bond0 网卡发出去了，也是带的正确的 vlanid 1011，但是交换机没有回复，那么就一定是交换机上vlan配置不对，需要找分配这个vlan的网工来检查交换机的配置</strong></p>
 <p><font color="red" size="4"><strong>能抓到进出的容器包–外部环境正确，方舟底座的问题</strong></font></p>
 <p><font color="red" size="4"><strong>不能抓到出去的容器包–方舟底座的问题</strong></font></p>
@@ -1437,7 +1437,7 @@ end
 <p>检查宿主机网卡状态，发现没插网线，<strong>如果容器所用的宿主机网卡没有插网线，那么ovs就不会转发任何包到宿主机网卡</strong>。</p>
 <h2 id="一台应用服务器无法访问部分drds-server"><a href="#一台应用服务器无法访问部分drds-server" class="headerlink" title="一台应用服务器无法访问部分drds-server"></a><a href="https://aone.alibaba-inc.com/task/9753887" target="_blank" rel="noopener">一台应用服务器无法访问部分drds-server</a></h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15&#x2F;16就不通</p>
 <p>直接ping 10.100.53.15&#x2F;16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/Users/ren/case/ossimg/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
 <p><strong>上图是不通的IP，下图是正常IP</strong></p>
 <p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
 <h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
@@ -1451,7 +1451,7 @@ end
 <h2 id="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"><a href="#修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复" class="headerlink" title="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"></a>修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复</h2><p><a href="https://www.atatech.org/articles/105673" target="_blank" rel="noopener">Linux环境变量问题汇总</a></p>
 <h2 id="Centos系统重启后-x2F-etc-x2F-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-x2F-etc-x2F-resolv-conf"><a href="#Centos系统重启后-x2F-etc-x2F-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-x2F-etc-x2F-resolv-conf" class="headerlink" title="Centos系统重启后 &#x2F;etc&#x2F;resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 &#x2F;etc&#x2F;resolv.conf"></a>Centos系统重启后 &#x2F;etc&#x2F;resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 &#x2F;etc&#x2F;resolv.conf</h2><h2 id="MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"><a href="#MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。" class="headerlink" title="MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"></a>MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。</h2><p>好奇心迫使我去看代码、<strong>看openssl测试输出日志</strong>（MonkeyKing burn cpu内部调用 openssl speed 测试cpu的速度），这个测试一轮跑完了opessl就结束了，本身就不是死循环一直跑, 不是方舟杀掉的。</p>
 <p>另外说明这个问题一直存在开发、测试MonkeyKing功能的团队就没有发现，或者之前一直只需要跑不到10分钟就自己主动把它杀掉让出CPU。</p>
-<p><img src="/Users/ren/case/ossimg/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
 <h2 id="某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"><a href="#某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常" class="headerlink" title="某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"></a>某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常</h2><p>尝试telnet zk发现不通，客户现场安装了kerberos导致telnet测试有问题（telnet被kerberos替换过）,换一个其他环境的telnet 二进制文件就可以了（md5sum、telnet –help）</p>
 <h2 id="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"><a href="#开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器" class="headerlink" title="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"></a><a href="https://aone.alibaba-inc.com/issue/10403085" target="_blank" rel="noopener">开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器</a></h2><p>主要是出现在tlog-console访问hbase容器的时候报连接异常</p>
 <ol>
@@ -1487,10 +1487,10 @@ end
 <p>手工修改这个文件，放到三行，问题没完，还是异常，我自己崩溃没管。最后听mq-diamond的开发讲他们取iplist的url比较特殊，是自己定义的，所以我修改的地方不起作用。<strong>反思，为什么修改不起作用的时候不去看看Nginx的access日志？ 这样可以证明我修改的文件实际没有被使用，同时还能找到真正被使用的配置文件</strong></p>
 <h2 id="内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）"><a href="#内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）" class="headerlink" title="内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）"></a>内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）</h2><p><a href="https://aone.alibaba-inc.com/issue/12510664" target="_blank" rel="noopener">内核migration进程bug导致对应的CPU核卡死</a>（图一），这个核上的所有进程得不到执行（Load高，CPU没有任何消耗， 图二），直到内核进程 watchdog 发现这个问题并恢复它。</p>
 <p>出现这个bug后的症状，通过top命令看到CPU没有任何消耗但是Load偏高，如果应用进程恰好被调度到这个出问题的CPU核上，那么这个进程会卡住（大概20秒）没有任何响应，比如 ping 进程（图三图四），watchdog恢复这个问题后，多个网络包在同一时间全部通。其实所影响的不仅仅是网络卡顿，中间件容器里面的服务如果调度到这个CPU核上同样得不到执行，从外面就是感觉容器不响应了</p>
-<p><img src="/Users/ren/case/ossimg/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
-<p><img src="/Users/ren/case/ossimg/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
-<p><img src="/Users/ren/case/ossimg/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
-<p><img src="/Users/ren/case/ossimg/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
 <p>拿如上证据求助内核开发</p>
 <p>关键信息在这里：<br>代码第297行<br>2017-09-15T06:52:37.820783+00:00 ascliveedas4.sgdc kernel: [598346.499872] WARNING: at net&#x2F;sched&#x2F;sch_generic.c:297 dev_watchdog+0x270&#x2F;0x280()<br>2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499873] NETDEV WATCHDOG: ens2f0 (ixgbe): transmit queue 28 timed out</p>
 <p>kernel version: kernel-3.10.0-327.22.2.el7.src.rpm</p>
@@ -1707,25 +1707,25 @@ $ cat  kernel_log.0915
             <h1 id="Load很高，CPU使用率很低"><a href="#Load很高，CPU使用率很低" class="headerlink" title="Load很高，CPU使用率很低"></a>Load很高，CPU使用率很低</h1><blockquote>
 <p>第一次碰到这种Case：物理机的Load很高，CPU使用率很低</p>
 </blockquote>
-<h3 id="先看CPU、Load情况"><a href="#先看CPU、Load情况" class="headerlink" title="先看CPU、Load情况"></a>先看CPU、Load情况</h3><p>如图一：<br>vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，但是CPU idle 95%以上<br><img src="/Users/ren/case/ossimg/046077102b3a0fd89e53f62cf32874c0.png" alt="image.png"><br><img src="/Users/ren/case/ossimg/d905abc4576e0c6ac952c71005696131.png" alt="image.png"></p>
+<h3 id="先看CPU、Load情况"><a href="#先看CPU、Load情况" class="headerlink" title="先看CPU、Load情况"></a>先看CPU、Load情况</h3><p>如图一：<br>vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，但是CPU idle 95%以上<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/046077102b3a0fd89e53f62cf32874c0.png" alt="image.png"><br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d905abc4576e0c6ac952c71005696131.png" alt="image.png"></p>
 <p>这个现象不太合乎常规，也许是在等磁盘IO、也许在等网络返回会导致CPU利用率很低而Load很高</p>
-<p>贴个vmstat 说明文档（图片来源于网络N年了，找不到出处）<br><img src="/Users/ren/case/ossimg/9a0c040b24699d4128bbecae1af08b1d.png" alt="image.png"></p>
-<h3 id="检查磁盘状态，很正常（vmstat-第二列也一直为0）"><a href="#检查磁盘状态，很正常（vmstat-第二列也一直为0）" class="headerlink" title="检查磁盘状态，很正常（vmstat 第二列也一直为0）"></a>检查磁盘状态，很正常（vmstat 第二列也一直为0）</h3><p><img src="/Users/ren/case/ossimg/19d7d02c9472ddb2b057a4d09b497463.png" alt="image.png"></p>
-<h3 id="再看Load是在5号下午15：50突然飙起来的："><a href="#再看Load是在5号下午15：50突然飙起来的：" class="headerlink" title="再看Load是在5号下午15：50突然飙起来的："></a>再看Load是在5号下午15：50突然飙起来的：</h3><p><img src="/Users/ren/case/ossimg/71127256e8e33a716770f74cb563a1b6.png" alt="image.png"></p>
-<h3 id="同一时间段的网络流量、TCP连接相关数据很平稳："><a href="#同一时间段的网络流量、TCP连接相关数据很平稳：" class="headerlink" title="同一时间段的网络流量、TCP连接相关数据很平稳："></a>同一时间段的网络流量、TCP连接相关数据很平稳：</h3><p><img src="/Users/ren/case/ossimg/8f7ff0bf2f313409f521f6863f2375aa.png" alt="image.png"></p>
+<p>贴个vmstat 说明文档（图片来源于网络N年了，找不到出处）<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9a0c040b24699d4128bbecae1af08b1d.png" alt="image.png"></p>
+<h3 id="检查磁盘状态，很正常（vmstat-第二列也一直为0）"><a href="#检查磁盘状态，很正常（vmstat-第二列也一直为0）" class="headerlink" title="检查磁盘状态，很正常（vmstat 第二列也一直为0）"></a>检查磁盘状态，很正常（vmstat 第二列也一直为0）</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/19d7d02c9472ddb2b057a4d09b497463.png" alt="image.png"></p>
+<h3 id="再看Load是在5号下午15：50突然飙起来的："><a href="#再看Load是在5号下午15：50突然飙起来的：" class="headerlink" title="再看Load是在5号下午15：50突然飙起来的："></a>再看Load是在5号下午15：50突然飙起来的：</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/71127256e8e33a716770f74cb563a1b6.png" alt="image.png"></p>
+<h3 id="同一时间段的网络流量、TCP连接相关数据很平稳："><a href="#同一时间段的网络流量、TCP连接相关数据很平稳：" class="headerlink" title="同一时间段的网络流量、TCP连接相关数据很平稳："></a>同一时间段的网络流量、TCP连接相关数据很平稳：</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8f7ff0bf2f313409f521f6863f2375aa.png" alt="image.png"></p>
 <p>所以分析到此，可以得出：<strong>Load高跟磁盘、网络、压力都没啥关系</strong></p>
-<h3 id="物理机上是跑的Docker，分析了一下CPUSet情况："><a href="#物理机上是跑的Docker，分析了一下CPUSet情况：" class="headerlink" title="物理机上是跑的Docker，分析了一下CPUSet情况："></a>物理机上是跑的Docker，分析了一下CPUSet情况：</h3><p><img src="/Users/ren/case/ossimg/e7996a82da2c140594835e3264c6ef4b.png" alt="image.png"></p>
+<h3 id="物理机上是跑的Docker，分析了一下CPUSet情况："><a href="#物理机上是跑的Docker，分析了一下CPUSet情况：" class="headerlink" title="物理机上是跑的Docker，分析了一下CPUSet情况："></a>物理机上是跑的Docker，分析了一下CPUSet情况：</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e7996a82da2c140594835e3264c6ef4b.png" alt="image.png"></p>
 <p><strong>发现基本上所有容器都绑定在CPU1上（感谢 @辺客 发现这个问题）</strong></p>
-<h3 id="进而检查top每个核的状态，果然CPU1-的idle一直为0"><a href="#进而检查top每个核的状态，果然CPU1-的idle一直为0" class="headerlink" title="进而检查top每个核的状态，果然CPU1 的idle一直为0"></a>进而检查top每个核的状态，果然CPU1 的idle一直为0</h3><p><img src="/Users/ren/case/ossimg/2b32adb2071b3fdb334e0735db899a2e.png" alt="image.png"></p>
+<h3 id="进而检查top每个核的状态，果然CPU1-的idle一直为0"><a href="#进而检查top每个核的状态，果然CPU1-的idle一直为0" class="headerlink" title="进而检查top每个核的状态，果然CPU1 的idle一直为0"></a>进而检查top每个核的状态，果然CPU1 的idle一直为0</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2b32adb2071b3fdb334e0735db899a2e.png" alt="image.png"></p>
 <p>看到这里大致明白了，虽然CPU整体很闲但是因为很多进程都绑定在CPU1上，导致CPU1上排队很长，看前面tsar的–load负载截图的 等待运行进程排队长度（runq）确实也很长。</p>
 <blockquote>
 <p>物理机有32个核，如果100个任务同时进来，Load大概是3，这是正常的。如果这100个任务都跑在CPU1上，Load还是3（因为Load是所有核的平均值）。但是如果有源源不断的100个任务进来，前面100个还没完后面又来了100个，这个时候CPU1前面队列很长，其它31个核没事做，这个时候整体Load就是6了，时间一长很快Load就能到几百。</p>
 <p>这是典型的瓶颈导致积压进而高Load。</p>
 </blockquote>
 <h3 id="为什么会出现这种情况"><a href="#为什么会出现这种情况" class="headerlink" title="为什么会出现这种情况"></a>为什么会出现这种情况</h3><p>检查Docker系统日志，发现同一时间点所有物理机同时批量执行docker update 把几百个容器都绑定到CPU1上，导致这个核忙死了，其它核闲得要死（所以看到整体CPU不忙，最忙的那个核被平均掩盖掉了），但是Load高（CPU1上排队太长，即使平均到32个核，这个队列还是长，这就是瓶颈啊）。</p>
-<p>如下Docker日志，Load飙升的那个时间点有人批量调docker update 把所有容器都绑定到CPU1上：<br><img src="/Users/ren/case/ossimg/f4925c698c9fd4edb56fcfc2ebb9f625.png" alt="image.png"></p>
+<p>如下Docker日志，Load飙升的那个时间点有人批量调docker update 把所有容器都绑定到CPU1上：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f4925c698c9fd4edb56fcfc2ebb9f625.png" alt="image.png"></p>
 <p>检查Docker集群Swarm的日志，发现Swarm没有发起这样的update操作，似乎是每个Docker Daemon自己的行为，谁触发了这个CPU的绑定过程的原因还没找到，求指点。</p>
-<h3 id="手动执行docker-update-把容器打散到不同的cpu核上，恢复正常："><a href="#手动执行docker-update-把容器打散到不同的cpu核上，恢复正常：" class="headerlink" title="手动执行docker update, 把容器打散到不同的cpu核上，恢复正常："></a>手动执行docker update, 把容器打散到不同的cpu核上，恢复正常：</h3><p><img src="/Users/ren/case/ossimg/9e1adae472cf0b4f95af83390adaead9.png" alt="image.png"></p>
+<h3 id="手动执行docker-update-把容器打散到不同的cpu核上，恢复正常："><a href="#手动执行docker-update-把容器打散到不同的cpu核上，恢复正常：" class="headerlink" title="手动执行docker update, 把容器打散到不同的cpu核上，恢复正常："></a>手动执行docker update, 把容器打散到不同的cpu核上，恢复正常：</h3><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9e1adae472cf0b4f95af83390adaead9.png" alt="image.png"></p>
 <h2 id="关于这个Case的总结"><a href="#关于这个Case的总结" class="headerlink" title="关于这个Case的总结"></a>关于这个Case的总结</h2><ul>
 <li>技术拓展商业边界，同样技能、熟练能力能拓展解决问题的能力。 开始我注意到了Swarm集群显示的CPU绑定过多，同时也发现有些容器绑定在CPU1上。所以我尝试通过API： GET &#x2F;containers&#x2F;json 拿到了所有容器的参数，然后搜索里面的CPUSet，结果这个API返回来的参数不包含CPUSet，那我只能挨个 GET &#x2F;containers&#x2F;id&#x2F;json, 要写个循环，偷懒没写，所以没发现这个问题。</li>
 <li>这种多个进程绑定到同一个核然后导致Load过高的情况确实很少见，也算是个教训</li>
@@ -1876,7 +1876,7 @@ $ cat  kernel_log.0915
           
             <h1 id="部分机器网络不通"><a href="#部分机器网络不通" class="headerlink" title="部分机器网络不通"></a>部分机器网络不通</h1><h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15&#x2F;16就不通</p>
 <p>直接ping 10.100.53.15&#x2F;16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/Users/ren/case/ossimg/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
 <p><strong>上图是不通的IP，下图是正常IP</strong></p>
 <p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
 <h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
@@ -2022,13 +2022,13 @@ Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl
 Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
 </code></pre>
 <p>server监听在2000端口，支持keepalive， client连接上server后每隔10秒发送一个keepalive包，一旦keepalive包得不对对方的响应，每隔1秒继续发送keepalive, 重试两次，如果一直得不到对方的响应那么这个时候client主动发送一个reset包，那么在client这边这个socket就断开了。server上会一直傻傻的等，直到真正要发送数据了才抛异常。</p>
-<p><img src="/Users/ren/case/ossimg/90d1c4919d86764242ab726b4c69f006.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/90d1c4919d86764242ab726b4c69f006.png" alt="image.png"></p>
 <p>假如client连接层是一个Java应用的连接池，那么这个socket断开后Java能感知吗？</p>
 <p><a href="https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed" target="_blank" rel="noopener">https://stackoverflow.com/questions/10240694/java-socket-api-how-to-tell-if-a-connection-has-been-closed</a></p>
 <p>Java对Socket的控制比较弱，比如只能指定是否keepalive，不能用特定的keepalive参数(intvl&#x2F;cnt等），除非走JNI，不推荐。</p>
-<p>如下图（dup ack其实都是keepalive包，这是因为没有抓到握手包导致wireshark识别错误而已）<br><img src="/Users/ren/case/ossimg/c2893e5ad89ee450c61a370ec7bf6f06.png" alt="image.png"></p>
+<p>如下图（dup ack其实都是keepalive包，这是因为没有抓到握手包导致wireshark识别错误而已）<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/c2893e5ad89ee450c61a370ec7bf6f06.png" alt="image.png"></p>
 <p>如上图，client 21512在多次keepalive server都不响应后，发送了reset断开这个连接（server没收到），server以为还连着，这个时候当server正常发数据给client，如果防火墙还在就丢掉，server不停地重传，如果防火墙不在，那么对方os收到这个包后知道21512这个端口对应的连接已经关闭了，再次发送reset给server，这时候server抛异常，中断这个连接。</p>
-<p><img src="/Users/ren/case/ossimg/78427c329e72d526aa8908942409f092.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/78427c329e72d526aa8908942409f092.png" alt="image.png"></p>
 <p>os层面目前看起来除了用socket去读数据感知到内核已经reset了连接外也没什么好办法检测到。</p>
 
           
@@ -2166,9 +2166,9 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
             <h1 id="如何徒手撕Bug"><a href="#如何徒手撕Bug" class="headerlink" title="如何徒手撕Bug"></a>如何徒手撕Bug</h1><p>经常碰到bug，如果有源代码，或者源代码比较简单一般通过bug现象结合读源代码，基本能比较快解决掉。但是有些时候源代码过于复杂，比如linux kernel，比如 docker，复杂的另一方面是没法比较清晰地去理清源代码的结构。</p>
 <p>所以不到万不得已不要碰复杂的源代码</p>
 <h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>docker daemon重启，上面有几十个容器，重启后daemon基本上卡死不动了。 docker ps&#x2F;exec 都没有任何响应，同时能看到很多这样的进程：</p>
-<p><img src="/Users/ren/case/ossimg/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ed7f275935b32c7fd5fef3e0caf2eb0c.png" alt="image.png"></p>
 <p>这个进程是docker daemon在启动的时候去设置每个容器的iptables，来实现dns解析。</p>
-<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="/Users/ren/case/ossimg/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
+<p>这个时候执行 sudo iptables -L 也告诉你有其他应用锁死iptables了：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/901fd2057fb3b32ff79dc5a29c9cdd67.png" alt="image.png"></p>
 <pre><code>$sudo fuser /run/xtables.lock 
 /run/xtables.lock:1203  5544 10161 14451 14482 14503 14511 14530 14576 14602 14617 14637 14659 14664 14680 14698 14706 14752 14757 14777 14807 14815 14826 14834 14858 14872 14889 14915 14972 14973 14979 14991 15006 15031 15067 15076 15104 15127 15155 15176 15178 15179 15180 16506 17656 17657 17660 21904 21910 24174 28424 29741 29839 29847 30018 32418 32424 32743 33056 33335 59949 64006
 </code></pre>
@@ -2177,7 +2177,7 @@ Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A
 iptables 36057 root3rW  REG   0,190 48341 /run/xtables.lock
 </code></pre>
 <p>通过strace这个拿到锁的进程可以看到：</p>
-<p><img src="/Users/ren/case/ossimg/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/27d266ab8fd492f009fb7047d9337518.png" alt="image.png"></p>
 <p>发现在这个配置容器dns的进程同时还在执行一些dns查询任务（容器发起了dns查询），但是这个时候dns还没配置好，所以这个查询会超时</p>
 <p>看看物理机上的dns服务器配置：</p>
 <pre><code>$cat /etc/resolv.conf   
@@ -2187,13 +2187,13 @@ nameserver 10.0.0.2
 nameserver 10.0.0.3
 </code></pre>
 <p>尝试将 timeout 改到20秒、1秒分别验证一下，发现如果timeout改到20秒strace这里也会卡20秒，如果是1秒（这个时候attempts改成1，后面两个dns去掉），那么整体没有感知到任何卡顿，就是所有iptables修改的进程都很快执行完毕了</p>
-<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="/Users/ren/case/ossimg/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
+<h2 id="strace某个等锁的进程，拿到锁后非常快"><a href="#strace某个等锁的进程，拿到锁后非常快" class="headerlink" title="strace某个等锁的进程，拿到锁后非常快"></a>strace某个等锁的进程，拿到锁后非常快</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/25ab3e2385e08e8e23eeb1309d949839.png" alt="image.png"></p>
 <p>拿到锁后如果这个时候没有收到 dns 查询，那么很快iptables修改完毕，也不会导致卡住</p>
 <h2 id="strace工作原理"><a href="#strace工作原理" class="headerlink" title="strace工作原理"></a>strace工作原理</h2><blockquote>
 <p>strace -T -tt -ff -p pid -o strace.out</p>
 <p>注意：对于多进线程序需要加-f 参数，这样会trace 进程下的所有线程，-t 表示打印时间精度默认为秒，-tt -ttt 分别表示ms us 的时间精度。</p>
 </blockquote>
-<p><img src="/Users/ren/case/ossimg/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/19c681e7393bda67ab0a4d8f62f1a853.png" alt="image.png"></p>
 <p>我们从图中可以看到，对于正在运行的进程而言，strace 可以 attach 到目标进程上，这是通过 ptrace 这个系统调用实现的（gdb 工具也是如此）。ptrace 的 PTRACE_SYSCALL 会去追踪目标进程的系统调用；目标进程被追踪后，每次进入 syscall，都会产生 SIGTRAP 信号并暂停执行；追踪者通过目标进程触发的 SIGTRAP 信号，就可以知道目标进程进入了系统调用，然后追踪者会去处理该系统调用，我们用 strace 命令观察到的信息输出就是该处理的结果；追踪者处理完该系统调用后，就会恢复目标进程的执行。被恢复的目标进程会一直执行下去，直到下一个系统调用。</p>
 <p>你可以发现，目标进程每执行一次系统调用都会被打断，等 strace 处理完后，目标进程才能继续执行，这就会给目标进程带来比较明显的延迟。因此，在生产环境中我不建议使用该命令，如果你要使用该命令来追踪生产环境的问题，那就一定要做好预案。</p>
 <p>假设我们使用 strace 跟踪到，线程延迟抖动是由某一个系统调用耗时长导致的，那么接下来我们该怎么继续追踪呢？这就到了应用开发者和运维人员需要拓展分析边界的时刻了，对内核开发者来说，这才算是分析问题的开始。</p>
@@ -3248,7 +3248,7 @@ msg_size  =4 KiB (4,096)
 <td>0.541</td>
 </tr>
 </tbody></table>
-<p><img src="/Users/ren/case/ossimg/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1589164443676-cc7b2394-67e1-4550-b34d-d489c34ad026.png" alt="image.png"></p>
 <p>吞吐量数据汇总：</p>
 <table>
 <thead>
@@ -3326,7 +3326,7 @@ msg_size  =4 KiB (4,096)
 <td>4920</td>
 </tr>
 </tbody></table>
-<p><img src="/Users/ren/case/ossimg/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1589164443610-d5bb45a6-f688-4a6b-b697-8370387f4dd8.png" alt="image.png"></p>
 <p>从延迟上来看，rama与calico-bgp相差不大，从数据上略低于host性能，略高于flannel-vxlan；从吞吐量上看，区别会明显一些，当报文长度大于4096 KB 时，均观察到各网络插件的吞吐量达到最大值，从最大值上来看可以初步得出以下结论：</p>
 <p><strong>host &gt; rama不开启mac nat &gt;</strong> <strong>rama开启mac nat</strong> ≈ <strong>calico-bgp &gt;</strong> <strong>flannel-vxlan</strong></p>
 <p>rama不开启mac nat时性能最高，开启mac nat功能，性能与calico-bgp基本相同，并且性能大幅度高于flannel-vxlan；虽然rama开启mac nat之后的性能与每个节点上的pod数量直接相关，但由于测试 rama开启mac nat方案 的时候，取的是两个个节点上50个pod中预计性能最差的pod，基本可以反映一般情况</p>
@@ -3468,20 +3468,20 @@ msg_size  =4 KiB (4,096)
             <h1 id="双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题"><a href="#双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
 <p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
 </blockquote>
-<p><img src="/Users/ren/case/ossimg/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
-<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="/Users/ren/case/ossimg/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
+<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
 <p>图中CPU的消耗占21%，不太正常。</p>
 <blockquote>
 <p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到<br>@RequestMapping<br>@PathVariable<br>带来使用上的便利</p>
 </blockquote>
-<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="/Users/ren/case/ossimg/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
+<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
 <p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
 <h3 id="Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）："><a href="#Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）：" class="headerlink" title="Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）："></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) &#123;</span><br><span class="line">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);</span><br><span class="line">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);</span><br><span class="line">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);</span><br><span class="line">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);</span><br><span class="line">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);</span><br><span class="line">176</span><br><span class="line">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) &#123;</span><br><span class="line">178			return null;</span><br><span class="line">179		&#125;</span><br><span class="line">180</span><br><span class="line">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);</span><br><span class="line">182		if (patterns == null) &#123;</span><br><span class="line">183			return null;</span><br><span class="line">184		&#125;</span><br><span class="line">185</span><br><span class="line">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);</span><br><span class="line">187		if (custom == null) &#123;</span><br><span class="line">188			return null;</span><br><span class="line">189		&#125;</span><br><span class="line">190</span><br><span class="line">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());</span><br><span class="line">192	&#125;</span><br></pre></td></tr></table></figure>
 
 <h3 id="doMatch-代码："><a href="#doMatch-代码：" class="headerlink" title="doMatch 代码："></a>doMatch 代码：</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br></pre></td><td class="code"><pre><span class="line">96 </span><br><span class="line">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,</span><br><span class="line">98 			Map&lt;String, String&gt; uriTemplateVariables) &#123;</span><br><span class="line">99 </span><br><span class="line">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) &#123;</span><br><span class="line">101			return false;</span><br><span class="line">102		&#125;</span><br><span class="line">103</span><br><span class="line">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">106</span><br><span class="line">107		int pattIdxStart = 0;</span><br><span class="line">108		int pattIdxEnd = pattDirs.length - 1;</span><br><span class="line">109		int pathIdxStart = 0;</span><br><span class="line">110		int pathIdxEnd = pathDirs.length - 1;</span><br><span class="line">111</span><br><span class="line">112		// Match all elements up to the first **</span><br><span class="line">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">114			String patDir = pattDirs[pattIdxStart];</span><br><span class="line">115			if (&quot;**&quot;.equals(patDir)) &#123;</span><br><span class="line">116				break;</span><br><span class="line">117			&#125;</span><br><span class="line">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) &#123;</span><br><span class="line">119				return false;</span><br><span class="line">120			&#125;</span><br><span class="line">121			pattIdxStart++;</span><br><span class="line">122			pathIdxStart++;</span><br><span class="line">123		&#125;</span><br><span class="line">124</span><br><span class="line">125		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">126			// Path is exhausted, only match if rest of pattern is * or **&apos;s</span><br><span class="line">127			if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :</span><br><span class="line">129						!path.endsWith(this.pathSeparator));</span><br><span class="line">130			&#125;</span><br><span class="line">131			if (!fullMatch) &#123;</span><br><span class="line">132				return true;</span><br><span class="line">133			&#125;</span><br><span class="line">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&quot;*&quot;) &amp;&amp; path.endsWith(this.pathSeparator)) &#123;</span><br><span class="line">135				return true;</span><br><span class="line">136			&#125;</span><br><span class="line">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">138				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">139					return false;</span><br><span class="line">140				&#125;</span><br><span class="line">141			&#125;</span><br><span class="line">142			return true;</span><br><span class="line">143		&#125;</span><br><span class="line">144		else if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">145			// String not exhausted, but pattern is. Failure.</span><br><span class="line">146			return false;</span><br><span class="line">147		&#125;</span><br><span class="line">148		else if (!fullMatch &amp;&amp; &quot;**&quot;.equals(pattDirs[pattIdxStart])) &#123;</span><br><span class="line">149			// Path start definitely matches due to &quot;**&quot; part in pattern.</span><br><span class="line">150			return true;</span><br><span class="line">151		&#125;</span><br><span class="line">152</span><br><span class="line">153		// up to last &apos;**&apos;</span><br><span class="line">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">155			String patDir = pattDirs[pattIdxEnd];</span><br><span class="line">156			if (patDir.equals(&quot;**&quot;)) &#123;</span><br><span class="line">157				break;</span><br><span class="line">158			&#125;</span><br><span class="line">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) &#123;</span><br><span class="line">160				return false;</span><br><span class="line">161			&#125;</span><br><span class="line">162			pattIdxEnd--;</span><br><span class="line">163			pathIdxEnd--;</span><br><span class="line">164		&#125;</span><br><span class="line">165		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">166			// String is exhausted</span><br><span class="line">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">168				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">169					return false;</span><br><span class="line">170				&#125;</span><br><span class="line">171			&#125;</span><br><span class="line">172			return true;</span><br><span class="line">173		&#125;</span><br><span class="line">174</span><br><span class="line">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">176			int patIdxTmp = -1;</span><br><span class="line">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">178				if (pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">179					patIdxTmp = i;</span><br><span class="line">180					break;</span><br><span class="line">181				&#125;</span><br><span class="line">182			&#125;</span><br><span class="line">183			if (patIdxTmp == pattIdxStart + 1) &#123;</span><br><span class="line">184				// &apos;**/**&apos; situation, so skip one</span><br><span class="line">185				pattIdxStart++;</span><br><span class="line">186				continue;</span><br><span class="line">187			&#125;</span><br><span class="line">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between</span><br><span class="line">189			// strIdxStart &amp; strIdxEnd</span><br><span class="line">190			int patLength = (patIdxTmp - pattIdxStart - 1);</span><br><span class="line">191			int strLength = (pathIdxEnd - pathIdxStart + 1);</span><br><span class="line">192			int foundIdx = -1;</span><br><span class="line">193</span><br><span class="line">194			strLoop:</span><br><span class="line">195			for (int i = 0; i &lt;= strLength - patLength; i++) &#123;</span><br><span class="line">196				for (int j = 0; j &lt; patLength; j++) &#123;</span><br><span class="line">197					String subPat = pattDirs[pattIdxStart + j + 1];</span><br><span class="line">198					String subStr = pathDirs[pathIdxStart + i + j];</span><br><span class="line">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) &#123;</span><br><span class="line">200						continue strLoop;</span><br><span class="line">201					&#125;</span><br><span class="line">202				&#125;</span><br><span class="line">203				foundIdx = pathIdxStart + i;</span><br><span class="line">204				break;</span><br><span class="line">205			&#125;</span><br><span class="line">206</span><br><span class="line">207			if (foundIdx == -1) &#123;</span><br><span class="line">208				return false;</span><br><span class="line">209			&#125;</span><br><span class="line">210</span><br><span class="line">211			pattIdxStart = patIdxTmp;</span><br><span class="line">212			pathIdxStart = foundIdx + patLength;</span><br><span class="line">213		&#125;</span><br><span class="line">214</span><br><span class="line">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">216			if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">217				return false;</span><br><span class="line">218			&#125;</span><br><span class="line">219		&#125;</span><br><span class="line">220</span><br><span class="line">221		return true;</span><br><span class="line">222	&#125;</span><br></pre></td></tr></table></figure>
 
 <p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a href="http://www.cnblogs.com/ucos/articles/5542012.html" target="_blank" rel="noopener">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
-<p>以及这篇文章中给出的优化前后对比图：<br><img src="/Users/ren/case/ossimg/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
+<p>以及这篇文章中给出的优化前后对比图：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
 
           
         
@@ -3621,7 +3621,7 @@ msg_size  =4 KiB (4,096)
 <h2 id="问题的原因"><a href="#问题的原因" class="headerlink" title="问题的原因"></a>问题的原因</h2><p>因为TCP协议为了对带宽利用率、性能方面优化，而做了一些特殊处理。比如Delay Ack和Nagle算法。</p>
 <p>这个原因对大家理解TCP基本的概念后能在实战中了解一些TCP其它方面的性能和影响。</p>
 <h3 id="什么是delay-ack"><a href="#什么是delay-ack" class="headerlink" title="什么是delay ack"></a>什么是delay ack</h3><p>由我前面的TCP介绍文章大家都知道，TCP是可靠传输，可靠的核心是收到包后回复一个ack来告诉对方收到了。</p>
-<p>来看一个例子：<br><img src="/Users/ren/case/ossimg/06e6b04614ce57e4624346ea6311a411.png" alt="image.png"></p>
+<p>来看一个例子：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/06e6b04614ce57e4624346ea6311a411.png" alt="image.png"></p>
 <p>截图中的Nignx(8085端口），收到了一个http request请求，然后立即回复了一个ack包给client，接着又回复了一个http response 给client。大家注意回复的ack包长度66，实际内容长度为0，ack信息放在TCP包头里面，也就是这里发了一个66字节的空包给客户端来告诉客户端我收到你的请求了。</p>
 <p>这里没毛病，逻辑很对，符合TCP的核心可靠传输的意义。但是带来的一个问题是：性能不够好（用了一个空包用于特意回复ack，有点浪费）。那能不能优化呢？</p>
 <p>这里的优化方法就是delay ack。</p>
@@ -3708,15 +3708,15 @@ end if
 <li>ssthresh：Slow Start Threshold，慢启动阈值。当数据发送方感知到丢包时，会记录此时的 CWND，并计算合理的 ssthresh 值（ssthresh &lt;&#x3D; 丢包时的 CWND），当 CWND 重新由小至大增长，直到 sshtresh 时，不再 SS 而是 CA。但因为数据确认超时（数据发送端始终收不到对端的接收确认报文），发送端会骤降 CWND 到最初始的状态。</li>
 <li>tcp_wmem 对应send buffer，也就是滑动窗口大小</li>
 </ul>
-<p><img src="/Users/ren/case/ossimg/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1a468a5a3060792647713d3cf307c986.png" alt="image.png"></p>
 <p>上图一旦发生丢包，cwnd降到1 ssthresh降到cwnd&#x2F;2,一夜回到解放前，太保守了，实际大多情况下都是公网带宽还有空余但是链路过长，非带宽不够丢包概率增大，对此没必要这么保守（tcp诞生的背景主要针对局域网、双绞线来设计，偏保守）。RTT越大的网络环境（长肥管道）这个问题越是严重，表现就是传输速度抖动非常厉害。</p>
 <p>所以改进的拥塞算法一旦发现丢包，cwnd和ssthresh降到原来的cwnd的一半。</p>
-<p><img src="/Users/ren/case/ossimg/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e24ad7655c10a82f35879503ecabc98f.png" alt="image.png"></p>
 <h3 id="TCP性能优化点"><a href="#TCP性能优化点" class="headerlink" title="TCP性能优化点"></a>TCP性能优化点</h3><ul>
 <li>建连优化：TCP 在建立连接时，如果丢包，会进入重试，重试时间是 1s、2s、4s、8s 的指数递增间隔，缩短定时器可以让 TCP 在丢包环境建连时间更快，非常适用于高并发短连接的业务场景。</li>
 <li>首包优化：此优化其实没什么实质意义，若要说一定会有意义的话，可能就是满足一些评测标准的需要吧，例如有些客户以首包时间作为性能评判的一个依据。所谓首包时间，简单解释就是从 HTTP Client 发出 GET 请求开始计时，到收到 HTTP 响应的时间。为此，Server 端可以通过 TCP_NODELAY 让服务器先吐出 HTTP 头，再吐出实际内容（分包发送，原本是粘到一起的），来进行提速和优化。据说更有甚者先让服务器无条件返回 “HTTP&#x2F;“ 这几个字符，然后再去 upstream 拿数据。这种做法在真实场景中没有任何帮助，只能欺骗一下探测者罢了，因此还没见过有直接发 “HTTP&#x2F;“ 的，其实是一种作弊行为。</li>
 </ul>
-<p><img src="/Users/ren/case/ossimg/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/28532cb2bc6aa674be3d7693595f6f2b.png" alt="image.png"></p>
 <ul>
 <li>平滑发包：如前文所述，在 RTT 内均匀发包，规避微分时间内的流量突发，尽量避免瞬间拥塞，此处不再赘述。</li>
 <li>丢包预判：有些网络的丢包是有规律性的，例如每隔一段时间出现一次丢包，例如每次丢包都连续丢几个等，如果程序能自动发现这个规律（有些不明显），就可以针对性提前多发数据，减少重传时间、提高有效发包率。</li>
@@ -3725,7 +3725,7 @@ end if
 <li>带宽争抢：有些场景（例如合租）是大家互相挤占带宽的，假如你和室友各 1Mbps 的速度看电影，会把 2Mbps 出口占满，而如果一共有 3 个人看，则每人只能分到 1&#x2F;3。若此时你的流量流量达到 2Mbps，而他俩还都是 1Mbps，则你至少仍可以分到 2&#x2F;(2+1+1) * 2Mbps &#x3D; 1Mbps 的 50% 的带宽，甚至更多，代价就是服务器侧的出口流量加大，增加成本。（TCP 优化的本质就是用带宽换用户体验感）</li>
 <li><strong>链路质量记忆</strong>(后面有反面案例)：如果一个 Client IP 或一个 C 段 Network，若已经得知了网络质量规律（例如 CWND 多大合适，丢包规律是怎样的等），就可以在下次连接时，优先使用历史经验值，取消慢启动环节直接进入告诉发包状态，以提升客户端接收数据速率。</li>
 </ul>
-<p><img src="/Users/ren/case/ossimg/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/68314efb651bcb3144d4243bf0c15820.png" alt="image.png"></p>
 <h3 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h3><h4 id="net-ipv4-tcp-slow-start-after-idle"><a href="#net-ipv4-tcp-slow-start-after-idle" class="headerlink" title="net.ipv4.tcp_slow_start_after_idle"></a>net.ipv4.tcp_slow_start_after_idle</h4><p>内核协议栈参数 net.ipv4.tcp_slow_start_after_idle 默认是开启的，这个参数的用途，是为了规避 CWND 无休止增长，因此在连接不断开，但一段时间不传输数据的话，就将 CWND 收敛到 initcwnd，kernel-2.6.32 是 10，kernel-2.6.18 是 2。因此在 HTTP Connection: keep-alive 的环境下，若连续两个 GET 请求之间存在一定时间间隔，则此时服务器端会降低 CWND 到初始值，当 Client 再次发起 GET 后，服务器会重新进入慢启动流程。</p>
 <p>这种友善的保护机制，对于 CDN 来说是帮倒忙，因此我们可以通过命令将此功能关闭，以提高 HTTP Connection: keep-alive 环境下的用户体验感。</p>
 <pre><code> sysctl net.ipv4.tcp_slow_start_after_idle=0
@@ -3767,13 +3767,13 @@ sudo ip tcp_metrics delete 100.118.58.7
 <h4 id="RTT越大，传输速度越慢"><a href="#RTT越大，传输速度越慢" class="headerlink" title="RTT越大，传输速度越慢"></a>RTT越大，传输速度越慢</h4><p>RTT大的话导致拥塞窗口爬升缓慢，慢启动过程持续越久。RTT越大、物理带宽越大、要传输的文件越大这个问题越明显<br>带宽B越大，RTT越大，低带宽利用率持续的时间就越久，文件传输的总时间就会越长，这是TCP慢启动的本质决定的，这是探测的代价。<br>TCP的拥塞窗口变化完全受ACK时间驱动（RTT），长肥管道对丢包更敏感，RTT越大越敏感，一旦有一个丢包就会将CWND减半进入避免拥塞阶段</p>
 <p>RTT对性能的影响关键是RTT长了后丢包的概率大，一旦丢包进入拥塞阶段就很慢了。如果一直不丢包，只是RTT长，完全可以做大增加发送窗口和接收窗口来抵消RTT的增加</p>
 <h4 id="socket-send-x2F-rcv-buf"><a href="#socket-send-x2F-rcv-buf" class="headerlink" title="socket send&#x2F;rcv buf"></a>socket send&#x2F;rcv buf</h4><p>有些应用会默认设置 socketSendBuffer 为16K，在高rt的环境下，延时20ms，带宽100M，如果一个查询结果22M的话需要25秒</p>
-<p><img src="/Users/ren/case/ossimg/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
 <p>细化看下问题所在：</p>
-<p><img src="/Users/ren/case/ossimg/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png"></p>
 <p>这个时候也就是buf中的16K数据全部发出去了，但是这16K不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些ack了，才会填充一些进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，这20ms应用、OS什么都不能做。</p>
 <p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
 <p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了慢启动阶段），这基本上是理论上最快速度了</p>
-<p><img src="/Users/ren/case/ossimg/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
 <pre><code>$sudo sysctl -a | grep --color wmem
 vm.lowmem_reserve_ratio = 256   256     32
 net.core.wmem_max = 131071
@@ -4448,7 +4448,7 @@ net.ipv4.route.min_pmtu = 552
 </code></pre>
 <p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="noopener">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
 <p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="noopener">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
-<p><img src="/Users/ren/case/ossimg/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
 <p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 </p>
 <p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221125133218008.png" alt="image-20221125133218008"></p>
 <p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
@@ -4608,7 +4608,7 @@ net.ipv4.route.min_pmtu = 552
 <h2 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
 <p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
 <h3 id="tcpdump-抓包所看到的问题表现"><a href="#tcpdump-抓包所看到的问题表现" class="headerlink" title="tcpdump 抓包所看到的问题表现"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
-<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="/Users/ren/case/ossimg/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
+<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
 <p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
 <p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
 <h3 id="开发增加debug日志"><a href="#开发增加debug日志" class="headerlink" title="开发增加debug日志"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据–实际不能排除）</p>
@@ -4636,7 +4636,7 @@ net.ipv4.route.min_pmtu = 552
 }
 </code></pre>
 <p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
-<p><img src="/Users/ren/case/ossimg/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
 <p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
 <p>实际上这里可能有几个问题：</p>
 <ol>
