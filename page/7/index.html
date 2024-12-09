@@ -292,6 +292,486 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/09/28/就是要你懂TCP--性能和发送接收Buffer的关系/" itemprop="url">TCP性能和发送接收窗口、Buffer的关系</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-09-28T12:30:03+08:00">
+                2019-09-28
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>本文希望解析清楚，当我们在代码中写下 socket.setSendBufferSize 和 sysctl 看到的rmem&#x2F;wmem系统参数以及最终我们在TCP常常谈到的接收发送窗口的关系，以及他们怎样影响TCP传输的性能，同时如何通过图形来展示哪里是传输瓶颈。</p>
+<p>拥塞窗口相关文章比较多，他们跟带宽紧密相关，所以大家比较好判断，反而是接收、发送窗口一旦出现瓶颈，就没这么好判断了。</p>
+<p>先明确一下：<strong>文章标题中所说的Buffer指的是sysctl中的 rmem或者wmem，如果是代码中指定的话对应着SO_SNDBUF或者SO_RCVBUF，从TCP的概念来看对应着发送窗口或者接收窗口</strong></p>
+<p>最后补充各种场景下的传输案例，一站式将影响传输速度的各种原因都拿下，值得收藏。</p>
+<p>本文主要分析rt、buffer如何影响TCP的传输性能，更多其他因素影响TCP性能的案例见：<a href="/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">TCP传输速度案例分析</a></p>
+<h1 id="TCP性能和发送接收Buffer的关系"><a href="#TCP性能和发送接收Buffer的关系" class="headerlink" title="TCP性能和发送接收Buffer的关系"></a>TCP性能和发送接收Buffer的关系</h1><p>先从碰到的一个实际问题看起：</p>
+<blockquote>
+<p>应用通过专线跨网络访问云上的服务，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这太慢了，不正常。</p>
+<p>如果通过云上client访问云上服务执行这个SQL那么1-2秒就返回了（不跨网络服务是正常的，说明服务本身没有问题）。</p>
+<p>如果通过http或者scp从云下向云上传输这22M的数据大概两秒钟也传送完毕了（说明网络带宽不是瓶颈），</p>
+<p>所以这里问题的原因基本上是我们的服务在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包分析-tcpdump-wireshark"><a href="#抓包分析-tcpdump-wireshark" class="headerlink" title="抓包分析 tcpdump+wireshark"></a>抓包分析 tcpdump+wireshark</h2><p>抓包分析这22M的数据传输，如下图（wireshark 时序图），横轴是时间，纵轴是sequence number：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，因为时间太长掩盖了问题。把这个图形放大，只看中间50ms内的传输情况（横轴是时间，纵轴是sequence number，一个点代表一个包）</p>
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png" style="zoom: 80%;">
+
+<p>可以看到传输过程总有一个20ms的等待平台，这20ms没有发送任何包，换个角度，看看窗口尺寸图形：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输速度 16K*1000&#x2F;20&#x3D;800Kb&#x2F;秒</p>
+<p>我们的应用代码中会默认设置 socketSendBuffer 为16K:</p>
+<blockquote>
+<p>socket.setSendBufferSize(16*1024) &#x2F;&#x2F;16K send buffer </p>
+</blockquote>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，在这等ack的20ms 的时间内应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]</p>
+<p>比如下图，wmem大小是8，发出1-8后，buffer不能释放，等到收到ack1-4后，释放1-4，buffer也就是释放了一半，这一半可以填充新的发送数据进来了。 上面的问题在于ack花了很久，导致buffer一直不能释放。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3d9e77f8c9b0cab1484c870d2c0d2473.png" alt="image.png"></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立即腾出来发新的货物，而是要等对方确认收到了(ack)才能腾出来发新的货物。 传输速度取决于发送仓库（sendbuffer）、接收仓库（recvbuffer）、路宽（带宽）的大小，如果发送仓库（sendbuffer）足够大了之后接下来的瓶颈就会是高速公路了（带宽、拥塞窗口）。而实际上这个案例中带宽够、接收仓库也够，但是发送仓库太小了，导致发送过程断断续续，所以非常慢。</strong></p>
+<p>如果是UDP，就没有可靠的概念，有数据统统发出去，根本不关心对方是否收到，也就不需要ack和这个发送buffer了。</p>
+<h2 id="几个发送buffer相关的内核参数"><a href="#几个发送buffer相关的内核参数" class="headerlink" title="几个发送buffer相关的内核参数"></a>几个发送buffer相关的内核参数</h2><pre><code>$sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1 //
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+vm.lowmem_reserve_ratio = 256   256     32
+</code></pre>
+<p>net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从 Cobar 中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<blockquote>
+<p>net.ipv4.tcp_moderate_rcvbuf</p>
+</blockquote>
+<h2 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，继续调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了握手和慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="这个案例关于wmem的结论"><a href="#这个案例关于wmem的结论" class="headerlink" title="这个案例关于wmem的结论"></a>这个案例关于wmem的结论</h2><p>默认情况下Linux系统会自动调整这个buffer（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>从这里我们可以看到，有些理论知识点虽然我们知道，但是在实践中很难联系起来，也就是常说的无法学以致用，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践没联系上。</p>
+<h2 id="BDP-Bandwidth-Delay-Product-带宽时延积"><a href="#BDP-Bandwidth-Delay-Product-带宽时延积" class="headerlink" title="BDP(Bandwidth-Delay Product) 带宽时延积"></a>BDP(<a href="https://hpbn.co/building-blocks-of-tcp/#bandwidth-delay-product" target="_blank" rel="noopener">Bandwidth-Delay Product</a>) 带宽时延积</h2><p>BDP&#x3D;rtt*(带宽&#x2F;8)</p>
+<p>这个 buffer 调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100Mb&#x2F;8)&#x3D;250KB  所以 *<strong>SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大也没有什么实际意义了</strong> 。也就是前面所说的仓库足够后瓶颈在带宽上了。</p>
+<p>因为这里根据带宽、rtt计算得到的BDP是250K，BDP跑满后拥塞窗口（带宽、接收窗口和rt决定的）即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<blockquote>
+<p>Bandwidth-delay product (BDP)</p>
+<p>Product of data link’s capacity and its end-to-end delay. The result is the maximum amount of unacknowledged data that can be in flight at any point in time.</p>
+</blockquote>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg" alt="Figure 2-7. Transmission gaps due to low congestion window size"></p>
+<h2 id="接下来看看接收buffer-rmem-和接收窗口的关系"><a href="#接下来看看接收buffer-rmem-和接收窗口的关系" class="headerlink" title="接下来看看接收buffer(rmem)和接收窗口的关系"></a>接下来看看接收buffer(rmem)和接收窗口的关系</h2><p>用这样一个案例下来验证接收窗口的作用：</p>
+<blockquote>
+<p>有一个batch insert语句，整个一次要插入5532条记录，所有记录大小总共是376K，也就是这个sql语句本身是376K。</p>
+</blockquote>
+<h2 id="SO-RCVBUF很小的时候并且rtt很大对性能的影响"><a href="#SO-RCVBUF很小的时候并且rtt很大对性能的影响" class="headerlink" title="SO_RCVBUF很小的时候并且rtt很大对性能的影响"></a>SO_RCVBUF很小的时候并且rtt很大对性能的影响</h2><p>如果rtt是40ms，总共需要5-6秒钟：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4af4765c045e9eed2e36d9760d4a2aba.png" alt="image.png"></p>
+<p>基本可以看到server一旦空出来点窗口，client马上就发送数据，由于这点窗口太小，rtt是40ms，也就是一个rtt才能传3456字节的数据，整个带宽才用到80-90K，完全没跑满。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1984258c0300921799476777f5f0a38a.png" alt="image.png"></p>
+<p>比较明显间隔 40ms 一个等待台阶，台阶之间两个包大概3K数据，总的传输效率如下：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/5ec50ecf25444e96d81fab975b5a79e6.png" alt="image.png"></p>
+<p><strong>斜线越陡表示速度越快，从上图看整体SQL上传花了5.5秒，执行0.5秒。</strong></p>
+<p>此时对应的窗口尺寸：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/05d6357ed53c1c16f0dd0454251916ef.png" alt="image.png"></p>
+<p>窗口由最开始28K(20个1448）很快降到了不到4K的样子，然后基本游走在即将满的边缘，虽然读取慢，幸好rtt也大，导致最终也没有满。（这个是3.1的Linux，应用SO_RCVBUF设置的是8K，用一半来做接收窗口）</p>
+<h2 id="SO-RCVBUF很小的时候并且rtt很小对性能的影响"><a href="#SO-RCVBUF很小的时候并且rtt很小对性能的影响" class="headerlink" title="SO_RCVBUF很小的时候并且rtt很小对性能的影响"></a>SO_RCVBUF很小的时候并且rtt很小对性能的影响</h2><p>如果同样的语句在 rtt 是0.1ms的话</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/67f280a1cf499ae388fc44d6418869a7.png" alt="image.png"></p>
+<p>虽然明显看到接收窗口经常跑满，但是因为rtt很小，一旦窗口空出来很快就通知到对方了，所以整个过小的接收窗口也没怎么影响到整体性能</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/15b7d6852e44fc179d60d76f322695c7.png" alt="image.png"></p>
+<p>如上图11.4秒整个SQL开始，到11.41秒SQL上传完毕，11.89秒执行完毕（执行花了0.5秒），上传只花了0.01秒</p>
+<p>接收窗口情况：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0f3050cd98db40a352410a11a521e8b2.png" alt="image.png"></p>
+<p>如图，接收窗口由最开始的28K降下来，然后一直在5880和满了之间跳动</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0db5c3684a9314907f9158ac15b6ac71.png" alt="image.png"></p>
+<p>从这里可以得出结论，接收窗口的大小对性能的影响，rtt越大影响越明显，当然这里还需要应用程序配合，如果应用程序一直不读走数据即使接收窗口再大也会堆满的。</p>
+<h2 id="SO-RCVBUF和tcp-window-full的坏case"><a href="#SO-RCVBUF和tcp-window-full的坏case" class="headerlink" title="SO_RCVBUF和tcp window full的坏case"></a>SO_RCVBUF和tcp window full的坏case</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/55cf9875d24d76a077c442327d54fa34.png" alt="image.png"></p>
+<p>上图中红色平台部分，停顿了大概6秒钟没有发任何有内容的数据包，这6秒钟具体在做什么如下图所示，可以看到这个时候接收方的TCP Window Full，同时也能看到接收方（3306端口）的TCP Window Size是8192（8K），发送方（27545端口）是20480.</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/da48878ce0c01bcdedb1e6d6a6cc6d1c.png" alt="image.png"></p>
+<p>这个状况跟前面描述的recv buffer太小不一样，8K是很小，但是因为rtt也很小，所以server总是能很快就ack收到了，接收窗口也一直不容易达到full状态，但是一旦接收窗口达到了full状态，居然需要惊人的6秒钟才能恢复，这等待的时间有点太长了。这里应该是应用读取数据太慢导致了耗时6秒才恢复，所以最终这个请求执行会非常非常慢（时间主要耗在了上传SQL而不是执行SQL）.</p>
+<p>实际原因不知道，从读取TCP数据的逻辑来看这里没有明显的block，可能的原因：</p>
+<ul>
+<li>request的SQL太大，Server（3306端口上的服务）从TCP读取SQL需要放到一块分配好的内存，内存不够的时候需要扩容，扩容有可能触发fgc，从图形来看，第一次满就卡顿了，而且每次满都卡顿，不像是这个原因</li>
+<li>request请求一次发过来的是多个SQL，应用读取SQL后，将SQL分成多个，然后先执行第一个，第一个执行完后返回response，再读取第二个。图形中卡顿前没有response返回，所以也不是这个原因</li>
+<li>……其它未知原因</li>
+</ul>
+<h2 id="接收方不读取数据导致的接收窗口满同时有丢包发生"><a href="#接收方不读取数据导致的接收窗口满同时有丢包发生" class="headerlink" title="接收方不读取数据导致的接收窗口满同时有丢包发生"></a>接收方不读取数据导致的接收窗口满同时有丢包发生</h2><p>服务端返回数据到client端，TCP协议栈ack这些包，但是应用层没读走包，这个时候 SO_RCVBUF 堆积满，client的TCP协议栈发送 ZeroWindow 标志给服务端。也就是接收端的 buffer 堆满了（但是服务端这个时候看到的bytes in fly是0，因为都ack了），这时服务端不能继续发数据，要等 ZeroWindow 恢复。</p>
+<p>那么接收端上层应用不读走包可能的原因：</p>
+<ul>
+<li>应用代码卡顿、GC等等</li>
+<li>应用代码逻辑上在做其它事情（比如Server将SQL分片到多个DB上，Server先读取第一个分片，如果第一个分片数据很大很大，处理也慢，那么即使第二个分片数据都返回到了TCP 的recv buffer，应用也没去读取其它分片的结果集，直到第一个分片读取完毕。如果SQL带排序，那么Server会轮询读取多个分片，造成这种卡顿的概率小了很多）</li>
+</ul>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/49e2635a7c4025d44b915a1f17dd272a.png" alt="image.png"></p>
+<p>上图这个流因为应用层不读取TCP数据，导致TCP接收Buffer满，进而接收窗口为0，server端不能再发送数据而卡住，但是ZeroWindow的探测包，client都有正常回复，所以1903秒之后接收方窗口不为0后（window update）传输恢复。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2e493d8dc32bb63f2126375de6675351.png" alt="image.png"></p>
+<p>这个截图和前一个类似，是在Server上(3003端口)抓到的包，不同的是接收窗口为0后，server端多次探测（Server上抓包能看到），但是client端没有回复 ZeroWindow（也有可能是回复了，但是中间环节把ack包丢了,或者这个探测包client没收到），造成server端认为client死了、不可达之类，进而反复重传，重传超过15次之后，server端认为这个连接死了，粗暴单方面断开（没有reset和fin,因为没必要，server认为网络连通性出了问题）。</p>
+<p>等到1800秒后，client的接收窗口恢复了，发个window update给server，这个时候server认为这个连接已经断开了，只能回复reset</p>
+<p>网络不通，重传超过一定的时间（tcp_retries2)然后断开这个连接是正常的，这里的问题是：</p>
+<ol>
+<li>为什么这种场景下丢包了，而且是针对某个stream一直丢包</li>
+</ol>
+<p>可能是因为这种场景下触发了中间环节的流量管控，故意丢包了（比如proxy、slb、交换机都有可能做这种选择性的丢包）</p>
+<p>这里server认为连接断开，没有发reset和fin,因为没必要，server认为网络连通性出了问题。client还不知道server上这个连接清理掉了，等client回复了一个window update，server早就认为这个连接早断了，突然收到一个update，莫名其妙，只能reset</p>
+<h2 id="接收窗口和SO-RCVBUF的关系"><a href="#接收窗口和SO-RCVBUF的关系" class="headerlink" title="接收窗口和SO_RCVBUF的关系"></a>接收窗口和SO_RCVBUF的关系</h2><h3 id="ss-查看socket-buffer大小"><a href="#ss-查看socket-buffer大小" class="headerlink" title="ss 查看socket buffer大小"></a>ss 查看socket buffer大小</h3><p>初始接收窗口一般是 <strong>mss乘以初始cwnd（为了和慢启动逻辑兼容，不想一下子冲击到网络）</strong>，如果没有设置SO_RCVBUF，那么会根据 net.ipv4.tcp_rmem 动态变化，如果设置了SO_RCVBUF，那么接收窗口要向下面描述的值靠拢。</p>
+<p><a href="https://access.redhat.com/discussions/3624151" target="_blank" rel="noopener">初始cwnd可以大致通过查看到</a>： </p>
+<pre><code>ss -itmpn dst &quot;10.81.212.8&quot;
+State      Recv-Q Send-Q Local Address:Port  Peer Address:Port
+ESTAB      0      0      10.xx.xx.xxx:22     10.yy.yy.yyy:12345  users:((&quot;sshd&quot;,pid=1442,fd=3))
+         skmem:(r0,rb369280,t0,tb87040,f4096,w0,o0,bl0,d92)
+
+Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.Keep in mind the kernel will double any socket buffer allocation for overhead. 
+So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
+</code></pre>
+<p>初始窗口计算的代码逻辑，重点在17行： </p>
+<pre><code>    /* TCP initial congestion window as per rfc6928 */
+    #define TCP_INIT_CWND           10
+    /* 3. Try to fixup all. It is made immediately after connection enters
+
+       established state.
+             */
+            void tcp_init_buffer_space(struct sock *sk)
+            {
+          int tcp_app_win = sock_net(sk)-&gt;ipv4.sysctl_tcp_app_win;
+          struct tcp_sock *tp = tcp_sk(sk);
+          int maxwin;
+        
+        if (!(sk-&gt;sk_userlocks &amp; SOCK_SNDBUF_LOCK))
+                tcp_sndbuf_expand(sk);
+
+        //初始最大接收窗口计算过程
+        tp-&gt;rcvq_space.space = min_t(u32, tp-&gt;rcv_wnd, TCP_INIT_CWND * tp-&gt;advmss);
+        tcp_mstamp_refresh(tp);
+        tp-&gt;rcvq_space.time = tp-&gt;tcp_mstamp;
+        tp-&gt;rcvq_space.seq = tp-&gt;copied_seq;
+
+        maxwin = tcp_full_space(sk);
+
+        if (tp-&gt;window_clamp &gt;= maxwin) {
+                tp-&gt;window_clamp = maxwin;
+
+                if (tcp_app_win &amp;&amp; maxwin &gt; 4 * tp-&gt;advmss)
+                        tp-&gt;window_clamp = max(maxwin -
+                                               (maxwin &gt;&gt; tcp_app_win),
+                                               4 * tp-&gt;advmss);
+        }
+
+        /* Force reservation of one segment. */
+        if (tcp_app_win &amp;&amp;
+            tp-&gt;window_clamp &gt; 2 * tp-&gt;advmss &amp;&amp;
+            tp-&gt;window_clamp + tp-&gt;advmss &gt; maxwin)
+                tp-&gt;window_clamp = max(2 * tp-&gt;advmss, maxwin - tp-&gt;advmss);
+
+        tp-&gt;rcv_ssthresh = min(tp-&gt;rcv_ssthresh, tp-&gt;window_clamp);
+        tp-&gt;snd_cwnd_stamp = tcp_jiffies32;
+}
+</code></pre>
+<p>传输过程中，最大接收窗口会动态调整，当指定了SO_RCVBUF后，实际buffer是两倍SO_RCVBUF，但是要分出一部分（2^net.ipv4.tcp_adv_win_scale)来作为乱序报文缓存以及metadata</p>
+<blockquote>
+<ol>
+<li>net.ipv4.tcp_adv_win_scale &#x3D; 2  &#x2F;&#x2F;2.6内核，3.1中这个值默认是1</li>
+</ol>
+</blockquote>
+<p>如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K（64-16） </p>
+<p>​    static inline int tcp_win_from_space(const struct sock <em>sk, int space)<br>​    {&#x2F;&#x2F;space 传入的时候就已经是 2</em>SO_RCVBUF了<br>​            int tcp_adv_win_scale &#x3D; sock_net(sk)-&gt;ipv4.sysctl_tcp_adv_win_scale;    </p>
+<pre><code>        return tcp_adv_win_scale &lt;= 0 ?
+                (space&gt;&gt;(-tcp_adv_win_scale)) :
+                space - (space&gt;&gt;tcp_adv_win_scale); //sysctl参数tcp_adv_win_scale 
+}
+</code></pre>
+<p>tcp_adv_win_scale 的取值</p>
+<table>
+<thead>
+<tr>
+<th align="center">tcp_adv_win_scale</th>
+<th align="center">TCP window size</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">4</td>
+<td align="center">15&#x2F;16 * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">3</td>
+<td align="center">⅞ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">2</td>
+<td align="center">¾ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">1</td>
+<td align="center">½ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">0</td>
+<td align="center">available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-1</td>
+<td align="center">½ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-2</td>
+<td align="center">¼ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-3</td>
+<td align="center">⅛ * available memory in receive buffer</td>
+</tr>
+</tbody></table>
+<p>接收窗口有最大接收窗口和当前可用接收窗口。</p>
+<p>一般来说一次中断基本都会将 buffer 中的包都取走。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d7d3af2c03653e6cf8ae2befa0022832.png" alt="image.png"></p>
+<p>绿线是最大接收窗口动态调整的过程，最开始是1460*10，握手完毕后略微调整到1472*10（可利用body增加了12），随着数据的传输开始跳涨</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d0e12e8bad8764385549f9b391c62ab0.png" alt="image.png"></p>
+<p>上图是四个batch insert语句，可以看到绿色接收窗口随着数据的传输越来越大，图中蓝色竖直部分基本表示SQL上传，两个蓝色竖直条的间隔代表这个insert在服务器上真正的执行时间。这图非常陡峭，表示上传没有任何瓶颈.</p>
+<h3 id="设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本"><a href="#设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本" class="headerlink" title="设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本"></a>设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本</h3><p>下图是设置了 SO_RCVBUF 为8192的实际情况：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d0e12e8bad8764385549f9b391c62ab0.png" alt="image.png"></p>
+<p>从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值</p>
+<h2 id="实验：分别改小server-wmem-x2F-client-rmem-来对比对速度的影响"><a href="#实验：分别改小server-wmem-x2F-client-rmem-来对比对速度的影响" class="headerlink" title="实验：分别改小server wmem&#x2F;client rmem 来对比对速度的影响"></a>实验：分别改小server wmem&#x2F;client rmem 来对比对速度的影响</h2><blockquote>
+<p>server 设置 wmem&#x3D;4096, client curl get server的文件，速度60mbps, 两边的rtt都很好 </p>
+<p>client 设置 rmem&#x3D;4096，client curl get server的文件，速度6mbps, 为什么速度差别这么大？</p>
+</blockquote>
+<p>为什么server 设置 wmem&#x3D;4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230414092751721.png" alt="image-20230414092751721"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1460000039103606.png" alt="img"></p>
+<h1 id="从kernel来看buffer相关信息"><a href="#从kernel来看buffer相关信息" class="headerlink" title="从kernel来看buffer相关信息"></a>从kernel来看buffer相关信息</h1><h2 id="kernel相关参数"><a href="#kernel相关参数" class="headerlink" title="kernel相关参数"></a>kernel相关参数</h2><pre><code>sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp有自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+</code></pre>
+<p>发送buffer系统比较好自动调节，依靠发送数据大小和rt延时大小，可以相应地进行调整；但是接受buffer就不一定了，接受buffer的使用取决于收到的数据快慢和应用读走数据的速度，只能是OS根据系统内存的压力来调整接受buffer。系统内存的压力取决于 net.ipv4.tcp_mem.</p>
+<p>需要特别注意：<strong>tcp_wmem 和 tcp_rmem 的单位是字节，而 tcp_mem 的单位的页面</strong></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ea04e40acda986675bf0ad0ea7b9b8ff.png" alt="image.png"></p>
+<h2 id="kernel相关源码"><a href="#kernel相关源码" class="headerlink" title="kernel相关源码"></a>kernel相关源码</h2><p>从内核代码来看如果应用代码设置了sndbuf(比如java代码中：socket.setOption(sndbuf, socketSendBuffer))那么实际会分配socketSendBuffer*2的大小出来</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1de3f2916346e390be55263d59f5730d.png" alt="image.png"></p>
+<p>比如应用代码有如下设置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">protected int socketRecvBuffer = 32 * 1024;   //接收32K</span><br><span class="line">protected int socketSendBuffer = 64 * 1024;   //发送64K，实际会分配128K</span><br><span class="line"></span><br><span class="line">     // If bufs set 0, using &apos;/etc/sysctl.conf&apos; system settings on default</span><br><span class="line">     // refer: net.ipv4.tcp_wmem / net.ipv4.tcp_rmem</span><br><span class="line">     if (socketRecvBuffer &gt; 0) &#123;</span><br><span class="line">         socket.setReceiveBufferSize(socketRecvBuffer);</span><br><span class="line">     &#125;</span><br><span class="line">     if (socketSendBuffer &gt; 0) &#123;</span><br><span class="line">         socket.setSendBufferSize(socketSendBuffer);</span><br><span class="line">     &#125;</span><br></pre></td></tr></table></figure>
+
+<p><a href="https://man7.org/linux/man-pages/man8/ss.8.html" target="_blank" rel="noopener">实际会看到这样</a>的：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">tcp ESTAB 45 0 10.0.186.140:3306 10.0.186.70:26494 skmem:(r768,rb65536,t0,tb131072,f3328,w0,o0,bl0,d0)</span><br><span class="line">tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,f4096,w0,o0,bl0,d0)</span><br></pre></td></tr></table></figure>
+
+<p>为什么kernel要double 接收和发送buffer可以<a href="https://man7.org/linux/man-pages/man7/socket.7.html" target="_blank" rel="noopener">参考man7中的socket帮助信息</a></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/4e2b2e12c754f01a2f99f9f47dd5fd8e.png" alt="image.png"></p>
+<h2 id="tcp包发送流程"><a href="#tcp包发送流程" class="headerlink" title="tcp包发送流程"></a>tcp包发送流程</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/d385a7dad76ec4031dfb6c096bca434b.png" alt="image.png"></p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre>
+<h2 id="内核观测tcp-mem是否不足"><a href="#内核观测tcp-mem是否不足" class="headerlink" title="内核观测tcp_mem是否不足"></a>内核观测tcp_mem是否不足</h2><p>因 tcp_mem 达到限制而无法发包或者产生抖动的问题，我们也是可以观测到的。为了方便地观测这类问题，Linux 内核里面预置了静态观测点：sock_exceed_buf_limit（需要 4.16+ 的内核版本）。</p>
+<blockquote>
+<p>$ echo 1 &gt; &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;sock&#x2F;sock_exceed_buf_limit&#x2F;enable</p>
+</blockquote>
+<p>然后去看是否有该事件发生：</p>
+<blockquote>
+<p> $ cat &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;trace_pipe</p>
+</blockquote>
+<p>如果有日志输出（即发生了该事件），就意味着你需要调大 tcp_mem 了，或者是需要断开一些 TCP 连接了。</p>
+<h2 id="或者通过systemtap来观察"><a href="#或者通过systemtap来观察" class="headerlink" title="或者通过systemtap来观察"></a>或者通过systemtap来观察</h2><p>如下是tcp_sendmsg流程，sk_stream_wait_memory就是tcp_wmem不够的时候触发等待：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ff025f076a4a2bc2b1b13d11f32a97d3.png" alt="image.png"></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code> #!/usr/bin/stap
+    # Simple probe to detect when a process is waiting for more socket send
+    # buffer memory. Usually means the process is doing writes larger than the
+    # socket send buffer size or there is a slow receiver at the other side.
+    # Increasing the socket&#39;s send buffer size might help decrease application
+    # latencies, but it might also make it worse, so buyer beware.
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+</code></pre>
+<h1 id="其它案例分析"><a href="#其它案例分析" class="headerlink" title="其它案例分析"></a>其它案例分析</h1><p>从如下案例可以看到在时延5ms和1ms的时候，分别执行相同的SQL，SQL查询结果13M，耗时分别为4.6和0.8秒</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">$time mysql  -h127.1  -e &quot;select * from test;&quot; &gt;/tmp/result.txt</span><br><span class="line">real    0m3.078s</span><br><span class="line">user    0m0.273s</span><br><span class="line">sys     0m0.028s</span><br><span class="line"></span><br><span class="line">$ping -c 1 127.0.0.1</span><br><span class="line">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=5.01 ms</span><br><span class="line"></span><br><span class="line">--- 127.0.0.1 ping statistics ---</span><br><span class="line">1 packets transmitted, 1 received, 0% packet loss, time 0ms</span><br><span class="line">rtt min/avg/max/mdev = 5.018/5.018/5.018/0.000 ms</span><br><span class="line"></span><br><span class="line">$ls -lh /tmp/result.txt</span><br><span class="line">-rw-rw-r-- 1 admin admin 13M Mar 12 12:51 /tmp/result.txt</span><br><span class="line"></span><br><span class="line">//减小时延后继续测试</span><br><span class="line">$ping 127.0.0.1</span><br><span class="line">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=1.01 ms</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=1.02 ms</span><br><span class="line">^C</span><br><span class="line">--- 127.0.0.1 ping statistics ---</span><br><span class="line">2 packets transmitted, 2 received, 0% packet loss, time 1001ms</span><br><span class="line">rtt min/avg/max/mdev = 1.016/1.019/1.022/0.003 ms</span><br><span class="line"></span><br><span class="line">$time mysql  -h127.1  -e &quot;select * from test;&quot; &gt;/tmp/result.txt</span><br><span class="line">real    0m0.838s</span><br><span class="line">user    0m0.271s</span><br><span class="line">sys     0m0.030s</span><br><span class="line"></span><br><span class="line">//通过ss可以看到这个连接的buffer 大小相关信息，3306端口socket的send buffer为32K；</span><br><span class="line">//7226为客户端，发送buffer为128K，OS默认参数 </span><br><span class="line">tcp ESTAB 0 0 127.0.0.1:7226 127.0.0.1:3306 skmem:(r0,rb131072,t2,tb2626560,f24576,w0,o0,bl0,d0)</span><br><span class="line">tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f1792,w26880,o0,bl0,d0)</span><br></pre></td></tr></table></figure>
+
+<p>在这个案例中 send buffer为32K（代码中设置的16K，内核会再翻倍，所以是32K），如果时延5毫秒时，一秒钟最多执行200次来回，也就是一秒钟能传输：200*32K&#x3D;6.4M，总大小为13M，也就是最快需要2秒钟才能传输行完，另外MySQL innodb执行耗时0.5ms，也就是极限速度也就是2.5秒+了。</p>
+<p>这个场景下想要快得减少rt或者增加send buffer， 增加接收端的buffer没有意义，比如如下代码增加client的 –net-buffer-length&#x3D;163840000  没有任何帮助</p>
+<blockquote>
+<p>time mysql –net-buffer-length&#x3D;163840000  -h127.1  -e “select * from test;” &gt;&#x2F;tmp&#x2F;result.txt</p>
+</blockquote>
+<h2 id="在2-MiB-buffer下rt和-throughput的关系"><a href="#在2-MiB-buffer下rt和-throughput的关系" class="headerlink" title="在2 MiB buffer下rt和 throughput的关系"></a>在2 MiB buffer下rt和 throughput的关系</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image10-5.png" alt="img"></p>
+<h2 id="wmem-和send-buffer的关系"><a href="#wmem-和send-buffer的关系" class="headerlink" title="wmem 和send_buffer的关系"></a><a href="https://unix.stackexchange.com/questions/551444/what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued" target="_blank" rel="noopener">wmem 和send_buffer的关系</a></h2><p>设置 net.ipv4.tcp_wmem&#x3D;4096 4096 4096（单位是bytes），目的是想控制wmem很小，实际测试发现bytes in flight(发走还没有ack的数据）超过了4096，那么tcp_wmem和 send_buffer&#x2F;bytes in flight 到底是什么关系呢？</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/lQLPJwQZZ7TDbHrNBTTNBdCwIxliw-QP0oQEMVPcZwCyAA_1488_1332.png" alt="img"></p>
+<p>应用write-&gt;wmem&#x2F;snd_buffer-&gt;wmem_queued(在这里等ack，ack没来queued不释放)-&gt;client</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20231007152649201.png" alt="image-20231007152649201"></p>
+<p>skmem:(r0,rb369280,t0,tb4096,f6000,w157840,o0,bl0</p>
+<p>w157840–这个对应我们理解的send buffer. 也就是wmem 不负责等ack，send完就释放，wmem_queued负责等</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>一般来说绝对不要在程序中手工设置SO_SNDBUF和SO_RCVBUF，内核自动调整比你做的要好；</li>
+<li>SO_SNDBUF一般会比发送滑动窗口要大，因为发送出去并且ack了的才能从SO_SNDBUF中释放；</li>
+<li>代码中设置的SO_SNDBUF和SO_RCVBUF在内核中会翻倍分配；</li>
+<li>TCP接收窗口跟SO_RCVBUF关系很复杂；</li>
+<li>SO_RCVBUF太小并且rtt很大的时候会严重影响性能；</li>
+<li>接收窗口比发送窗口复杂多了；</li>
+<li>发送窗口&#x2F;SO_SNDBUF–发送仓库，带宽&#x2F;拥塞窗口–马路通畅程度，接收窗口&#x2F;SO_RCVBUF–接收仓库；</li>
+<li>发送仓库、马路宽度、长度（rt）、接收仓库一起决定了传输速度–类比一下快递过程。</li>
+</ul>
+<p><strong>总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF</strong></p>
+<p>关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满</p>
+<h1 id="相关和参考文章"><a href="#相关和参考文章" class="headerlink" title="相关和参考文章"></a>相关和参考文章</h1><p>2024 Netflix： <a href="https://netflixtechblog.medium.com/investigation-of-a-cross-regional-network-performance-issue-422d6218fdf1" target="_blank" rel="noopener">Investigation of a Cross-regional Network Performance Issue</a>  因为内核升级去掉了内核参数 sysctl_tcp_adv_win_scale，换了一个新的计算方式，导致原来30秒 内能传输完毕的请求在新内核机制下传输不完，从而导致了业务端的请求超时  <a href="https://lore.kernel.org/netdev/20230717152917.751987-1-edumazet@google.com/T/" target="_blank" rel="noopener">This commit</a> obsoleted <em>sysctl_tcp_adv_win_scale</em> and introduced a <em>scaling_ratio</em> that can more accurately calculate the overhead or window size, which is the right thing to do. With the change, the window size is now <em>rcvbuf * scaling_ratio</em>. 简而言之，内核升级后，接收缓存大小减半。因此，吞吐量也减半，导致数据传输时间翻倍。</p>
+<p>Netflix 这次业务问题是Kafka， 其代码里不应该设置TCP 接收buffer 大小，而是要让kernel来自动调节</p>
+<p>2022 <a href="https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think" target="_blank" rel="noopener">https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think</a> 你设置的rmem 不会全部用来存放数据，每个包还有一些meta数据需要存放，元数据的大小会有很大的差异，导致内核需要来保守预估</p>
+<blockquote>
+<p>receive window is not fully opened immediately. Linux keeps the receive window small, as it tries to predict the metadata cost and avoid overshooting the memory budget, therefore hitting TCP collapse. By default, with the net.ipv4.tcp_adv_win_scale&#x3D;1, the upper limit for the advertised window is 50% of “free” memory. rcv_ssthresh starts up with 64KiB and grows linearly up to that limit.</p>
+</blockquote>
+<p><a href="https://blog.csdn.net/dog250/article/details/113020804" target="_blank" rel="noopener">用stap从内核角度来分析buffer、rt和速度</a></p>
+<p>[The story of one latency spike][<a href="https://blog.cloudflare.com/the-story-of-one-latency-spike/]" target="_blank" rel="noopener">https://blog.cloudflare.com/the-story-of-one-latency-spike/]</a> : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点</p>
+<blockquote>
+<p>Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is <code>tcp_collapse</code> and it will merge adjacent TCP packets into one larger <code>sk_buff</code>. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.</p>
+</blockquote>
+<p>原因：将 tcp_rmem 最大值设置得太大，在内存压力场景下触发了GC（tcp_collapse），将 tcp_rmem 调小后（32M-&gt;2M）不再有偶发性 rt 很高的延时</p>
+<p>从 net_rx_action 追到 tcp_collapse 的逻辑没太理解（可能是对内核足够了解） </p>
+<p>[What is rcv_space in the ‘ss –info’ output, and why it’s value is larger than net.core.rmem_max][28]</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/27/arthas常用命令速记/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -3666,10 +4146,10 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <h2 id="将隔离环境中的web端口映射到本地（本地代理）"><a href="#将隔离环境中的web端口映射到本地（本地代理）" class="headerlink" title="将隔离环境中的web端口映射到本地（本地代理）"></a>将隔离环境中的web端口映射到本地（本地代理）</h2><p>远程机器部署了WEB Server（端口 8083），需要通过浏览器来访问这个WEB服务，但是server在隔离环境中，只能通过ssh访问到。一般来说会在隔离环境中部署一个windows机器，通过这个windows机器来访问到这个web server。能不能省掉这个windows机器呢？</p>
 <p>现在我们试着用ssh来实现本地浏览器直接访问到这个隔离环境中的WEB Server。</p>
 <p>假设web server是：10.1.1.123:8083， ssh账号是：user</p>
-<p>先配置好本地直接 ssh <a href="mailto:&#x75;&#x73;&#101;&#114;&#64;&#x31;&#x30;&#x2e;&#x31;&#46;&#49;&#46;&#x31;&#50;&#51;" target="_blank" rel="noopener">&#x75;&#x73;&#101;&#114;&#64;&#x31;&#x30;&#x2e;&#x31;&#46;&#49;&#46;&#x31;&#50;&#51;</a> （参考前面的 ProxyCommand配置过程，最好是免密也配置好），然后在你的笔记本上执行：</p>
+<p>先配置好本地直接 ssh <a href="mailto:&#117;&#x73;&#x65;&#114;&#64;&#49;&#x30;&#46;&#x31;&#x2e;&#49;&#46;&#x31;&#50;&#51;" target="_blank" rel="noopener">&#117;&#x73;&#x65;&#114;&#64;&#49;&#x30;&#46;&#x31;&#x2e;&#49;&#46;&#x31;&#50;&#51;</a> （参考前面的 ProxyCommand配置过程，最好是免密也配置好），然后在你的笔记本上执行：</p>
 <pre><code>ssh -CNfL 0.0.0.0:8088:10.1.1.123:8083 user@10.1.1.123
 </code></pre>
-<p>或者：(<a href="mailto:&#114;&#x6f;&#111;&#116;&#64;&#49;&#48;&#48;&#46;&#49;&#x2e;&#x32;&#46;&#x33;" target="_blank" rel="noopener">&#114;&#x6f;&#111;&#116;&#64;&#49;&#48;&#48;&#46;&#49;&#x2e;&#x32;&#46;&#x33;</a> -p 54900 是可达10.1.1.123的代理服务器)</p>
+<p>或者：(<a href="mailto:&#114;&#x6f;&#111;&#116;&#x40;&#49;&#x30;&#48;&#x2e;&#49;&#x2e;&#50;&#46;&#51;" target="_blank" rel="noopener">&#114;&#x6f;&#111;&#116;&#x40;&#49;&#x30;&#48;&#x2e;&#49;&#x2e;&#50;&#46;&#51;</a> -p 54900 是可达10.1.1.123的代理服务器)</p>
 <pre><code>ssh -CNfL 0.0.0.0:8089:10.1.1.123:8083 root@100.1.2.3 -p 54900
 </code></pre>
 <p>这表示在本地启动一个8088的端口，将这个8088端口映射到10.1.1.123的8083端口上，用的ssh账号是user</p>
@@ -3729,7 +4209,7 @@ debug1: Executing proxy command: exec ssh -l corp 139.*.*.* exec /usr/bin/nc 10.
 <p>或者另外创建一个service服务</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[Unit]</span><br><span class="line">Description=AutoSSH tunnel on 31081 to gf server</span><br><span class="line">After=network.target</span><br><span class="line"></span><br><span class="line">[Service]</span><br><span class="line">Environment=&quot;AUTOSSH_GATETIME=0&quot;</span><br><span class="line">ExecStart=/usr/bin/autossh -M 0 -q -N -o &quot;ServerAliveInterval 60&quot; -o &quot;ServerAliveCountMax 3&quot; -NR gf:31081:172.16.1.2:22 -i /root/.ssh/id_rsa root@gf</span><br><span class="line"></span><br><span class="line">[Install]</span><br><span class="line">WantedBy=multi-user.target</span><br></pre></td></tr></table></figure>
 
-<h3 id="调试ssh–终极大招"><a href="#调试ssh–终极大招" class="headerlink" title="调试ssh–终极大招"></a>调试ssh–终极大招</h3><p>好多问题我都是debug发现的</p>
+<h3 id="调试ssh–终极大招"><a href="#调试ssh–终极大招" class="headerlink" title="调试ssh–终极大招"></a>调试ssh–终极大招</h3><p>好多问题都是可以 debug 发现的</p>
 <ul>
 <li>客户端增加参数 -vvv 会把所有流程在控制台显示出来。卡在哪个环节；密码不对还是key不对一看就知道</li>
 <li>server端还可以：&#x2F;usr&#x2F;sbin&#x2F;sshd -ddd -p 2222 在2222端口对sshd进行debug，看输出信息验证为什么pub key不能login等. 一般都是权限不对，&#x2F;root 以及 &#x2F;root&#x2F;.ssh 文件夹的权限和owner都要对，更不要说 &#x2F;root&#x2F;.ssh&#x2F;authorized_keys 了</li>
@@ -6231,262 +6711,6 @@ void test_stub1(void)
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/12/Docker中的DNS解析过程/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/12/Docker中的DNS解析过程/" itemprop="url">Docker中的DNS解析过程</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-12T10:30:03+08:00">
-                2019-01-12
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/DNS/" itemprop="url" rel="index">
-                    <span itemprop="name">DNS</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Docker中的DNS解析过程"><a href="#Docker中的DNS解析过程" class="headerlink" title="Docker中的DNS解析过程"></a>Docker中的DNS解析过程</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
-<p>同一个Docker集群中两个容器中通过 nslookup 同一个域名，这个域名是容器启动的时候通过net alias指定的，但是返回来的IP不一样</p>
-</blockquote>
-<p>如图所示：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/892a98b53c7f9e65da79d1d6d890c3b0.png" alt="image.png"></p>
-<p>图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。</p>
-<p>要想解决这个问题抓包就没用了，因为Docker 中的net alias 域名是 Docker Daemon自己来解析的，也就是在容器中做域名解析（nslookup、ping）的时候，Docker Daemon先看这个域名是不是net alias的，是的话返回对应的ip，如果不是（比如 <a href="http://www.baidu.com/" target="_blank" rel="noopener">www.baidu.com</a>) ，那么Docker Daemon再把这个域名丢到宿主机上去解析，在宿主机上的解析过程就是标准的DNS，可以抓包分析。但是Docker Daemon内部的解析过程没有走DNS协议，不好分析，所以得先了解一下 Docker Daemon的域名解析原理</p>
-<p>具体参考文章： <a href="http://www.jianshu.com/p/4433f4c70cf0" target="_blank" rel="noopener">http://www.jianshu.com/p/4433f4c70cf0</a> <a href="http://www.bijishequ.com/detail/261401?p=70-67" target="_blank" rel="noopener">http://www.bijishequ.com/detail/261401?p=70-67</a></p>
-<h2 id="继续分析所有容器对这个域名的解析"><a href="#继续分析所有容器对这个域名的解析" class="headerlink" title="继续分析所有容器对这个域名的解析"></a>继续分析所有容器对这个域名的解析</h2><p>继续分析所有容器对这个域名的解析发现只有某一台宿主机上的有这个问题，而且这台宿主机上所有容器都有这个问题，结合上面的文章，那么这个问题比较明朗了，这台有问题的宿主机的Docker Daemon中残留了一个net alias，你可以理解成cache中有脏数据没有清理。</p>
-<p>进而跟业务的同学们沟通，确实155这个IP的容器做过升级，改动过配置，可能升级前这个155也绑定过这个域名，但是升级后绑到146这个容器上去了，但是Docker Daemon中还残留这条记录。</p>
-<h2 id="重启Docker-Daemon后问题解决（容器不需要重启）"><a href="#重启Docker-Daemon后问题解决（容器不需要重启）" class="headerlink" title="重启Docker Daemon后问题解决（容器不需要重启）"></a>重启Docker Daemon后问题解决（容器不需要重启）</h2><p>重启Docker Daemon的时候容器还在正常运行，只是这段时间的域名解析会不正常，其它业务长连接都能正常运行，在Docker Daemon重启的时候它会去检查所有容器的endpoint、重建sandbox、清理network等等各种事情，所以就把这个脏数据修复掉了。</p>
-<p>在Docker Daemon重启过程中，会给每个容器构建DNS Resovler（setup-resolver），如果构建DNS Resovler这个过程中容器发送了大量域名查询过来同时这些域名又查询不到的话Docker Daemon在重启过程中需要等待这个查询超时，然后才能继续往下走重启流程，所以导致启动流程拉长<a href="https://www.atatech.org/articles/87339" target="_blank" rel="noopener">问题严重的时候导致Docker Daemon长时间无法启动</a></p>
-<p>Docker的域名解析为什么要这么做，是因为容器中有两种域名解析需求：</p>
-<ol>
-<li>容器启动时通过 net alias 命名的域名</li>
-<li>容器中正常对外网各种域名的解析（比如 baidu.com&#x2F;api.taobao.com)</li>
-</ol>
-<p>对于第一种只能由docker daemon来解析了，所以容器中碰到的任何域名解析都会丢给 docker daemon(127.0.0.11), 如果 docker daemon 发现这个域名不认识，也就是不是net alias命名的域名，那么docker就会把这个域名解析丢给宿主机配置的 nameserver 来解析【非常非常像 dns-f&#x2F;vipclient 的解析原理】</p>
-<h2 id="容器中的域名解析"><a href="#容器中的域名解析" class="headerlink" title="容器中的域名解析"></a>容器中的域名解析</h2><p>容器启动的时候读取宿主机的 &#x2F;etc&#x2F;resolv.conf (去掉127.0.0.1&#x2F;16 的nameserver）然后当成容器的 &#x2F;etc&#x2F;resolv.conf, 但是实际在容器中看到的 &#x2F;etc&#x2F;resolve.conf 中的nameserver只有一个：127.0.0.11，因为如上描述nameserver都被代理掉了</p>
-<p>容器 -&gt; docker daemon(127.0.0.11) -&gt; 宿主机中的&#x2F;etc&#x2F;resolv.conf 中的nameserver</p>
-<p>如果宿主机中的&#x2F;etc&#x2F;resolv.conf 中的nameserver没有，那么daemon默认会用8.8.8.8&#x2F;8.8.4.4来做下一级dns server，如果在一些隔离网络中（跟外部不通），那么域名解析就会超时，因为一直无法连接到 8.8.8.8&#x2F;8.8.4.4 ，进而导致故障。</p>
-<p>比如 vipserver 中需要解析 armory的域名，如果这个时候在私有云环境，宿主机又没有配置 nameserver, 那么这个域名解析会发送给 8.8.8.8&#x2F;8.8.4.4 ，长时间没有响应，超时后 vipserver 会关闭自己的探活功能，从而导致 vipserver 基本不可用一样。</p>
-<p>修改 宿主机的&#x2F;etc&#x2F;resolv.conf后 重新启动、创建的容器才会load新的nameserver</p>
-<h2 id="如果容器中需要解析vipserver中的域名"><a href="#如果容器中需要解析vipserver中的域名" class="headerlink" title="如果容器中需要解析vipserver中的域名"></a>如果容器中需要解析vipserver中的域名</h2><ol>
-<li>容器中安装vipclient，同时容器的 &#x2F;etc&#x2F;resolv.conf 配置 nameserver 127.0.0.1 </li>
-<li>要保证vipclient起来之后才能启动业务</li>
-</ol>
-<h2 id="kubernetes中dns解析偶尔5秒钟超时"><a href="#kubernetes中dns解析偶尔5秒钟超时" class="headerlink" title="kubernetes中dns解析偶尔5秒钟超时"></a>kubernetes中dns解析偶尔5秒钟超时</h2><p>dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png" alt="img"></p>
-<p>（高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）</p>
-<p>解析异常的strace栈：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">不正常解析的strace日志：</span><br><span class="line">1596601737.655724 socket(PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 5</span><br><span class="line">1596601737.655784 connect(5, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, 16) = 0</span><br><span class="line">1596601737.655869 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601737.655968 sendmmsg(5, &#123;&#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_TRUNC|MSG_EOR|MSG_FIN|MSG_RST|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_MORE|MSG_WAITFORONE|MSG_FASTOPEN|0x1e340010&#125;, 48&#125;, &#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_WAITALL|MSG_FIN|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_FASTOPEN|MSG_CMSG_CLOEXEC|0x156c0000&#125;, 48&#125;&#125;, 2, MSG_NOSIGNAL) = 2</span><br><span class="line">1596601737.656113 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601737.659251 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601737.659330 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\10\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">=========</span><br><span class="line">1596601737.659421 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 0 (Timeout) //这里就是问题所在</span><br><span class="line">=========</span><br><span class="line">1596601742.657639 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.657735 sendto(5, &quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.657837 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.660929 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.661038 recvfrom(5, &quot;\20\v\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.661129 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.661204 sendto(5, &quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.661313 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.664443 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.664519 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 65536, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.664600 close(5)              = 0</span><br></pre></td></tr></table></figure>
-
-<h3 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h3><p>DNS client (glibc 或 musl libc) 会并发请求 A 和 AAAA 记录，跟 DNS Server 通信自然会先 connect (建立fd)，后面请求报文使用这个 fd 来发送，由于 UDP 是无状态协议， connect 时并不会发包，也就不会创建 conntrack 表项, 而并发请求的 A 和 AAAA 记录默认使用同一个 fd 发包，send 时各自发的包它们源 Port 相同(因为用的同一个socket发送)，当并发发包时，两个包都还没有被插入 conntrack 表项，所以 netfilter 会为它们分别创建 conntrack 表项，而集群内请求 kube-dns 或 coredns 都是访问的CLUSTER-IP，报文最终会被 DNAT 成一个 endpoint 的 POD IP，当两个包恰好又被 DNAT 成同一个 POD IP时，它们的五元组就相同了，在最终插入的时候后面那个包就会被丢掉，而single-request-reopen的选项设置为俩请求被丢了一个，会等待超时再重发 ，这个就解释了为什么还存在调整成2s就是2s的异常比较多 ，因此这种场景下调整成single-request是比较好的方式，同时k8s那边给的dns缓存方案是 nodelocaldns组件可以考虑用一下</p>
-<p>关于recolv的选项</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">single-request (since glibc 2.10) 串行解析，</span><br><span class="line">                     Sets RES_SNGLKUP in _res.options.  By default, glibc</span><br><span class="line">                     performs IPv4 and IPv6 lookups in parallel since</span><br><span class="line">                     version 2.9.  Some appliance DNS servers cannot handle</span><br><span class="line">                     these queries properly and make the requests time out.</span><br><span class="line">                     This option disables the behavior and makes glibc</span><br><span class="line">                     perform the IPv6 and IPv4 requests sequentially (at the</span><br><span class="line">                     cost of some slowdown of the resolving process).</span><br><span class="line">single-request-reopen (since glibc 2.9) 并行解析，少收到一个解析回复后，再开一个socket重新发起解析，因此看到了前面调整timeout是1s后，还是有挺多1s的解析</span><br><span class="line">                     Sets RES_SNGLKUPREOP in _res.options.  The resolver</span><br><span class="line">                     uses the same socket for the A and AAAA requests.  Some</span><br><span class="line">                     hardware mistakenly sends back only one reply.  When</span><br><span class="line">                     that happens the client system will sit and wait for</span><br><span class="line">                     the second reply.  Turning this option on changes this</span><br><span class="line">                     behavior so that if two requests from the same port are</span><br><span class="line">                     not handled correctly it will close the socket and open</span><br><span class="line">                     a new one before sending the second request.</span><br></pre></td></tr></table></figure>
-
-<h3 id="getaddrinfo-关闭ipv6的解析"><a href="#getaddrinfo-关闭ipv6的解析" class="headerlink" title="getaddrinfo 关闭ipv6的解析"></a>getaddrinfo 关闭ipv6的解析</h3><p>基本上所有测试下来，网上那些通过修改配置的<a href="https://serverfault.com/questions/632665/how-to-disable-aaaa-lookups" target="_blank" rel="noopener">基本都不能关闭ipv6的解析</a>，只有通过在代码中指定</p>
-<blockquote>
-<p>hints.ai_family &#x3D; AF_INET;    &#x2F;* or AF_INET6 for ipv6 addresses *&#x2F;</p>
-</blockquote>
-<p>来只做ipv4的解析</p>
-<p><a href="https://askubuntu.com/questions/32298/prefer-a-ipv4-dns-lookups-before-aaaaipv6-lookups" target="_blank" rel="noopener">Prefer A (IPv4) DNS lookups before AAAA(IPv6) lookups</a></p>
-<p><a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html" target="_blank" rel="noopener">https://man7.org/linux/man-pages/man3/getaddrinfo.3.html</a>: </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4</span><br><span class="line">       addresses are returned in the list pointed to by res only if the</span><br><span class="line">       local system has at least one IPv4 address configured, and IPv6</span><br><span class="line">       addresses are returned only if the local system has at least one</span><br><span class="line">       IPv6 address configured.  The loopback address is not considered</span><br><span class="line">       for this case as valid as a configured address.  This flag is</span><br><span class="line">       useful on, for example, IPv4-only systems, to ensure that</span><br><span class="line">       getaddrinfo() does not return IPv6 socket addresses that would</span><br><span class="line">       always fail in connect(2) or bind(2).</span><br></pre></td></tr></table></figure>
-
-<p><a href="https://unix.stackexchange.com/questions/45598/force-getaddrinfo-to-use-ipv4" target="_blank" rel="noopener">c code demo</a>:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct addrinfo hints, *result;</span><br><span class="line">int s;</span><br><span class="line"></span><br><span class="line">memset(&amp;hints, 0, sizeof(hints));</span><br><span class="line">hints.ai_family = AF_INET;        /* or AF_INET6 for ipv6 addresses */</span><br><span class="line">s = getaddrinfo(NULL, &quot;ftp&quot;, &amp;hints, &amp;result);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>or</p>
-<p>In the <a href="https://www.cloudshark.org/captures/7e14dcc1d443" target="_blank" rel="noopener">Wireshark capture</a>, 172.25.50.3 is the local DNS resolver; the capture was taken there, so you also see its outgoing queries and responses. Note that <em>only</em> an A record was requested. No AAAA lookup was ever done.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;sys/socket.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;netdb.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line"></span><br><span class="line">int main(void) &#123;</span><br><span class="line">    struct addrinfo hints;</span><br><span class="line">    struct addrinfo *result, *rp;</span><br><span class="line">    int s;</span><br><span class="line">    char host[256];</span><br><span class="line"></span><br><span class="line">    memset(&amp;hints, 0, sizeof(struct addrinfo));</span><br><span class="line">    hints.ai_family = AF_INET;</span><br><span class="line">    hints.ai_socktype = SOCK_STREAM;</span><br><span class="line">    hints.ai_protocol = 0;</span><br><span class="line"></span><br><span class="line">    s = getaddrinfo(&quot;www.facebook.com&quot;, NULL, &amp;hints, &amp;result);</span><br><span class="line">    if (s != 0) &#123;</span><br><span class="line">        fprintf(stderr, &quot;getaddrinfo: %s\n&quot;, gai_strerror(s));</span><br><span class="line">        exit(EXIT_FAILURE);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    for (rp = result; rp != NULL; rp = rp-&gt;ai_next) &#123;</span><br><span class="line">        getnameinfo(rp-&gt;ai_addr, rp-&gt;ai_addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST);</span><br><span class="line">        printf(&quot;%s\n&quot;, host);</span><br><span class="line">    &#125;</span><br><span class="line">    freeaddrinfo(result);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p> or：<a href="https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method" target="_blank" rel="noopener">https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method</a></p>
-<p>&#x2F;etc&#x2F;gai.conf <a href="https://linux.die.net/man/5/gai.conf" target="_blank" rel="noopener">getaddrinfo的配置文件</a></p>
-<table>
-<thead>
-<tr>
-<th align="center">Prefix</th>
-<th align="center">Precedence</th>
-<th align="center">Label</th>
-<th align="center">Usage</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="center">::1&#x2F;128</td>
-<td align="center">50</td>
-<td align="center">0</td>
-<td align="center">Localhost</td>
-</tr>
-<tr>
-<td align="center">::&#x2F;0</td>
-<td align="center">40</td>
-<td align="center">1</td>
-<td align="center">Default unicast</td>
-</tr>
-<tr>
-<td align="center">::<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0&#x2F;96</a></td>
-<td align="center">35</td>
-<td align="center">4</td>
-<td align="center">IPv4-mapped IPv6 address</td>
-</tr>
-<tr>
-<td align="center">2002::&#x2F;16</td>
-<td align="center">30</td>
-<td align="center">2</td>
-<td align="center">6to4</td>
-</tr>
-<tr>
-<td align="center">2001::&#x2F;32</td>
-<td align="center">5</td>
-<td align="center">5</td>
-<td align="center">Teredo tunneling</td>
-</tr>
-<tr>
-<td align="center">fc00::&#x2F;7</td>
-<td align="center">3</td>
-<td align="center">13</td>
-<td align="center">Unique local address</td>
-</tr>
-<tr>
-<td align="center">::&#x2F;96</td>
-<td align="center">1</td>
-<td align="center">3</td>
-<td align="center">IPv4-compatible addresses (deprecated)</td>
-</tr>
-<tr>
-<td align="center">fec0::&#x2F;10</td>
-<td align="center">1</td>
-<td align="center">11</td>
-<td align="center">Site-local address (deprecated)</td>
-</tr>
-<tr>
-<td align="center">3ffe::&#x2F;16</td>
-<td align="center">1</td>
-<td align="center">12</td>
-<td align="center">6bone (returned)</td>
-</tr>
-</tbody></table>
-<p>来源于<a href="https://en.wikipedia.org/wiki/IPv6_address" target="_blank" rel="noopener">维基百科</a></p>
-<p>0:0:0:0:0:<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0&#x2F;96</a> 10 4 IPv4映射地址（这个地址网络上信息较少，地址范围：:: ffff：0.0.0.0~:: ffff：255.255.255.255 地址数量<a href="https://en.wikipedia.org/wiki/Power_of_2" target="_blank" rel="noopener">2 128−96 &#x3D; 2 32</a> &#x3D; 4 294 967 296，用于软件，目的是IPv4映射的地址。 ）</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">Kubernetes &gt;&#x3D; 1.13 + kube-proxy IPVS mode 服务部署不平滑</a></p>
-<p><a href="https://blog.51cto.com/welcomeweb/2464836" target="_blank" rel="noopener">linux ipv4 ipv6双栈 （优先ipv4而不使用ipv6配置）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -6534,7 +6758,7 @@ void test_stub1(void)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">186</span>
+                <span class="site-state-item-count">187</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -6556,7 +6780,7 @@ void test_stub1(void)
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">275</span>
+                <span class="site-state-item-count">276</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

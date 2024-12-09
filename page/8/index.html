@@ -292,6 +292,262 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/12/Docker中的DNS解析过程/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/01/12/Docker中的DNS解析过程/" itemprop="url">Docker中的DNS解析过程</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-12T10:30:03+08:00">
+                2019-01-12
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/DNS/" itemprop="url" rel="index">
+                    <span itemprop="name">DNS</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="Docker中的DNS解析过程"><a href="#Docker中的DNS解析过程" class="headerlink" title="Docker中的DNS解析过程"></a>Docker中的DNS解析过程</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
+<p>同一个Docker集群中两个容器中通过 nslookup 同一个域名，这个域名是容器启动的时候通过net alias指定的，但是返回来的IP不一样</p>
+</blockquote>
+<p>如图所示：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/892a98b53c7f9e65da79d1d6d890c3b0.png" alt="image.png"></p>
+<p>图中上面的容器中 nslookup 返回来了两个IP，但是只有146是正确的，155是多出来，不对的。</p>
+<p>要想解决这个问题抓包就没用了，因为Docker 中的net alias 域名是 Docker Daemon自己来解析的，也就是在容器中做域名解析（nslookup、ping）的时候，Docker Daemon先看这个域名是不是net alias的，是的话返回对应的ip，如果不是（比如 <a href="http://www.baidu.com/" target="_blank" rel="noopener">www.baidu.com</a>) ，那么Docker Daemon再把这个域名丢到宿主机上去解析，在宿主机上的解析过程就是标准的DNS，可以抓包分析。但是Docker Daemon内部的解析过程没有走DNS协议，不好分析，所以得先了解一下 Docker Daemon的域名解析原理</p>
+<p>具体参考文章： <a href="http://www.jianshu.com/p/4433f4c70cf0" target="_blank" rel="noopener">http://www.jianshu.com/p/4433f4c70cf0</a> <a href="http://www.bijishequ.com/detail/261401?p=70-67" target="_blank" rel="noopener">http://www.bijishequ.com/detail/261401?p=70-67</a></p>
+<h2 id="继续分析所有容器对这个域名的解析"><a href="#继续分析所有容器对这个域名的解析" class="headerlink" title="继续分析所有容器对这个域名的解析"></a>继续分析所有容器对这个域名的解析</h2><p>继续分析所有容器对这个域名的解析发现只有某一台宿主机上的有这个问题，而且这台宿主机上所有容器都有这个问题，结合上面的文章，那么这个问题比较明朗了，这台有问题的宿主机的Docker Daemon中残留了一个net alias，你可以理解成cache中有脏数据没有清理。</p>
+<p>进而跟业务的同学们沟通，确实155这个IP的容器做过升级，改动过配置，可能升级前这个155也绑定过这个域名，但是升级后绑到146这个容器上去了，但是Docker Daemon中还残留这条记录。</p>
+<h2 id="重启Docker-Daemon后问题解决（容器不需要重启）"><a href="#重启Docker-Daemon后问题解决（容器不需要重启）" class="headerlink" title="重启Docker Daemon后问题解决（容器不需要重启）"></a>重启Docker Daemon后问题解决（容器不需要重启）</h2><p>重启Docker Daemon的时候容器还在正常运行，只是这段时间的域名解析会不正常，其它业务长连接都能正常运行，在Docker Daemon重启的时候它会去检查所有容器的endpoint、重建sandbox、清理network等等各种事情，所以就把这个脏数据修复掉了。</p>
+<p>在Docker Daemon重启过程中，会给每个容器构建DNS Resovler（setup-resolver），如果构建DNS Resovler这个过程中容器发送了大量域名查询过来同时这些域名又查询不到的话Docker Daemon在重启过程中需要等待这个查询超时，然后才能继续往下走重启流程，所以导致启动流程拉长<a href="https://www.atatech.org/articles/87339" target="_blank" rel="noopener">问题严重的时候导致Docker Daemon长时间无法启动</a></p>
+<p>Docker的域名解析为什么要这么做，是因为容器中有两种域名解析需求：</p>
+<ol>
+<li>容器启动时通过 net alias 命名的域名</li>
+<li>容器中正常对外网各种域名的解析（比如 baidu.com&#x2F;api.taobao.com)</li>
+</ol>
+<p>对于第一种只能由docker daemon来解析了，所以容器中碰到的任何域名解析都会丢给 docker daemon(127.0.0.11), 如果 docker daemon 发现这个域名不认识，也就是不是net alias命名的域名，那么docker就会把这个域名解析丢给宿主机配置的 nameserver 来解析【非常非常像 dns-f&#x2F;vipclient 的解析原理】</p>
+<h2 id="容器中的域名解析"><a href="#容器中的域名解析" class="headerlink" title="容器中的域名解析"></a>容器中的域名解析</h2><p>容器启动的时候读取宿主机的 &#x2F;etc&#x2F;resolv.conf (去掉127.0.0.1&#x2F;16 的nameserver）然后当成容器的 &#x2F;etc&#x2F;resolv.conf, 但是实际在容器中看到的 &#x2F;etc&#x2F;resolve.conf 中的nameserver只有一个：127.0.0.11，因为如上描述nameserver都被代理掉了</p>
+<p>容器 -&gt; docker daemon(127.0.0.11) -&gt; 宿主机中的&#x2F;etc&#x2F;resolv.conf 中的nameserver</p>
+<p>如果宿主机中的&#x2F;etc&#x2F;resolv.conf 中的nameserver没有，那么daemon默认会用8.8.8.8&#x2F;8.8.4.4来做下一级dns server，如果在一些隔离网络中（跟外部不通），那么域名解析就会超时，因为一直无法连接到 8.8.8.8&#x2F;8.8.4.4 ，进而导致故障。</p>
+<p>比如 vipserver 中需要解析 armory的域名，如果这个时候在私有云环境，宿主机又没有配置 nameserver, 那么这个域名解析会发送给 8.8.8.8&#x2F;8.8.4.4 ，长时间没有响应，超时后 vipserver 会关闭自己的探活功能，从而导致 vipserver 基本不可用一样。</p>
+<p>修改 宿主机的&#x2F;etc&#x2F;resolv.conf后 重新启动、创建的容器才会load新的nameserver</p>
+<h2 id="如果容器中需要解析vipserver中的域名"><a href="#如果容器中需要解析vipserver中的域名" class="headerlink" title="如果容器中需要解析vipserver中的域名"></a>如果容器中需要解析vipserver中的域名</h2><ol>
+<li>容器中安装vipclient，同时容器的 &#x2F;etc&#x2F;resolv.conf 配置 nameserver 127.0.0.1 </li>
+<li>要保证vipclient起来之后才能启动业务</li>
+</ol>
+<h2 id="kubernetes中dns解析偶尔5秒钟超时"><a href="#kubernetes中dns解析偶尔5秒钟超时" class="headerlink" title="kubernetes中dns解析偶尔5秒钟超时"></a>kubernetes中dns解析偶尔5秒钟超时</h2><p>dns解析默认会发出ipv4和ipv6，一般dns没有配置ipv6，会导致ipv6解析等待5秒超时后再发出ipv4解析得到正确结果。应用表现出来就是偶尔卡顿了5秒</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b43369bc-bfd5-4d69-88b7-6cfc56432c46.png" alt="img"></p>
+<p>（高亮行delay 5秒才发出查询，是因为高亮前一行等待5秒都没有等到查询结果）</p>
+<p>解析异常的strace栈：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">不正常解析的strace日志：</span><br><span class="line">1596601737.655724 socket(PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_IP) = 5</span><br><span class="line">1596601737.655784 connect(5, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, 16) = 0</span><br><span class="line">1596601737.655869 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601737.655968 sendmmsg(5, &#123;&#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_TRUNC|MSG_EOR|MSG_FIN|MSG_RST|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_MORE|MSG_WAITFORONE|MSG_FASTOPEN|0x1e340010&#125;, 48&#125;, &#123;&#123;msg_name(0)=NULL, msg_iov(1)=[&#123;&quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48&#125;], msg_controllen=0, msg_flags=MSG_WAITALL|MSG_FIN|MSG_ERRQUEUE|MSG_NOSIGNAL|MSG_FASTOPEN|MSG_CMSG_CLOEXEC|0x156c0000&#125;, 48&#125;&#125;, 2, MSG_NOSIGNAL) = 2</span><br><span class="line">1596601737.656113 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601737.659251 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601737.659330 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\10\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">=========</span><br><span class="line">1596601737.659421 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 0 (Timeout) //这里就是问题所在</span><br><span class="line">=========</span><br><span class="line">1596601742.657639 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.657735 sendto(5, &quot;\20\v\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.657837 poll([&#123;fd=5, events=POLLIN&#125;], 1, 5000) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.660929 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.661038 recvfrom(5, &quot;\20\v\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\1\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 2048, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.661129 poll([&#123;fd=5, events=POLLOUT&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLOUT&#125;])</span><br><span class="line">1596601742.661204 sendto(5, &quot;\207\250\1\0\0\1\0\0\0\0\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1&quot;, 48, MSG_NOSIGNAL, NULL, 0) = 48</span><br><span class="line">1596601742.661313 poll([&#123;fd=5, events=POLLIN&#125;], 1, 4996) = 1 ([&#123;fd=5, revents=POLLIN&#125;])</span><br><span class="line">1596601742.664443 ioctl(5, FIONREAD, [141]) = 0</span><br><span class="line">1596601742.664519 recvfrom(5, &quot;\207\250\201\203\0\1\0\0\0\1\0\0\20redis-7164-b5lzv\7cluster\5local\0\0\34\0\1\7cluster\5local\0\0\6\0\1\0\0\0\3\0D\2ns\3dns\7cluster\5local\0\nhostmaster\7cluster\5local\0_*5T\0\0\34 \0\0\7\10\0\1Q\200\0\0\0\36&quot;, 65536, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;10.68.0.2&quot;)&#125;, [16]) = 141</span><br><span class="line">1596601742.664600 close(5)              = 0</span><br></pre></td></tr></table></figure>
+
+<h3 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h3><p>DNS client (glibc 或 musl libc) 会并发请求 A 和 AAAA 记录，跟 DNS Server 通信自然会先 connect (建立fd)，后面请求报文使用这个 fd 来发送，由于 UDP 是无状态协议， connect 时并不会发包，也就不会创建 conntrack 表项, 而并发请求的 A 和 AAAA 记录默认使用同一个 fd 发包，send 时各自发的包它们源 Port 相同(因为用的同一个socket发送)，当并发发包时，两个包都还没有被插入 conntrack 表项，所以 netfilter 会为它们分别创建 conntrack 表项，而集群内请求 kube-dns 或 coredns 都是访问的CLUSTER-IP，报文最终会被 DNAT 成一个 endpoint 的 POD IP，当两个包恰好又被 DNAT 成同一个 POD IP时，它们的五元组就相同了，在最终插入的时候后面那个包就会被丢掉，而single-request-reopen的选项设置为俩请求被丢了一个，会等待超时再重发 ，这个就解释了为什么还存在调整成2s就是2s的异常比较多 ，因此这种场景下调整成single-request是比较好的方式，同时k8s那边给的dns缓存方案是 nodelocaldns组件可以考虑用一下</p>
+<p>关于recolv的选项</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">single-request (since glibc 2.10) 串行解析，</span><br><span class="line">                     Sets RES_SNGLKUP in _res.options.  By default, glibc</span><br><span class="line">                     performs IPv4 and IPv6 lookups in parallel since</span><br><span class="line">                     version 2.9.  Some appliance DNS servers cannot handle</span><br><span class="line">                     these queries properly and make the requests time out.</span><br><span class="line">                     This option disables the behavior and makes glibc</span><br><span class="line">                     perform the IPv6 and IPv4 requests sequentially (at the</span><br><span class="line">                     cost of some slowdown of the resolving process).</span><br><span class="line">single-request-reopen (since glibc 2.9) 并行解析，少收到一个解析回复后，再开一个socket重新发起解析，因此看到了前面调整timeout是1s后，还是有挺多1s的解析</span><br><span class="line">                     Sets RES_SNGLKUPREOP in _res.options.  The resolver</span><br><span class="line">                     uses the same socket for the A and AAAA requests.  Some</span><br><span class="line">                     hardware mistakenly sends back only one reply.  When</span><br><span class="line">                     that happens the client system will sit and wait for</span><br><span class="line">                     the second reply.  Turning this option on changes this</span><br><span class="line">                     behavior so that if two requests from the same port are</span><br><span class="line">                     not handled correctly it will close the socket and open</span><br><span class="line">                     a new one before sending the second request.</span><br></pre></td></tr></table></figure>
+
+<h3 id="getaddrinfo-关闭ipv6的解析"><a href="#getaddrinfo-关闭ipv6的解析" class="headerlink" title="getaddrinfo 关闭ipv6的解析"></a>getaddrinfo 关闭ipv6的解析</h3><p>基本上所有测试下来，网上那些通过修改配置的<a href="https://serverfault.com/questions/632665/how-to-disable-aaaa-lookups" target="_blank" rel="noopener">基本都不能关闭ipv6的解析</a>，只有通过在代码中指定</p>
+<blockquote>
+<p>hints.ai_family &#x3D; AF_INET;    &#x2F;* or AF_INET6 for ipv6 addresses *&#x2F;</p>
+</blockquote>
+<p>来只做ipv4的解析</p>
+<p><a href="https://askubuntu.com/questions/32298/prefer-a-ipv4-dns-lookups-before-aaaaipv6-lookups" target="_blank" rel="noopener">Prefer A (IPv4) DNS lookups before AAAA(IPv6) lookups</a></p>
+<p><a href="https://man7.org/linux/man-pages/man3/getaddrinfo.3.html" target="_blank" rel="noopener">https://man7.org/linux/man-pages/man3/getaddrinfo.3.html</a>: </p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">If hints.ai_flags includes the AI_ADDRCONFIG flag, then IPv4</span><br><span class="line">       addresses are returned in the list pointed to by res only if the</span><br><span class="line">       local system has at least one IPv4 address configured, and IPv6</span><br><span class="line">       addresses are returned only if the local system has at least one</span><br><span class="line">       IPv6 address configured.  The loopback address is not considered</span><br><span class="line">       for this case as valid as a configured address.  This flag is</span><br><span class="line">       useful on, for example, IPv4-only systems, to ensure that</span><br><span class="line">       getaddrinfo() does not return IPv6 socket addresses that would</span><br><span class="line">       always fail in connect(2) or bind(2).</span><br></pre></td></tr></table></figure>
+
+<p><a href="https://unix.stackexchange.com/questions/45598/force-getaddrinfo-to-use-ipv4" target="_blank" rel="noopener">c code demo</a>:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct addrinfo hints, *result;</span><br><span class="line">int s;</span><br><span class="line"></span><br><span class="line">memset(&amp;hints, 0, sizeof(hints));</span><br><span class="line">hints.ai_family = AF_INET;        /* or AF_INET6 for ipv6 addresses */</span><br><span class="line">s = getaddrinfo(NULL, &quot;ftp&quot;, &amp;hints, &amp;result);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>or</p>
+<p>In the <a href="https://www.cloudshark.org/captures/7e14dcc1d443" target="_blank" rel="noopener">Wireshark capture</a>, 172.25.50.3 is the local DNS resolver; the capture was taken there, so you also see its outgoing queries and responses. Note that <em>only</em> an A record was requested. No AAAA lookup was ever done.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;sys/socket.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;netdb.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line"></span><br><span class="line">int main(void) &#123;</span><br><span class="line">    struct addrinfo hints;</span><br><span class="line">    struct addrinfo *result, *rp;</span><br><span class="line">    int s;</span><br><span class="line">    char host[256];</span><br><span class="line"></span><br><span class="line">    memset(&amp;hints, 0, sizeof(struct addrinfo));</span><br><span class="line">    hints.ai_family = AF_INET;</span><br><span class="line">    hints.ai_socktype = SOCK_STREAM;</span><br><span class="line">    hints.ai_protocol = 0;</span><br><span class="line"></span><br><span class="line">    s = getaddrinfo(&quot;www.facebook.com&quot;, NULL, &amp;hints, &amp;result);</span><br><span class="line">    if (s != 0) &#123;</span><br><span class="line">        fprintf(stderr, &quot;getaddrinfo: %s\n&quot;, gai_strerror(s));</span><br><span class="line">        exit(EXIT_FAILURE);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    for (rp = result; rp != NULL; rp = rp-&gt;ai_next) &#123;</span><br><span class="line">        getnameinfo(rp-&gt;ai_addr, rp-&gt;ai_addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST);</span><br><span class="line">        printf(&quot;%s\n&quot;, host);</span><br><span class="line">    &#125;</span><br><span class="line">    freeaddrinfo(result);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p> or：<a href="https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method" target="_blank" rel="noopener">https://unix.stackexchange.com/questions/9940/convince-apt-get-not-to-use-ipv6-method</a></p>
+<p>&#x2F;etc&#x2F;gai.conf <a href="https://linux.die.net/man/5/gai.conf" target="_blank" rel="noopener">getaddrinfo的配置文件</a></p>
+<table>
+<thead>
+<tr>
+<th align="center">Prefix</th>
+<th align="center">Precedence</th>
+<th align="center">Label</th>
+<th align="center">Usage</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">::1&#x2F;128</td>
+<td align="center">50</td>
+<td align="center">0</td>
+<td align="center">Localhost</td>
+</tr>
+<tr>
+<td align="center">::&#x2F;0</td>
+<td align="center">40</td>
+<td align="center">1</td>
+<td align="center">Default unicast</td>
+</tr>
+<tr>
+<td align="center">::<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0&#x2F;96</a></td>
+<td align="center">35</td>
+<td align="center">4</td>
+<td align="center">IPv4-mapped IPv6 address</td>
+</tr>
+<tr>
+<td align="center">2002::&#x2F;16</td>
+<td align="center">30</td>
+<td align="center">2</td>
+<td align="center">6to4</td>
+</tr>
+<tr>
+<td align="center">2001::&#x2F;32</td>
+<td align="center">5</td>
+<td align="center">5</td>
+<td align="center">Teredo tunneling</td>
+</tr>
+<tr>
+<td align="center">fc00::&#x2F;7</td>
+<td align="center">3</td>
+<td align="center">13</td>
+<td align="center">Unique local address</td>
+</tr>
+<tr>
+<td align="center">::&#x2F;96</td>
+<td align="center">1</td>
+<td align="center">3</td>
+<td align="center">IPv4-compatible addresses (deprecated)</td>
+</tr>
+<tr>
+<td align="center">fec0::&#x2F;10</td>
+<td align="center">1</td>
+<td align="center">11</td>
+<td align="center">Site-local address (deprecated)</td>
+</tr>
+<tr>
+<td align="center">3ffe::&#x2F;16</td>
+<td align="center">1</td>
+<td align="center">12</td>
+<td align="center">6bone (returned)</td>
+</tr>
+</tbody></table>
+<p>来源于<a href="https://en.wikipedia.org/wiki/IPv6_address" target="_blank" rel="noopener">维基百科</a></p>
+<p>0:0:0:0:0:<a href="http://ffff/" target="_blank" rel="noopener">ffff:0:0&#x2F;96</a> 10 4 IPv4映射地址（这个地址网络上信息较少，地址范围：:: ffff：0.0.0.0~:: ffff：255.255.255.255 地址数量<a href="https://en.wikipedia.org/wiki/Power_of_2" target="_blank" rel="noopener">2 128−96 &#x3D; 2 32</a> &#x3D; 4 294 967 296，用于软件，目的是IPv4映射的地址。 ）</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">Kubernetes &gt;&#x3D; 1.13 + kube-proxy IPVS mode 服务部署不平滑</a></p>
+<p><a href="https://blog.51cto.com/welcomeweb/2464836" target="_blank" rel="noopener">linux ipv4 ipv6双栈 （优先ipv4而不使用ipv6配置）</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/10/windows7的wifi总是报DNS域名异常无法上网/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4683,183 +4939,6 @@ net.ipv4.route.min_pmtu = 552
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables监控reset的连接/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2018/03/25/iptables监控reset的连接/" itemprop="url">iptables监控reset的连接信息</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-03-25T17:30:03+08:00">
-                2018-03-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/network/" itemprop="url" rel="index">
-                    <span itemprop="name">network</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="iptables监控reset的连接信息"><a href="#iptables监控reset的连接信息" class="headerlink" title="iptables监控reset的连接信息"></a>iptables监控reset的连接信息</h1><h2 id="需求"><a href="#需求" class="headerlink" title="需求"></a>需求</h2><p>如果连接被reset需要记录下reset包是哪边放出来的，并记录reset连接的四元组信息</p>
-<h2 id="iptables规则"><a href="#iptables规则" class="headerlink" title="iptables规则"></a>iptables规则</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"># Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</span><br><span class="line">*filter</span><br><span class="line">:INPUT ACCEPT [557:88127]</span><br><span class="line">:FORWARD ACCEPT [0:0]</span><br><span class="line">:OUTPUT ACCEPT [527:171711]</span><br><span class="line"># 不监听3406上的reset，日志前面添加 [drds] </span><br><span class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line"># -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">COMMIT</span><br><span class="line"># Completed on Wed Apr  1 11:39:31 2020</span><br></pre></td></tr></table></figure>
-
-<p>将如上配置保存在 drds_filter.conf中，设置开机启动:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">//注意，tee 命令的 &quot;-a&quot; 选项的作用等同于 &quot;&gt;&gt;&quot; 命令，如果去除该选项，那么 tee 命令的作用就等同于 &quot;&gt;&quot; 命令。</span><br><span class="line">//echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid //sudo强行修改写入</span><br><span class="line">echo &quot;sudo iptables-restore &lt; drds_filter.conf&quot; | sudo tee -a /etc/rc.d/rc.local</span><br></pre></td></tr></table></figure>
-
-<h2 id="单独记录到日志文件中"><a href="#单独记录到日志文件中" class="headerlink" title="单独记录到日志文件中"></a>单独记录到日志文件中</h2><p>默认情况下 iptables 日志记录在 dmesg中不方便查询，可以修改rsyslog.d规则将日志存到单独的文件中：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/drds-tcp.log</span><br></pre></td></tr></table></figure>
-
-<p>将 [drds] 开头的日志存到对应的文件</p>
-<p>将如上配置放到： &#x2F;etc&#x2F;rsyslog.d&#x2F; 目录下， 重启 rsyslog 就生效了</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sudo cp /home/admin/drds-worker/install/drds_filter_log.conf /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">sudo chown -R root:root /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">sudo systemctl restart rsyslog</span><br></pre></td></tr></table></figure>
-
-<h2 id="防止日志打满磁盘"><a href="#防止日志打满磁盘" class="headerlink" title="防止日志打满磁盘"></a>防止日志打满磁盘</h2><p>配置 logrotate, 保留最近30天的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">#cat /etc/logrotate.d/drds</span><br><span class="line">/home/admin/logs/drds-tcp.log</span><br><span class="line">&#123;</span><br><span class="line">daily</span><br><span class="line">rotate 30</span><br><span class="line">copytruncate</span><br><span class="line">compress</span><br><span class="line">dateext</span><br><span class="line">#size 1k</span><br><span class="line">prerotate</span><br><span class="line">/usr/bin/chattr -a /home/admin/logs/drds-tcp.log</span><br><span class="line">endscript</span><br><span class="line">postrotate</span><br><span class="line">/usr/bin/chattr +a /home/admin/logs/drds-tcp.log</span><br><span class="line">endscript</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">执行：</span><br><span class="line">sudo /usr/sbin/logrotate --force --verbose /etc/logrotate.d/drds</span><br><span class="line">debug：</span><br><span class="line">sudo /usr/sbin/logrotate -d --verbose /etc/logrotate.d/drds</span><br><span class="line">查看日志：</span><br><span class="line">cat /var/lib/logrotate/logrotate.status</span><br></pre></td></tr></table></figure>
-
-<p>logrotate操作的日志需要权限正常，并且上级目录权限也要对，解决方案参考：<a href="https://chasemp.github.io/2013/07/24/su-directive-logrotate/" target="_blank" rel="noopener">https://chasemp.github.io/2013/07/24/su-directive-logrotate/</a> 报错信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">rotating pattern: /var/log/myapp/*.log  weekly (4 rotations)</span><br><span class="line">empty log files are rotated, old logs are removed</span><br><span class="line">considering log /var/log/myapp/default.log</span><br><span class="line"></span><br><span class="line">error: skipping &quot;/var/log/myapp/default.log&quot; because parent directory has insecure permissions</span><br><span class="line">(It&apos;s world writable or writable by group which is not &quot;root&quot;) Set &quot;su&quot; directive in </span><br><span class="line">config file to tell logrotate which user/group should be used for rotation</span><br></pre></td></tr></table></figure>
-
-<h2 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$tail -10 logs/drds-tcp.log</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9366 SEQ=0 ACK=1747027778 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9368 SEQ=0 ACK=3840170438 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:36 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.175.109 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=9370 SEQ=0 ACK=3892381139 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br><span class="line">Apr 26 15:27:38 vb kernel: [drds] IN= OUT=eth0 SRC=10.0.186.75 DST=10.0.171.173 LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=TCP SPT=8182 DPT=38225 SEQ=0 ACK=1436910913 WINDOW=0 RES=0x00 ACK RST URGP=0</span><br></pre></td></tr></table></figure>
-
-<h2 id="NetFilter-Hooks"><a href="#NetFilter-Hooks" class="headerlink" title="NetFilter Hooks"></a>NetFilter Hooks</h2><p>下面几个 hook 是内核协议栈中已经定义好的：</p>
-<ul>
-<li><code>NF_IP_PRE_ROUTING</code>: 接收到的包进入协议栈后立即触发此 hook，在进行任何路由判断 （将包发往哪里）之前</li>
-<li><code>NF_IP_LOCAL_IN</code>: 接收到的包经过路由判断，如果目的是本机，将触发此 hook</li>
-<li><code>NF_IP_FORWARD</code>: 接收到的包经过路由判断，如果目的是其他机器，将触发此 hook</li>
-<li><code>NF_IP_LOCAL_OUT</code>: 本机产生的准备发送的包，在进入协议栈后立即触发此 hook</li>
-<li><code>NF_IP_POST_ROUTING</code>: 本机产生的准备发送的包或者转发的包，在经过路由判断之后， 将触发此 hook</li>
-</ul>
-<h2 id="IPTables-表和链（Tables-and-Chains）"><a href="#IPTables-表和链（Tables-and-Chains）" class="headerlink" title="IPTables 表和链（Tables and Chains）"></a>IPTables 表和链（Tables and Chains）</h2><p>下面可以看出，内置的 chain 名字和 netfilter hook 名字是一一对应的：</p>
-<ul>
-<li><code>PREROUTING</code>: 由 <code>NF_IP_PRE_ROUTING</code> hook 触发</li>
-<li><code>INPUT</code>: 由 <code>NF_IP_LOCAL_IN</code> hook 触发</li>
-<li><code>FORWARD</code>: 由 <code>NF_IP_FORWARD</code> hook 触发</li>
-<li><code>OUTPUT</code>: 由 <code>NF_IP_LOCAL_OUT</code> hook 触发</li>
-<li><code>POSTROUTING</code>: 由 <code>NF_IP_POST_ROUTING</code> hook 触发</li>
-</ul>
-<h2 id="tracing-point-监控"><a href="#tracing-point-监控" class="headerlink" title="tracing_point 监控"></a>tracing_point 监控</h2><p>对于 4.19内核的kernel，可以通过tracing point来监控重传以及reset包</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line"># grep tcp:tcp /sys/kernel/debug/tracing/available_events</span><br><span class="line">tcp:tcp_probe</span><br><span class="line">tcp:tcp_retransmit_synack</span><br><span class="line">tcp:tcp_rcv_space_adjust</span><br><span class="line">tcp:tcp_destroy_sock</span><br><span class="line">tcp:tcp_receive_reset</span><br><span class="line">tcp:tcp_send_reset</span><br><span class="line">tcp:tcp_retransmit_skb</span><br><span class="line"></span><br><span class="line">#开启本机发出的 reset 监控，默认输出到：/sys/kernel/debug/tracing/trace_pipe</span><br><span class="line"># echo 1 &gt; /sys/kernel/debug/tracing/events/tcp/tcp_send_reset/enable</span><br><span class="line"></span><br><span class="line">#如下是开启重传以及reset的记录，本机ip 10.0.186.140</span><br><span class="line"># cat trace_pipe</span><br><span class="line">//重传</span><br><span class="line">          &lt;idle&gt;-0     [002] ..s. 9520196.657431: tcp_retransmit_skb: sport=3306 dport=62460 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70          </span><br><span class="line"> Wisp-Root-Worke-540   [000] .... 9522308.074233: tcp_destroy_sock: sport=3306 dport=20594 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=51a</span><br><span class="line"> C2 CompilerThre-543   [002] ..s. 9522308.074296: tcp_destroy_sock: sport=3306 dport=20670 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 sock_cookie=574</span><br><span class="line"> </span><br><span class="line">// 被reset</span><br><span class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353756: tcp_receive_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193 sock_cookie=5dd</span><br><span class="line">// 主动reset  </span><br><span class="line">     DragoonAgent-28297 [002] .... 9522433.144611: tcp_send_reset: sport=8182 dport=61783 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174</span><br><span class="line">  Wisp-Root-Worke-540   [002] ..s. 9522519.353773: tcp_send_reset: sport=33822 dport=8080 saddr=10.0.186.140 daddr=10.0.171.193 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.193</span><br><span class="line">  </span><br><span class="line"> // 3306对端中断 </span><br><span class="line">              cat-28727 [000] ..s. 9524341.650740: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">          &lt;idle&gt;-0     [000] .ns. 9524397.184608: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23262 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE</span><br><span class="line">         </span><br><span class="line">//8182 主动关闭         </span><br><span class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.045236: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">    DragoonAgent-6240  [001] .... 9525499.118092: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_ESTABLISHED newstate=TCP_FIN_WAIT1</span><br><span class="line">          &lt;idle&gt;-0     [000] ..s. 9525499.159032: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT1 newstate=TCP_FIN_WAIT2</span><br><span class="line">          &lt;idle&gt;-0     [000] .Ns. 9525499.159056: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=8182 dport=25448 saddr=10.0.186.140 daddr=10.0.171.174 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.171.174 oldstate=TCP_FIN_WAIT2 newstate=TCP_CLOSE</span><br><span class="line"></span><br><span class="line">//3306 被动关闭</span><br><span class="line">          &lt;idle&gt;-0     [002] .Ns. 9524484.864509: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_SYN_RECV newstate=TCP_ESTABLISHED</span><br><span class="line">             cat-28568 [002] ..s. 9524496.913199: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_ESTABLISHED newstate=TCP_CLOSE_WAIT</span><br><span class="line"> Wisp-Root-Worke-540   [003] .... 9524496.915450: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_CLOSE_WAIT newstate=TCP_LAST_ACK</span><br><span class="line"> Wisp-Root-Worke-539   [002] .Ns. 9524496.915572: inet_sock_set_state: family=AF_INET protocol=IPPROTO_TCP sport=3306 dport=23360 saddr=10.0.186.140 daddr=10.0.186.70 saddrv6=::ffff:10.0.186.140 daddrv6=::ffff:10.0.186.70 oldstate=TCP_LAST_ACK newstate=TCP_CLOSE</span><br></pre></td></tr></table></figure>
-
-<h2 id="iptables-打通网络"><a href="#iptables-打通网络" class="headerlink" title="iptables 打通网络"></a>iptables 打通网络</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">//本机到 172.16.0.102 不通，但是和 47.100.29.16能通(阿里云弹性ip)</span><br><span class="line">iptables -t nat -A OUTPUT -d 172.16.0.102 -j DNAT --to-destination 47.100.29.16</span><br></pre></td></tr></table></figure>
-
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://arthurchiao.art/blog/deep-dive-into-iptables-and-netfilter-arch-zh/" target="_blank" rel="noopener">深入理解 iptables 和 netfilter 架构</a></p>
-<p><a href="http://arthurchiao.art/blog/nat-zh/" target="_blank" rel="noopener">NAT - 网络地址转换（2016）</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4907,7 +4986,7 @@ net.ipv4.route.min_pmtu = 552
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">186</span>
+                <span class="site-state-item-count">187</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4929,7 +5008,7 @@ net.ipv4.route.min_pmtu = 552
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">275</span>
+                <span class="site-state-item-count">276</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

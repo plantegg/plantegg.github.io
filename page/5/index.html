@@ -292,6 +292,210 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/TCP连接为啥互串了/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/18/TCP连接为啥互串了/" itemprop="url">活久见，TCP连接互串了</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-18T17:30:03+08:00">
+                2020-11-18
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="活久见，TCP连接互串了"><a href="#活久见，TCP连接互串了" class="headerlink" title="活久见，TCP连接互串了"></a>活久见，TCP连接互串了</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>应用每过一段时间总是会抛出几个连接异常的错误，需要查明原因。</p>
+<p>排查后发现是TCP连接互串了，这个案例实在是很珍惜，所以记录一下。</p>
+<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>业务结构： 应用-&gt;MySQL(10.112.61.163)</p>
+<p>在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/dd657fee9d961a786c05e8d3cccbc297.png" alt="image.png"></p>
+<p>粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）</p>
+<p>于是我过滤了一下端口61902上的所有包：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png" alt="image.png"></p>
+<p>可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。</p>
+<p>明明他们应该是两个连接：</p>
+<blockquote>
+<p> 61902-&gt;10.141.16.0:3306</p>
+<p> 61902-&gt;10.112.61.163:3269</p>
+</blockquote>
+<p>他们虽然用的本地ip端口（61902）是一样的， 但是根据四元组不一样，还是不同的TCP连接，所以应该是不会互相干扰的。但是实际看起来<strong>seq、id都重复了</strong>，不会有这么巧，非常像是TCP互串了。</p>
+<h2 id="分析原因"><a href="#分析原因" class="headerlink" title="分析原因"></a>分析原因</h2><p>10.141.16.0 这个ip看起来像是lvs的ip，查了一下系统，果然是lvs，然后这个lvs 后面的rs就是10.112.61.163</p>
+<p>那么这个连结构就是10.141.16.0:3306：</p>
+<blockquote>
+<p>应用 -&gt; lvs(10.141.16.0:3306)-&gt; 10.112.61.163:3269  跟应用直接连MySQL是一回事了</p>
+</blockquote>
+<p>所以这里的疑问就变成了：<strong>10.141.16.0 这个IP的3306端口为啥能知道 10.112.61.163:3269端口的seq和id，也许是TCP连接串了</strong></p>
+<p>接着往下排查</p>
+<h3 id="先打个岔，分析下这里的LVS的原理"><a href="#先打个岔，分析下这里的LVS的原理" class="headerlink" title="先打个岔，分析下这里的LVS的原理"></a><a href="/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">先打个岔，分析下这里的LVS的原理</a></h3><p>这里使用的是 full NAT模型(full NetWork Address Translation-全部网络地址转换)</p>
+<p>基本流程（类似NAT）：</p>
+<ol>
+<li>client发出请求（sip 200.200.200.2 dip 200.200.200.1）</li>
+<li>请求包到达lvs，lvs修改请求包为<strong>（sip 200.200.200.1， dip rip）</strong> 注意这里sip&#x2F;dip都被修改了</li>
+<li>请求包到达rs， rs回复（sip rip，dip 200.200.200.1）</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client</li>
+</ol>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"></p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>本来这个模型下都是正常的，但是为了Real Server能拿到client ip，也就是Real Server记录来源ip的时候希望记录的是client ip而不是LVS ip。这个时候LVS会将client ip放在tcp的options里面，然后在RealServer机器的内核里面将options中的client ip取出替换掉 lvs ip。所以Real Server上感知到的对端ip就是client ip。</p>
+<p>回包的时候RealServer上的内核模块同样将目标地址从client ip改成lvs ip，同时将client ip放入options中。</p>
+<h2 id="回到问题"><a href="#回到问题" class="headerlink" title="回到问题"></a>回到问题</h2><p>看完理论，再来分析这两个连接的行为</p>
+<p>fulnat模式下连接经过lvs到达mysql后，mysql上看到的连接信息是，cip+port，也就是在MySQL上的连接</p>
+<p>**lvs-ip:port -&gt; 10.112.61.163:3269  被修改成了 **client-ip:61902 **-&gt; 10.112.61.163:3269</p>
+<p>那么跟不走LVS的连接：</p>
+<p><strong>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) 完全重复了。</strong></p>
+<p>MySQL端看到的两个连接四元组一模一样了：</p>
+<blockquote>
+<p>10.112.61.163:3269 -&gt; client-ip:61902 (走LVS，本来应该是lvs ip的，但是被替换成了client ip) </p>
+<p>10.112.61.163:3269 -&gt; client-ip:61902 (直连) </p>
+</blockquote>
+<p>这个时候应用端看到的还是两个连接：</p>
+<blockquote>
+<p>client-ip:61902 -&gt; 10.141.16.0:3306 （走LVS） </p>
+<p>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) </p>
+</blockquote>
+<p>总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了</p>
+<blockquote>
+<p>这个时候用 netstat 看到的应该是两个连接(vtoa 没有替换), 一个是client-&gt;rs, 一个是lvs-&gt;rs, 内核层面看到的还是两个连接, 只是get_peername接口被toa hook修改后, 两个连接返回的srcip是同一个 </p>
+</blockquote>
+<p>实际两个连接建立的情况：</p>
+<blockquote>
+<p> 和mysqlserver的61902是04:22建起来的，和lvs的61902端口 是42:10建起来的，和lvs的61902建起来之后马上就出问题了</p>
+</blockquote>
+<h2 id="问题出现的条件"><a href="#问题出现的条件" class="headerlink" title="问题出现的条件"></a>问题出现的条件</h2><ul>
+<li>fulnat模式的LVS，RS上装有ip转换模块（RS上会将LVS ip还原成client ip）</li>
+<li>client端正好重用一个相同的本地端口分别和RS以及LVS建立了两个连接</li>
+</ul>
+<p>这个时候这两个连接在MySQL端就会变成一个，然后两个连接的内容互串，必然导致rst</p>
+<p>这个问题还挺有意思的，估计没几个程序员一辈子能碰上一次。推荐另外一个好玩的连接：<a href="/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">如何创建一个自己连自己的TCP连接</a></p>
+<p>在很多容器场景也容易出现同样的问题，比如同时暴露 Nodeport 和 Loadbalance IP</p>
+<h2 id="其他场景"><a href="#其他场景" class="headerlink" title="其他场景"></a>其他场景</h2><p>比如在 HA 场景下，需要通过直连节点去做心跳检查(B链路)；同时又要走A链路去跨机房检测，这两个链路下连接的目标IP一直、端口不一样，但是经过转换后都是MySQL-Server+3306端口，容易出现两条连接转换后变成一条连接</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240723203828093.png" alt="image-20240723203828093"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">就是要你懂负载均衡–lvs和转发模式</a></p>
+<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="noopener">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
+<p><a href="https://github.com/kubernetes/kubernetes/issues/81775" target="_blank" rel="noopener">no route to host</a></p>
+<p><a href="https://zhuanlan.zhihu.com/p/127099484" target="_blank" rel="noopener">另一种形式的tcp连接互串，新连接重用了time_wait的port，导致命中lvs内核表中的维护的旧连接发给了老的realserver</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/MySQL针对秒杀场景的优化/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -3791,7 +3995,10 @@
             <h1 id="如何创建一个自己连自己的TCP连接"><a href="#如何创建一个自己连自己的TCP连接" class="headerlink" title="如何创建一个自己连自己的TCP连接"></a>如何创建一个自己连自己的TCP连接</h1><blockquote>
 <p>能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？</p>
 </blockquote>
-<p>执行</p>
+<p>最近有同时找我，说是发现了一个奇怪的问题，他的 MySQLD listen 28350 端口， Sysbench 和 MySQLD 部署在同一台机器上，然后压 MySQL，只要 MySQL 一挂掉就再也起不来，起不来是因为 28350 端口被 Sysbench 抢走了，如下图，对 Sysbench 来说他已经连上 28350 的 MySQL 了（注意 ESTABLISHED 状态）：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/ignore-error,1" alt="img"></p>
+<p>所以问题就是能不能建立一个自己连自己的连接呢？建立后有什么现象和后果？</p>
+<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>执行</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.79 18082 -p 18082</span><br></pre></td></tr></table></figure>
 
 <p>然后就能看到</p>
@@ -3836,6 +4043,15 @@
 <p>connect成功后会将四元组放入ehash来判定连接的重复性。如果connect四元组冲突了就会报如下错误</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.82 8080 -p 29798 -s 192.168.0.79</span><br><span class="line">Ncat: Cannot assign requested address.</span><br></pre></td></tr></table></figure>
 
+<h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a><strong>问题解决</strong></h2><p>知道原因就好解决了，有如下两个方案</p>
+<ol>
+<li>正常应该通过 port_range 限制随机端口的使用范围(就是给 Sysbench 这些客户端使用的)，而 Listen 使用的端口在 port_range 之外，这样就不会出现自己连自己的连接了</li>
+<li>将 listen 端口添加到 &#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_reserved_ports 中</li>
+</ol>
+<p>方案2示例(推荐方案2)如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># echo 3306,32768,1024-3000,32769-65535 &gt;/proc/sys/net/ipv4/ip_local_reserved_ports</span><br><span class="line">//合并连续的区间</span><br><span class="line"># cat /proc/sys/net/ipv4/ip_local_reserved_ports</span><br><span class="line">1024-3000,3306,32768-65535</span><br></pre></td></tr></table></figure>
+
+<p>以上两个方法都可以解决这个问题，方案2 简直是为这种情况量身打造的</p>
 <h2 id="bind-和-connect、listen"><a href="#bind-和-connect、listen" class="headerlink" title="bind 和 connect、listen"></a>bind 和 connect、listen</h2><p>当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。</p>
 <p>如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</span><br><span class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line">bind(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(&quot;0.0.0.0&quot;)&#125;, 16) = 0</span><br></pre></td></tr></table></figure>
@@ -5577,225 +5793,6 @@ LISTEN    0     511              *:8085           *:*
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/24/如何制作本地软件仓库/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/24/如何制作本地软件仓库/" itemprop="url">如何制作本地软件仓库</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-24T17:30:03+08:00">
-                2020-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何制作软件仓库"><a href="#如何制作软件仓库" class="headerlink" title="如何制作软件仓库"></a>如何制作软件仓库</h1><p>某些情况下在没有外网的环境需要安装一些软件，但是软件依赖比较多，那么可以提前将所有依赖下载到本地，然后将他们制作成一个yum repo，安装的时候就会自动将依赖包都安装好。</p>
-<p>centos下是 yum 仓库，Debian、ubuntu下是apt仓库，我们先讲 yum 仓库的制作，Debian apt 仓库类似</p>
-<h2 id="收集所有rpm包"><a href="#收集所有rpm包" class="headerlink" title="收集所有rpm包"></a>收集所有rpm包</h2><p>创建一个文件夹，比如 Yum，将收集到的所有rpm包放在里面，比如安装ansible和docker需要的依赖文件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">-rwxr-xr-x 1 root root  73K 7月  12 14:22 audit-libs-python-2.8.4-4.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root 295K 7月  12 14:22 checkpolicy-2.5-8.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  23M 7月  12 14:22 containerd.io-1.2.2-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  26K 7月  12 14:22 container-selinux-2.9-4.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  37K 7月  12 14:22 container-selinux-2.74-1.el7.noarch.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  14M 7月  12 14:22 docker-ce-cli-18.09.0-3.el7.x86_64.rpm</span><br><span class="line">-rwxr-xr-x 1 root root  29K 7月  12 14:22 docker-ce-selinux-17.03.2.ce-1.el7.centos.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-2.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  22K 7月  12 14:23 sshpass-1.06-1.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 154K 7月  12 14:23 PyYAML-3.10-11.el7.x86_64.rpm</span><br><span class="line">-r-xr-xr-x 1 root root  29K 7月  12 14:23 python-six-1.9.0-2.el7.noarch.rpm</span><br><span class="line">-r-xr-xr-x 1 root root 397K 7月  12 14:23 python-setuptools-0.9.8-7.el7.noarch.rpm</span><br></pre></td></tr></table></figure>
-
-<p>收集方法：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">//先安装yum工具</span><br><span class="line">yum install yum-utils -y</span><br><span class="line">//将 ansible 依赖包都下载下来</span><br><span class="line">repoquery --requires --resolve --recursive ansible | xargs -r yumdownloader --destdir=/tmp/ansible</span><br><span class="line">//将ansible rpm自己下载回来</span><br><span class="line">yumdownloader --destdir=/tmp/ansible --resolve ansible</span><br><span class="line">//验证一下依赖关系是完整的</span><br><span class="line">//repotrack ansible</span><br></pre></td></tr></table></figure>
-
-<h2 id="创建仓库索引"><a href="#创建仓库索引" class="headerlink" title="创建仓库索引"></a>创建仓库索引</h2><p>需要安装工具 yum install createrepo -y：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"># createrepo ./public_yum/</span><br><span class="line">Spawning worker 0 with 6 pkgs</span><br><span class="line">Spawning worker 1 with 6 pkgs</span><br><span class="line">Spawning worker 23 with 5 pkgs</span><br><span class="line">Workers Finished</span><br><span class="line">Saving Primary metadata</span><br><span class="line">Saving file lists metadata</span><br><span class="line">Saving other metadata</span><br><span class="line">Generating sqlite DBs</span><br><span class="line">Sqlite DBs complete</span><br></pre></td></tr></table></figure>
-
-<p>会在yum文件夹下生成一个索引文件夹 repodata</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">drwxr-xr-x 2 root root 4.0K 7月  12 14:25 repodata</span><br><span class="line">[root@az1-drds-79 yum]# ls repodata/</span><br><span class="line">5e15c62fec1fe43c6025ecf4d370d632f4b3f607500016e045ad94b70f87bac3-filelists.xml.gz</span><br><span class="line">7a314396d6e90532c5c534567f9bd34eee94c3f8945fc2191b225b2861ace2b6-other.xml.gz</span><br><span class="line">ce9dce19f6b426b8856747b01d51ceaa2e744b6bbd5fbc68733aa3195f724590-primary.xml.gz</span><br><span class="line">ee33b7d79e32fe6ad813af92a778a0ec8e5cc2dfdc9b16d0be8cff6a13e80d99-filelists.sqlite.bz2</span><br><span class="line">f7e8177e7207a4ff94bade329a0f6b572a72e21da106dd9144f8b1cdf0489cab-primary.sqlite.bz2</span><br><span class="line">ff52e1f1859790a7b573d2708b02404eb8b29aa4b0c337bda83af75b305bfb36-other.sqlite.bz2</span><br><span class="line">repomd.xml</span><br></pre></td></tr></table></figure>
-
-<h2 id="生成iso镜像文件"><a href="#生成iso镜像文件" class="headerlink" title="生成iso镜像文件"></a>生成iso镜像文件</h2><p>非必要步骤，如果需要带到客户环境可以先生成iso，不过不够灵活。</p>
-<p>也可以不用生成iso，直接在drds.repo中指定 createrepo 的目录也可以，记得要先执行 yum clean all和yum update </p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#mkisofs -r -o docker_ansible.iso ./yum/</span><br><span class="line">I: -input-charset not specified, using utf-8 (detected in locale settings)</span><br><span class="line">Using PYTHO000.RPM;1 for  /python-httplib2-0.7.7-3.el7.noarch.rpm (python-httplib2-0.9.1-3.el7.noarch.rpm)</span><br><span class="line">Using MARIA006.RPM;1 for  /mariadb-5.5.56-2.el7.x86_64.rpm (mariadb-libs-5.5.56-2.el7.x86_64.rpm)</span><br><span class="line">Using LIBTO001.RPM;1 for  /libtomcrypt-1.17-25.el7.x86_64.rpm (libtomcrypt-1.17-26.el7.x86_64.rpm)</span><br><span class="line">  6.11% done, estimate finish Sun Jul 12 14:26:47 2020</span><br><span class="line"> 97.60% done, estimate finish Sun Jul 12 14:26:48 2020</span><br><span class="line">Total translation table size: 0</span><br><span class="line">Total rockridge attributes bytes: 14838</span><br><span class="line">Total directory bytes: 2048</span><br><span class="line">Path table size(bytes): 26</span><br><span class="line">Max brk space used 21000</span><br><span class="line">81981 extents written (160 MB)</span><br></pre></td></tr></table></figure>
-
-<h2 id="将-生成的-iso挂载到目标机器上"><a href="#将-生成的-iso挂载到目标机器上" class="headerlink" title="将 生成的 iso挂载到目标机器上"></a>将 生成的 iso挂载到目标机器上</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># mkdir /mnt/iso</span><br><span class="line"># mount ./docker_ansible.iso /mnt/iso</span><br><span class="line">mount: /dev/loop0 is write-protected, mounting read-only</span><br></pre></td></tr></table></figure>
-
-<h2 id="配置本地-yum-源"><a href="#配置本地-yum-源" class="headerlink" title="配置本地 yum 源"></a>配置本地 yum 源</h2><p>yum repository不是必须要求iso挂载，直接指向rpm文件夹（必须要有 createrepo 建立索引了）也可以</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/yum.repos.d/drds.repo </span><br><span class="line">[drds]</span><br><span class="line">name=drds Extra Packages for Enterprise Linux 7 - $basearch</span><br><span class="line">enabled=1</span><br><span class="line">failovermethod=priority</span><br><span class="line">baseurl=file:///mnt/repo #baseurl=http://192.168.1.91:8000/ 本地内网</span><br><span class="line">priority=1  #添加priority=1，数字越小优先级越高，也可以修改网络源的priority的值</span><br><span class="line">gpgcheck=0</span><br><span class="line">#gpgkey=file:///mnt/cdrom/RPM-GPG-KEY-CentOS-5    #注：这个你cd /mnt/cdrom/可以看到这个key，这里仅仅是个例子， 因为gpgcheck是0 ，所以gpgkey不需要了</span><br></pre></td></tr></table></figure>
-
-<p>到此就可以在没有网络环境的机器上直接：yum install ansible docker -y 了 </p>
-<h2 id="yum-仓库代理"><a href="#yum-仓库代理" class="headerlink" title="yum 仓库代理"></a><a href="https://pshizhsysu.gitbook.io/linux/yum/wei-yum-yuan-pei-zhi-dai-li" target="_blank" rel="noopener">yum 仓库代理</a></h2><p>如果需要代理可以在docker.repo 最后添加：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">proxy=socks5://127.0.0.1:12345 //socks代理 或者 proxy=http://ip:port</span><br></pre></td></tr></table></figure>
-
-<p>如果要给全局配置代理，则在 &#x2F;etc&#x2F;yum.conf 最后添加如上行</p>
-<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>测试的话可以指定repo 源： yum install ansible –enablerepo&#x3D;drds （drds 优先级最高）</p>
-<p>本地会cache一些rpm的版本信息，可以执行 yum clean all 得到一个干净的测试环境</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">yum clean all</span><br><span class="line">yum list</span><br><span class="line">yum deplist ansible</span><br></pre></td></tr></table></figure>
-
-<h2 id="yum-源问题处理"><a href="#yum-源问题处理" class="headerlink" title="yum 源问题处理"></a>yum 源问题处理</h2><p><a href="https://access.redhat.com/solutions/641093" target="_blank" rel="noopener">Yum commands error “pycurl.so: undefined symbol”</a></p>
-<h2 id="xargs-作用"><a href="#xargs-作用" class="headerlink" title="xargs 作用"></a>xargs 作用</h2><p><code>xargs</code>命令的作用，是将标准输入转为命令行参数。因为有些命令是不接受标准输入的，比如echo</p>
-<p><code>xargs</code>的作用在于，大多数命令（比如<code>rm</code>、<code>mkdir</code>、<code>ls</code>）与管道一起使用时，都需要<code>xargs</code>将标准输入转为命令行参数。</p>
-<h2 id="dnf-使用"><a href="#dnf-使用" class="headerlink" title="dnf 使用"></a>dnf 使用</h2><p><strong>DNF</strong> 是新一代的rpm软件包管理器。他首先出现在 Fedora 18 这个发行版中。而最近，它取代了yum，正式成为 Fedora 22 的包管理器。</p>
-<p>DNF包管理器克服了YUM包管理器的一些瓶颈，提升了包括用户体验，内存占用，依赖分析，运行速度等多方面的内容。DNF使用 RPM, libsolv 和 hawkey 库进行包管理操作。尽管它没有预装在 CentOS 和 RHEL 7 中，但你可以在使用 YUM 的同时使用 DNF 。你可以在这里获得关于 DNF 的更多知识：《 DNF 代替 YUM ，你所不知道的缘由》</p>
-<p>DNF 包管理器作为 YUM 包管理器的升级替代品，它能自动完成更多的操作。但在我看来，正因如此，所以 DNF 包管理器不会太受那些经验老道的 Linux 系统管理者的欢迎。举例如下：</p>
-<ol>
-<li>在 DNF 中没有 –skip-broken 命令，并且没有替代命令供选择。</li>
-<li>在 DNF 中没有判断哪个包提供了指定依赖的 resolvedep 命令。</li>
-<li>在 DNF 中没有用来列出某个软件依赖包的 deplist 命令。</li>
-<li>当你在 DNF 中排除了某个软件库，那么该操作将会影响到你之后所有的操作，不像在 YUM 下那样，你的排除操作只会咋升级和安装软件时才起作用。</li>
-</ol>
-<h2 id="安装yum源"><a href="#安装yum源" class="headerlink" title="安装yum源"></a>安装yum源</h2><p>安装7.70版本curl yum源</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">rpm -Uvh http://www.city-fan.org/ftp/contrib/yum-repo/city-fan.org-release-2-1.rhel7.noarch.rpm</span><br></pre></td></tr></table></figure>
-
-<h2 id="其它技巧"><a href="#其它技巧" class="headerlink" title="其它技巧"></a>其它技巧</h2><h3 id="rpm依赖查询"><a href="#rpm依赖查询" class="headerlink" title="rpm依赖查询"></a>rpm依赖查询</h3><figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">rpm -q --whatprovides file-name //查询一个文件来自哪个rpm包</span><br><span class="line">rpm -qf /usr/lib/systemd/libsystemd-shared-239.so // 查询一个so lib来自哪个rpm包</span><br><span class="line">或者 yum whatprovides /usr/lib/systemd/libsystemd-shared-239.so</span><br><span class="line">yum provides */libmysqlclient.so.18</span><br><span class="line"></span><br><span class="line">rpm -qi //查看rpm包安装的安装信息</span><br></pre></td></tr></table></figure>
-
-<h3 id="多版本问题"><a href="#多版本问题" class="headerlink" title="多版本问题"></a>多版本问题</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">//查看protobuf 的多个版本</span><br><span class="line"> yum --showduplicates list protobuf</span><br><span class="line">//or</span><br><span class="line"> repoquery --show-duplicates protobuf</span><br><span class="line"></span><br><span class="line">//指定版本安装，一般是安装教老的版本 </span><br><span class="line"> yum install protobuf-3.6.1-4.el7</span><br></pre></td></tr></table></figure>
-
-<h2 id="制作debian-仓库"><a href="#制作debian-仓库" class="headerlink" title="制作debian 仓库"></a><a href="https://rpmdeb.com/devops-articles/how-to-create-local-debian-repository/" target="_blank" rel="noopener">制作debian 仓库</a></h2><p>适合ubuntu、deepin、uos等, 参考：<a href="https://lework.github.io/2021/04/03/debian-kubeadm-install/" target="_blank" rel="noopener">https://lework.github.io/2021/04/03/debian-kubeadm-install/</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#添加新仓库</span><br><span class="line">sudo apt-add-repository &apos;deb http://ftp.us.debian.org/debian stretch main contrib non-free&apos;</span><br></pre></td></tr></table></figure>
-
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/2-60.png" alt="img"></p>
-<p><a href="https://zh-cn.linuxcapable.com/%E5%9C%A8-debian-11-%E9%9D%B6%E5%BF%83%E4%B8%8A%E5%AE%89%E8%A3%85-rpm-%E5%8C%85/" target="_blank" rel="noopener">rpm转换成 dpkg</a></p>
-<h3 id="apt-mirror"><a href="#apt-mirror" class="headerlink" title="apt-mirror"></a><a href="https://www.rickylss.site/os/linux/2020/05/12/debian-repositry/" target="_blank" rel="noopener">apt-mirror</a></h3><p>先要安装apt-mirror 工具，安装后会生成配置文件 &#x2F;etc&#x2F;apt&#x2F;mirror.list 然后需要手工修改配置文件：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">#cat /etc/apt/mirror.list</span><br><span class="line">############# config ##################</span><br><span class="line"></span><br><span class="line">#下载下来的仓库文件放在哪里</span><br><span class="line">set base_path    /polarx/debian</span><br><span class="line"></span><br><span class="line">set mirror_path  $base_path/mirror</span><br><span class="line">set skel_path    $base_path/skel</span><br><span class="line">set var_path     $base_path/var</span><br><span class="line">set cleanscript $var_path/clean.sh</span><br><span class="line">set defaultarch  amd64</span><br><span class="line">#set postmirror_script $var_path/postmirror.sh</span><br><span class="line">set run_postmirror 0</span><br><span class="line">set nthreads     20</span><br><span class="line">set _tilde 0</span><br><span class="line">#</span><br><span class="line">############# end config ##############</span><br><span class="line"></span><br><span class="line">#从哪里镜像仓库</span><br><span class="line">deb http://yum.tbsite.net/mirrors/debian/ buster main non-free contrib</span><br><span class="line">#deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main</span><br><span class="line"></span><br><span class="line">#deb http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-src http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line"></span><br><span class="line"># mirror additional architectures</span><br><span class="line">#deb-alpha http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-amd64 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-armel http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-hppa http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-i386 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-ia64 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-m68k http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-mips http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-mipsel http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-powerpc http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-s390 http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line">#deb-sparc http://ftp.us.debian.org/debian unstable main contrib non-free</span><br><span class="line"></span><br><span class="line">#clean http://ftp.us.debian.org/debian</span><br><span class="line">clean http://yum.tbsite.net/mirrors/debian/</span><br></pre></td></tr></table></figure>
-
-<h3 id="debian仓库介绍"><a href="#debian仓库介绍" class="headerlink" title="debian仓库介绍"></a><a href="https://wiki.debian.org/zh_CN/DebianRepository" target="_blank" rel="noopener">debian仓库介绍</a></h3><p>一个Debian仓库包含多个<strong>发行版</strong>。Debian 的发行版是以 “玩具总动员 “电影中的角色命名的 (wheezy, jessie, stretch, …)。 代号有别名，叫做<strong>套件</strong>(stable, oldstable, testing, unstable)。一个发行版会被分成几个<strong>组件</strong>。在 Debian 中，这些组件被命名为 <code>main</code>, <code>contrib</code>, 和 <code>non-free</code>，并表并表示它们所包含的软件的授权条款。一个版本也有各种<strong>架构</strong>(amd64, i386, mips, powerpc, s390x, …)的软件包，以及源码和架构独立的软件包。</p>
-<p>仓库的<a href="https://mirrors.aliyun.com/debian/dists/" target="_blank" rel="noopener">根目录下有一个<code>dists</code> 目录</a>，而这个目录又有每个发行版和套件的目录，后者通常是前者的符号链接，但浏览器不会向您显示出这个区别。每个发行版子目录都包含一个加密签名的<code>Release</code>文件和每个组件的目录，里面是不同架构的目录，名为<code>binary</code>-*&lt;架构&gt;*和<code>sources</code>。而在这些文件中，<code>Packages</code>是文本文件，包含了软件包。嗯，那么实际的软件包在哪里？</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220829163817671.png" alt="image-20220829163817671"></p>
-<p>软件包本身在仓库根目录下的<code>pool</code>。在<code>pool</code>下面又有所有组件的目录，其中有<code>0</code>，…，<code>9</code>，<code>a</code>，<code>b</code>，.., <code>z</code>, <code>liba</code>, … , <code>libz</code>。 而在这些目录中，是以它们所包含的软件包命名的目录，这些目录最后包含实际的软件包，即<code>.deb</code>文件。这个名字不一定是软件包本身的名字，例如，软件包bsdutils在目录<code>pool/main/u/util-linux</code> 下，它是生成软件包的源码的名称。一个上游源可能会生成多个二进制软件包，而所有这些软件包最终都会在<code>pool</code>下面的同一个子目录中。额外的单字母目录只是一个技巧，以避免在一个目录中有太多的条目，因为这是很多系统传统上存在性能问题的原因。</p>
-<p>在<code>pool</code>下面的子目录中，通常会有多个版本的软件包，而每个版本的软件包属于什么发行版的信息只存在于索引中。这样一来，同一个版本的包可软件以属于多个发行版，但只使用一次磁盘空间，而且不需要求助于硬链接或符号链接，所以镜像相当简单，甚至可以在没有这些概念的系统中进行。</p>
-<h3 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">apt install kubeadm=1.20.12-00 //指定版本安装</span><br><span class="line"></span><br><span class="line">#查询可用版本</span><br><span class="line">apt-cache policy kubeadm</span><br><span class="line">apt list --all-versions kubeadm</span><br><span class="line"></span><br><span class="line">#清理</span><br><span class="line">apt clean --dry-run </span><br><span class="line">apt update</span><br><span class="line">apt list/dpkg -l //列出本机所有已经安装的软件</span><br><span class="line">apt show kubeadm //显示版本、作者等信息</span><br><span class="line"></span><br><span class="line">#查询某个安装包的所有文件</span><br><span class="line">dpkg-query -L kubeadm</span><br><span class="line"></span><br><span class="line">#列出所有依赖包</span><br><span class="line">apt-cache depends ansible</span><br><span class="line"></span><br><span class="line">#被依赖查询</span><br><span class="line">apt-cache rdepends kubelet</span><br><span class="line"></span><br><span class="line">dpkg -I kubernetes/pool/kubeadm_1.21.0-00_amd64.deb</span><br><span class="line"></span><br><span class="line">#下载依赖包</span><br><span class="line">apt-get download $(apt-rdepends kubeadm|grep -v &quot;^ &quot;)</span><br><span class="line">aptitude --download-only -y install $(apt-rdepends kubeadm|grep -v &quot;^ &quot;) //不能下载已经安装了的依赖包</span><br><span class="line"></span><br><span class="line">apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep &quot;^\w&quot; | sort -u)</span><br></pre></td></tr></table></figure>
-
-<h3 id="简单仓库"><a href="#简单仓库" class="headerlink" title="简单仓库"></a><a href="https://zhuanlan.zhihu.com/p/482592599" target="_blank" rel="noopener">简单仓库</a></h3><p>下载所有 deb 包以及他们的依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">apt download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances kubeadm | grep &quot;^\w&quot; | sort -u)</span><br></pre></td></tr></table></figure>
-
-<p>到deb 包所在的目录下生成 index</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dpkg-scanpackages -m . &gt; Packages</span><br></pre></td></tr></table></figure>
-
-<p>&#x2F;etc&#x2F;apt&#x2F;source.list 指向这个目录</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">deb [trusted=yes] file:/polarx/test /</span><br><span class="line">or</span><br><span class="line">deb [trusted=yes] http://kunpeng/pool/ ./</span><br></pre></td></tr></table></figure>
-
-<p>验证：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">apt update //看是否能拉取你刚配置的仓库</span><br></pre></td></tr></table></figure>
-
-<h3 id="Kubernetes-仓库"><a href="#Kubernetes-仓库" class="headerlink" title="Kubernetes 仓库"></a>Kubernetes 仓库</h3><p><a href="https://lework.github.io/2021/04/03/debian-kubeadm-install/" target="_blank" rel="noopener">debian 上通过kubeadm 安装 kubernetes 集群</a></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">//官方</span><br><span class="line">echo &quot;deb http://apt.kubernetes.io/ kubernetes-xenial main&quot; | tee -a /etc/apt/sources.list.d/kubernetes.list</span><br><span class="line"></span><br><span class="line">//阿里云仓库</span><br><span class="line">echo &apos;deb https://mirrors.aliyun.com/kubernetes/apt kubernetes-xenial main&apos; &gt; /etc/apt/sources.list.d/kubernetes.list</span><br><span class="line">curl -s https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | sudo apt-key add -</span><br><span class="line">apt-get update</span><br><span class="line"></span><br><span class="line">export KUBE_VERSION=&quot;1.20.5&quot;</span><br><span class="line">apt-get install -y kubeadm=$KUBE_VERSION-00 kubelet=$KUBE_VERSION-00 kubectl=$KUBE_VERSION-00</span><br><span class="line">sudo apt-mark hold kubelet kubeadm kubectl</span><br><span class="line"></span><br><span class="line">[ -d /etc/bash_completion.d ] &amp;&amp; \</span><br><span class="line">    &#123; kubectl completion bash &gt; /etc/bash_completion.d/kubectl; \</span><br><span class="line">      kubeadm completion bash &gt; /etc/bash_completion.d/kubadm; &#125;</span><br><span class="line">      </span><br><span class="line">[ ! -d /usr/lib/systemd/system/kubelet.service.d ] &amp;&amp; mkdir -p /usr/lib/systemd/system/kubelet.service.d</span><br><span class="line">cat &lt;&lt; EOF &gt; /usr/lib/systemd/system/kubelet.service.d/11-cgroup.conf</span><br><span class="line">[Service]</span><br><span class="line">CPUAccounting=true</span><br><span class="line">MemoryAccounting=true</span><br><span class="line">BlockIOAccounting=true</span><br><span class="line">ExecStartPre=/usr/bin/bash -c &apos;/usr/bin/mkdir -p /sys/fs/cgroup/&#123;cpuset,memory,systemd,pids,&quot;cpu,cpuacct&quot;&#125;/&#123;system,kube,kubepods&#125;.slice&apos;</span><br><span class="line">Slice=kube.slice</span><br><span class="line">EOF</span><br><span class="line">systemctl daemon-reload</span><br><span class="line"> </span><br><span class="line">systemctl enable kubelet.service</span><br></pre></td></tr></table></figure>
-
-<h3 id="docker-仓库"><a href="#docker-仓库" class="headerlink" title="docker 仓库"></a>docker 仓库</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">apt-get install -y apt-transport-https ca-certificates curl gnupg2 lsb-release bash-completion</span><br><span class="line">    </span><br><span class="line">curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/debian/gpg | sudo apt-key add -</span><br><span class="line">echo &quot;deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/debian $(lsb_release -cs)   stable&quot; &gt; /etc/apt/sources.list.d/docker-ce.list</span><br><span class="line">sudo apt-get update</span><br><span class="line">apt-get install -y docker-ce docker-ce-cli containerd.io</span><br><span class="line">apt-mark hold docker-ce docker-ce-cli containerd.io</span><br></pre></td></tr></table></figure>
-
-<h3 id="锁定已安装版本"><a href="#锁定已安装版本" class="headerlink" title="锁定已安装版本"></a>锁定已安装版本</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">//锁定这三个软件的版本，避免意外升级导致版本错误：</span><br><span class="line">sudo apt-mark hold kubeadm kubelet kubectl</span><br></pre></td></tr></table></figure>
-
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://www.ruanyifeng.com/blog/2019/08/xargs-tutorial.html" target="_blank" rel="noopener">xargs 命令教程</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5843,7 +5840,7 @@ LISTEN    0     511              *:8085           *:*
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">186</span>
+                <span class="site-state-item-count">187</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5865,7 +5862,7 @@ LISTEN    0     511              *:8085           *:*
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">275</span>
+                <span class="site-state-item-count">276</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
