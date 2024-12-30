@@ -292,6 +292,528 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/30/一台机器上最多能创建多少个TCP连接/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/30/一台机器上最多能创建多少个TCP连接/" itemprop="url">到底一台服务器上最多能创建多少个TCP连接</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-30T10:30:03+08:00">
+                2020-11-30
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="到底一台服务器上最多能创建多少个TCP连接"><a href="#到底一台服务器上最多能创建多少个TCP连接" class="headerlink" title="到底一台服务器上最多能创建多少个TCP连接"></a>到底一台服务器上最多能创建多少个TCP连接</h1><blockquote>
+<p>经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？</p>
+</blockquote>
+<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range 中随机取一个可用的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </span><br><span class="line">2000	65535</span><br></pre></td></tr></table></figure>
+
+<p>port range的上限是65535，所以也经常看到这个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
+<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>先说<strong>结论</strong>：在内存、文件句柄足够的话可以创建的连接是<strong>没有限制</strong>的（每个TCP连接至少要消耗一个文件句柄）。</p>
+<p>那么&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range指定的端口范围到底是什么意思呢？</p>
+<p>核心规则：<strong>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一</strong></p>
+<p>后面所讲都遵循这个规则，所以在心里反复默念：<strong>四元组唯一</strong> 五个大字，就能分析出来到底能创建多少TCP连接了。</p>
+<p>比如如下这个机器上的TCP连接实际状态：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18089</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </span><br><span class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</span><br></pre></td></tr></table></figure>
+
+<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。他们的四元组均不相同。</p>
+<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
+<p><strong>那么为什么大家有这样的误解呢？</strong>我总结了下，大概是以下两个原因让大家误解了：</p>
+<ul>
+<li>如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。</li>
+<li>另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。</li>
+</ul>
+<p>我们在创建连接前，经常会先调bind，bind后可以调 listen当做服务端监听，也可以直接调connect当做client来连服务端。</p>
+<p>bind(ip,port&#x3D;0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接这个socket 是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的(得local port 唯一)，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。</p>
+<p>比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 nginx的修改 <a href="http://hg.nginx.org/nginx/rev/2c7b488a61fb" target="_blank" rel="noopener">http://hg.nginx.org/nginx/rev/2c7b488a61fb</a></p>
+<blockquote>
+<p>Linux 4.2后的内核增加了IP_BIND_ADDRESS_NO_PORT 这个socket option来解决这个问题，将src port的选择延后到connect的时候</p>
+<p><a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=90c337da1524863838658078ec34241f45d8394d" target="_blank" rel="noopener">IP_BIND_ADDRESS_NO_PORT (since Linux 4.2)</a><br>              Inform the kernel to not reserve an ephemeral port when using bind(2) with a port number of 0.  The port will later be automatically chosen at connect(2) time, in a way that allows sharing a source port as long as the 4-tuple is unique.</p>
+</blockquote>
+<p>但如果我只是个client端，只需要连接server建立连接，也就不需要bind，直接调connect就可以了，这个时候只要保证四元组唯一就行。</p>
+<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220224103024676.png" alt="Image"></p>
+<p><strong>是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？</strong></p>
+<h2 id="TCP-SO-REUSEADDR"><a href="#TCP-SO-REUSEADDR" class="headerlink" title="TCP SO_REUSEADDR"></a>TCP SO_REUSEADDR</h2><p>文档描述：</p>
+<blockquote>
+<p>SO_REUSEADDR      Indicates that the rules used in validating addresses supplied in a bind(2) call should allow reuse of local addresses.  For AF_INET sockets this means that a socket may bind, except when there is an active listening socket bound to the address. When the listening socket is bound to INADDR_ANY with a specific port then it is not possible to bind to this port for any local address.  Argument is an integer boolean flag.</p>
+</blockquote>
+<p>从这段文档中我们可以知道三个事：</p>
+<ol>
+<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，如果机器有两个本地ip，那么任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
+<li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
+<li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
+</ol>
+<p>&#x3D;&#x3D;SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）&#x2F;&#x2F;而 SO_REUSEPORT主要是解决Server端的port重用&#x3D;&#x3D;</p>
+<p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">SO_REUSEADDR 还可以重用TIME_WAIT状态的port</a>, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出<u>Address Already in use</u>的错误导致启动失败。这时候可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
+<blockquote>
+<p>What exactly does SO_REUSEADDR do?</p>
+<p>This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.</p>
+<p>It has been pointed out that “A socket is a 5 tuple (proto, local addr, local port, remote addr, remote port). SO_REUSEADDR just says that you can reuse local addresses. The 5 tuple still must be unique!” This is true, and this is why it is very unlikely that unexpected data will ever be seen by your server. The danger is that such a 5 tuple is still floating around on the net, and while it is bouncing around, a new connection from the same client, on the same system, happens to get the same remote port. </p>
+</blockquote>
+<p>By setting <code>SO_REUSEADDR</code> user informs the kernel of an intention to share the bound port with anyone else, but only if it doesn’t cause a conflict on the protocol layer. There are at least three situations when this flag is useful:</p>
+<ol>
+<li>Normally after binding to a port and stopping a server it’s neccesary to wait for a socket to time out before another server can bind to the same port. With <code>SO_REUSEADDR</code> set it’s possible to rebind immediately, even if the socket is in a <code>TIME_WAIT</code> state.</li>
+<li>When one server binds to <code>INADDR_ANY</code>, say <code>0.0.0.0:1234</code>, it’s impossible to have another server binding to a specific address like <code>192.168.1.21:1234</code>. With <code>SO_REUSEADDR</code> flag this behaviour is allowed.</li>
+<li>When using the bind before connect trick only a single connection can use a single outgoing source port. With this flag, it’s possible for many connections to reuse the same source port, given that they connect to different destination addresses.</li>
+</ol>
+<h2 id="TCP-SO-REUSEPORT"><a href="#TCP-SO-REUSEPORT" class="headerlink" title="TCP SO_REUSEPORT"></a>TCP SO_REUSEPORT</h2><p>SO_REUSEPORT主要用来解决惊群、性能等问题。通过多个进程、线程来监听同一端口，进来的连接通过内核来hash分发做到负载均衡，避免惊群。</p>
+<blockquote>
+<p>SO_REUSEPORT is also useful for eliminating the try-10-times-to-bind hack in ftpd’s data connection setup routine.  Without SO_REUSEPORT, only one ftpd thread can bind to TCP (lhost, lport, INADDR_ANY, 0) in preparation for connecting back to the client.  Under conditions of heavy load, there are more threads colliding here than the try-10-times hack can accomodate.  With SO_REUSEPORT, things  work nicely and the hack becomes unnecessary.</p>
+</blockquote>
+<p>SO_REUSEPORT使用场景：linux kernel 3.9 引入了最新的SO_REUSEPORT选项，使得多进程或者多线程创建多个绑定同一个ip:port的监听socket，提高服务器的接收链接的并发能力,程序的扩展性更好；此时需要设置SO_REUSEPORT（<strong>注意所有进程都要设置才生效</strong>）。</p>
+<p>setsockopt(listenfd, SOL_SOCKET, SO_REUSEPORT,(const void *)&amp;reuse , sizeof(int));</p>
+<p>目的：每一个进程有一个独立的监听socket，并且bind相同的ip:port，独立的listen()和accept()；提高接收连接的能力。（例如nginx多进程同时监听同一个ip:port）</p>
+<blockquote>
+<p>(a) on Linux SO_REUSEPORT is meant to be used <em>purely</em> for load balancing multiple incoming UDP packets or incoming TCP connection requests across multiple sockets belonging to the same app.  ie. it’s a work around for machines with a lot of cpus, handling heavy load, where a single listening socket becomes a bottleneck because of cross-thread contention on the in-kernel socket lock (and state).</p>
+<p>(b) set IP_BIND_ADDRESS_NO_PORT socket option for tcp sockets before binding to a specific source ip<br>with port 0 if you’re going to use the socket for connect() rather then listen() this allows the kernel<br>to delay allocating the source port until connect() time at which point it is much cheaper</p>
+</blockquote>
+<h2 id="The-Ephemeral-Port-Range"><a href="#The-Ephemeral-Port-Range" class="headerlink" title="The Ephemeral Port Range"></a><a href="http://www.ncftp.com/ncftpd/doc/misc/ephemeral_ports.html" target="_blank" rel="noopener">The Ephemeral Port Range</a></h2><p>Ephemeral Port Range就是我们前面所说的Port Range（&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range）</p>
+<blockquote>
+<p>A TCP&#x2F;IPv4 connection consists of two endpoints, and each endpoint consists of an IP address and a port number. Therefore, when a client user connects to a server computer, an established connection can be thought of as the 4-tuple of (server IP, server port, client IP, client port).</p>
+<p>Usually three of the four are readily known – client machine uses its own IP address and when connecting to a remote service, the server machine’s IP address and service port number are required.</p>
+<p>What is not immediately evident is that when a connection is established that the client side of the connection uses a port number. Unless a client program explicitly requests a specific port number, the port number used is an ephemeral port number.</p>
+<p>Ephemeral ports are temporary ports assigned by a machine’s IP stack, and are assigned from a designated range of ports for this purpose. When the connection terminates, the ephemeral port is available for reuse, although most IP stacks won’t reuse that port number until the entire pool of ephemeral ports have been used.</p>
+<p>So, if the client program reconnects, it will be assigned a different ephemeral port number for its side of the new connection.</p>
+</blockquote>
+<h2 id="linux-如何选择Ephemeral-Port"><a href="#linux-如何选择Ephemeral-Port" class="headerlink" title="linux 如何选择Ephemeral Port"></a>linux 如何选择Ephemeral Port</h2><p>有资料说是随机从Port Range选择port，有的说是顺序选择，那么实际验证一下。</p>
+<p>如下测试代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;      // printf</span><br><span class="line">#include &lt;stdlib.h&gt;     // atoi</span><br><span class="line">#include &lt;unistd.h&gt;     // close</span><br><span class="line">#include &lt;arpa/inet.h&gt;  // ntohs</span><br><span class="line">#include &lt;sys/socket.h&gt; // connect, socket</span><br><span class="line"></span><br><span class="line">void sample() &#123;</span><br><span class="line">    // Create socket</span><br><span class="line">    int sockfd;</span><br><span class="line">    if (sockfd = socket(AF_INET, SOCK_STREAM, 0), -1 == sockfd) &#123;</span><br><span class="line">        perror(&quot;socket&quot;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    // Connect to remote. This does NOT actually send a packet.</span><br><span class="line">    const struct sockaddr_in raddr = &#123;</span><br><span class="line">        .sin_family = AF_INET,</span><br><span class="line">        .sin_port   = htons(8080),     // arbitrary remote port</span><br><span class="line">        .sin_addr   = htonl(INADDR_ANY)  // arbitrary remote host</span><br><span class="line">    &#125;;</span><br><span class="line">    if (-1 == connect(sockfd, (const struct sockaddr *)&amp;raddr, sizeof(raddr))) &#123;</span><br><span class="line">        perror(&quot;connect&quot;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    // Display selected ephemeral port</span><br><span class="line">    const struct sockaddr_in laddr;</span><br><span class="line">    socklen_t laddr_len = sizeof(laddr);</span><br><span class="line">    if (-1 == getsockname(sockfd, (struct sockaddr *)&amp;laddr, &amp;laddr_len)) &#123;</span><br><span class="line">        perror(&quot;getsockname&quot;);</span><br><span class="line">    &#125;</span><br><span class="line">    printf(&quot;local port: %i\n&quot;, ntohs(laddr.sin_port));</span><br><span class="line"></span><br><span class="line">    // Close socket</span><br><span class="line">    close(sockfd);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">int main() &#123;</span><br><span class="line">    for (int i = 0; i &lt; 5; i++) &#123;</span><br><span class="line">        sample();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>bind逻辑测试代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;netinet/in.h&gt;</span><br><span class="line">#include &lt;arpa/inet.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;errno.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;time.h&gt;</span><br><span class="line"></span><br><span class="line">void test_bind()&#123;</span><br><span class="line">    int listenfd = 0, connfd = 0;</span><br><span class="line">    struct sockaddr_in serv_addr;</span><br><span class="line">    char sendBuff[1025];</span><br><span class="line">    time_t ticks;</span><br><span class="line">	  socklen_t len;</span><br><span class="line"></span><br><span class="line">    listenfd = socket(AF_INET, SOCK_STREAM, 0);</span><br><span class="line">    memset(&amp;serv_addr, &apos;0&apos;, sizeof(serv_addr));</span><br><span class="line">    memset(sendBuff, &apos;0&apos;, sizeof(sendBuff));</span><br><span class="line"></span><br><span class="line">    serv_addr.sin_family = AF_INET;</span><br><span class="line">    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);</span><br><span class="line">    serv_addr.sin_port = htons(0);</span><br><span class="line"></span><br><span class="line">    bind(listenfd, (struct sockaddr*)&amp;serv_addr, sizeof(serv_addr));</span><br><span class="line"></span><br><span class="line">  	len = sizeof(serv_addr);</span><br><span class="line">	  if (getsockname(listenfd, (struct sockaddr *)&amp;serv_addr, &amp;len) == -1) &#123;</span><br><span class="line">		      perror(&quot;getsockname&quot;);</span><br><span class="line">			    return;</span><br><span class="line">	  &#125;</span><br><span class="line">	  printf(&quot;port number %d\n&quot;, ntohs(serv_addr.sin_port)); //只是挑选到了port，在系统层面保留，tcp连接还没有，netstat是看不到的</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">int main(int argc, char *argv[])</span><br><span class="line">&#123;</span><br><span class="line">	    for (int i = 0; i &lt; 5; i++) &#123;</span><br><span class="line">			         test_bind();</span><br><span class="line">					     &#125;</span><br><span class="line">		    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-10-0-327-ali2017-alios7-x86-64"><a href="#3-10-0-327-ali2017-alios7-x86-64" class="headerlink" title="3.10.0-327.ali2017.alios7.x86_64"></a>3.10.0-327.ali2017.alios7.x86_64</h3><p>编译后，执行(3.10.0-327.ali2017.alios7.x86_64)：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">#date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 ; echo &quot;-------&quot; &amp;&amp; ./client &amp;&amp; sleep 10; date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 &amp;&amp; echo &quot;******&quot;; ./client;</span><br><span class="line">Fri Nov 27 10:52:52 CST 2020</span><br><span class="line">local port: 17448</span><br><span class="line">local port: 17449</span><br><span class="line">local port: 17451</span><br><span class="line">local port: 17452</span><br><span class="line">local port: 17453</span><br><span class="line">+++++++</span><br><span class="line">local port: 17455</span><br><span class="line">local port: 17456</span><br><span class="line">local port: 17457</span><br><span class="line">local port: 17458</span><br><span class="line">local port: 17460</span><br><span class="line">-------</span><br><span class="line">local port: 17475</span><br><span class="line">local port: 17476</span><br><span class="line">local port: 17477</span><br><span class="line">local port: 17478</span><br><span class="line">local port: 17479</span><br><span class="line">Fri Nov 27 10:53:02 CST 2020</span><br><span class="line">local port: 17997</span><br><span class="line">local port: 17998</span><br><span class="line">local port: 17999</span><br><span class="line">local port: 18000</span><br><span class="line">local port: 18001</span><br><span class="line">+++++++</span><br><span class="line">local port: 18002</span><br><span class="line">local port: 18003</span><br><span class="line">local port: 18004</span><br><span class="line">local port: 18005</span><br><span class="line">local port: 18006</span><br><span class="line">******</span><br><span class="line">local port: 18010</span><br><span class="line">local port: 18011</span><br><span class="line">local port: 18012</span><br><span class="line">local port: 18013</span><br><span class="line">local port: 18014</span><br></pre></td></tr></table></figure>
+
+<p>从测试看起来linux下端口选择跟时间有关系，起始端口肯定是顺序增加，起始端口应该是在Ephemeral Port范围内并且和时间戳绑定的某个值（也是递增的），即使没有使用任何端口，起始端口也会随时间增加而增加。</p>
+<h3 id="4-19-91-19-1-al7-x86-64"><a href="#4-19-91-19-1-al7-x86-64" class="headerlink" title="4.19.91-19.1.al7.x86_64"></a>4.19.91-19.1.al7.x86_64</h3><p>换个内核版本编译后，执行(4.19.91-19.1.al7.x86_64)：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">$date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 ; echo &quot;-------&quot; &amp;&amp; ./client &amp;&amp; sleep 10; date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 &amp;&amp; echo &quot;******&quot;; ./client;</span><br><span class="line">Fri Nov 27 14:10:47 CST 2020</span><br><span class="line">local port: 7890</span><br><span class="line">local port: 7892</span><br><span class="line">local port: 7894</span><br><span class="line">local port: 7896</span><br><span class="line">local port: 7898</span><br><span class="line">+++++++</span><br><span class="line">local port: 7900</span><br><span class="line">local port: 7902</span><br><span class="line">local port: 7904</span><br><span class="line">local port: 7906</span><br><span class="line">local port: 7908</span><br><span class="line">-------</span><br><span class="line">local port: 7910</span><br><span class="line">local port: 7912</span><br><span class="line">local port: 7914</span><br><span class="line">local port: 7916</span><br><span class="line">local port: 7918</span><br><span class="line">Fri Nov 27 14:10:57 CST 2020</span><br><span class="line">local port: 7966</span><br><span class="line">local port: 7968</span><br><span class="line">local port: 7970</span><br><span class="line">local port: 7972</span><br><span class="line">local port: 7974</span><br><span class="line">+++++++</span><br><span class="line">local port: 7976</span><br><span class="line">local port: 7978</span><br><span class="line">local port: 7980</span><br><span class="line">local port: 7982</span><br><span class="line">local port: 7984</span><br><span class="line">******</span><br><span class="line">local port: 7988</span><br><span class="line">local port: 7990</span><br><span class="line">local port: 7992</span><br><span class="line">local port: 7994</span><br><span class="line">local port: 7996</span><br></pre></td></tr></table></figure>
+
+<p>以上测试时的参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1024    65535</span><br></pre></td></tr></table></figure>
+
+<p>将1024改成1025后，分配出来的都是奇数端口了：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1025    1034</span><br><span class="line"></span><br><span class="line">$./client</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br><span class="line">local port: 1027</span><br><span class="line">local port: 1029</span><br><span class="line">local port: 1031</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br><span class="line">local port: 1027</span><br><span class="line">local port: 1029</span><br><span class="line">local port: 1031</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br></pre></td></tr></table></figure>
+
+<p>之所以都是偶数端口，是因为port_range 从偶数开始, 每次从++变到+2的<a href="https://github.com/plantegg/linux/commit/1580ab63fc9a03593072cc5656167a75c4f1d173" target="_blank" rel="noopener">原因</a>，connect挑选随机端口时都是在起始端口的基础上+2，而bind挑选随机端口的起始端口是系统port_range起始端口+1（这样和connect错开），然后每次仍然尝试+2，这样connect和bind基本一个用偶数另外一个就用奇数，一旦不够了再尝试使用另外一组</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1024    1047</span><br><span class="line"></span><br><span class="line">$./bind &amp;  ---bind程序随机挑选5个端口</span><br><span class="line">port number 1039</span><br><span class="line">port number 1043</span><br><span class="line">port number 1045</span><br><span class="line">port number 1041</span><br><span class="line">port number 1047  --用完所有奇数端口</span><br><span class="line"></span><br><span class="line">$./bind &amp;    --继续挑选偶数端口</span><br><span class="line">[8] 4170</span><br><span class="line">port number 1044</span><br><span class="line">port number 1042</span><br><span class="line">port number 1046</span><br><span class="line">port number 0    --实在没有了</span><br><span class="line">port number 0</span><br></pre></td></tr></table></figure>
+
+<p>可见4.19内核下每次port是+2，在3.10内核版本中是+1. 并且都是递增的，同时即使port不使用，也会随着时间的变化这个起始port增大。</p>
+<p>Port Range有点像雷达转盘数字，时间就像是雷达上的扫描指针，这个指针不停地旋转，如果这个时候刚好有应用要申请Port，那么就从指针正好指向的Port开始向后搜索可用port</p>
+<h2 id="tcp-max-tw-buckets"><a href="#tcp-max-tw-buckets" class="headerlink" title="tcp_max_tw_buckets"></a>tcp_max_tw_buckets</h2><p>tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的连接断开不再进入TIME_WAIT阶段，而是直接断开，并打印warnning.</p>
+<p>实际测试发现 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时 新的连接仍然可以不断地创建和断开，这个参数大小不会影响性能，只是影响TIME_WAIT 数量的展示（当然 TIME_WAIT 太多导致local port不够除外）, 这个值设置小一点会避免出现端口不够的情况</p>
+<blockquote>
+<p>tcp_max_tw_buckets - INTEGER<br>    Maximal number of timewait sockets held by system simultaneously.If this number is exceeded time-wait socket is immediately destroyed and warning is printed. This limit exists only to prevent simple DoS attacks, you <em>must</em> not lower the limit artificially, but rather increase it (probably, after increasing installed memory), if network conditions require more than default value.</p>
+</blockquote>
+<p>监控指标：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">netstat -s | grep TCPTimeWaitOverflow</span><br></pre></td></tr></table></figure>
+
+<h2 id="SO-LINGER"><a href="#SO-LINGER" class="headerlink" title="SO_LINGER"></a><a href="https://notes.shichao.io/unp/ch7/" target="_blank" rel="noopener">SO_LINGER</a></h2><p>SO_LINGER选项<strong>用来设置延迟关闭的时间，等待套接字发送缓冲区中的数据发送完成</strong>。 没有设置该选项时，在调用close() 后，在发送完FIN后会立即进行一些清理工作并返回。 如果设置了SO_LINGER选项，并且等待时间为正值，则在清理之前会等待一段时间。</p>
+<p>如果把延时设置为 0  时，Socket就丢弃数据，并向对方发送一个 <code>RST</code> 来终止连接，因为走的是 RST 包，所以就不会有 <code>TIME_WAIT</code> 了。</p>
+<blockquote>
+<p>This option specifies how the <code>close</code> function operates for a connection-oriented protocol (for TCP, but not for UDP). By default, <code>close</code> returns immediately, but &#x3D;&#x3D;if there is any data still remaining in the socket send buffer, the system will try to deliver the data to the peer&#x3D;&#x3D;.</p>
+</blockquote>
+<p>SO_LINGER 有三种情况</p>
+<ol>
+<li>l_onoff 为false（0）， 那么 l_linger 的值没有意义，socket主动调用close时会立即返回，操作系统会将残留在缓冲区中的数据发送到对端，并按照正常流程关闭(交换FIN-ACK），最后连接进入<code>TIME_WAIT</code>状态。<strong>这是默认情况</strong></li>
+<li>l_onoff 为true（非0），  l_linger 为0，主动调用close的一方也是立刻返回，但是这时TCP会丢弃发送缓冲中的数据，而且不是按照正常流程关闭连接（不发送FIN包），直接发送<code>RST</code>，连接不会进入 time_wait 状态，对端会收到 <code>java.net.SocketException: Connection reset</code>异常</li>
+<li>l_onoff 为true（非0），  l_linger 也为非 0，这表示 <code>SO_LINGER</code>选项生效，并且超时时间大于零，这时调用close的线程被阻塞，TCP会发送缓冲区中的残留数据，这时有两种可能的情况：<ul>
+<li>数据发送完毕，收到对方的ACK，然后进行连接的正常关闭（交换FIN-ACK）</li>
+<li>超时，未发送完(指没收到对端的 ACK)的数据被丢弃，发送<code>RST</code>进行非正常关闭</li>
+</ul>
+</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">struct linger &#123;</span><br><span class="line">  int   l_onoff;        /* 0=off, nonzero=on */</span><br><span class="line">  int   l_linger;       /* linger time, POSIX specifies units as seconds */</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<h3 id="NIO下设置-SO-LINGER-的错误案例"><a href="#NIO下设置-SO-LINGER-的错误案例" class="headerlink" title="NIO下设置 SO_LINGER 的错误案例"></a>NIO下设置 SO_LINGER 的错误案例</h3><p>在使用NIO时，最好不设置<code>SO_LINGER</code>。比如Tomcat服务端接收到请求创建新连接时，做了这样的设置：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SocketChannel.setOption(SocketOption.SO_LINGER, 1000)</span><br></pre></td></tr></table></figure>
+
+<p><code>SO_LINGER</code>的单位为<code>秒</code>！在网络环境比较好的时候，例如客户端、服务器都部署在同一个机房，close虽然会被阻塞，但时间极短可以忽略。但当网络环境不那么好时，例如存在丢包、较长的网络延迟，buffer中的数据一直无法发送成功，那么问题就出现了：<code>close会被阻塞较长的时间，从而直接或间接引起NIO的IO线程被阻塞</code>，服务器会不响应，不能处理accept、read、write等任何IO事件。也就是应用频繁出现挂起现象。解决方法就是删掉这个设置，close时立即返回，由操作系统接手后面的工作。</p>
+<p>被阻塞时会看到如下连接状态：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100246598.png" alt="image-20220721100246598"></p>
+<p>以及对应的堆栈</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100421130.png" alt="image-20220721100421130"></p>
+<p>查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行<code>preClose0</code>，就是在这里等待连接的关闭<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721100446521.png" alt="image-20220721100446521"></p>
+<p>每次HTTP线程在关闭连接被阻塞时，同时持有了<code>SocketChannelImpl</code>的对象锁，而 IO线程在把这个连接移除出它的 selector管理队列时，也要获得同一个<code>SocketChannelImpl</code>的对象锁。IO 线程就这么一次次的被阻塞，悲剧的无以复加。有些 NIO框架会让 IO线程去做close，这时候就更加悲剧了。</p>
+<p><strong>总之这里的错误原因有两点：1）网络状态不好；2）错误理解了l_linger 的单位，是秒，不是毫秒。 在这两个原因的共同作用下导致了数据迟迟不能发送完毕，l_linger 超时又需要很久，所以服务会出现一直阻塞的状态。</strong></p>
+<h2 id="为什么要有-time-wait-状态"><a href="#为什么要有-time-wait-状态" class="headerlink" title="为什么要有 time_wait 状态"></a>为什么要有 time_wait 状态</h2><blockquote>
+<p>TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.</p>
+</blockquote>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220721093116395.png" alt="alt text"></p>
+<h2 id="由Nginx-SY-CPU高负载引发内核探索之旅"><a href="#由Nginx-SY-CPU高负载引发内核探索之旅" class="headerlink" title="由Nginx SY CPU高负载引发内核探索之旅"></a><a href="https://mp.weixin.qq.com/s/njpdTW5TndO4-H7nbEpXAA" target="_blank" rel="noopener">由Nginx SY CPU高负载引发内核探索之旅</a></h2><p>这个案例来自腾讯7层网关团队，网关用的Nginx，请求转发给后面的被代理机器(RS:real server)，发现 sys CPU异常高，CPU都用在搜索可用端口.</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-8259033.png" alt="Image"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20221112211814567.png" alt="Image"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image7.png" alt="Figure 4: This is a flame graph of the connect syscall in Linux."> </p>
+<p>local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）</p>
+<p>核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪</p>
+<p>对这个把端口分成奇偶数我的看法：这个做法就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！</p>
+<h2 id="从STGW流量下降探秘内核收包机制"><a href="#从STGW流量下降探秘内核收包机制" class="headerlink" title="从STGW流量下降探秘内核收包机制"></a><a href="https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&mid=2649745268&idx=1&sn=f72f164847060d7b19cba272a38485e5&scene=21#wechat_redirect" target="_blank" rel="noopener">从STGW流量下降探秘内核收包机制</a></h2><p>listen port search消耗CPU异常高</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-9840722.jpeg" alt="图片"></p>
+<p>在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。</p>
+<p>然而在内核支持了reuseport并且被广泛使用后，情况就不一样了，<strong>在多进程架构里，listen port对应的socket数量，是会被几十倍的放大的。</strong>以应用层监听了5000个端口，reuseport 使用了50个cpu核心为例，5000*50&#x2F;32约等于7812，意味着每次握手包到来时，光是查找listen socket，就需要遍历7800多次。随着机器硬件性能越来越强，应用层使用的cpu数量增多，这个问题还会继续加剧。</p>
+<p><strong>正因为上述原因，并且我们现网机器开启了reuseport，在端口数量较多的机器里，inet_lookup_listener的哈希桶大小太小，遍历过程消耗了cpu，导致出现了函数热点。</strong></p>
+<h2 id="短连接的开销"><a href="#短连接的开销" class="headerlink" title="短连接的开销"></a>短连接的开销</h2><p>用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3&#x2F;4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220627154822263.png" alt="image-20220627154822263"></p>
+<p>再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220627154931495.png" alt="image-20220627154931495"></p>
+<h2 id="一条连接的开销"><a href="#一条连接的开销" class="headerlink" title="一条连接的开销"></a><a href="https://mp.weixin.qq.com/s/BwddYkVLSYlkKFNeA-NUVg" target="_blank" rel="noopener">一条连接的开销</a></h2><p>主要是内存开销(如图，来源见水印)，另外就是每个连接都会占用一个文件句柄，可以通过参数来设置：fs.nr_open、nofile（其实 nofile 还分 soft 和 hard） 和 fs.file-max</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220413134252639" alt="Image"></p>
+<p>从上图可以看到：</p>
+<ul>
+<li><p>没有收发数据的时候收发buffer不用提前分配，3K多点的内存是指一个连接的元信息数据空间，不包含传输数据的内存buffer</p>
+</li>
+<li><p>客户端发送数据后，会根据数据大小分配send buffer（一般不超过wmem，默认kernel会根据系统内存压力来调整send buffer大小)</p>
+</li>
+<li><p>server端kernel收到数据后存放在rmem中，应用读走后就会释放对应的rmem</p>
+</li>
+<li><p>rmem和wmem都不会重用，用时分配用完释放</p>
+</li>
+</ul>
+<p>可见，内核在 socket 内存开销优化上采取了不少方法:</p>
+<ul>
+<li>内核会尽量及时回收发送缓存区、接收缓存区，但高版本做的更好</li>
+<li>发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0</li>
+<li>其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象</li>
+</ul>
+<p>或者看这篇分析：<a href="https://zhuanlan.zhihu.com/p/25241630" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/25241630</a> </p>
+<h2 id="不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够"><a href="#不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够" class="headerlink" title="不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够"></a><a href="https://ata.alibaba-inc.com/articles/251853" target="_blank" rel="noopener">不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够</a></h2><p>A进程选择某个端口当local port 来connect，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象；超频繁的端口复用在LVS 场景下会产生问题，导致建连异常；或者syn包被 RST 触发1秒钟重传 syn</p>
+<p>这个A、B进程共同跑在一台宿主机上很多年了，只因为之前是3.10内核，这次升级到了4.19后因为奇偶数放大了问题</p>
+<p>当A进程已经开启了 SO_REUSEADDR 对外建联，此时 B 进程同样开启 SO_REUSEADDR 可以bind 此端口成功，当前端口就被设置为bind 状态，其他非 SO_REUSEADDR 的建联无法选到此端口</p>
+<h3 id="验证端口被connect-和-listen-同时使用"><a href="#验证端口被connect-和-listen-同时使用" class="headerlink" title="验证端口被connect 和 listen 同时使用"></a>验证端口被connect 和 listen 同时使用</h3><p>尝试先用 connect 把18181 端口用掉，然后在18181端口上起一个listen 服务，再从其他地方连这个listen的 18181端口</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240522103927360.png" alt="image-20240522103927360"></p>
+<p>抓包，本机 ip 是 172.17.151.5 ：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240522103407831.png" alt="image-20240522103407831"></p>
+<p>抓包里的 stream 1 对应上图的connect to baidu.com:80 </p>
+<p>抓包里的 stream 2 对应其它客户端连listen 18181上的服务，对应的netstat 信息：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">#netstat -anpo |grep 18181</span><br><span class="line">0.0.0.0:18181           0.0.0.0:*               LISTEN      2732449/nc           off (0.00/0/0)</span><br><span class="line">172.17.151.5:18181      19.12.59.7:56166        ESTABLISHED 2732449/nc           off (0.00/0/0) (stream2)</span><br><span class="line">172.17.151.5:18181      110.242.68.66:80        ESTABLISHED 2732445/python       keepalive (4.96/0/0)（stream1）</span><br><span class="line">172.17.151.5:18181      10.143.33.49:123        ESTABLISHED 624/chronyd          off (0.00/0/0)</span><br></pre></td></tr></table></figure>
+
+<p>可以得出如下结论：</p>
+<ul>
+<li><p>两个TCP 连接四元组不一样，互相不干涉</p>
+</li>
+<li><p>先connect(SO_REUSEADDR) 用掉A端口后，还可以在上面继续使用A 端口来 listen(nc -l 18181)</p>
+</li>
+<li><p>先 listen 再connect 是不行的，报：Cannot assign requested address</p>
+</li>
+</ul>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
+<li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
+<li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
+<li>先起一个listen 的端口设置了 SO_REUSEADDR，在其它进程 connect 的时候也不会从 port range 里再被选出来重用</li>
+<li>SO_REUSEPORT主要用来解决惊群、性能等问题</li>
+<li>全局范围可以用 net.ipv4.tcp_max_tw_buckets &#x3D; 50000 来限制总 time_wait 数量，但是会掩盖问题</li>
+<li>local port的选择是递增搜索的，搜索起始port随时间增加也变大</li>
+</ul>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://segmentfault.com/a/1190000002396411" target="_blank" rel="noopener">https://segmentfault.com/a/1190000002396411</a></p>
+<p><a href="https://blog.csdn.net/a364572/article/details/40628171" target="_blank" rel="noopener">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
+<p><a href="https://ops.tips/blog/how-linux-tcp-introspection/" target="_blank" rel="noopener">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
+<p><a href="https://idea.popcount.org/2014-04-03-bind-before-connect/" target="_blank" rel="noopener">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
+<p><a href="https://mp.weixin.qq.com/s/C-Eeoeh9GHxugF4J30fz1A" target="_blank" rel="noopener">TCP连接中客户端的端口号是如何确定的？</a></p>
+<p><a href="https://github.com/plantegg/linux/commit/9b3312bf18f6873e67f1f51dab3364c95c9dc54c" target="_blank" rel="noopener">对应4.19内核代码解析</a></p>
+<p><a href="https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/" target="_blank" rel="noopener">How to stop running out of ephemeral ports and start to love long-lived connections</a></p>
+<p><a href="https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/" target="_blank" rel="noopener">https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/</a></p>
+<p>connect() why you so slow?<a href="https://blog.cloudflare.com/linux-transport-protocol-port-selection-performance" target="_blank" rel="noopener">https://blog.cloudflare.com/linux-transport-protocol-port-selection-performance</a>  <a href="https://lpc.events/event/17/contributions/1593/attachments/1208/2472/lpc-2023-connect-why-you-so-slow.pdf?file=lpc-2023-connect-why-you-so-slow.pdf" target="_blank" rel="noopener">https://lpc.events/event/17/contributions/1593/attachments/1208/2472/lpc-2023-connect-why-you-so-slow.pdf?file=lpc-2023-connect-why-you-so-slow.pdf</a> </p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2020/11/23/一次春节大促性能压测不达标的瓶颈推演/" itemprop="url">一次春节大促性能压测不达标的瓶颈推演</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-11-23T11:30:03+08:00">
+                2020-11-23
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/performance/" itemprop="url" rel="index">
+                    <span itemprop="name">performance</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="一次春节大促性能压测不达标的瓶颈推演"><a href="#一次春节大促性能压测不达标的瓶颈推演" class="headerlink" title="一次春节大促性能压测不达标的瓶颈推演"></a>一次春节大促性能压测不达标的瓶颈推演</h1><p>本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。</p>
+<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
+<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 10万+</p>
+<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个容器运行tomcat监听9108端口上） -&gt; slb -&gt; 数据库代理服务集群 -&gt; RDS集群</p>
+<p>性能不达标，怀疑数据库代理服务或者RDS性能不行，作为数据库需要自证清白，所以从RDS和数据库代理服务开始分析问题在哪里。</p>
+<p>略过一系列在数据库代理服务、RDS上分析数据和监控图表都证明数据库代理服务和RDS没问题的过程。</p>
+<p>在明确给出证据数据库代理服务和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
+<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析：</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
+<p>数据库代理服务每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 &#x3D; 6万 ， 跟压测看到基本一致</p>
+<p>300个容器，每个容器 10个连接到数据库代理服务</p>
+<p>如果300个容器上的并发压力不够的话就没法将3000个连接跑满，所以看到的QPS是5万。</p>
+<p><strong>从300个容器可以计算得到这个集群能支持的tps： 300*10（10个连接）* 1000&#x2F;15(每秒钟每个连接能处理的请求数）&#x3D;20万个tps （关键分析能力）</strong></p>
+<p>也就是说通过单QPS 15ms，我们计算可得整个后端的吞吐能力在20万QPS。所以目前问题不在后端，而是压力没有打到后端就出现瓶颈了。</p>
+<h2 id="9108的HTTP服务端口上的抓包分析"><a href="#9108的HTTP服务端口上的抓包分析" class="headerlink" title="9108的HTTP服务端口上的抓包分析"></a>9108的HTTP服务端口上的抓包分析</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/e239a12a1c3612263736256c8efc06e4.png" alt="image.png"></p>
+<p>9108服务的每个HTTP response差不多都是15ms（<strong>这个响应时间基本符合预期</strong>），一个HTTP连接上在45秒的抓包时间范围只收到23个HTTP Request。</p>
+<p>或者下图：</p>
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220627164250973.png" alt="image-20220627164250973" style="zoom:50%;">
+
+<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220630101036341.png" alt="image-20220630101036341" style="zoom:50%;">
+
+<p>统计9108端口在45秒总共收到的HTTP请求数量是6745（如下图），也就是每个app每秒钟收到的请求是150个，300*150&#x3D;4.5万（理论值，300个app可能压力分布不一样？），<strong>从这里看app收到的压力还不够</strong>，所以压力还没有打到应用容器中的app，还在更前面</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/6a289d1bba1e875d215032b6fdc7b084.png" alt="image.png"></p>
+<p>后来从容器app监控也确认了这个响应时间和抓包看到的一致，所以从抓包分析http响应时间也基本得到15ms的rt关键结论</p>
+<p>从wireshark IO Graphs 也能看到RT 和 QPS</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220623003026351.png" alt="image-20220623003026351"></p>
+<h2 id="从应用容器上的netstat统计来看，也是压力端回复太慢"><a href="#从应用容器上的netstat统计来看，也是压力端回复太慢" class="headerlink" title="从应用容器上的netstat统计来看，也是压力端回复太慢"></a>从应用容器上的netstat统计来看，也是压力端回复太慢</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/938ce314d19b47cba99e2a09c753f606.png" alt="image.png"></p>
+<p>send-q表示回复从9108发走了，没收到对方的ack</p>
+<h2 id="ARMS监控分析9108端口上的RT"><a href="#ARMS监控分析9108端口上的RT" class="headerlink" title="ARMS监控分析9108端口上的RT"></a>ARMS监控分析9108端口上的RT</h2><p>后来PTS的同学说ARMS可以捞到监控数据，如下是对rt时间降序排</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a479bad250c03aee41d58850afab9c14.png" alt="image.png"></p>
+<p>中的rt平均时间，可以看到http的rt确实14.4ms，表现非常平稳，从这个监控也发现实际app是330个而不是用户自己描述的300个，这也就是为什么实际是tps是5万，但是按300个去算的话tps是4.5万（不要纠结客户为什么告诉你是300个容器而不是330个，有时候他们也搞不清楚，业务封装得太好了）</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/2f3b76be63d331510eb6f2cecd91747f.png" alt="image.png"></p>
+<p>5分钟时间，QPS是5万+，HTTP的平均rt是15ms， HTTP的最大rt才79ms，和前面抓包分析一致。</p>
+<h2 id="从后端分析的总结"><a href="#从后端分析的总结" class="headerlink" title="从后端分析的总结"></a>从后端分析的总结</h2><p><strong>从9108端口响应时间15ms来看是符合预期的，为什么PTS看到的RT是900ms+，所以压力还没有打到APP上（也就是9108端口）</strong></p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>最后发现是 eip 带宽不足，只有200M，调整到1G后 tps 也翻了5倍到了25万。</p>
+<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS</p>
+<p>这个案例有意思的地方是可以通过抓包就能分析出集群能扛的QPS20万（实际只有5万），那么可以把这个分析原则在每个角色上挨个分析一下，来看瓶颈出在了哪个环节。</p>
+<p>应用端看到的rt是900ms，从后段开始往前面应用端来撸，看看每个环节的rt数据。</p>
+<h2 id="教训"><a href="#教训" class="headerlink" title="教训"></a>教训</h2><ul>
+<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS </li>
+<li>压不上去得从发压力端开始往后端撸，撸每个产品的rt，每个产品给出自己的rt来自证清白</li>
+<li>应用有arms的话学会看arms对平均rt和QPS的统计，不要纠结个别请求的rt抖动，看平均rt</li>
+<li>通过抓包完全可以分析出来系统能扛多少并发，以及可能的瓶颈位置</li>
+</ul>
+<p>一包在手 万事无忧</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/TCP连接为啥互串了/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -5114,685 +5636,6 @@ LISTEN    0     511              *:8085           *:*
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/25/SSD存储原理/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/25/SSD存储原理/" itemprop="url">存储原理</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-25T17:30:03+08:00">
-                2020-01-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/CPU/" itemprop="url" rel="index">
-                    <span itemprop="name">CPU</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="存储原理"><a href="#存储原理" class="headerlink" title="存储原理"></a>存储原理</h1><p>本文记录各种存储、接口等原理性东西</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/d81b49e46e4c5de80a554a453d92e08f.png" alt="img"></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/52eca12b2b73a72861fc777919457f5b.png" alt="img"></p>
-<h2 id="磁盘信息"><a href="#磁盘信息" class="headerlink" title="磁盘信息"></a>磁盘信息</h2><p>Here are some common ones:</p>
-<ul>
-<li><code>hdX</code> — ATA hard disk, pre-libata. You’ll only see this with old distros (probably based on Linux 2.4.x or older)</li>
-<li><code>sdX</code> — “SCSI” hard disk. Also includes SATA and SAS. And IDE disks using libata (on any recent distro).</li>
-<li><code>hdXY</code>, <code>sdXY</code> — Partition on the hard disk <code>hdX</code> or <code>sdX</code>.</li>
-<li><code>loopX</code> — Loopback device, used for mounting disk images, etc.</li>
-<li><code>loopXpY</code> — Partitions on the loopback device <code>loopX</code>; used when mounting an image of a complete hard drive, etc.</li>
-<li><code>scdX</code>, <code>srX</code> — “SCSI” CD, using same weird definition of “SCSI”. Also includes DVD, Blu-ray, etc.</li>
-<li><code>mdX</code> — Linux MDraid</li>
-<li><code>dm-X</code> — Device Mapper. Use <code>-N</code> to see what these are, or <code>ls -l /dev/mapper</code>. Device Mapper underlies LVM2 and dm-crypt. If you’re using either LVM or encrypted volumes, you’ll see <code>dm-X</code> devices.</li>
-</ul>
-<p>回顾串行磁盘技术的发展历史，从光纤通道，到SATA，再到SAS，几种技术各有所长。光纤通道最早出现的串行化存储技术，可以满足高性能、高可靠和高扩展性的存储需要，但是价格居高不下；SATA硬盘成本倒是降下来了，但主要是用于近线存储和非关键性应用，毕竟在性能等方面差强人意；SAS应该算是个全才，可以支持SAS和SATA磁盘，很方便地满足不同性价比的存储需求，是具有高性能、高可靠和高扩展性的解决方案。</p>
-<h2 id="SSD中，SATA、m2、PCIE和NVME各有什么意义"><a href="#SSD中，SATA、m2、PCIE和NVME各有什么意义" class="headerlink" title="SSD中，SATA、m2、PCIE和NVME各有什么意义"></a>SSD中，SATA、m2、PCIE和NVME各有什么意义</h2><h3 id="高速信号协议"><a href="#高速信号协议" class="headerlink" title="高速信号协议"></a>高速信号协议</h3><p> SAS，SATA，PCIe 这三个是同一个层面上的，模拟串行高速接口。</p>
-<ul>
-<li>SAS 对扩容比较友好，也支持双控双活。接上SAS RAID 卡，一般在阵列上用的比较多。</li>
-<li>SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb&#x2F;s，上限 768MB&#x2F;s左右，现在已经慢慢被pcie取代。</li>
-<li>PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb&#x2F;s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb&#x2F;s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB&#x2F;s 左右。</li>
-</ul>
-<h3 id="传输层协议"><a href="#传输层协议" class="headerlink" title="传输层协议"></a>传输层协议</h3><p>SCSI，ATA，NVMe 都属于这一层。主要是定义命令集，数字逻辑层。</p>
-<ul>
-<li>SCSI 命令集 历史悠久，应用也很广泛。U盘，SAS 盘，还有手机上 UFS 之类很多设备都走的这个命令集。</li>
-<li>ATA 则只是跑在SATA 协议上</li>
-<li>NVMe 协议是有特意为 NAND 进行优化。相比于上面两者，效率更高。主要是跑在 PCIe 上的。当然，也有NVMe-MI，NVMe-of之类的。是个很好的传输层协议。</li>
-</ul>
-<h4 id="NVMe（Non-Volatile-Memory-Express）"><a href="#NVMe（Non-Volatile-Memory-Express）" class="headerlink" title="NVMe（Non-Volatile Memory Express）"></a>NVMe（Non-Volatile Memory Express）</h4><p>NVMe其实与AHCI一样都是逻辑设备接口标准（是接口标准，并不是接口），NVMe全称Non-Volatile Memory Express，非易失性存储器标准，是使用PCI-E通道的SSD一种规范，NVMe的设计之初就有充分利用到PCI-E SSD的低延时以及并行性，还有当代处理器、平台与应用的并行性。SSD的并行性可以充分被主机的硬件与软件充分利用，相比与现在的AHCI标准，NVMe标准可以带来多方面的性能提升。</p>
-<p>NVMe标准是面向PCI-E SSD的，使用原生PCI-E通道与CPU直连可以免去SATA与SAS接口的外置控制器（PCH）与CPU通信所带来的延时。而在软件层方面，NVMe标准的延时只有AHCI的一半不到，NVMe精简了调用方式，执行命令时不需要读取寄存器；而AHCI每条命令则需要读取4次寄存器，一共会消耗8000次CPU循环，从而造成大概2.5微秒的延迟。</p>
-<p>NVMe标准和传统的SATA&#x2F;SAS相比，一个重大的差别是引入了<strong>多队列机制</strong>。</p>
-<p>主机与SSD进行数据交互采用“生产者-消费者”模型进行数据交互。在原有AHCI规范中，只定义了一个交互队列，主机与HDD之间的数据交互只能通过一个队列通信，多核处理器也只能通过一个队列与HDD进行数据交互。在传统磁盘存储时代，单队列在一个IO调度器，可以很好的保证提交请求的IO顺序最优化。</p>
-<p>而NAND存储介质具有很高的性能，AHCI原有的规范不再适用，NVMe规范替代了原有的AHCI规范，在软件层面的处理命令也进行了重新定义，不再采用SCSI／ATA命令规范集。相比以前AHCI、SAS等协议规范，NVMe规范是一种非常简化，面向新型存储介质的协议规范。该规范将存储外设拉到了处理器局部总线上，性能大为提升。并且<strong>主机和SSD处理器之间采用多队列的设计，适应了多核的发展趋势，每个处理器核与SSD之间可以采用独立的硬件Queue Pair进行数据交互。</strong></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/7ac6b1847a9bc6e029f3cb51716ef413.png" alt="img"></p>
-<p>如上图从软件的角度来看，每个CPU Core都可以创建一对Queue Pair和SSD进行数据交互。Queue Pair由Submission Queue与Completion Queue构成，通过Submission queue发送数据；通过Completion queue接受完成事件。SSD硬件和主机驱动软件控制queue的Head与Tail指针完成双方的数据交互。</p>
-<p>nvme多队列</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/ef86af3155d7dd2e6f78ec4f896179db.png" alt="img"></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/8cb9e6f80895141d875df66c3d0069f6.png" alt="img"></p>
-<h3 id="物理接口"><a href="#物理接口" class="headerlink" title="物理接口"></a>物理接口</h3><p>M.2 , U.2 , AIC, NGFF 这些属于物理接口</p>
-<p>像 M.2 可以是 SATA SSD 也可以是 NVMe（PCIe） SSD。金手指上有一个 SATA&#x2F;PCIe 的选择信号，来区分两者。很多笔记本的M.2 接口也是同时支持两种类型的盘的。</p>
-<ul>
-<li>M.2 , 主要用在 笔记本上，优点是体积小，缺点是散热不好。</li>
-<li>U.2,主要用在 数据中心或者一些企业级用户，对热插拔需求高的地方。优点热插拔，散热也不错。一般主要是pcie ssd(也有sas ssd)，受限于接口，最多只能是 pcie 4lane</li>
-<li>AIC，企业，行业用户用的比较多。通常会支持pcie 4lane&#x2F;8lane，带宽上限更高</li>
-</ul>
-<h2 id="SSD-的性能特性和机制"><a href="#SSD-的性能特性和机制" class="headerlink" title="SSD 的性能特性和机制"></a>SSD 的性能特性和机制</h2><p>SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。</p>
-<p><strong>单元（Cell）、页面（Page）、块（Block）</strong>。</p>
-<p>当今的主流 SSD 是基于 NAND 的，它将数字位存储在单元中。每个 SSD 单元可以存储一位或多位。对单元的每次擦除都会降低单元的寿命，所以单元只能承受一定数量的擦除。单元存储的位数越多，制造成本就越低，SSD 的容量也就越大，但是耐久性（擦除次数）也会降低。</p>
-<p>一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。</p>
-<p>多个页面组合成块。一个块(Block)的典型大小为 512KB 或 1MB，也就是大约 128 或 256 (Page–16KB)页。<strong>块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。</strong></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210915090731401.png" alt="image-20210915090731401"></p>
-<p><strong>擦除速度相对很慢，通常为几毫秒</strong>。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。</p>
-<p>SSD的基本结构：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210915090459823.png" alt="image-20210915090459823"></p>
-<p>比如Intel P4510 SSD控制器内部集成了两个Cotex A15 ARM core，这两个CPU core各自处理50%物理地址空间的读写命令（不同CPU负责不同的Die，以提高并发度）。在处理IO命令的过程中，为了充分发挥两个cpu的并行处理效率，每个cpu core单次处理的最大数据块是128kB。所以P4510对于128k对齐（4k，8k，16k，32k，64k，128k）或者128k整数倍（256k，512k，1024k）的数据块的处理效率最高。因为这些数据块都能够在SSD内部被组装或者拆分为完整的128k数据块。但是，对于非128k对齐的数据块（68k，132k，260k，516k，1028k），由于每个提交给SSD的写命令都有一个非128k对齐的“尾巴”需要跨CPU来处理，这样便会导致SSD处理单个命令的效率下降，写带宽随之也下降。</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/8882214c8d1dd6c52cd4b54fbb7a109a.jpg" alt="img" style="zoom:50%;"><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/bb8e3c40ede0432021d7d56d1387aa08.jpg" alt="img"></p>
-<p>SSD内部使用写缓存。写缓存主要用来降低写延迟。当写请求发送给SSD时，写数据会被先保存在写缓存，此时SSD会直接发送确认消息通知主机端写请求已完成，实现最低的写延迟。SSD固件在后台会异步的定期把写缓存中的数据通过写操作命令刷回给NAND颗粒。为了满足写操作的持久化语义，SSD内有大容量电容保证写缓存中数据的安全。当紧急断电情况发生时，固件会及时把写缓存中的数据写回NAND颗粒. 也就是紧急断电后还能通过大电容供电来维持最后的落盘。</p>
-<p>SSD内嵌内存容量的问题也限制了大容量NVMe SSD的发展，为了解决内存问题，目前一种可行的方法是增大sector size。标准NVMe SSD的sector size为4KB，为了进一步增大NVMe SSD的容量，有些厂商已经开始采用16KB的sector size。16KB Sector size的普及应用，会加速大容量NVMe SSD的推广。</p>
-<p><a href="https://www.bilibili.com/read/cv4139832" target="_blank" rel="noopener">以海康威视E200P为例</a>，PCB上的硬件PLP掉电保护电路从D200Pro的10个钽电容+6个电感，简化为6个钽电容+6个电感。钽电容来自Panasonic，单颗47uF，6个钽电容并联可以为SSD提供几十毫秒的放电时间，让SSD把处理中的数据写入NAND中并更新映射表。这样的硬件PLP电路对比普通的家用产品要强悍很多。 </p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/1af29b5592f05ee826d96c4efd25d3333e781527.jpg@942w_1226h_progressive.webp" alt="img"></p>
-<p>或者如下结构：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220923172817591.png" alt="image-20220923172817591"></p>
-<h3 id="SSD存储持久化原理"><a href="#SSD存储持久化原理" class="headerlink" title="SSD存储持久化原理"></a><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="noopener">SSD存储持久化原理</a></h3><p>记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。</p>
-<p>但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。</p>
-<p>只有一个电容，我们怎么能够表示更多的比特呢？别忘了，这里我们还有一个电压计。4 个比特一共可以从 0000-1111 表示 16 个不同的数。那么，如果我们能往电容里面充电的时候，充上 15 个不同的电压，并且我们电压计能够区分出这 15 个不同的电压。加上电容被放空代表的 0，就能够代表从 0000-1111 这样 4 个比特了。</p>
-<p>不过，要想表示 15 个不同的电压，充电和读取的时候，对于精度的要求就会更高。这会导致充电和读取的时候都更慢，所以 QLC 的 SSD 的读写速度，要比 SLC 的慢上好几倍。</p>
-<p>SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。</p>
-<p>SSD寿命：以Intel 335为例再来算一下，BT用户可以用600TB × 1024 &#x2F; 843 &#x3D; <strong>728天</strong>，普通用户可以用600TB&#x2F;2 &#x3D; <strong>300年</strong>！情况十分乐观</p>
-<h4 id="两种逻辑门"><a href="#两种逻辑门" class="headerlink" title="两种逻辑门"></a>两种逻辑门</h4><p><strong>NAND</strong>(NOT-AND)  gate </p>
-<p><strong>NOR</strong>(NOT-OR)  gate </p>
-<p>如上两种门实现的介质<strong>都是非易失存储介质</strong>，<strong>在写入前都需要擦除</strong>。实际上NOR Flash的一个bit可以从1变成0，而要从0变1就要擦除整块。NAND flash都需要擦除。</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>NAND Flash</th>
-<th>NOR Flash</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>芯片容量</td>
-<td>&lt;32GBit</td>
-<td>&lt;1GBit</td>
-</tr>
-<tr>
-<td>访问方式</td>
-<td>块读写（顺序读写）</td>
-<td>随机读写</td>
-</tr>
-<tr>
-<td>接口方式</td>
-<td>任意I&#x2F;O口</td>
-<td>特定完整存储器接口</td>
-</tr>
-<tr>
-<td>读写性能</td>
-<td>读取快（顺序读） 写入快 擦除快（可按块擦除）</td>
-<td>读取快（RAM方式） 写入慢 檫除很慢</td>
-</tr>
-<tr>
-<td>使用寿命</td>
-<td>百万次</td>
-<td>十万次</td>
-</tr>
-<tr>
-<td>价格</td>
-<td>低廉</td>
-<td>高昂</td>
-</tr>
-</tbody></table>
-<p>NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。</p>
-<p><a href="https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf" target="_blank" rel="noopener">高端SSD会选取MLC</a>（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210603161822079.png" alt="image-20210603161822079"></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220105201724752.png" alt="image-20220105201724752"></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg" alt="slc-mlc-tlc-buckets"></p>
-<p>umlc</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220105201749003.png" alt="image-20220105201749003"></p>
-<p>NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB</p>
-<p>对于TLC NAND （每个NAND cell存储3 bits的信息），下面列出了每种操作的典型耗时的范围：</p>
-<p>​      读操作（Tread）    ：      50-100us，</p>
-<p>​      写操作（Tprog）    ：     500us-5ms，</p>
-<p>​      擦除操作（Terase） ：      2-10ms。</p>
-<h4 id="为什么断电后SSD不丢数据"><a href="#为什么断电后SSD不丢数据" class="headerlink" title="为什么断电后SSD不丢数据"></a>为什么断电后SSD不丢数据</h4><p>SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。比如标准要求SSD：温度在30度的情况下，数据要能保持52周。</p>
-<h3 id="写入放大（Write-Amplification-or-WA"><a href="#写入放大（Write-Amplification-or-WA" class="headerlink" title="写入放大（Write Amplification, or WA)"></a>写入放大（Write Amplification, or WA)</h3><p>这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 &#x2F; 擦除（P&#x2F;E）周期，所以写入放大效用会缩短 SSD 的寿命。</p>
-<p>SSD 的读取和写入的基本单位，不是一个比特（bit）或者一个字节（byte），而是一个页（Page）。SSD 的擦除单位就更夸张了，我们不仅不能按照比特或者字节来擦除，连按照页来擦除都不行，我们必须按照块来擦除。</p>
-<p>SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次左右，而 TLC 和 QLC 就只在几千次了。这也是为什么，你去购买 SSD 硬盘，会看到同样的容量的价格差别很大，因为它们的芯片颗粒和寿命完全不一样。</p>
-<p>从本质上讲，NAND Flash是一种不可靠介质，非常容易出现Bit翻转问题。SSD通过控制器和固件程序将这种不可靠的NAND Flash变成了可靠的数据存储介质。</p>
-<p>为了在这种不可靠介质上构建可靠存储，SSD内部做了大量工作。在硬件层面，需要通过ECC单元解决经常出现的比特翻转问题。每次数据存储的时候，硬件单元需要为存储的数据计算ECC校验码；在数据读取的时候，硬件单元会根据校验码恢复被破坏的bit数据。ECC硬件单元集成在SSD控制器内部，代表了SSD控制器的能力。在MLC存储时代，BCH编解码技术可以解决问题，4KB数据中存在100bit翻转时可以纠正错误；在TLC存储时代，bit错误率大为提升，需要采用更高纠错能力的LDPC编解码技术，在4KB出现550bit翻转时，LDPC硬解码仍然可以恢复数据。对比LDPC硬解码、BCH以及LDPC软解码之间的能力，可以看出LDPC软解码具有更强的纠错能力，通常使用在硬解码失效的情况下。LDPC软解码的不足之处在于增加了IO的延迟。</p>
-<p>在软件层面，SSD内部设计了FTL（Flash Translation Layer），该软件层的设计思想和Log-Structured File System设计思想类似。采用log追加写的方式记录数据，采用LBA至PBA的地址映射表记录数据组织方式。Log-structured系统最大的一个问题就是垃圾回收(GC)。因此，虽然NAND Flash本身具有很高的IO性能，但受限于GC的影响，SSD层面的性能会大受影响，并且存在十分严重的IO QoS问题，这也是目前标准NVMe SSD一个很重要的问题。</p>
-<h3 id="耗损平衡-Wear-Leveling"><a href="#耗损平衡-Wear-Leveling" class="headerlink" title="耗损平衡 (Wear Leveling)"></a>耗损平衡 (Wear Leveling)</h3><p>对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P&#x2F;E 周期的典型数目是十万次；对于 MLC 块，P&#x2F;E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。</p>
-<h2 id="non-volatile-memory-NVM"><a href="#non-volatile-memory-NVM" class="headerlink" title="non-volatile memory (NVM)"></a><a href="https://nvmexpress.org/open-source-nvme-management-utility-nvme-command-line-interface-nvme-cli/?continueFlag=6093989111564a68c297d3f4bb8831b0" target="_blank" rel="noopener">non-volatile memory (NVM)</a></h2><p>NVM是一种新型的硬件存储介质，同时具备磁盘和DRAM的一些特性。突出的NVM技术产品有：PC-RAM、STT-RAM和R-RAM。因为NVM具有设备层次上的持久性，所以不需要向DRAM一样的刷新周期以维持数据状态。因此NVM和DRAM相比，每bit耗费的能量更少。另外，NVM比硬盘有更小的延迟，读延迟甚至和DRAM相当；字节寻址；比DRAM密度更大。</p>
-<p><strong>1、NVM特性</strong></p>
-<p><strong>数据访问延迟</strong>：NVM的读延迟比磁盘小很多。由于NVM仍处于开发阶段，来源不同延迟不同。STT-RAM的延迟1-20ns。尽管如此，他的延迟也已经非常接近DRAM了。</p>
-<p>PC_RAM 和R-RAM的写延迟比DRAM高。但是写延迟不是很重要，因为可以通过buffer来缓解。</p>
-<p><strong>密度</strong>：NVM的密度比DRAM高，可以作为主存的替代品，尤其是在嵌入式系统中。例如，相对于DRAM，PC-RAM提供2到4倍的容量，便于扩展。</p>
-<p><strong>耐久性</strong>：即每个内存单元写的最大次数。最具竞争性的是PC-RAM和STT-RAM，提供接近DRAM的耐久性。更精确的说，NVM的耐久性是1015而DRAM是1016。另外，NVM比闪存技术的耐久性更大。</p>
-<p><strong>能量消耗</strong>：NVM不需要像DRAM一样周期性刷写以维护内存中数据，所以消耗的能量更少。PC-RAM比DRAM消耗能量显著的少，其他比较接近。</p>
-<p>此外，还有字节寻址、持久性。Interl和Micron已经发起了3D XPoint技术，同时Interl开发了新的指令以支持持久内存的使用。</p>
-<h2 id="傲腾-PMem"><a href="#傲腾-PMem" class="headerlink" title="傲腾 PMem"></a>傲腾 PMem</h2><p>Optane 的工作原理与 NAND Flash 有很大区别，NAND Flash 是基于 <a href="https://link.zhihu.com/?target=https://en.wikipedia.org/wiki/Floating-gate_MOSFET" target="_blank" rel="noopener">Floating-gate MOSFET</a> 而 Optane 虽然因特尔没有官方资料说明但是根据国外机构用<a href="https://link.zhihu.com/?target=https://en.wikipedia.org/wiki/Mass_spectrometry" target="_blank" rel="noopener">质谱法</a> 测试的结果表明 Optane 是一种基于 <a href="https://link.zhihu.com/?target=https://en.wikipedia.org/wiki/Phase-change_memory" target="_blank" rel="noopener">PCM</a> (相变化存储器) 原理的存储器，PCM 简单来说就是某种物质目前主要是一种或多种硫族化物的玻璃，经由加热可以改变它的状态，成为晶体或者非晶体，这些不同的状态具有相应的电阻值。</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/v2-a008e63dd545c8afe7d0f083e1d4b7f5_1440w.webp" alt="img"></p>
-<p>从以上数据来看 PCM 读接近 DRAM，比 NAND Flash 快了500倍，PCM 写比 DRAM 慢了20倍，但是仍然比 NAND Flash 快了500倍。DRAM 读写速度一致，PCM 和 NAND Flash 写都比读要慢20倍。</p>
-<h2 id="磁盘类型查看"><a href="#磁盘类型查看" class="headerlink" title="磁盘类型查看"></a>磁盘类型查看</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">$cat /sys/block/vda/queue/rotational</span><br><span class="line">1  //1表示旋转，非ssd，0表示ssd</span><br><span class="line">or</span><br><span class="line">lsblk -d -o name,rota,size,label,uuid</span><br><span class="line"></span><br><span class="line">SATA SSD测试数据</span><br><span class="line"># cat /sys/block/sda/queue/rotational </span><br><span class="line">0</span><br><span class="line"># lsblk -d -o name,rota</span><br><span class="line">NAME     ROTA</span><br><span class="line">sda         0</span><br><span class="line">sfdv0n1     0</span><br><span class="line"></span><br><span class="line">ESSD磁盘测试用一块虚拟的阿里云网络盘，不能算完整意义的SSD（承诺IOPS 4200），数据仅供参考，磁盘概况：</span><br><span class="line">$df -lh</span><br><span class="line">Filesystem      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/vda1        99G   30G   65G  32% /</span><br><span class="line"></span><br><span class="line">$cat /sys/block/vda/queue/rotational</span><br><span class="line">1</span><br></pre></td></tr></table></figure>
-
-<h2 id="fio-结果解读"><a href="#fio-结果解读" class="headerlink" title="fio 结果解读"></a>fio 结果解读</h2><p>slat，异步场景下才有</p>
-<blockquote>
-<p>其中slat指的是发起IO的时间，在异步IO模式下，发起IO以后，IO会异步完成。例如调用一个异步的write，虽然write返回成功了，但是IO还未完成，slat约等于发起write的耗时；</p>
-<p>slat (usec): min&#x3D;4, max&#x3D;6154, avg&#x3D;48.82, stdev&#x3D;56.38： The first latency metric you’ll see is the ‘slat’ or submission latency. It is pretty much what it sounds like, meaning “how long did it take to submit this IO to the kernel for processing?”</p>
-</blockquote>
-<p>clat</p>
-<blockquote>
-<p>clat指的是完成时间，从发起IO后到完成IO的时间，在同步IO模式下，clat是指整个写动作完成时间</p>
-</blockquote>
-<p>lat</p>
-<blockquote>
-<p>lat是总延迟时间，指的是IO单元创建到完成的总时间，通常这项数据关注较多。同步场景几乎等于clat，异步场景等于clat+slat<br>这项数据需要关注的是max，看看有没有极端的高延迟IO；另外还需要关注stdev，这项数据越大说明，IO响应时间波动越大，反之越小，波动越小</p>
-</blockquote>
-<p>clat percentiles (usec)：处于某个百分位的io操作时延</p>
-<p>cpu          : usr&#x3D;9.11%, sys&#x3D;57.07%, ctx&#x3D;762410, majf&#x3D;0, minf&#x3D;1769  &#x2F;&#x2F;用户和系统的CPU占用时间百分比，线程切换次数，major以及minor页面错误的数量。</p>
-<p>SSD的direct和buffered似乎很奇怪，应该是direct&#x3D;0性能更好，实际不是这样，这里还需要找资料求证下</p>
-<blockquote>
-<ul>
-<li><p><code>direct``=bool</code></p>
-<p>If value is true, use non-buffered I&#x2F;O. This is usually O_DIRECT. Note that OpenBSD and ZFS on Solaris don’t support direct I&#x2F;O. On Windows the synchronous ioengines don’t support direct I&#x2F;O. Default: false.</p>
-</li>
-<li><p><code>buffered``=bool</code></p>
-<p>If value is true, use buffered I&#x2F;O. This is the opposite of the <a href="https://fio.readthedocs.io/en/latest/fio_man.html#cmdoption-arg-direct" target="_blank" rel="noopener"><code>direct</code></a> option. Defaults to true.</p>
-</li>
-</ul>
-</blockquote>
-<h2 id="iostat-结果解读"><a href="#iostat-结果解读" class="headerlink" title="iostat 结果解读"></a><a href="linuxtools-rst.readthedocs.io/zh_CN/latest/tool/iostat.html">iostat 结果解读</a></h2><p>Dm-0就是lvm</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           0.32    0.00    3.34    0.13    0.00   96.21</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda               0.00    11.40   66.00    7.20  1227.20    74.40    35.56     0.03    0.43    0.47    0.08   0.12   0.88</span><br><span class="line">nvme0n1           0.00  8612.00    0.00 51749.60     0.00 241463.20     9.33     4.51    0.09    0.00    0.09   0.02  78.56</span><br><span class="line">dm-0              0.00     0.00    0.00 60361.80     0.00 241463.20     8.00   152.52    2.53    0.00    2.53   0.01  78.26</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           0.36    0.00    3.46    0.17    0.00   96.00</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda               0.00     8.80    9.20    5.20  1047.20    67.20   154.78     0.01    0.36    0.46    0.19   0.33   0.48</span><br><span class="line">nvme0n1           0.00 11354.20    0.00 50876.80     0.00 248944.00     9.79     5.25    0.10    0.00    0.10   0.02  80.06</span><br><span class="line">dm-0              0.00     0.00    0.00 62231.00     0.00 248944.80     8.00   199.49    3.21    0.00    3.21   0.01  78.86</span><br></pre></td></tr></table></figure>
-
-<p>avgqu_sz，是iostat的一项比较重要的数据。如果队列过长，则表示有大量IO在处理或等待，但是这还不足以说明后端的存储系统达到了处理极限。例如后端存储的并发能力是4096，客户端并发发送了256个IO下去，那么队列长度就是256。即使长时间队列长度是256，也不能说明什么，仅仅表明队列长度是256，有256个IO在处理或者排队。</p>
-<p>那么怎么判断IO是在调度队列排队等待，还是在设备上处理呢？iostat有两项数据可以给出一个大致的判断。svctime，这项数据的指的是IO在设备处理中耗费的时间。另外一项数据await，指的是IO从排队到完成的时间，包括了svctime和排队等待的时间。那么通过对比这两项数据，如果两项数据差不多，则说明IO基本没有排队等待，耗费的时间都是设备处理。如果await远大于svctime，则说明有大量的IO在排队，并没有发送给设备处理。</p>
-<h2 id="rq-affinity"><a href="#rq-affinity" class="headerlink" title="rq_affinity"></a>rq_affinity</h2><p>参考<a href="https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll" target="_blank" rel="noopener">aliyun测试文档</a> , rq_affinity增加2的commit： git show 5757a6d76c</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">function RunFio</span><br><span class="line">&#123;</span><br><span class="line"> numjobs=$1   # 实例中的测试线程数，例如示例中的10</span><br><span class="line"> iodepth=$2   # 同时发出I/O数的上限，例如示例中的64</span><br><span class="line"> bs=$3        # 单次I/O的块文件大小，例如示例中的4k</span><br><span class="line"> rw=$4        # 测试时的读写策略，例如示例中的randwrite</span><br><span class="line"> filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device</span><br><span class="line"> nr_cpus=`cat /proc/cpuinfo |grep &quot;processor&quot; |wc -l`</span><br><span class="line"> if [ $nr_cpus -lt $numjobs ];then</span><br><span class="line">     echo “Numjobs is more than cpu cores, exit!”</span><br><span class="line">     exit -1</span><br><span class="line"> fi</span><br><span class="line"> let nu=$numjobs+1</span><br><span class="line"> cpulist=&quot;&quot;</span><br><span class="line"> for ((i=1;i&lt;10;i++))</span><br><span class="line"> do</span><br><span class="line">     list=`cat /sys/block/your_device/mq/*/cpu_list | awk &apos;&#123;if(i&lt;=NF) print $i;&#125;&apos; i=&quot;$i&quot; | tr -d &apos;,&apos; | tr &apos;\n&apos; &apos;,&apos;`</span><br><span class="line">     if [ -z $list ];then</span><br><span class="line">         break</span><br><span class="line">     fi</span><br><span class="line">     cpulist=$&#123;cpulist&#125;$&#123;list&#125;</span><br><span class="line"> done</span><br><span class="line"> spincpu=`echo $cpulist | cut -d &apos;,&apos; -f 2-$&#123;nu&#125;`</span><br><span class="line"> echo $spincpu</span><br><span class="line"> fio --ioengine=libaio --runtime=30s --numjobs=$&#123;numjobs&#125; --iodepth=$&#123;iodepth&#125; --bs=$&#123;bs&#125; --rw=$&#123;rw&#125; --filename=$&#123;filename&#125; --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split</span><br><span class="line">&#125;</span><br><span class="line">echo 2 &gt; /sys/block/your_device/queue/rq_affinity</span><br><span class="line">sleep 5</span><br><span class="line">RunFio 10 64 4k randwrite filename</span><br></pre></td></tr></table></figure>
-
-<p>对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20210607113709945.png" alt="image-20210607113709945"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://cizixs.com/2017/01/03/how-slow-is-disk-and-network" target="_blank" rel="noopener">http://cizixs.com/2017/01/03/how-slow-is-disk-and-network</a></p>
-<p><a href="https://tobert.github.io/post/2014-04-17-fio-output-explained.html" target="_blank" rel="noopener">https://tobert.github.io/post/2014-04-17-fio-output-explained.html</a> </p>
-<p><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/40497397</a></p>
-<p><a href="https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&flag_data_from=home_algorithm_article" target="_blank" rel="noopener">块存储NVMe云盘原型实践</a></p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247483999&idx=1&sn=238d3d1a8cf24443db0da4aa00c9fb7e&chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&scene=178&cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener">机械硬盘随机IO慢的超乎你的想象</a></p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247484023&idx=1&sn=1946b4c286ed72da023b402cc30908b6&chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&scene=178&cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener">搭载固态硬盘的服务器究竟比搭机械硬盘快多少？</a></p>
-<p><a href="http://www.360doc.com/content/15/0318/15/16824943_456186965.shtml" target="_blank" rel="noopener">SSD基本工作原理</a></p>
-<p><a href="https://zhuanlan.zhihu.com/p/347599423" target="_blank" rel="noopener">SSD原理解读</a></p>
-<p><a href="https://blog.gslin.org/archives/2022/02/02/10524/backblaze-%E7%9A%84-2021-%E5%B9%B4%E7%A1%AC%E7%A2%9F%E6%AD%BB%E4%BA%A1%E5%A0%B1%E5%91%8A/" target="_blank" rel="noopener">Backblaze 的 2021 年硬盘死亡報告</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/01/25/ssd san和sas 磁盘性能比较/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2020/01/25/ssd san和sas 磁盘性能比较/" itemprop="url">ssd/san/sas  磁盘 光纤性能比较</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2020-01-25T17:30:03+08:00">
-                2020-01-25
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/performance/" itemprop="url" rel="index">
-                    <span itemprop="name">performance</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="ssd-x2F-san-x2F-sas-磁盘-光纤性能比较"><a href="#ssd-x2F-san-x2F-sas-磁盘-光纤性能比较" class="headerlink" title="ssd&#x2F;san&#x2F;sas 磁盘 光纤性能比较"></a>ssd&#x2F;san&#x2F;sas 磁盘 光纤性能比较</h1><p>正好有机会用到一个san存储设备，跑了一把性能数据，记录一下</p>
-<p><img src="/images/oss/d57a004c846e193126ca01398e394319.png" alt="image.png"></p>
-<p>所使用的测试命令：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -size=1000G -filename=/data/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br></pre></td></tr></table></figure>
-
-<p>ssd（Solid State Drive）和san的比较是在同一台物理机上，所以排除了其他因素的干扰。</p>
-<p>简要的结论： </p>
-<ul>
-<li><p>本地ssd性能最好、sas机械盘(RAID10)性能最差</p>
-</li>
-<li><p>san存储走特定的光纤网络，不是走tcp的san（至少从网卡看不到san的流量），性能居中</p>
-</li>
-<li><p>从rt来看 ssd:san:sas 大概是 1:3:15</p>
-</li>
-<li><p>san比本地sas机械盘性能要好，这也许取决于san的网络传输性能和san存储中的设备（比如用的ssd而不是机械盘）</p>
-</li>
-</ul>
-<h2 id="NVMe-SSD-和-HDD的性能比较"><a href="#NVMe-SSD-和-HDD的性能比较" class="headerlink" title="NVMe SSD 和 HDD的性能比较"></a>NVMe SSD 和 HDD的性能比较</h2><p><img src="/images/oss/d64a0f78ebf471ac69d447ecb46d90f1.png" alt="image.png"></p>
-<p>表中性能差异比上面测试还要大，SSD 的随机 IO 延迟比传统硬盘快百倍以上，一般在微妙级别；IO 带宽也高很多倍，可以达到每秒几个 GB；随机 IOPS 更是快了上千倍，可以达到几十万。</p>
-<p><strong>HDD只有一个磁头，并发没有意义，但是SSD支持高并发写入读取。SSD没有磁头、不需要旋转，所以随机读取和顺序读取基本没有差别。</strong></p>
-<h2 id="SSD-的性能特性和机制"><a href="#SSD-的性能特性和机制" class="headerlink" title="SSD 的性能特性和机制"></a>SSD 的性能特性和机制</h2><p>SSD 的内部工作方式和 HDD 大相径庭，我们先了解几个概念。</p>
-<p><strong>单元（Cell）、页面（Page）、块（Block）</strong>。当今的主流 SSD 是基于 NAND 的，它将数字位存储在单元中。每个 SSD 单元可以存储一位或多位。对单元的每次擦除都会降低单元的寿命，所以单元只能承受一定数量的擦除。单元存储的位数越多，制造成本就越少，SSD 的容量也就越大，但是耐久性（擦除次数）也会降低。</p>
-<p>一个页面包括很多单元，典型的页面大小是 4KB，页面也是要读写的最小存储单元。SSD 上没有“重写”操作，不像 HDD 可以直接对任何字节重写覆盖。一个页面一旦写入内容后就不能进行部分重写，必须和其它相邻页面一起被整体擦除重置。</p>
-<p>多个页面组合成块。一个块的典型大小为 512KB 或 1MB，也就是大约 128 或 256 页。<strong>块是擦除的基本单位，每次擦除都是整个块内的所有页面都被重置。</strong></p>
-<p><strong>擦除速度相对很慢，通常为几毫秒</strong>。所以对同步的 IO，发出 IO 的应用程序可能会因为块的擦除，而经历很大的写入延迟。为了尽量地减少这样的场景，保持空闲块的阈值对于快速的写响应是很有必要的。SSD 的垃圾回收（GC）的目的就在于此。GC 可以回收用过的块，这样可以确保以后的页写入可以快速分配到一个全新的页。</p>
-<h3 id="SSD原理"><a href="#SSD原理" class="headerlink" title="SSD原理"></a>SSD原理</h3><p>对于 SSD 硬盘，类似SRAM（CPU cache）它是由一个电容加上一个电压计组合在一起，记录了一个或者多个比特。能够记录一个比特很容易理解。给电容里面充上电有电压的时候就是 1，给电容放电里面没有电就是 0。采用这样方式存储数据的 SSD 硬盘，我们一般称之为使用了 SLC 的颗粒，全称是 Single-Level Cell，也就是一个存储单元中只有一位数据。</p>
-<p>但是，这样的方式会遇到和 CPU Cache 类似的问题，那就是，同样的面积下，能够存放下的元器件是有限的。如果只用 SLC，我们就会遇到，存储容量上不去，并且价格下不来的问题。于是呢，硬件工程师们就陆续发明了 MLC（Multi-Level Cell）、TLC（Triple-Level Cell）以及 QLC（Quad-Level Cell），也就是能在一个电容里面存下 2 个、3 个乃至 4 个比特。</p>
-<p>只有一个电容，我们怎么能够表示更多的比特呢？别忘了，这里我们还有一个电压计。4 个比特一共可以从 0000-1111 表示 16 个不同的数。那么，如果我们能往电容里面充电的时候，充上 15 个不同的电压，并且我们电压计能够区分出这 15 个不同的电压。加上电容被放空代表的 0，就能够代表从 0000-1111 这样 4 个比特了。</p>
-<p>不过，要想表示 15 个不同的电压，充电和读取的时候，对于精度的要求就会更高。这会导致充电和读取的时候都更慢，所以 QLC 的 SSD 的读写速度，要比 SLC 的慢上好几倍。</p>
-<p>SSD对碎片很敏感，类似JVM的内存碎片需要整理，碎片整理就带来了写入放大。也就是写入空间不够的时候需要先进行碎片整理、搬运，这样写入的数据更大了。</p>
-<p>SSD寿命：以Intel 335为例再来算一下，BT用户可以用600TB × 1024 &#x2F; 843 &#x3D; <strong>728天</strong>，普通用户可以用600TB&#x2F;2 &#x3D; <strong>300年</strong>！情况十分乐观</p>
-<h4 id="两种逻辑门"><a href="#两种逻辑门" class="headerlink" title="两种逻辑门"></a>两种逻辑门</h4><p><strong>NAND</strong>(NOT-AND)  gate </p>
-<p><strong>NOR</strong>(NOT-OR)  gate </p>
-<p>如上两种门实现的介质<strong>都是非易失存储介质</strong>，<strong>在写入前都需要擦除</strong>。实际上NOR Flash的一个bit可以从1变成0，而要从0变1就要擦除整块。NAND flash都需要擦除。</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>NAND Flash</th>
-<th>NOR Flash</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>芯片容量</td>
-<td>&lt;32GBit</td>
-<td>&lt;1GBit</td>
-</tr>
-<tr>
-<td>访问方式</td>
-<td>块读写（顺序读写）</td>
-<td>随机读写</td>
-</tr>
-<tr>
-<td>接口方式</td>
-<td>任意I&#x2F;O口</td>
-<td>特定完整存储器接口</td>
-</tr>
-<tr>
-<td>读写性能</td>
-<td>读取快（顺序读） 写入快 擦除快（可按块擦除）</td>
-<td>读取快（RAM方式） 写入慢 檫除很慢</td>
-</tr>
-<tr>
-<td>使用寿命</td>
-<td>百万次</td>
-<td>十万次</td>
-</tr>
-<tr>
-<td>价格</td>
-<td>低廉</td>
-<td>高昂</td>
-</tr>
-</tbody></table>
-<p>NAND Flash更适合在各类需要大数据的设备中使用，如U盘、SSD、各种存储卡、MP3播放器等，而NOR Flash更适合用在高性能的工业产品中。</p>
-<p><a href="https://www.amc-systeme.de/files/pdf/wp_adv_flash_type_comparison_2016.pdf" target="_blank" rel="noopener">高端SSD会选取MLC</a>（Multi-Level Cell）甚至SLC（Single-Level Cell），低端SSD则选取 TLC（Triple-Level Cell）。SD卡一般选取 TLC（Triple-Level Cell）</p>
-<p><img src="/images/951413iMgBlog/image-20210603161822079.png" alt="image-20210603161822079"></p>
-<p><img src="/images/951413iMgBlog/slc-mlc-tlc-buckets.jpg" alt="slc-mlc-tlc-buckets"></p>
-<p>NOR FLash主要用于：Bios、机顶盒，大小一般是1-32MB</p>
-<h4 id="为什么断电后SSD不丢数据"><a href="#为什么断电后SSD不丢数据" class="headerlink" title="为什么断电后SSD不丢数据"></a>为什么断电后SSD不丢数据</h4><p>SSD的存储硬件都是NAND Flash。实现原理和通过改变电压，让电子进入绝缘层的浮栅(Floating Gate)内。断电之后，电子仍然在FG里面。但是如果长时间不通电，比如几年，仍然可能会丢数据。所以换句话说，SSD的确也不适合作为冷数据备份。</p>
-<p>比如标准要求SSD：温度在30度的情况下，数据要能保持52周。</p>
-<h3 id="写入放大（Write-Amplification-or-WA"><a href="#写入放大（Write-Amplification-or-WA" class="headerlink" title="写入放大（Write Amplification, or WA)"></a>写入放大（Write Amplification, or WA)</h3><p>这是 SSD 相对于 HDD 的一个缺点，即实际写入 SSD 的物理数据量，有可能是应用层写入数据量的多倍。一方面，页级别的写入需要移动已有的数据来腾空页面。另一方面，GC 的操作也会移动用户数据来进行块级别的擦除。所以对 SSD 真正的写操作的数据可能比实际写的数据量大，这就是写入放大。一块 SSD 只能进行有限的擦除次数，也称为编程 &#x2F; 擦除（P&#x2F;E）周期，所以写入放大效用会缩短 SSD 的寿命。</p>
-<p>SSD 的读取和写入的基本单位，不是一个比特（bit）或者一个字节（byte），而是一个页（Page）。SSD 的擦除单位就更夸张了，我们不仅不能按照比特或者字节来擦除，连按照页来擦除都不行，我们必须按照块来擦除。</p>
-<p>SLC 的芯片，可以擦除的次数大概在 10 万次，MLC 就在 1 万次左右，而 TLC 和 QLC 就只在几千次了。这也是为什么，你去购买 SSD 硬盘，会看到同样的容量的价格差别很大，因为它们的芯片颗粒和寿命完全不一样。</p>
-<h3 id="耗损平衡-Wear-Leveling"><a href="#耗损平衡-Wear-Leveling" class="headerlink" title="耗损平衡 (Wear Leveling)"></a>耗损平衡 (Wear Leveling)</h3><p>对每一个块而言，一旦达到最大数量，该块就会死亡。对于 SLC 块，P&#x2F;E 周期的典型数目是十万次；对于 MLC 块，P&#x2F;E 周期的数目是一万；而对于 TLC 块，则可能是几千。为了确保 SSD 的容量和性能，我们需要在擦除次数上保持平衡，SSD 控制器具有这种“耗损平衡”机制可以实现这一目标。在损耗平衡期间，数据在各个块之间移动，以实现均衡的损耗，这种机制也会对前面讲的写入放大推波助澜。</p>
-<h2 id="磁盘类型查看"><a href="#磁盘类型查看" class="headerlink" title="磁盘类型查看"></a>磁盘类型查看</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">$cat /sys/block/vda/queue/rotational</span><br><span class="line">1  //1表示旋转，非ssd，0表示ssd</span><br><span class="line"></span><br><span class="line">或者</span><br><span class="line">lsblk -d -o name,rota</span><br></pre></td></tr></table></figure>
-
-<h2 id="fio测试"><a href="#fio测试" class="headerlink" title="fio测试"></a>fio测试</h2><p>以下是两块测试的SSD磁盘测试前的基本情况</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">/dev/sda	240.06G  SSD_SATA  //sata</span><br><span class="line">/dev/sfd0n1	3200G	 SSD_PCIE  //PCIE</span><br><span class="line"></span><br><span class="line">Filesystem      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/sda3        49G   29G   18G  63% / </span><br><span class="line">/dev/sfdv0n1p1  2.0T  803G  1.3T  40% /data</span><br><span class="line"></span><br><span class="line"># cat /sys/block/sda/queue/rotational </span><br><span class="line">0</span><br><span class="line"># cat /sys/block/sfdv0n1/queue/rotational </span><br><span class="line">0</span><br><span class="line"></span><br><span class="line">#测试前的iostat状态</span><br><span class="line"># iostat -d sfdv0n1 sda3 1 -x</span><br><span class="line">Linux 3.10.0-957.el7.x86_64 (nu4d01142.sqa.nu8) 	2021年02月23日 	_x86_64_	(104 CPU)</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda3              0.00    10.67    1.24   18.78     7.82   220.69    22.83     0.03    1.64    1.39    1.66   0.08   0.17</span><br><span class="line">sfdv0n1           0.00     0.21    9.91  841.42   128.15  8237.10    19.65     0.93    0.04    0.25    0.04   1.05  89.52</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda3              0.00    15.00    0.00   17.00     0.00   136.00    16.00     0.03    2.00    0.00    2.00   1.29   2.20</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 11158.00     0.00 54448.00     9.76     1.03    0.02    0.00    0.02   0.09 100.00</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda3              0.00     5.00    0.00   18.00     0.00   104.00    11.56     0.01    0.61    0.00    0.61   0.61   1.10</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 10970.00     0.00 53216.00     9.70     1.02    0.03    0.00    0.03   0.09 100.10</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda3              0.00     0.00    0.00   24.00     0.00   100.00     8.33     0.01    0.58    0.00    0.58   0.08   0.20</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 11206.00     0.00 54476.00     9.72     1.03    0.03    0.00    0.03   0.09  99.90</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sda3              0.00    14.00    0.00   21.00     0.00   148.00    14.10     0.01    0.48    0.00    0.48   0.33   0.70</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 10071.00     0.00 49028.00     9.74     1.02    0.03    0.00    0.03   0.10  99.80</span><br></pre></td></tr></table></figure>
-
-<h3 id="NVMe-SSD测试数据"><a href="#NVMe-SSD测试数据" class="headerlink" title="NVMe SSD测试数据"></a>NVMe SSD测试数据</h3><p>对一块ssd进行如下测试(挂载在&#x2F;data 目录)</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line">fio -ioengine=libaio -bs=4k -direct=1 -thread -rw=randwrite -rwmixread=70 -size=16G -filename=/data/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randwrite, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">EBS 4K randwrite test: Laying out IO file (1 file / 16384MiB)</span><br><span class="line">Jobs: 1 (f=1): [w(1)][100.0%][r=0KiB/s,w=63.8MiB/s][r=0,w=16.3k IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=258871: Tue Feb 23 14:12:23 2021</span><br><span class="line">  write: IOPS=18.9k, BW=74.0MiB/s (77.6MB/s)(4441MiB/60001msec)</span><br><span class="line">    slat (usec): min=4, max=6154, avg=48.82, stdev=56.38</span><br><span class="line">    clat (nsec): min=1049, max=12360k, avg=3326362.62, stdev=920683.43</span><br><span class="line">     lat (usec): min=68, max=12414, avg=3375.52, stdev=928.97</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[ 1483],  5.00th=[ 1811], 10.00th=[ 2114], 20.00th=[ 2376],</span><br><span class="line">     | 30.00th=[ 2704], 40.00th=[ 3130], 50.00th=[ 3523], 60.00th=[ 3785],</span><br><span class="line">     | 70.00th=[ 3949], 80.00th=[ 4080], 90.00th=[ 4293], 95.00th=[ 4490],</span><br><span class="line">     | 99.00th=[ 5604], 99.50th=[ 5997], 99.90th=[ 7111], 99.95th=[ 7832],</span><br><span class="line">     | 99.99th=[ 9634]</span><br><span class="line">   bw (  KiB/s): min=61024, max=118256, per=99.98%, avg=75779.58, stdev=12747.95, samples=120</span><br><span class="line">   iops        : min=15256, max=29564, avg=18944.88, stdev=3186.97, samples=120</span><br><span class="line">  lat (usec)   : 2=0.01%, 100=0.01%, 250=0.01%, 500=0.01%, 750=0.02%</span><br><span class="line">  lat (usec)   : 1000=0.06%</span><br><span class="line">  lat (msec)   : 2=7.40%, 4=66.19%, 10=26.32%, 20=0.01%</span><br><span class="line">  cpu          : usr=5.23%, sys=46.71%, ctx=846953, majf=0, minf=6</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=0,1136905,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">  WRITE: bw=74.0MiB/s (77.6MB/s), 74.0MiB/s-74.0MiB/s (77.6MB/s-77.6MB/s), io=4441MiB (4657MB), run=60001-60001msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sfdv0n1: ios=0/1821771, merge=0/7335, ticks=0/39708, in_queue=78295, util=100.00%</span><br></pre></td></tr></table></figure>
-
-<p>slat (usec): min&#x3D;4, max&#x3D;6154, avg&#x3D;48.82, stdev&#x3D;56.38： The first latency metric you’ll see is the ‘slat’ or submission latency. It is pretty much what it sounds like, meaning “how long did it take to submit this IO to the kernel for processing?”</p>
-<p>如上测试iops为：18944，测试期间的iostat，测试中一直有mysql在导入数据，所以测试开始前util就已经100%了，并且w&#x2F;s到了13K左右</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"># iostat -d sfdv0n1 3 -x</span><br><span class="line">Linux 3.10.0-957.el7.x86_64 (nu4d01142.sqa.nu8) 	2021年02月23日 	_x86_64_	(104 CPU)</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.18    3.45  769.17   102.83  7885.16    20.68     0.93    0.04    0.26    0.04   1.16  89.46</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 13168.67     0.00 66244.00    10.06     1.05    0.03    0.00    0.03   0.08 100.10</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 12822.67     0.00 65542.67    10.22     1.04    0.02    0.00    0.02   0.08 100.07</span><br><span class="line"></span><br><span class="line">//增加压力</span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 27348.33     0.00 214928.00    15.72     1.27    0.02    0.00    0.02   0.04 100.17</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     1.00    0.00 32661.67     0.00 271660.00    16.63     1.32    0.02    0.00    0.02   0.03 100.37</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 31645.00     0.00 265988.00    16.81     1.33    0.02    0.00    0.02   0.03 100.37</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00   574.00    0.00 31961.67     0.00 271094.67    16.96     1.36    0.02    0.00    0.02   0.03 100.13</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">sfdv0n1           0.00     0.00    0.00 27656.33     0.00 224586.67    16.24     1.28    0.02    0.00    0.02   0.04 100.37</span><br></pre></td></tr></table></figure>
-
-<p>从iostat看出，测试开始前util已经100%（因为ssd，util失去参考意义），w&#x2F;s 13K左右，压力跑起来后w&#x2F;s能到30K，svctm、await均保持稳定</p>
-<p>SSD的direct和buffered似乎很奇怪，应该是direct&#x3D;0性能更好，实际不是这样，这里还需要找资料求证下</p>
-<blockquote>
-<ul>
-<li><p><code>direct``=bool</code></p>
-<p>If value is true, use non-buffered I&#x2F;O. This is usually O_DIRECT. Note that OpenBSD and ZFS on Solaris don’t support direct I&#x2F;O. On Windows the synchronous ioengines don’t support direct I&#x2F;O. Default: false.</p>
-</li>
-<li><p><code>buffered``=bool</code></p>
-<p>If value is true, use buffered I&#x2F;O. This is the opposite of the <a href="https://fio.readthedocs.io/en/latest/fio_man.html#cmdoption-arg-direct" target="_blank" rel="noopener"><code>direct</code></a> option. Defaults to true.</p>
-</li>
-</ul>
-</blockquote>
-<p>如下测试中direct&#x3D;1和direct&#x3D;0的write avg iops分别为42K、16K</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br></pre></td><td class="code"><pre><span class="line"># fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 -thread -rw=randrw -rwmixread=70 -size=16G -filename=/data/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60 </span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=507MiB/s,w=216MiB/s][r=130k,w=55.2k IOPS][eta 00m:00s] </span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=415921: Tue Feb 23 14:34:33 2021</span><br><span class="line">   read: IOPS=99.8k, BW=390MiB/s (409MB/s)(11.2GiB/29432msec)</span><br><span class="line">    slat (nsec): min=1043, max=917837, avg=4273.86, stdev=3792.17</span><br><span class="line">    clat (usec): min=2, max=4313, avg=459.80, stdev=239.61</span><br><span class="line">     lat (usec): min=4, max=4328, avg=464.16, stdev=241.81</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  251],  5.00th=[  277], 10.00th=[  289], 20.00th=[  310],</span><br><span class="line">     | 30.00th=[  326], 40.00th=[  343], 50.00th=[  363], 60.00th=[  400],</span><br><span class="line">     | 70.00th=[  502], 80.00th=[  603], 90.00th=[  750], 95.00th=[  881],</span><br><span class="line">     | 99.00th=[ 1172], 99.50th=[ 1401], 99.90th=[ 3032], 99.95th=[ 3359],</span><br><span class="line">     | 99.99th=[ 3785]</span><br><span class="line">   bw (  KiB/s): min=182520, max=574856, per=99.24%, avg=395975.64, stdev=119541.78, samples=58</span><br><span class="line">   iops        : min=45630, max=143714, avg=98993.90, stdev=29885.42, samples=58</span><br><span class="line">  write: IOPS=42.8k, BW=167MiB/s (175MB/s)(4915MiB/29432msec)</span><br><span class="line">    slat (usec): min=3, max=263, avg= 9.34, stdev= 4.35</span><br><span class="line">    clat (usec): min=14, max=2057, avg=402.26, stdev=140.67</span><br><span class="line">     lat (usec): min=19, max=2070, avg=411.72, stdev=142.67</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  237],  5.00th=[  281], 10.00th=[  293], 20.00th=[  314],</span><br><span class="line">     | 30.00th=[  330], 40.00th=[  343], 50.00th=[  359], 60.00th=[  379],</span><br><span class="line">     | 70.00th=[  404], 80.00th=[  457], 90.00th=[  586], 95.00th=[  717],</span><br><span class="line">     | 99.00th=[  930], 99.50th=[ 1004], 99.90th=[ 1254], 99.95th=[ 1385],</span><br><span class="line">     | 99.99th=[ 1532]</span><br><span class="line">   bw (  KiB/s): min=78104, max=244408, per=99.22%, avg=169671.52, stdev=51142.10, samples=58</span><br><span class="line">   iops        : min=19526, max=61102, avg=42417.86, stdev=12785.51, samples=58</span><br><span class="line">  lat (usec)   : 4=0.01%, 10=0.01%, 20=0.01%, 50=0.02%, 100=0.04%</span><br><span class="line">  lat (usec)   : 250=1.02%, 500=73.32%, 750=17.28%, 1000=6.30%</span><br><span class="line">  lat (msec)   : 2=1.83%, 4=0.19%, 10=0.01%</span><br><span class="line">  cpu          : usr=15.84%, sys=83.31%, ctx=13765, majf=0, minf=7</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=2936000,1258304,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=390MiB/s (409MB/s), 390MiB/s-390MiB/s (409MB/s-409MB/s), io=11.2GiB (12.0GB), run=29432-29432msec</span><br><span class="line">  WRITE: bw=167MiB/s (175MB/s), 167MiB/s-167MiB/s (175MB/s-175MB/s), io=4915MiB (5154MB), run=29432-29432msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sfdv0n1: ios=795793/1618341, merge=0/11, ticks=218710/27721, in_queue=264935, util=100.00%</span><br><span class="line">[root@nu4d01142 data]# </span><br><span class="line">[root@nu4d01142 data]# fio -ioengine=libaio -bs=4k -direct=0 -buffered=0 -thread -rw=randrw -rwmixread=70 -size=6G -filename=/data/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60 </span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=124MiB/s,w=53.5MiB/s][r=31.7k,w=13.7k IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=437523: Tue Feb 23 14:37:54 2021</span><br><span class="line">   read: IOPS=38.6k, BW=151MiB/s (158MB/s)(4300MiB/28550msec)</span><br><span class="line">    slat (nsec): min=1205, max=1826.7k, avg=13253.36, stdev=17173.87</span><br><span class="line">    clat (nsec): min=236, max=5816.8k, avg=1135969.25, stdev=337142.34</span><br><span class="line">     lat (nsec): min=1977, max=5831.2k, avg=1149404.84, stdev=341232.87</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  461],  5.00th=[  627], 10.00th=[  717], 20.00th=[  840],</span><br><span class="line">     | 30.00th=[  938], 40.00th=[ 1029], 50.00th=[ 1123], 60.00th=[ 1221],</span><br><span class="line">     | 70.00th=[ 1319], 80.00th=[ 1434], 90.00th=[ 1565], 95.00th=[ 1680],</span><br><span class="line">     | 99.00th=[ 1893], 99.50th=[ 1975], 99.90th=[ 2671], 99.95th=[ 3261],</span><br><span class="line">     | 99.99th=[ 3851]</span><br><span class="line">   bw (  KiB/s): min=119304, max=216648, per=100.00%, avg=154273.07, stdev=29925.10, samples=57</span><br><span class="line">   iops        : min=29826, max=54162, avg=38568.25, stdev=7481.30, samples=57</span><br><span class="line">  write: IOPS=16.5k, BW=64.6MiB/s (67.7MB/s)(1844MiB/28550msec)</span><br><span class="line">    slat (usec): min=3, max=3565, avg=21.07, stdev=22.23</span><br><span class="line">    clat (usec): min=14, max=9983, avg=1164.21, stdev=459.66</span><br><span class="line">     lat (usec): min=21, max=10011, avg=1185.57, stdev=463.28</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  498],  5.00th=[  619], 10.00th=[  709], 20.00th=[  832],</span><br><span class="line">     | 30.00th=[  930], 40.00th=[ 1020], 50.00th=[ 1123], 60.00th=[ 1237],</span><br><span class="line">     | 70.00th=[ 1336], 80.00th=[ 1450], 90.00th=[ 1598], 95.00th=[ 1713],</span><br><span class="line">     | 99.00th=[ 2311], 99.50th=[ 3851], 99.90th=[ 5932], 99.95th=[ 6456],</span><br><span class="line">     | 99.99th=[ 7701]</span><br><span class="line">   bw (  KiB/s): min=50800, max=92328, per=100.00%, avg=66128.47, stdev=12890.64, samples=57</span><br><span class="line">   iops        : min=12700, max=23082, avg=16532.07, stdev=3222.66, samples=57</span><br><span class="line">  lat (nsec)   : 250=0.01%, 500=0.01%, 750=0.01%, 1000=0.01%</span><br><span class="line">  lat (usec)   : 2=0.01%, 4=0.01%, 10=0.01%, 20=0.02%, 50=0.03%</span><br><span class="line">  lat (usec)   : 100=0.04%, 250=0.18%, 500=1.01%, 750=11.05%, 1000=25.02%</span><br><span class="line">  lat (msec)   : 2=61.87%, 4=0.62%, 10=0.14%</span><br><span class="line">  cpu          : usr=10.87%, sys=61.98%, ctx=218415, majf=0, minf=7</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=1100924,471940,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=151MiB/s (158MB/s), 151MiB/s-151MiB/s (158MB/s-158MB/s), io=4300MiB (4509MB), run=28550-28550msec</span><br><span class="line">  WRITE: bw=64.6MiB/s (67.7MB/s), 64.6MiB/s-64.6MiB/s (67.7MB/s-67.7MB/s), io=1844MiB (1933MB), run=28550-28550msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sfdv0n1: ios=536103/822037, merge=0/1442, ticks=66507/17141, in_queue=99429, util=100.00%</span><br></pre></td></tr></table></figure>
-
-<h3 id="SATA-SSD测试数据"><a href="#SATA-SSD测试数据" class="headerlink" title="SATA SSD测试数据"></a>SATA SSD测试数据</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># cat /sys/block/sda/queue/rotational </span><br><span class="line">0</span><br><span class="line"># lsblk -d -o name,rota</span><br><span class="line">NAME     ROTA</span><br><span class="line">sda         0</span><br><span class="line">sfdv0n1     0</span><br></pre></td></tr></table></figure>
-
-<p>-direct&#x3D;0 -buffered&#x3D;0读写iops分别为15.8K、6.8K 比ssd差了不少（都是direct&#x3D;0），如果direct、buffered都是1的话，ESSD性能很差，读写iops分别为4312、1852</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br></pre></td><td class="code"><pre><span class="line"># fio -ioengine=libaio -bs=4k -direct=0 -buffered=0 -thread -rw=randrw -rwmixread=70 -size=2G -filename=/var/lib/docker/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60 </span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">EBS 4K randwrite test: Laying out IO file (1 file / 2048MiB)</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=68.7MiB/s,w=29.7MiB/s][r=17.6k,w=7594 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=13261: Tue Feb 23 14:42:41 2021</span><br><span class="line">   read: IOPS=15.8k, BW=61.8MiB/s (64.8MB/s)(1432MiB/23172msec)</span><br><span class="line">    slat (nsec): min=1266, max=7261.0k, avg=7101.88, stdev=20655.54</span><br><span class="line">    clat (usec): min=167, max=27670, avg=2832.68, stdev=1786.18</span><br><span class="line">     lat (usec): min=175, max=27674, avg=2839.93, stdev=1784.42</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  437],  5.00th=[  668], 10.00th=[  873], 20.00th=[  988],</span><br><span class="line">     | 30.00th=[ 1401], 40.00th=[ 2442], 50.00th=[ 2835], 60.00th=[ 3195],</span><br><span class="line">     | 70.00th=[ 3523], 80.00th=[ 4047], 90.00th=[ 5014], 95.00th=[ 5866],</span><br><span class="line">     | 99.00th=[ 8160], 99.50th=[ 9372], 99.90th=[13829], 99.95th=[15008],</span><br><span class="line">     | 99.99th=[23725]</span><br><span class="line">   bw (  KiB/s): min=44183, max=149440, per=99.28%, avg=62836.17, stdev=26590.84, samples=46</span><br><span class="line">   iops        : min=11045, max=37360, avg=15709.02, stdev=6647.72, samples=46</span><br><span class="line">  write: IOPS=6803, BW=26.6MiB/s (27.9MB/s)(616MiB/23172msec)</span><br><span class="line">    slat (nsec): min=1566, max=11474k, avg=8460.17, stdev=38221.51</span><br><span class="line">    clat (usec): min=77, max=24047, avg=2789.68, stdev=2042.55</span><br><span class="line">     lat (usec): min=80, max=24054, avg=2798.29, stdev=2040.85</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  265],  5.00th=[  433], 10.00th=[  635], 20.00th=[  840],</span><br><span class="line">     | 30.00th=[  979], 40.00th=[ 2212], 50.00th=[ 2671], 60.00th=[ 3130],</span><br><span class="line">     | 70.00th=[ 3523], 80.00th=[ 4228], 90.00th=[ 5342], 95.00th=[ 6456],</span><br><span class="line">     | 99.00th=[ 9241], 99.50th=[10421], 99.90th=[13960], 99.95th=[15533],</span><br><span class="line">     | 99.99th=[23725]</span><br><span class="line">   bw (  KiB/s): min=18435, max=63112, per=99.26%, avg=27012.57, stdev=11299.42, samples=46</span><br><span class="line">   iops        : min= 4608, max=15778, avg=6753.11, stdev=2824.87, samples=46</span><br><span class="line">  lat (usec)   : 100=0.01%, 250=0.23%, 500=3.14%, 750=5.46%, 1000=15.27%</span><br><span class="line">  lat (msec)   : 2=11.47%, 4=43.09%, 10=20.88%, 20=0.44%, 50=0.01%</span><br><span class="line">  cpu          : usr=3.53%, sys=18.08%, ctx=47448, majf=0, minf=6</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=366638,157650,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=61.8MiB/s (64.8MB/s), 61.8MiB/s-61.8MiB/s (64.8MB/s-64.8MB/s), io=1432MiB (1502MB), run=23172-23172msec</span><br><span class="line">  WRITE: bw=26.6MiB/s (27.9MB/s), 26.6MiB/s-26.6MiB/s (27.9MB/s-27.9MB/s), io=616MiB (646MB), run=23172-23172msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sda: ios=359202/155123, merge=299/377, ticks=946305/407820, in_queue=1354596, util=99.61%</span><br><span class="line">  </span><br><span class="line"># fio -ioengine=libaio -bs=4k -direct=1 -buffered=0 -thread -rw=randrw -rwmixread=70 -size=2G -filename=/var/lib/docker/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60 </span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][95.5%][r=57.8MiB/s,w=25.7MiB/s][r=14.8k,w=6568 IOPS][eta 00m:01s] </span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=26167: Tue Feb 23 14:44:40 2021</span><br><span class="line">   read: IOPS=16.9k, BW=65.9MiB/s (69.1MB/s)(1432MiB/21730msec)</span><br><span class="line">    slat (nsec): min=1312, max=4454.2k, avg=8489.99, stdev=15763.97</span><br><span class="line">    clat (usec): min=201, max=18856, avg=2679.38, stdev=1720.02</span><br><span class="line">     lat (usec): min=206, max=18860, avg=2688.03, stdev=1717.19</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  635],  5.00th=[  832], 10.00th=[  914], 20.00th=[  971],</span><br><span class="line">     | 30.00th=[ 1090], 40.00th=[ 2114], 50.00th=[ 2704], 60.00th=[ 3064],</span><br><span class="line">     | 70.00th=[ 3392], 80.00th=[ 3851], 90.00th=[ 4817], 95.00th=[ 5735],</span><br><span class="line">     | 99.00th=[ 7767], 99.50th=[ 8979], 99.90th=[13698], 99.95th=[15139],</span><br><span class="line">     | 99.99th=[16581]</span><br><span class="line">   bw (  KiB/s): min=45168, max=127528, per=100.00%, avg=67625.19, stdev=26620.82, samples=43</span><br><span class="line">   iops        : min=11292, max=31882, avg=16906.28, stdev=6655.20, samples=43</span><br><span class="line">  write: IOPS=7254, BW=28.3MiB/s (29.7MB/s)(616MiB/21730msec)</span><br><span class="line">    slat (nsec): min=1749, max=3412.2k, avg=9816.22, stdev=14501.05</span><br><span class="line">    clat (usec): min=97, max=23473, avg=2556.02, stdev=1980.53</span><br><span class="line">     lat (usec): min=107, max=23477, avg=2566.01, stdev=1977.65</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[  277],  5.00th=[  486], 10.00th=[  693], 20.00th=[  824],</span><br><span class="line">     | 30.00th=[  881], 40.00th=[ 1205], 50.00th=[ 2442], 60.00th=[ 2868],</span><br><span class="line">     | 70.00th=[ 3326], 80.00th=[ 3949], 90.00th=[ 5080], 95.00th=[ 6128],</span><br><span class="line">     | 99.00th=[ 8717], 99.50th=[10159], 99.90th=[14484], 99.95th=[15926],</span><br><span class="line">     | 99.99th=[18744]</span><br><span class="line">   bw (  KiB/s): min=19360, max=55040, per=100.00%, avg=29064.05, stdev=11373.59, samples=43</span><br><span class="line">   iops        : min= 4840, max=13760, avg=7266.00, stdev=2843.41, samples=43</span><br><span class="line">  lat (usec)   : 100=0.01%, 250=0.17%, 500=1.66%, 750=3.74%, 1000=22.57%</span><br><span class="line">  lat (msec)   : 2=12.66%, 4=40.62%, 10=18.20%, 20=0.38%, 50=0.01%</span><br><span class="line">  cpu          : usr=4.17%, sys=22.27%, ctx=14314, majf=0, minf=7</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=366638,157650,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=65.9MiB/s (69.1MB/s), 65.9MiB/s-65.9MiB/s (69.1MB/s-69.1MB/s), io=1432MiB (1502MB), run=21730-21730msec</span><br><span class="line">  WRITE: bw=28.3MiB/s (29.7MB/s), 28.3MiB/s-28.3MiB/s (29.7MB/s-29.7MB/s), io=616MiB (646MB), run=21730-21730msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sda: ios=364744/157621, merge=779/473, ticks=851759/352008, in_queue=1204024, util=99.61%</span><br><span class="line"></span><br><span class="line"># fio -ioengine=libaio -bs=4k -direct=1 -buffered=1 -thread -rw=randrw -rwmixread=70 -size=2G -filename=/var/lib/docker/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60 </span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.7</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=15.9MiB/s,w=7308KiB/s][r=4081,w=1827 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=31560: Tue Feb 23 14:46:10 2021</span><br><span class="line">   read: IOPS=4312, BW=16.8MiB/s (17.7MB/s)(1011MiB/60001msec)</span><br><span class="line">    slat (usec): min=63, max=14320, avg=216.76, stdev=430.61</span><br><span class="line">    clat (usec): min=5, max=778861, avg=10254.92, stdev=22345.40</span><br><span class="line">     lat (usec): min=1900, max=782277, avg=10472.16, stdev=22657.06</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    6],  5.00th=[    6], 10.00th=[    6], 20.00th=[    7],</span><br><span class="line">     | 30.00th=[    7], 40.00th=[    7], 50.00th=[    7], 60.00th=[    7],</span><br><span class="line">     | 70.00th=[    8], 80.00th=[    8], 90.00th=[    8], 95.00th=[   11],</span><br><span class="line">     | 99.00th=[  107], 99.50th=[  113], 99.90th=[  132], 99.95th=[  197],</span><br><span class="line">     | 99.99th=[  760]</span><br><span class="line">   bw (  KiB/s): min=  168, max=29784, per=100.00%, avg=17390.92, stdev=10932.90, samples=119</span><br><span class="line">   iops        : min=   42, max= 7446, avg=4347.71, stdev=2733.21, samples=119</span><br><span class="line">  write: IOPS=1852, BW=7410KiB/s (7588kB/s)(434MiB/60001msec)</span><br><span class="line">    slat (usec): min=3, max=666432, avg=23.59, stdev=2745.39</span><br><span class="line">    clat (msec): min=3, max=781, avg=10.14, stdev=20.50</span><br><span class="line">     lat (msec): min=3, max=781, avg=10.16, stdev=20.72</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    6],  5.00th=[    6], 10.00th=[    6], 20.00th=[    7],</span><br><span class="line">     | 30.00th=[    7], 40.00th=[    7], 50.00th=[    7], 60.00th=[    7],</span><br><span class="line">     | 70.00th=[    7], 80.00th=[    8], 90.00th=[    8], 95.00th=[   11],</span><br><span class="line">     | 99.00th=[  107], 99.50th=[  113], 99.90th=[  131], 99.95th=[  157],</span><br><span class="line">     | 99.99th=[  760]</span><br><span class="line">   bw (  KiB/s): min=   80, max=12328, per=100.00%, avg=7469.53, stdev=4696.69, samples=119</span><br><span class="line">   iops        : min=   20, max= 3082, avg=1867.34, stdev=1174.19, samples=119</span><br><span class="line">  lat (usec)   : 10=0.01%</span><br><span class="line">  lat (msec)   : 2=0.01%, 4=0.01%, 10=94.64%, 20=1.78%, 50=0.11%</span><br><span class="line">  lat (msec)   : 100=1.80%, 250=1.63%, 500=0.01%, 750=0.02%, 1000=0.01%</span><br><span class="line">  cpu          : usr=2.51%, sys=10.98%, ctx=260210, majf=0, minf=7</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwts: total=258768,111147,0,0 short=0,0,0,0 dropped=0,0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=16.8MiB/s (17.7MB/s), 16.8MiB/s-16.8MiB/s (17.7MB/s-17.7MB/s), io=1011MiB (1060MB), run=60001-60001msec</span><br><span class="line">  WRITE: bw=7410KiB/s (7588kB/s), 7410KiB/s-7410KiB/s (7588kB/s-7588kB/s), io=434MiB (455MB), run=60001-60001msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  sda: ios=258717/89376, merge=0/735, ticks=52540/564186, in_queue=616999, util=90.07%</span><br></pre></td></tr></table></figure>
-
-<h3 id="ESSD磁盘测试数据"><a href="#ESSD磁盘测试数据" class="headerlink" title="ESSD磁盘测试数据"></a>ESSD磁盘测试数据</h3><p>这是一块虚拟的阿里云网络盘，不能算完整意义的SSD（承诺IOPS 4200），数据仅供参考，磁盘概况：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$df -lh</span><br><span class="line">Filesystem      Size  Used Avail Use% Mounted on</span><br><span class="line">/dev/vda1        99G   30G   65G  32% /</span><br><span class="line"></span><br><span class="line">$cat /sys/block/vda/queue/rotational</span><br><span class="line">1</span><br></pre></td></tr></table></figure>
-
-<p>测试数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br></pre></td><td class="code"><pre><span class="line">$fio -ioengine=libaio -bs=4k -direct=1 -buffered=1  -thread -rw=randrw  -size=4G -filename=/home/admin/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.1</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=10.8MiB/s,w=11.2MiB/s][r=2757,w=2876 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=25641: Tue Feb 23 16:35:19 2021</span><br><span class="line">   read: IOPS=2136, BW=8545KiB/s (8750kB/s)(501MiB/60001msec)</span><br><span class="line">    slat (usec): min=190, max=830992, avg=457.20, stdev=3088.80</span><br><span class="line">    clat (nsec): min=1792, max=1721.3M, avg=14657528.60, stdev=63188988.75</span><br><span class="line">     lat (usec): min=344, max=1751.1k, avg=15115.20, stdev=65165.80</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    8],  5.00th=[    9], 10.00th=[    9], 20.00th=[   10],</span><br><span class="line">     | 30.00th=[   10], 40.00th=[   11], 50.00th=[   11], 60.00th=[   11],</span><br><span class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</span><br><span class="line">     | 99.00th=[   17], 99.50th=[   53], 99.90th=[ 1028], 99.95th=[ 1167],</span><br><span class="line">     | 99.99th=[ 1653]</span><br><span class="line">   bw (  KiB/s): min=   56, max=12648, per=100.00%, avg=8598.92, stdev=5289.40, samples=118</span><br><span class="line">   iops        : min=   14, max= 3162, avg=2149.73, stdev=1322.35, samples=118</span><br><span class="line">  write: IOPS=2137, BW=8548KiB/s (8753kB/s)(501MiB/60001msec)</span><br><span class="line">    slat (usec): min=2, max=181, avg= 6.67, stdev= 7.22</span><br><span class="line">    clat (usec): min=628, max=1721.1k, avg=14825.32, stdev=65017.66</span><br><span class="line">     lat (usec): min=636, max=1721.1k, avg=14832.10, stdev=65018.10</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    8],  5.00th=[    9], 10.00th=[    9], 20.00th=[   10],</span><br><span class="line">     | 30.00th=[   10], 40.00th=[   11], 50.00th=[   11], 60.00th=[   11],</span><br><span class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</span><br><span class="line">     | 99.00th=[   17], 99.50th=[   53], 99.90th=[ 1045], 99.95th=[ 1200],</span><br><span class="line">     | 99.99th=[ 1687]</span><br><span class="line">   bw (  KiB/s): min=   72, max=13304, per=100.00%, avg=8602.99, stdev=5296.31, samples=118</span><br><span class="line">   iops        : min=   18, max= 3326, avg=2150.75, stdev=1324.08, samples=118</span><br><span class="line">  lat (usec)   : 2=0.01%, 500=0.01%, 750=0.01%</span><br><span class="line">  lat (msec)   : 2=0.01%, 4=0.01%, 10=37.85%, 20=61.53%, 50=0.10%</span><br><span class="line">  lat (msec)   : 100=0.06%, 250=0.03%, 500=0.01%, 750=0.03%, 1000=0.25%</span><br><span class="line">  lat (msec)   : 2000=0.14%</span><br><span class="line">  cpu          : usr=0.70%, sys=4.01%, ctx=135029, majf=0, minf=4</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwt: total=128180,128223,0, short=0,0,0, dropped=0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=8545KiB/s (8750kB/s), 8545KiB/s-8545KiB/s (8750kB/s-8750kB/s), io=501MiB (525MB), run=60001-60001msec</span><br><span class="line">  WRITE: bw=8548KiB/s (8753kB/s), 8548KiB/s-8548KiB/s (8753kB/s-8753kB/s), io=501MiB (525MB), run=60001-60001msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  vda: ios=127922/87337, merge=0/237, ticks=55122/4269885, in_queue=2209125, util=94.29%</span><br><span class="line"></span><br><span class="line">$fio -ioengine=libaio -bs=4k -direct=1 -buffered=0  -thread -rw=randrw  -size=4G -filename=/home/admin/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.1</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=9680KiB/s,w=9712KiB/s][r=2420,w=2428 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=25375: Tue Feb 23 16:33:03 2021</span><br><span class="line">   read: IOPS=2462, BW=9849KiB/s (10.1MB/s)(577MiB/60011msec)</span><br><span class="line">    slat (nsec): min=1558, max=10663k, avg=5900.28, stdev=46286.64</span><br><span class="line">    clat (usec): min=290, max=93493, avg=13054.57, stdev=4301.89</span><br><span class="line">     lat (usec): min=332, max=93497, avg=13060.60, stdev=4301.68</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[ 1844],  5.00th=[10159], 10.00th=[10290], 20.00th=[10421],</span><br><span class="line">     | 30.00th=[10552], 40.00th=[10552], 50.00th=[10683], 60.00th=[10814],</span><br><span class="line">     | 70.00th=[18482], 80.00th=[19006], 90.00th=[19006], 95.00th=[19268],</span><br><span class="line">     | 99.00th=[19530], 99.50th=[19792], 99.90th=[29492], 99.95th=[30278],</span><br><span class="line">     | 99.99th=[43779]</span><br><span class="line">   bw (  KiB/s): min= 9128, max=30392, per=100.00%, avg=9850.12, stdev=1902.00, samples=120</span><br><span class="line">   iops        : min= 2282, max= 7598, avg=2462.52, stdev=475.50, samples=120</span><br><span class="line">  write: IOPS=2465, BW=9864KiB/s (10.1MB/s)(578MiB/60011msec)</span><br><span class="line">    slat (usec): min=2, max=10586, avg= 6.92, stdev=67.34</span><br><span class="line">    clat (usec): min=240, max=69922, avg=12902.33, stdev=4307.92</span><br><span class="line">     lat (usec): min=244, max=69927, avg=12909.37, stdev=4307.03</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[ 1729],  5.00th=[10159], 10.00th=[10290], 20.00th=[10290],</span><br><span class="line">     | 30.00th=[10421], 40.00th=[10421], 50.00th=[10552], 60.00th=[10683],</span><br><span class="line">     | 70.00th=[18220], 80.00th=[18744], 90.00th=[19006], 95.00th=[19006],</span><br><span class="line">     | 99.00th=[19268], 99.50th=[19530], 99.90th=[21103], 99.95th=[35390],</span><br><span class="line">     | 99.99th=[50594]</span><br><span class="line">   bw (  KiB/s): min= 8496, max=31352, per=100.00%, avg=9862.92, stdev=1991.48, samples=120</span><br><span class="line">   iops        : min= 2124, max= 7838, avg=2465.72, stdev=497.87, samples=120</span><br><span class="line">  lat (usec)   : 250=0.01%, 500=0.03%, 750=0.02%, 1000=0.02%</span><br><span class="line">  lat (msec)   : 2=1.70%, 4=0.41%, 10=1.25%, 20=96.22%, 50=0.34%</span><br><span class="line">  lat (msec)   : 100=0.01%</span><br><span class="line">  cpu          : usr=0.89%, sys=4.09%, ctx=206337, majf=0, minf=4</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwt: total=147768,147981,0, short=0,0,0, dropped=0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=9849KiB/s (10.1MB/s), 9849KiB/s-9849KiB/s (10.1MB/s-10.1MB/s), io=577MiB (605MB), run=60011-60011msec</span><br><span class="line">  WRITE: bw=9864KiB/s (10.1MB/s), 9864KiB/s-9864KiB/s (10.1MB/s-10.1MB/s), io=578MiB (606MB), run=60011-60011msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  vda: ios=147515/148154, merge=0/231, ticks=1922378/1915751, in_queue=3780605, util=98.46%</span><br><span class="line">  </span><br><span class="line">$fio -ioengine=libaio -bs=4k -direct=0 -buffered=1  -thread -rw=randrw  -size=4G -filename=/home/admin/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.1</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=132KiB/s,w=148KiB/s][r=33,w=37 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=25892: Tue Feb 23 16:37:41 2021</span><br><span class="line">   read: IOPS=1987, BW=7949KiB/s (8140kB/s)(467MiB/60150msec)</span><br><span class="line">    slat (usec): min=192, max=599873, avg=479.26, stdev=2917.52</span><br><span class="line">    clat (usec): min=15, max=1975.6k, avg=16004.22, stdev=76024.60</span><br><span class="line">     lat (msec): min=5, max=2005, avg=16.48, stdev=78.00</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    8],  5.00th=[    9], 10.00th=[    9], 20.00th=[   10],</span><br><span class="line">     | 30.00th=[   10], 40.00th=[   11], 50.00th=[   11], 60.00th=[   11],</span><br><span class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</span><br><span class="line">     | 99.00th=[   19], 99.50th=[  317], 99.90th=[ 1133], 99.95th=[ 1435],</span><br><span class="line">     | 99.99th=[ 1871]</span><br><span class="line">   bw (  KiB/s): min=   32, max=12672, per=100.00%, avg=8034.08, stdev=5399.63, samples=119</span><br><span class="line">   iops        : min=    8, max= 3168, avg=2008.52, stdev=1349.91, samples=119</span><br><span class="line">  write: IOPS=1984, BW=7937KiB/s (8127kB/s)(466MiB/60150msec)</span><br><span class="line">    slat (usec): min=2, max=839634, avg=18.39, stdev=2747.10</span><br><span class="line">    clat (msec): min=5, max=1975, avg=15.64, stdev=73.06</span><br><span class="line">     lat (msec): min=5, max=1975, avg=15.66, stdev=73.28</span><br><span class="line">    clat percentiles (msec):</span><br><span class="line">     |  1.00th=[    8],  5.00th=[    9], 10.00th=[    9], 20.00th=[   10],</span><br><span class="line">     | 30.00th=[   10], 40.00th=[   11], 50.00th=[   11], 60.00th=[   11],</span><br><span class="line">     | 70.00th=[   12], 80.00th=[   12], 90.00th=[   13], 95.00th=[   14],</span><br><span class="line">     | 99.00th=[   18], 99.50th=[  153], 99.90th=[ 1116], 99.95th=[ 1435],</span><br><span class="line">     | 99.99th=[ 1921]</span><br><span class="line">   bw (  KiB/s): min=   24, max=13160, per=100.00%, avg=8021.18, stdev=5405.12, samples=119</span><br><span class="line">   iops        : min=    6, max= 3290, avg=2005.29, stdev=1351.28, samples=119</span><br><span class="line">  lat (usec)   : 20=0.01%</span><br><span class="line">  lat (msec)   : 10=36.51%, 20=62.63%, 50=0.21%, 100=0.12%, 250=0.05%</span><br><span class="line">  lat (msec)   : 500=0.02%, 750=0.02%, 1000=0.19%, 2000=0.26%</span><br><span class="line">  cpu          : usr=0.62%, sys=4.04%, ctx=125974, majf=0, minf=3</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwt: total=119533,119347,0, short=0,0,0, dropped=0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=7949KiB/s (8140kB/s), 7949KiB/s-7949KiB/s (8140kB/s-8140kB/s), io=467MiB (490MB), run=60150-60150msec</span><br><span class="line">  WRITE: bw=7937KiB/s (8127kB/s), 7937KiB/s-7937KiB/s (8127kB/s-8127kB/s), io=466MiB (489MB), run=60150-60150msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  vda: ios=119533/108186, merge=0/214, ticks=54093/4937255, in_queue=2525052, util=93.99%</span><br><span class="line">  </span><br><span class="line">$fio -ioengine=libaio -bs=4k -direct=0 -buffered=0  -thread -rw=randrw  -size=4G -filename=/home/admin/fio.test -name=&quot;EBS 4K randwrite test&quot; -iodepth=64 -runtime=60</span><br><span class="line">EBS 4K randwrite test: (g=0): rw=randrw, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=libaio, iodepth=64</span><br><span class="line">fio-3.1</span><br><span class="line">Starting 1 thread</span><br><span class="line">Jobs: 1 (f=1): [m(1)][100.0%][r=9644KiB/s,w=9792KiB/s][r=2411,w=2448 IOPS][eta 00m:00s]</span><br><span class="line">EBS 4K randwrite test: (groupid=0, jobs=1): err= 0: pid=26139: Tue Feb 23 16:39:43 2021</span><br><span class="line">   read: IOPS=2455, BW=9823KiB/s (10.1MB/s)(576MiB/60015msec)</span><br><span class="line">    slat (nsec): min=1619, max=18282k, avg=5882.81, stdev=71214.52</span><br><span class="line">    clat (usec): min=281, max=64630, avg=13055.68, stdev=4233.17</span><br><span class="line">     lat (usec): min=323, max=64636, avg=13061.69, stdev=4232.79</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[ 2040],  5.00th=[10290], 10.00th=[10421], 20.00th=[10421],</span><br><span class="line">     | 30.00th=[10552], 40.00th=[10552], 50.00th=[10683], 60.00th=[10814],</span><br><span class="line">     | 70.00th=[18220], 80.00th=[19006], 90.00th=[19006], 95.00th=[19268],</span><br><span class="line">     | 99.00th=[19530], 99.50th=[20055], 99.90th=[28967], 99.95th=[29754],</span><br><span class="line">     | 99.99th=[30540]</span><br><span class="line">   bw (  KiB/s): min= 8776, max=27648, per=100.00%, avg=9824.29, stdev=1655.78, samples=120</span><br><span class="line">   iops        : min= 2194, max= 6912, avg=2456.05, stdev=413.95, samples=120</span><br><span class="line">  write: IOPS=2458, BW=9835KiB/s (10.1MB/s)(576MiB/60015msec)</span><br><span class="line">    slat (usec): min=2, max=10681, avg= 6.79, stdev=71.30</span><br><span class="line">    clat (usec): min=221, max=70411, avg=12909.50, stdev=4312.40</span><br><span class="line">     lat (usec): min=225, max=70414, avg=12916.40, stdev=4312.05</span><br><span class="line">    clat percentiles (usec):</span><br><span class="line">     |  1.00th=[ 1909],  5.00th=[10159], 10.00th=[10290], 20.00th=[10290],</span><br><span class="line">     | 30.00th=[10421], 40.00th=[10421], 50.00th=[10552], 60.00th=[10683],</span><br><span class="line">     | 70.00th=[18220], 80.00th=[18744], 90.00th=[19006], 95.00th=[19006],</span><br><span class="line">     | 99.00th=[19268], 99.50th=[19530], 99.90th=[28705], 99.95th=[40109],</span><br><span class="line">     | 99.99th=[60031]</span><br><span class="line">   bw (  KiB/s): min= 8568, max=28544, per=100.00%, avg=9836.03, stdev=1737.29, samples=120</span><br><span class="line">   iops        : min= 2142, max= 7136, avg=2458.98, stdev=434.32, samples=120</span><br><span class="line">  lat (usec)   : 250=0.01%, 500=0.03%, 750=0.02%, 1000=0.02%</span><br><span class="line">  lat (msec)   : 2=1.03%, 4=1.10%, 10=0.98%, 20=96.43%, 50=0.38%</span><br><span class="line">  lat (msec)   : 100=0.01%</span><br><span class="line">  cpu          : usr=0.82%, sys=4.32%, ctx=212008, majf=0, minf=4</span><br><span class="line">  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=0.1%, &gt;=64=100.0%</span><br><span class="line">     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, &gt;=64=0.0%</span><br><span class="line">     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, &gt;=64=0.0%</span><br><span class="line">     issued rwt: total=147386,147564,0, short=0,0,0, dropped=0,0,0</span><br><span class="line">     latency   : target=0, window=0, percentile=100.00%, depth=64</span><br><span class="line"></span><br><span class="line">Run status group 0 (all jobs):</span><br><span class="line">   READ: bw=9823KiB/s (10.1MB/s), 9823KiB/s-9823KiB/s (10.1MB/s-10.1MB/s), io=576MiB (604MB), run=60015-60015msec</span><br><span class="line">  WRITE: bw=9835KiB/s (10.1MB/s), 9835KiB/s-9835KiB/s (10.1MB/s-10.1MB/s), io=576MiB (604MB), run=60015-60015msec</span><br><span class="line"></span><br><span class="line">Disk stats (read/write):</span><br><span class="line">  vda: ios=147097/147865, merge=0/241, ticks=1916703/1915836, in_queue=3791443, util=98.68%</span><br></pre></td></tr></table></figure>
-
-<h3 id="测试数据总结"><a href="#测试数据总结" class="headerlink" title="测试数据总结"></a>测试数据总结</h3><table>
-<thead>
-<tr>
-<th></th>
-<th>-direct&#x3D;1 -buffered&#x3D;1</th>
-<th>-direct&#x3D;1 -buffered&#x3D;0</th>
-<th>-direct&#x3D;0 -buffered&#x3D;0</th>
-<th>-direct&#x3D;0 -buffered&#x3D;1</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>NVMe SSD</td>
-<td>R&#x3D;10.6k W&#x3D;4544</td>
-<td>R&#x3D;99.8K W&#x3D;42.8K</td>
-<td>R&#x3D;38.6k W&#x3D;16.5k</td>
-<td>R&#x3D;10.8K W&#x3D;4642</td>
-</tr>
-<tr>
-<td>SATA SSD</td>
-<td>R&#x3D;4312 W&#x3D;1852</td>
-<td>R&#x3D;16.9k W&#x3D;7254</td>
-<td>R&#x3D;15.8k W&#x3D;6803</td>
-<td>R&#x3D;5389 W&#x3D;2314</td>
-</tr>
-<tr>
-<td>ESSD</td>
-<td>R&#x3D;2149 W&#x3D;2150</td>
-<td>R&#x3D;2462 W&#x3D;2465</td>
-<td>R&#x3D;2455 W&#x3D;2458</td>
-<td>R&#x3D;1987 W&#x3D;1984</td>
-</tr>
-</tbody></table>
-<p>看起来，<strong>对于SSD如果buffered为1的话direct没啥用，如果buffered为0那么direct为1性能要好很多</strong></p>
-<p><strong>SATA SSD的IOPS比NVMe性能差很多</strong>。</p>
-<p>SATA SSD当-buffered&#x3D;1参数下SATA SSD的latency在7-10us之间。 </p>
-<p>NVMe SSD以及SATA SSD当buffered&#x3D;0的条件下latency均为2-3us,  NVMe SSD latency参考文章第一个表格， 和本次NVMe测试结果一致.  </p>
-<p>ESSD的latency基本是13-16us。</p>
-<p>以上NVMe SSD测试数据是在测试过程中还有mysql在全力导入数据的情况下，用fio测试所得。所以空闲情况下测试结果会更好。</p>
-<h3 id="HDD性能测试数据"><a href="#HDD性能测试数据" class="headerlink" title="HDD性能测试数据"></a>HDD性能测试数据</h3><p><img src="/images/oss/0868d560-067f-4302-bc60-bffc3d4460ed.png" alt="img"></p>
-<p>从上图可以看到这个磁盘的IOPS 读 935 写 400，读rt 10731nsec 大约10us, 写 17us。如果IOPS是1000的话，rt应该是1ms，实际比1ms小两个数量级，<del>应该是cache、磁盘阵列在起作用。</del></p>
-<p>SATA硬盘，10K转</p>
-<p>万转机械硬盘组成RAID5阵列，在顺序条件最好的情况下，带宽可以达到1GB&#x2F;s以上，平均延时也非常低，最低只有20多us。但是在随机IO的情况下，机械硬盘的短板就充分暴露了，零点几兆的带宽，将近5ms的延迟，IOPS只有200左右。其原因是因为</p>
-<ul>
-<li>随机访问直接让RAID卡缓存成了个摆设</li>
-<li>磁盘不能并行工作，因为我的机器RAID宽度Strip Size为128 KB</li>
-<li>机械轴也得在各个磁道之间跳来跳去。</li>
-</ul>
-<p>理解了磁盘顺序IO时候的几十M甚至一个GB的带宽，随机IO这个真的是太可怜了。</p>
-<p>从上面的测试数据中我们看到了机械硬盘在顺序IO和随机IO下的巨大性能差异。在顺序IO情况下，磁盘是最擅长的顺序IO,再加上Raid卡缓存命中率也高。这时带宽表现有几十、几百M，最好条件下甚至能达到1GB。IOPS这时候能有2-3W左右。到了随机IO的情形下，机械轴也被逼的跳来跳去寻道，RAID卡缓存也失效了。带宽跌到了1MB以下，最低只有100K，IOPS也只有可怜巴巴的200左右。</p>
-<h3 id="网上测试数据参考"><a href="#网上测试数据参考" class="headerlink" title="网上测试数据参考"></a><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="noopener">网上测试数据参考</a></h3><p>我们来一起看一下具体的数据。首先来看NVＭe如何减小了协议栈本身的时间消耗，我们用<em>blktrace</em>工具来分析一组传输在应用程序层、操作系统层、驱动层和硬件层消耗的时间和占比，来了解AHCI和NVMe协议的性能区别：</p>
-<p><img src="https://pic4.zhimg.com/80/v2-8b37f236d5c754efabe17aa9706f99a3_720w.jpg" alt="img"></p>
-<p>硬盘HDD作为一个参考基准，它的时延是非常大的，达到14ms，而AHCI SATA为125us，NVMe为111us。我们从图中可以看出，NVMe相对AHCI，协议栈及之下所占用的时间比重明显减小，应用程序层面等待的时间占比很高，这是因为SSD物理硬盘速度不够快，导致应用空转。NVMe也为将来Optane硬盘这种低延迟介质的速度提高留下了广阔的空间。</p>
-<h2 id="rq-affinity"><a href="#rq-affinity" class="headerlink" title="rq_affinity"></a>rq_affinity</h2><p>参考<a href="https://help.aliyun.com/knowledge_detail/65077.html#title-x10-2c0-yll" target="_blank" rel="noopener">aliyun测试文档</a> , rq_affinity增加2的commit： git show 5757a6d76c</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">function RunFio</span><br><span class="line">&#123;</span><br><span class="line"> numjobs=$1   # 实例中的测试线程数，例如示例中的10</span><br><span class="line"> iodepth=$2   # 同时发出I/O数的上限，例如示例中的64</span><br><span class="line"> bs=$3        # 单次I/O的块文件大小，例如示例中的4k</span><br><span class="line"> rw=$4        # 测试时的读写策略，例如示例中的randwrite</span><br><span class="line"> filename=$5  # 指定测试文件的名称，例如示例中的/dev/your_device</span><br><span class="line"> nr_cpus=`cat /proc/cpuinfo |grep &quot;processor&quot; |wc -l`</span><br><span class="line"> if [ $nr_cpus -lt $numjobs ];then</span><br><span class="line">     echo “Numjobs is more than cpu cores, exit!”</span><br><span class="line">     exit -1</span><br><span class="line"> fi</span><br><span class="line"> let nu=$numjobs+1</span><br><span class="line"> cpulist=&quot;&quot;</span><br><span class="line"> for ((i=1;i&lt;10;i++))</span><br><span class="line"> do</span><br><span class="line">     list=`cat /sys/block/your_device/mq/*/cpu_list | awk &apos;&#123;if(i&lt;=NF) print $i;&#125;&apos; i=&quot;$i&quot; | tr -d &apos;,&apos; | tr &apos;\n&apos; &apos;,&apos;`</span><br><span class="line">     if [ -z $list ];then</span><br><span class="line">         break</span><br><span class="line">     fi</span><br><span class="line">     cpulist=$&#123;cpulist&#125;$&#123;list&#125;</span><br><span class="line"> done</span><br><span class="line"> spincpu=`echo $cpulist | cut -d &apos;,&apos; -f 2-$&#123;nu&#125;`</span><br><span class="line"> echo $spincpu</span><br><span class="line"> fio --ioengine=libaio --runtime=30s --numjobs=$&#123;numjobs&#125; --iodepth=$&#123;iodepth&#125; --bs=$&#123;bs&#125; --rw=$&#123;rw&#125; --filename=$&#123;filename&#125; --time_based=1 --direct=1 --name=test --group_reporting --cpus_allowed=$spincpu --cpus_allowed_policy=split</span><br><span class="line">&#125;</span><br><span class="line">echo 2 &gt; /sys/block/your_device/queue/rq_affinity</span><br><span class="line">sleep 5</span><br><span class="line">RunFio 10 64 4k randwrite filename</span><br></pre></td></tr></table></figure>
-
-<p>对NVME SSD进行测试，左边rq_affinity是2，右边rq_affinity为1，在这个测试参数下rq_affinity为1的性能要好(后许多次测试两者性能差不多)</p>
-<p><img src="/images/951413iMgBlog/image-20210607113709945.png" alt="image-20210607113709945"></p>
-<h2 id="LVM性能对比"><a href="#LVM性能对比" class="headerlink" title="LVM性能对比"></a>LVM性能对比</h2><p>磁盘信息</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#lsblk</span><br><span class="line">NAME         MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT</span><br><span class="line">sda            8:0    0 223.6G  0 disk</span><br><span class="line">├─sda1         8:1    0     3M  0 part</span><br><span class="line">├─sda2         8:2    0     1G  0 part /boot</span><br><span class="line">├─sda3         8:3    0    96G  0 part /</span><br><span class="line">├─sda4         8:4    0    10G  0 part /tmp</span><br><span class="line">└─sda5         8:5    0 116.6G  0 part /home</span><br><span class="line">nvme0n1      259:4    0   2.7T  0 disk</span><br><span class="line">└─nvme0n1p1  259:5    0   2.7T  0 part</span><br><span class="line">  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds</span><br><span class="line">nvme1n1      259:0    0   2.7T  0 disk</span><br><span class="line">└─nvme1n1p1  259:2    0   2.7T  0 part /u02</span><br><span class="line">nvme2n1      259:1    0   2.7T  0 disk</span><br><span class="line">└─nvme2n1p1  259:3    0   2.7T  0 part</span><br><span class="line">  └─vg1-drds 252:0    0   5.4T  0 lvm  /drds</span><br></pre></td></tr></table></figure>
-
-<p>单块nvme SSD盘跑mysql server，运行sysbench导入测试数据</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br></pre></td><td class="code"><pre><span class="line">#iostat -x nvme1n1 1</span><br><span class="line">Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           0.32    0.00    0.17    0.07    0.00   99.44</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">nvme1n1           0.00    47.19    0.19  445.15     2.03 43110.89   193.62     0.31    0.70    0.03    0.70   0.06   2.85</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.16    0.00    0.36    0.17    0.00   98.31</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">nvme1n1           0.00   122.00    0.00 3290.00     0.00 271052.00   164.77     1.65    0.50    0.00    0.50   0.05  17.00</span><br><span class="line"></span><br><span class="line">#iostat 1</span><br><span class="line">Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           0.14    0.00    0.13    0.05    0.00   99.67</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda              49.21       554.51      2315.83    1416900    5917488</span><br><span class="line">nvme1n1           5.65         2.34       844.73       5989    2158468</span><br><span class="line">nvme2n1           0.06         1.13         0.00       2896          0</span><br><span class="line">nvme0n1           0.06         1.13         0.00       2900          0</span><br><span class="line">dm-0              0.02         0.41         0.00       1036          0</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.39    0.00    0.23    0.08    0.00   98.30</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda               8.00         0.00        60.00          0         60</span><br><span class="line">nvme1n1         868.00         0.00    132100.00          0     132100</span><br><span class="line">nvme2n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme0n1           0.00         0.00         0.00          0          0</span><br><span class="line">dm-0              0.00         0.00         0.00          0          0</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.44    0.00    0.14    0.09    0.00   98.33</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda               0.00         0.00         0.00          0          0</span><br><span class="line">nvme1n1         766.00         0.00    132780.00          0     132780</span><br><span class="line">nvme2n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme0n1           0.00         0.00         0.00          0          0</span><br><span class="line">dm-0              0.00         0.00         0.00          0          0</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.41    0.00    0.16    0.09    0.00   98.34</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda             105.00         0.00       532.00          0        532</span><br><span class="line">nvme1n1         760.00         0.00    122236.00          0     122236</span><br><span class="line">nvme2n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme0n1           0.00         0.00         0.00          0          0</span><br><span class="line">dm-0              0.00         0.00         0.00          0          0</span><br></pre></td></tr></table></figure>
-
-<p>如果同样写lvm，由两块nvme组成</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br></pre></td><td class="code"><pre><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00</span><br><span class="line">nvme0n1           0.00   137.00    0.00 5730.00     0.00 421112.00   146.98     2.95    0.52    0.00    0.52   0.05  27.30</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.17    0.00    0.34    0.19    0.00   98.30</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00</span><br><span class="line">nvme0n1           0.00   109.00    0.00 2533.00     0.00 271236.00   214.16     1.08    0.43    0.00    0.43   0.06  15.90</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.38    0.00    0.42    0.20    0.00   98.00</span><br><span class="line"></span><br><span class="line">Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util</span><br><span class="line">nvme2n1           0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00</span><br><span class="line">nvme0n1           0.00   118.00    0.00 3336.00     0.00 320708.00   192.27     1.50    0.45    0.00    0.45   0.06  20.00</span><br><span class="line"></span><br><span class="line">[root@k28a11352.eu95sqa /var/lib]</span><br><span class="line">#iostat  1</span><br><span class="line">Linux 3.10.0-327.ali2017.alios7.x86_64 (k28a11352.eu95sqa) 	05/13/2021 	_x86_64_	(64 CPU)</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           0.40    0.00    0.20    0.07    0.00   99.33</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda              38.96       334.64      1449.68    1419236    6148304</span><br><span class="line">nvme1n1         324.95         1.43     31201.30       6069  132329072</span><br><span class="line">nvme2n1           0.07         0.90         0.00       3808          0</span><br><span class="line">nvme0n1         256.24         1.60     22918.46       6801   97200388</span><br><span class="line">dm-0            266.98         1.38     22918.46       5849   97200388</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.20    0.00    0.42    0.25    0.00   98.12</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda               0.00         0.00         0.00          0          0</span><br><span class="line">nvme1n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme2n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme0n1        4460.00         0.00    332288.00          0     332288</span><br><span class="line">dm-0           4608.00         0.00    332288.00          0     332288</span><br><span class="line"></span><br><span class="line">avg-cpu:  %user   %nice %system %iowait  %steal   %idle</span><br><span class="line">           1.35    0.00    0.38    0.22    0.00   98.06</span><br><span class="line"></span><br><span class="line">Device:            tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn</span><br><span class="line">sda              48.00         0.00       200.00          0        200</span><br><span class="line">nvme1n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme2n1           0.00         0.00         0.00          0          0</span><br><span class="line">nvme0n1        4187.00         0.00    332368.00          0     332368</span><br><span class="line">dm-0           4348.00         0.00    332368.00          0     332368</span><br></pre></td></tr></table></figure>
-
-<p>不知道为什么只有一个块ssd有流量，可能跟只写一个文件有关系</p>
-<h2 id="SSD中，SATA、m2、PCIE和NVME各有什么意义"><a href="#SSD中，SATA、m2、PCIE和NVME各有什么意义" class="headerlink" title="SSD中，SATA、m2、PCIE和NVME各有什么意义"></a>SSD中，SATA、m2、PCIE和NVME各有什么意义</h2><h3 id="高速信号协议"><a href="#高速信号协议" class="headerlink" title="高速信号协议"></a>高速信号协议</h3><p> SAS，SATA，PCIe 这三个是同一个层面上的，模拟串行高速接口。</p>
-<ul>
-<li>SAS 对扩容比较友好，也支持双控双活。接上SAS RAID 卡，一般在阵列上用的比较多。</li>
-<li>SATA 对热插拔很友好，早先台式机装机市场的 SSD基本上都是SATA的，现在的 机械硬盘也是SATA接口居多。但速率上最高只能到 6Gb&#x2F;s，上限 768MB&#x2F;s左右，现在已经慢慢被pcie取代。</li>
-<li>PCIe 支持速率更高，也离CPU最近。很多设备 如 网卡，显卡也都走pcie接口，当然也有SSD。现在比较主流的是PCIe 3.0,8Gb&#x2F;s 看起来好像也没比 SATA 高多少，但是 PCIe 支持多个LANE，每个LANE都是 8Gb&#x2F;s，这样性能就倍数增加了。目前，SSD主流的是 PCIe 3.0x4 lane，性能可以做到 3500MB&#x2F;s 左右。</li>
-</ul>
-<h3 id="传输层协议"><a href="#传输层协议" class="headerlink" title="传输层协议"></a>传输层协议</h3><p>SCSI，ATA，NVMe 都属于这一层。主要是定义命令集，数字逻辑层。</p>
-<ul>
-<li>SCSI 命令集 历史悠久，应用也很广泛。U盘，SAS 盘，还有手机上 UFS 之类很多设备都走的这个命令集。</li>
-<li>ATA 则只是跑在SATA 协议上</li>
-<li>NVMe 协议是有特意为 NAND 进行优化。相比于上面两者，效率更高。主要是跑在 PCIe 上的。当然，也有NVMe-MI，NVMe-of之类的。是个很好的传输层协议。</li>
-</ul>
-<h3 id="物理接口"><a href="#物理接口" class="headerlink" title="物理接口"></a>物理接口</h3><p>M.2 , U.2 , AIC, NGFF 这些属于物理接口</p>
-<p>像 M.2 可以是 SATA SSD 也可以是 NVMe（PCIe） SSD。金手指上有一个 SATA&#x2F;PCIe 的选择信号，来区分两者。很多笔记本的M.2 接口也是同时支持两种类型的盘的。</p>
-<ul>
-<li><p>M.2 , 主要用在 笔记本上，优点是体积小，缺点是散热不好。</p>
-</li>
-<li><p>U.2,主要用在 数据中心或者一些企业级用户，对热插拔需求高的地方。优点热插拔，散热也不错。一般主要是pcie ssd(也有sas ssd)，受限于接口，最多只能是 pcie 4lane</p>
-</li>
-<li><p>AIC，企业，行业用户用的比较多。通常会支持pcie 4lane&#x2F;8lane，带宽上限更高</p>
-</li>
-</ul>
-<h2 id="数据总结"><a href="#数据总结" class="headerlink" title="数据总结"></a>数据总结</h2><ul>
-<li>性能排序 NVMe SSD &gt; SATA SSD &gt; SAN &gt; ESSD &gt; HDD</li>
-<li>本地ssd性能最好、sas机械盘(RAID10)性能最差</li>
-<li>san存储走特定的光纤网络，不是走tcp的san（至少从网卡看不到san的流量），性能居中</li>
-<li>从rt来看 ssd:san:sas 大概是 1:3:15</li>
-<li>san比本地sas机械盘性能要好，这也许取决于san的网络传输性能和san存储中的设备（比如用的ssd而不是机械盘）</li>
-<li>NVMe SSD比SATA SSD快很多，latency更稳定</li>
-<li>阿里云的云盘ESSD比本地SAS RAID10阵列性能还好</li>
-</ul>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="http://cizixs.com/2017/01/03/how-slow-is-disk-and-network" target="_blank" rel="noopener">http://cizixs.com/2017/01/03/how-slow-is-disk-and-network</a></p>
-<p><a href="https://tobert.github.io/post/2014-04-17-fio-output-explained.html" target="_blank" rel="noopener">https://tobert.github.io/post/2014-04-17-fio-output-explained.html</a> </p>
-<p><a href="https://zhuanlan.zhihu.com/p/40497397" target="_blank" rel="noopener">https://zhuanlan.zhihu.com/p/40497397</a></p>
-<p><a href="https://www.atatech.org/articles/167736?spm=ata.home.0.0.11fd75362qwsg7&flag_data_from=home_algorithm_article" target="_blank" rel="noopener">块存储NVMe云盘原型实践</a></p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247483999&idx=1&sn=238d3d1a8cf24443db0da4aa00c9fb7e&chksm=a6e3036491948a72704e0b114790483f227b7ce82f5eece5dd870ef88a8391a03eca27e8ff61&scene=178&cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener">机械硬盘随机IO慢的超乎你的想象</a></p>
-<p><a href="https://mp.weixin.qq.com/s?__biz=MjM5Njg5NDgwNA==&mid=2247484023&idx=1&sn=1946b4c286ed72da023b402cc30908b6&chksm=a6e3034c91948a5aa3b0e6beb31c1d3804de9a11c668400d598c2a6b12462e179cf9f1dc33e2&scene=178&cur_album_id=1371808335259090944#rd" target="_blank" rel="noopener">搭载固态硬盘的服务器究竟比搭机械硬盘快多少？</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -5840,7 +5683,7 @@ LISTEN    0     511              *:8085           *:*
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">187</span>
+                <span class="site-state-item-count">189</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -5851,7 +5694,7 @@ LISTEN    0     511              *:8085           *:*
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-count">18</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -5862,7 +5705,7 @@ LISTEN    0     511              *:8085           *:*
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">276</span>
+                <span class="site-state-item-count">281</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

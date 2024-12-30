@@ -292,6 +292,390 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/05/07/就是要你懂TCP--通过案例来学习MSS、MTU/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/05/07/就是要你懂TCP--通过案例来学习MSS、MTU/" itemprop="url">通过案例来理解MSS、MTU等相关TCP概念</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-05-07T12:30:03+08:00">
+                2018-05-07
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="就是要你懂TCP–通过案例来学习MSS、MTU"><a href="#就是要你懂TCP–通过案例来学习MSS、MTU" class="headerlink" title="就是要你懂TCP–通过案例来学习MSS、MTU"></a>就是要你懂TCP–通过案例来学习MSS、MTU</h1><h2 id="问题的描述"><a href="#问题的描述" class="headerlink" title="问题的描述"></a>问题的描述</h2><ul>
+<li>最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题）</li>
+<li>发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现） </li>
+<li>手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了</li>
+<li>尝试单独scp这个文件依然卡死</li>
+<li>在这个容器上scp其它文件没问题(小文件)</li>
+<li>换一个容器scp这个文件没问题</li>
+</ul>
+<h2 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h2><blockquote>
+<p>实在很难理解为什么单单这个文件在这个容器上scp就卡死了，既然scp网络传输卡死，那么就同时在两个容器上tcpdump抓包，想看看为什么传不动了</p>
+</blockquote>
+<h4 id="在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）"><a href="#在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）" class="headerlink" title="在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）"></a>在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</h4><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506090810608.png" alt="image-20240506090810608"></p>
+<h4 id="从抓包中可以得到这样一些结论："><a href="#从抓包中可以得到这样一些结论：" class="headerlink" title="从抓包中可以得到这样一些结论："></a>从抓包中可以得到这样一些结论：</h4><ul>
+<li>从抓包中可以明显知道scp之所以卡死是因为丢包了，客户端一直在重传，图中绿框</li>
+<li>图中篮框显示时间间隔，时间都是花在在丢包重传等待的过程</li>
+<li>奇怪的问题是图中橙色框中看到的，网络这时候是联通的，客户端跟服务端在这个会话中依然有些包能顺利到达（Keep-Alive包）</li>
+<li>同时注意到重传的包长是1442，包比较大了，看了一下tcp建立连接的时候MSS是1500，应该没有问题</li>
+<li>查看了scp的两个容器的网卡mtu都是1500，正常</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了</span><br></pre></td></tr></table></figure>
+
+<h2 id="接下来分析网络传输链路"><a href="#接下来分析网络传输链路" class="headerlink" title="接下来分析网络传输链路"></a>接下来分析网络传输链路</h2><h4 id="scp传输的时候实际路由大概是这样的"><a href="#scp传输的时候实际路由大概是这样的" class="headerlink" title="scp传输的时候实际路由大概是这样的"></a>scp传输的时候实际路由大概是这样的</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">容器A---&gt; 宿主机1 ---&gt; ……中间的路由设备 …… ---&gt; 宿主机2 ---&gt; 容器B</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>前面提过其它容器scp同一个文件到容器B没问题，所以我认为中间的路由设备没问题，问题出在两台宿主机上</li>
+<li>在宿主机1上抓包发现抓不到丢失的那个长度为 1442 的包，也就是问题出在了  容器A—&gt; 宿主机1 上</li>
+</ul>
+<h2 id="查看宿主机1的dmesg看到了这样一些信息"><a href="#查看宿主机1的dmesg看到了这样一些信息" class="headerlink" title="查看宿主机1的dmesg看到了这样一些信息"></a>查看宿主机1的dmesg看到了这样一些信息</h2><pre><code>2016-08-08T08:15:27.125951+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+2016-08-08T08:15:27.536517+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+</code></pre>
+<h2 id="验证方法"><a href="#验证方法" class="headerlink" title="验证方法"></a>验证方法</h2><blockquote>
+<p>-D      Set the Don’t Fragment bit.<br>-s packetsize<br>             Specify the number of data bytes to be sent.  The default is 56, which translates into 64<br>             ICMP data bytes when combined with the 8 bytes of ICMP header data.  This option cannot be<br>             used with ping sweeps.</p>
+</blockquote>
+<p>ping 测试</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1500 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1500 data bytes</span><br><span class="line">ping: sendto: Message too long</span><br><span class="line">^C</span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 0 packets received, 100.0% packet loss</span><br><span class="line"> ✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1400 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1400 data bytes</span><br><span class="line">1408 bytes from 110.242.68.4: icmp_seq=0 ttl=49 time=21.180 ms</span><br><span class="line"></span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 1 packets received, 0.0% packet loss</span><br><span class="line">round-trip min/avg/max/stddev = 21.180/21.180/21.180/0.000 ms</span><br><span class="line"> ren@mac  ~/Downloads </span><br></pre></td></tr></table></figure>
+
+<h2 id="一些结论"><a href="#一些结论" class="headerlink" title="一些结论"></a>一些结论</h2><p> <strong>到这里问题已经很明确了 openvswitch 收到了 一个1428大小的包因为比mtu1400要大，所以扔掉了，接着查看宿主机1的网卡mtu设置果然是1400，悲催，马上修改mtu到1500，问题解决。</strong></p>
+<p>正常分片是ip层来操作，路由器工作在3层，有分片能力，从容器到宿主机走的是bridge，没有进行分片，或者是因为收到这个IP包的时候里面带了 Don’t Fragment标志，路由器就不进行分片了，那为什么IP包要带这个标志呢？当然是为了有更好的性能，都经过TCP握手协商出了一个MSS，就不要再进行分片了。</p>
+<p>当然这里TCP协商MSS的时候应该经过 <a href="http://en.wikipedia.org/wiki/Path_MTU_Discovery" target="_blank" rel="noopener">PMTUD（ This process is called “Path MTU discovery”.）</a> 来确认整个路由上的所有最小MTU，但是有些路由器会因为安全的原因过滤掉ICMP，导致PMTUD不可靠，所以这里的PMTUD形同虚设，比如在我们的三次握手中会协商一个MSS，这只是基于Client和Server两方的MTU来确定的，链路上如果还有比Client和Server的MTU更小的那么就会出现包超过MTU的大小，同时设置了DF标志而不再进行分片被丢掉。</p>
+<p>centos或者ubuntu下：</p>
+<pre><code>$cat /proc/sys/net/ipv4/tcp_mtu_probing //1 表示开启路径mtu检测
+0
+
+$sudo sysctl -a |grep -i pmtu
+net.ipv4.ip_forward_use_pmtu = 0
+net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
+net.ipv4.route.min_pmtu = 552
+</code></pre>
+<p><a href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e" target="_blank" rel="noopener">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
+<p><a href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04" target="_blank" rel="noopener">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 </p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221125133218008.png" alt="image-20221125133218008"></p>
+<p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
+<p>这个ICMP包在链路上有可能会被丢掉，比如：</p>
+<p>Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。<br>简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
+<li>通过这个案例对mtu&#x2F;mss等有了进一步的了解</li>
+<li>从这个案例也理解了vlan模式下容器、宿主机、交换机之间的网络传输链路</li>
+<li>其实抓包还发现了比1500大得多的包顺利通过，反而更小的包无法通过，这是因为网卡基本都有拆包的功能了</li>
+<li>设置由<a href="https://sysctl-explorer.net/net/ipv4/ip_no_pmtu_disc/" target="_blank" rel="noopener">系统主动允许分片的参数</a> sysctl -w net.ipv4.ip_no_pmtu_disc&#x3D;1  可以解决这种问题</li>
+</ul>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><p>Q: 传输的包超过MTU后表现出来的症状？<br>A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。</p>
+<p>Q: mtu 如何配置<br>ifconfig eth1 mtu 9000 up<br>vi &#x2F;etc&#x2F;sysconfig&#x2F;network-scripts&#x2F;ifcfg-eth0</p>
+<p>Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？<br>A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。</p>
+<p>Q: 到哪里可以设置MSS</p>
+<p>A: 网卡配置–ifconfig；ip route在路由上指定；iptables中限制</p>
+<blockquote>
+<p># Add rules<br>$ sudo iptables -I OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48<br># delete rules<br>$ sudo iptables -D OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48</p>
+<p># show router information<br>$ route -ne<br>$ ip route show<br>192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100<br># modify route table<br>$ sudo ip route change 192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100 advmss 48</p>
+</blockquote>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/04/26/如何定位上亿次调用才出现一次的Bug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2018/04/26/如何定位上亿次调用才出现一次的Bug/" itemprop="url">如何定位上亿次调用才出现一次的Bug</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2018-04-26T16:30:03+08:00">
+                2018-04-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/troubleshooting/" itemprop="url" rel="index">
+                    <span itemprop="name">troubleshooting</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="如何定位上亿次调用才出现一次的Bug"><a href="#如何定位上亿次调用才出现一次的Bug" class="headerlink" title="如何定位上亿次调用才出现一次的Bug"></a>如何定位上亿次调用才出现一次的Bug</h1><h2 id="引文"><a href="#引文" class="headerlink" title="引文"></a>引文</h2><p>对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如<a href="https://zhuanlan.zhihu.com/p/21348220?f3fb8ead20=e041f967b1b416071a11f7702126d7a0&from=singlemessage&isappinstalled=0" target="_blank" rel="noopener">这个问题</a></p>
+<p>正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。</p>
+<h2 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
+<p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
+<h3 id="tcpdump-抓包所看到的问题表现"><a href="#tcpdump-抓包所看到的问题表现" class="headerlink" title="tcpdump 抓包所看到的问题表现"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
+<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
+<p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
+<p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
+<h3 id="开发增加debug日志"><a href="#开发增加debug日志" class="headerlink" title="开发增加debug日志"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据–实际不能排除）</p>
+<h3 id="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"><a href="#怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）" class="headerlink" title="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"></a>怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）</h3><p>申请单独的物理机资源给客户，保证没有其它应用来争抢网络和其它资源，前三天一次异常也没有发生（在ECS上一天发生1-2次），非常高兴以为找到问题了。结果第四天异常再次出现，更换物理机也只是好像偶然性地降低了发生频率而已。</p>
+<h3 id="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"><a href="#去底层挖掘tcp协议，到底什么条件下会出现主动断开连接" class="headerlink" title="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"></a>去底层挖掘tcp协议，到底什么条件下会出现主动断开连接</h3><p>实际也没有什么进展</p>
+<h3 id="用strace、pstack去监控-socket-close-这个事件"><a href="#用strace、pstack去监控-socket-close-这个事件" class="headerlink" title="用strace、pstack去监控 socket.close 这个事件"></a>用strace、pstack去监控 socket.close 这个事件</h3><p>但实际可能在上亿次正常的 socket.close (查询全部结束，client主动请求断开连接）才会出现一次不正常的 socket.close .量太大，还没发在这么多事件中区分那个是不正常的close</p>
+<h3 id="应用被-OOM-kill"><a href="#应用被-OOM-kill" class="headerlink" title="应用被 OOM kill"></a>应用被 OOM kill</h3><p>调查过程中为了更快地重现异常，将客户端连接都改成长连接，这样应用不再去调 socket.close ，除非超时、异常之类的，这样一旦出现不正常的 socket.close 就更容易定位了。</p>
+<p>实际跑了一段时间后，发现确实 tcpdump 能抓到很多 server在接收到request还没有返回response的时候主动发送 fin包来断开连接的情况，跟前面的症状是一模一样的。但是最终发现这个时候应用被杀掉了，只是说明应用被杀的情况下 server会主动去掉 socket.close关闭连接，但这只是充分条件，而不是必要条件。实际生产线上也没有被 OOM kill过。</p>
+<h3 id="给力的开发同学"><a href="#给力的开发同学" class="headerlink" title="给力的开发同学"></a>给力的开发同学</h3><p>分析了这个异常后，开发简化了整个测试，实现client上跑一行PHP代码反复调用就能够让这个bug触发，这一下把整个测试重现bug的过程简化了，终于不再需要客户配合了，让问题的定位效率快了一个数量级。</p>
+<p>为了快速地定位到异常的具体连接，实现脚本来自动分析tcpdump结果找到异常close的连接</p>
+<p>快速在tcpdump包中找到出问题的那个stream（这个命令行要求tshark的版本为1.12及以上，默认的阿里服务器上的版本都太低，解析不了_ws.col.Info列）：</p>
+<pre><code>tshark -r capture.pcap135 -T fields -e frame.number -e frame.time_epoch -e ip.addr -e tcp.port  -e tcp.stream   -e _ws.col.Info | egrep &quot;FIN|Request Quit&quot; | awk &#39;{ print $5, $6 $7 }&#39; | sort -k1n | awk &#39;{ print $1 }&#39; | uniq -c | grep -v &quot;^      3&quot; | less
+</code></pre>
+<p>在这一系列的工具作用下，稳定跑上一天，异常能发生3、4次，产生的日志和网络包有几百G。</p>
+<p>出现问题的后，通过上面的脚本分析连接异常断开的client ip+port和时间，同时拿这三个信息到下面的异常堆栈中搜索匹配找到调用 socket.close()的堆栈。</p>
+<h3 id="上Btrace-监听所有-socket-close-事件"><a href="#上Btrace-监听所有-socket-close-事件" class="headerlink" title="上Btrace 监听所有 socket.close 事件"></a>上Btrace 监听所有 socket.close 事件</h3><pre><code>    @OnMethod(clazz=&quot;+java.net.Socket&quot;, method=&quot;close&quot;)
+    public static void onSocketClose(@Self Object me) {
+      println(&quot;\n==== java.net.Socket#close ====&quot;);
+      BTraceUtils.println(BTraceUtils.timestamp() );
+      BTraceUtils.println(BTraceUtils.Time.millis() );
+      println(concat(&quot;Socket closing:&quot;, str(me)));
+      println(concat(&quot;thread: &quot;, str(currentThread())));
+      printFields(me);
+      jstack();
+}
+</code></pre>
+<p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
+<p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
+<p>实际上这里可能有几个问题：</p>
+<ol>
+<li>buffer.position 是不可能为0的；</li>
+<li>即使buffer.position 等于0 也不应该直接 socket.close, 可能发送error信息给客户端更好；</li>
+</ol>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>最终原因是因为NIO过程中buffer有极低的概率被两个socket重用，从而导致出现正在使用的buffer被另外一个socket拿过去并且设置了buffer.position为0，进而导致前一个socket认为数据异常赶紧close了。</li>
+<li>开发简化问题的重现步骤非常关键，同时对异常进行分类分析，加快了定位效率</li>
+<li>能够通过tcpdump去抓包定位到具体问题大概所在点这是比较关键的一步，同时通过btrace再去监控出问题的调用堆栈从而找到具体代码行。</li>
+<li>过程看似简单，实际牵扯了一大波工程师进来，经过几个月才最终定位到出问题的代码行，确实不容易</li>
+</ul>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/03/25/iptables监控reset的连接/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -4531,330 +4915,6 @@ net.ipv4.tcp_keepalive_intvl = 3
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/03/24/物理机磁盘空间去哪了/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/03/24/物理机磁盘空间去哪了/" itemprop="url">物理机磁盘空间都去哪里了</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-03-24T17:30:03+08:00">
-                2017-03-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="磁盘爆掉的几种情况"><a href="#磁盘爆掉的几种情况" class="headerlink" title="磁盘爆掉的几种情况"></a>磁盘爆掉的几种情况</h1><ol>
-<li>系统磁盘没有空间，解决办法：删掉 &#x2F;var&#x2F;log&#x2F; 下边的带日期的日志，清空 &#x2F;var&#x2F;log&#x2F;messages 内容</li>
-<li>容器使用的大磁盘空间不够，又有三个地方会使用大量的磁盘<ul>
-<li>容器内部日志非常大，处理办法见方法一</li>
-<li>容器内部产生非常多或者非常大的文件，但是这个文件的位置又通过volume 挂载到了物理机上，处理办法见方法二</li>
-<li>对特别老的部署环境，还有可能是容器的系统日志没有限制大小，处理办法见方法三</li>
-</ul>
-</li>
-</ol>
-<h2 id="现场的同学按如下方法依次检查"><a href="#现场的同学按如下方法依次检查" class="headerlink" title="现场的同学按如下方法依次检查"></a>现场的同学按如下方法依次检查</h2><h3 id="方法零：-检查系统根目录下每个文件夹的大小"><a href="#方法零：-检查系统根目录下每个文件夹的大小" class="headerlink" title="方法零： 检查系统根目录下每个文件夹的大小"></a>方法零： 检查系统根目录下每个文件夹的大小</h3><p><code>sudo du / -lh --max-depth=1 --exclude=overlay --exclude=proc</code></p>
-<p>看看除了容器之外有没有其它目录使用磁盘特别大，如果有那么一层层进去通过du命令来查看，比如：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#sudo du / -lh --max-depth=1 --exclude=overlay --exclude=proc</span><br><span class="line">16K	/dev</span><br><span class="line">16K	/lost+found</span><br><span class="line">4.0K	/media</span><br><span class="line">17G	/home</span><br><span class="line">136M	/boot</span><br><span class="line">832K	/run</span><br><span class="line">1.9G	/usr</span><br><span class="line">75M	/tmp</span><br><span class="line">12K	/log</span><br><span class="line">8.5G	/var</span><br><span class="line">4.0K	/srv</span><br><span class="line">0	/proc</span><br><span class="line">22M	/etc</span><br><span class="line">84G	/root</span><br><span class="line">4.0K	/mnt</span><br><span class="line">508M	/opt</span><br><span class="line">0	/sys</span><br><span class="line">112G	/</span><br></pre></td></tr></table></figure>
-
-<p>那么这个案例中应该查看 &#x2F;root下为什么用掉了84G（总共用了112G）， 先 cd &#x2F;root 然后执行： sudo du . -lh –max-depth&#x3D;1 –exclude&#x3D;overlay 进一步查看 &#x2F;root 目录下每个文件夹的大小</p>
-<p><strong>如果方法零没找到占用特别大的磁盘文件，那么一般来说是容器日志占用太多的磁盘空间，请看方法一</strong></p>
-<h3 id="方法一：-容器内部日志非常大（请确保先按方法零检查过了）"><a href="#方法一：-容器内部日志非常大（请确保先按方法零检查过了）" class="headerlink" title="方法一： 容器内部日志非常大（请确保先按方法零检查过了）"></a>方法一： 容器内部日志非常大（请确保先按方法零检查过了）</h3><p>在磁盘不够的物理机上执行如下脚本：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">sudo docker ps -a -q &gt;containers.list</span><br><span class="line"></span><br><span class="line">sudo cat containers.list | xargs sudo docker inspect $1 | grep merged | awk -F \&quot; &apos;&#123; print $4 &#125;&apos; | sed &apos;s/\/merged//g&apos; | xargs sudo du  --max-depth=0 $1 &gt;containers.size </span><br><span class="line"></span><br><span class="line">sudo paste containers.list containers.size | awk &apos;&#123; print $1, $2 &#125;&apos;  | sort -nk2 &gt;real_size.log</span><br><span class="line"></span><br><span class="line">sudo tail -10 real_size.log  | awk &apos;BEGIN &#123;print &quot;\tcontainer     size\tunit&quot;&#125; &#123; print NR&quot;:\t&quot; $0&quot;\t kB&quot; &#125;&apos;</span><br></pre></td></tr></table></figure>
-
-<h5 id="执行完后会输出如下格式："><a href="#执行完后会输出如下格式：" class="headerlink" title="执行完后会输出如下格式："></a>执行完后会输出如下格式：</h5><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">   	container     size	unit</span><br><span class="line">1:	22690f16822f 3769980	 kb</span><br><span class="line">2:	82b4ae98eeed 4869324	 kb</span><br><span class="line">3:	572a1b7c8ef6 10370404	 kb</span><br><span class="line">4:	9f9250d98df6 10566776	 kb</span><br><span class="line">5:	7fab70481929 13745648	 kb</span><br><span class="line">6:	4a14b58e3732 29873504	 kb</span><br><span class="line">7:	8a01418b6df2 30432068	 kb</span><br><span class="line">8:	83dc85caaa5c 31010960	 kb</span><br><span class="line">9:	433e51df88b1 35647052	 kb</span><br><span class="line">10:	4b42818a8148 61962416	 kb</span><br></pre></td></tr></table></figure>
-
-<p>第二列是容器id，第三列是磁盘大小，第四列是单位， 占用最大的排在最后面</p>
-<h5 id="然后进到容器后通过-du-x2F-–max-depth-x3D-2-快速发现大文件"><a href="#然后进到容器后通过-du-x2F-–max-depth-x3D-2-快速发现大文件" class="headerlink" title="然后进到容器后通过 du &#x2F; –max-depth&#x3D;2 快速发现大文件"></a>然后进到容器后通过 du &#x2F; –max-depth&#x3D;2 快速发现大文件</h5><h3 id="方法二：-容器使用的volume使用过大"><a href="#方法二：-容器使用的volume使用过大" class="headerlink" title="方法二： 容器使用的volume使用过大"></a>方法二： 容器使用的volume使用过大</h3><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">$sudo du -l /data/lib/docker/defaultVolumes --max-depth=1 | sort -rn</span><br><span class="line">456012884	/data/lib/docker/defaultVolumes</span><br><span class="line">42608332	/data/lib/docker/defaultVolumes/task_3477_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">32322220	/data/lib/docker/defaultVolumes/task_3477_g0_dbpaas-metadb_dbpaas_1</span><br><span class="line">27461120	/data/lib/docker/defaultVolumes/task_3001_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27319360	/data/lib/docker/defaultVolumes/task_36000_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27313836	/data/lib/docker/defaultVolumes/task_3600_g0_dbpaas-metadb_minidbpaas</span><br><span class="line">27278692	/data/lib/docker/defaultVolumes/task_3604_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27277004	/data/lib/docker/defaultVolumes/task_3603_g0_ark-metadb_miniDBPaaS-MetaDB_1</span><br><span class="line">27275736	/data/lib/docker/defaultVolumes/task_3542_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27271428	/data/lib/docker/defaultVolumes/task_3597_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270840	/data/lib/docker/defaultVolumes/task_3603_g0_dbpaas-metadb_minidbpaas_1</span><br><span class="line">27270492	/data/lib/docker/defaultVolumes/task_3603_g0_dbpaas-metadb_minidbpaas</span><br><span class="line">27270468	/data/lib/docker/defaultVolumes/task_3600_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270252	/data/lib/docker/defaultVolumes/task_3535_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270244	/data/lib/docker/defaultVolumes/task_3538_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">27270244	/data/lib/docker/defaultVolumes/task_3536_g0_ark-metadb_miniDBPaaS-MetaDB</span><br><span class="line">25312404	/data/lib/docker/defaultVolumes/task_3477_g0_dncs-server_middleware-dncs_2</span><br></pre></td></tr></table></figure>
-
-<p>&#x2F;data&#x2F;lib&#x2F;docker&#x2F;defaultVolumes 参数是方舟默认volume存放的目录（一般是docker的存储路径下 –graph&#x3D;&#x2F;data&#x2F;lib&#x2F;docker) ，第一列是大小，后面是容器名</p>
-<p>volume路径在物理机上也有可能是 &#x2F;var&#x2F;lib&#x2F;docker 或者 &#x2F;mw&#x2F;mvdocker&#x2F; 之类的路径下，这个要依据安装参数来确定，可以用如下命令来找到这个路径：</p>
-<p><code>sudo systemctl status docker -l | grep --color graph </code></p>
-<p>结果如下，红色参数后面的路径就是docker 安装目录，到里面去找带volume的字眼：</p>
-<p><img src="https://plantegg.oss-cn-beijing.aliyuncs.com/images/oss/9b7e489576840f72a5bd13e969abce39.png" alt="image.png"></p>
-<p>找到 volume很大的文件件后同样可以进到这个文件夹中执行如下命令快速发现大文件：</p>
-<p><code>du . --max-depth=2 </code></p>
-<h3 id="方法三-容器的系统日志没有限制大小"><a href="#方法三-容器的系统日志没有限制大小" class="headerlink" title="方法三 容器的系统日志没有限制大小"></a>方法三 容器的系统日志没有限制大小</h3><p>这种情况只针对2017年上半年之前的部署环境，后面部署的环境默认都控制了这些日志不会超过150M</p>
-<p>按照方法二的描述先找到docker 安装目录，cd 进去，然后 ： </p>
-<p><code>du ./containers --max-depth=2 </code></p>
-<p>就很快找到那个大json格式的日志文件了,然后执行清空这个大文件的内容：</p>
-<p><code>echo &#39;&#39; | sudo tee 大文件名  </code></p>
-<h3 id="一些其他可能占用空间的地方"><a href="#一些其他可能占用空间的地方" class="headerlink" title="一些其他可能占用空间的地方"></a>一些其他可能占用空间的地方</h3><ul>
-<li>机器上镜像太多，可以删掉一些没用的： sudo docker images -q | xargs sudo docker rmi </li>
-<li>机器上残留的volume太多，删：sudo docker volume ls -q | xargs sudo docker volume rm</li>
-<li>物理文件被删了，但是还有进程占用这个文件句柄，导致文件对应的磁盘空间没有释放，检查： lsof |　grep deleted  如果这个文件非常大的话，只能通过重启这个进程来真正释放磁盘空间</li>
-</ul>
-<hr>
-<h4 id="检查是否restart能支持只重启deamon，容器还能正常运行："><a href="#检查是否restart能支持只重启deamon，容器还能正常运行：" class="headerlink" title="检查是否restart能支持只重启deamon，容器还能正常运行："></a>检查是否restart能支持只重启deamon，容器还能正常运行：</h4><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$sudo docker info | grep Restore</span><br><span class="line">Live Restore Enabled: true</span><br></pre></td></tr></table></figure>
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/03/24/docker daemon添加label/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2017/03/24/docker daemon添加label/" itemprop="url">如何手动为docker daemon添加label</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-03-24T17:30:03+08:00">
-                2017-03-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/docker/" itemprop="url" rel="index">
-                    <span itemprop="name">docker</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="如何手动为docker-daemon添加label"><a href="#如何手动为docker-daemon添加label" class="headerlink" title="如何手动为docker daemon添加label"></a>如何手动为docker daemon添加label</h1><ol>
-<li><p>编辑或创建&#x2F;etc&#x2F;docker&#x2F;daemon.json</p>
-</li>
-<li><p>将一个或多个lable以json格式写入文件，示例如下</p>
-</li>
-</ol>
-  <figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># 为docker分配两个label，分别是nodetype和red</span><br><span class="line">&#123;<span class="attr">"labels"</span>:[<span class="string">"nodetype=dbpaas"</span>, <span class="string">"color=red"</span>]&#125;</span><br></pre></td></tr></table></figure>
-
-<ol start="3">
-<li>重启docker daemon  <figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">service docker restart</span><br></pre></td></tr></table></figure></li>
-</ol>
-<p>4 &#x2F;etc&#x2F;docker&#x2F;daemon.json 参考</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    &quot;api-cors-header&quot;: &quot;&quot;,</span><br><span class="line">    &quot;authorization-plugins&quot;: [],</span><br><span class="line">    &quot;bip&quot;: &quot;&quot;,</span><br><span class="line">    &quot;bridge&quot;: &quot;&quot;,</span><br><span class="line">    &quot;cgroup-parent&quot;: &quot;&quot;,</span><br><span class="line">    &quot;cluster-store&quot;: &quot;&quot;,</span><br><span class="line">    &quot;cluster-store-opts&quot;: &#123;&#125;,</span><br><span class="line">    &quot;cluster-advertise&quot;: &quot;&quot;,</span><br><span class="line">    &quot;debug&quot;: true,</span><br><span class="line">    &quot;default-gateway&quot;: &quot;&quot;,</span><br><span class="line">    &quot;default-gateway-v6&quot;: &quot;&quot;,</span><br><span class="line">    &quot;default-runtime&quot;: &quot;runc&quot;,</span><br><span class="line">    &quot;default-ulimits&quot;: &#123;&#125;,</span><br><span class="line">    &quot;disable-legacy-registry&quot;: false,</span><br><span class="line">    &quot;dns&quot;: [],</span><br><span class="line">    &quot;dns-opts&quot;: [],</span><br><span class="line">    &quot;dns-search&quot;: [],</span><br><span class="line">    &quot;exec-opts&quot;: [],</span><br><span class="line">    &quot;exec-root&quot;: &quot;&quot;,</span><br><span class="line">    &quot;fixed-cidr&quot;: &quot;&quot;,</span><br><span class="line">    &quot;fixed-cidr-v6&quot;: &quot;&quot;,</span><br><span class="line">    &quot;graph&quot;: &quot;&quot;,</span><br><span class="line">    &quot;group&quot;: &quot;&quot;,</span><br><span class="line">    &quot;hosts&quot;: [],</span><br><span class="line">    &quot;icc&quot;: false,</span><br><span class="line">    &quot;insecure-registries&quot;: [],</span><br><span class="line">    &quot;ip&quot;: &quot;0.0.0.0&quot;,</span><br><span class="line">    &quot;iptables&quot;: false,</span><br><span class="line">    &quot;ipv6&quot;: false,</span><br><span class="line">    &quot;ip-forward&quot;: false,</span><br><span class="line">    &quot;ip-masq&quot;: false,</span><br><span class="line">    &quot;labels&quot;: [&quot;nodetype=drds-server&quot;, &quot;ark.ip=11.239.155.83&quot;],</span><br><span class="line">    &quot;live-restore&quot;: true,</span><br><span class="line">    &quot;log-driver&quot;: &quot;&quot;,</span><br><span class="line">    &quot;log-level&quot;: &quot;&quot;,</span><br><span class="line">    &quot;log-opts&quot;: &#123;&#125;,</span><br><span class="line">    &quot;max-concurrent-downloads&quot;: 3,</span><br><span class="line">    &quot;max-concurrent-uploads&quot;: 5,</span><br><span class="line">    &quot;mtu&quot;: 0,</span><br><span class="line">    &quot;oom-score-adjust&quot;: -500,</span><br><span class="line">    &quot;pidfile&quot;: &quot;&quot;,</span><br><span class="line">    &quot;raw-logs&quot;: false,</span><br><span class="line">    &quot;registry-mirrors&quot;: [],</span><br><span class="line">    &quot;runtimes&quot;: &#123;</span><br><span class="line">        &quot;runc&quot;: &#123;</span><br><span class="line">            &quot;path&quot;: &quot;runc&quot;</span><br><span class="line">        &#125;,</span><br><span class="line">        &quot;custom&quot;: &#123;</span><br><span class="line">            &quot;path&quot;: &quot;/usr/local/bin/my-runc-replacement&quot;,</span><br><span class="line">            &quot;runtimeArgs&quot;: [</span><br><span class="line">                &quot;--debug&quot;</span><br><span class="line">            ]</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;selinux-enabled&quot;: false,</span><br><span class="line">    &quot;storage-driver&quot;: &quot;&quot;,</span><br><span class="line">    &quot;storage-opts&quot;: [],</span><br><span class="line">    &quot;swarm-default-advertise-addr&quot;: &quot;&quot;,</span><br><span class="line">    &quot;tls&quot;: true,</span><br><span class="line">    &quot;tlscacert&quot;: &quot;&quot;,</span><br><span class="line">    &quot;tlscert&quot;: &quot;&quot;,</span><br><span class="line">    &quot;tlskey&quot;: &quot;&quot;,</span><br><span class="line">    &quot;tlsverify&quot;: true,</span><br><span class="line">    &quot;userland-proxy&quot;: false,</span><br><span class="line">    &quot;userns-remap&quot;: &quot;&quot;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>Daemon.json 指定 ulimit等参考</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">cat &gt;&gt; /etc/docker/daemon.json &lt;&lt;EOF</span><br><span class="line">&#123;</span><br><span class="line">  &quot;data-root&quot;: &quot;/var/lib/docker&quot;,</span><br><span class="line">  &quot;log-driver&quot;: &quot;json-file&quot;,</span><br><span class="line">  &quot;log-opts&quot;: &#123;</span><br><span class="line">    &quot;max-size&quot;: &quot;200m&quot;,</span><br><span class="line">    &quot;max-file&quot;: &quot;5&quot;</span><br><span class="line">  &#125;,</span><br><span class="line">  &quot;default-ulimits&quot;: &#123;</span><br><span class="line">    &quot;nofile&quot;: &#123;</span><br><span class="line">      &quot;Name&quot;: &quot;nofile&quot;,</span><br><span class="line">      &quot;Hard&quot;: 655360,</span><br><span class="line">      &quot;Soft&quot;: 655360</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;nproc&quot;: &#123;</span><br><span class="line">      &quot;Name&quot;: &quot;nproc&quot;,</span><br><span class="line">      &quot;Hard&quot;: 655360,</span><br><span class="line">      &quot;Soft&quot;: 655360</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;,</span><br><span class="line">  &quot;live-restore&quot;: true,</span><br><span class="line">  &quot;oom-score-adjust&quot;: -1000,</span><br><span class="line">  &quot;max-concurrent-downloads&quot;: 10,</span><br><span class="line">  &quot;max-concurrent-uploads&quot;: 10,</span><br><span class="line">  &quot;storage-driver&quot;: &quot;overlay2&quot;,</span><br><span class="line">  &quot;storage-opts&quot;: [&quot;overlay2.override_kernel_check=true&quot;],</span><br><span class="line">  &quot;exec-opts&quot;: [&quot;native.cgroupdriver=systemd&quot;],</span><br><span class="line">  &quot;registry-mirrors&quot;: [</span><br><span class="line">    &quot;https://yssx4sxy.mirror.aliyuncs.com/&quot;</span><br><span class="line">  ]</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br></pre></td></tr></table></figure>
-
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -4902,7 +4962,7 @@ net.ipv4.tcp_keepalive_intvl = 3
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">187</span>
+                <span class="site-state-item-count">189</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4913,7 +4973,7 @@ net.ipv4.tcp_keepalive_intvl = 3
             
             <div class="site-state-item site-state-categories">
               <a href="/categories/index.html">
-                <span class="site-state-item-count">17</span>
+                <span class="site-state-item-count">18</span>
                 <span class="site-state-item-name">分类</span>
               </a>
             </div>
@@ -4924,7 +4984,7 @@ net.ipv4.tcp_keepalive_intvl = 3
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">276</span>
+                <span class="site-state-item-count">281</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
