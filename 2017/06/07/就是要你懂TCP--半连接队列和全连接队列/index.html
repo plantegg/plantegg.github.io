@@ -118,7 +118,7 @@
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png">
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png">
 <meta property="og:image" content="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240506134119413.png">
-<meta property="og:updated_time" content="2024-11-25T12:25:31.559Z">
+<meta property="og:updated_time" content="2025-01-08T08:44:01.485Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="就是要你懂TCP--半连接队列和全连接队列">
 <meta name="twitter:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:  这两个队列是干什么用的；  2）怎么设置和观察他们的最大值； 3）怎么查看这两个队列当前使用到了多少； 4）一旦溢出">
@@ -452,7 +452,7 @@
 <p>（<em>通过具体的、可见的东西来强化我们对知识点的理解和吸收</em>）</p>
 <h3 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
 667399 times the listen queue of a socket overflowed  //全连接队列溢出
-//以下两行是一个意思， netstat版本不同，新版本显示为 dropped
+//以下两行是一个意思， netstat 版本不同导致显示不同，新版本显示为 dropped
 667399 SYNs to LISTEN sockets ignored                 //含全连接/半连接队列溢出+PAWSPassive 等
 905080 SYNs to LISTEN sockets dropped                 //含全连接/半连接队列溢出+PAWSPassive 等
  
@@ -555,7 +555,7 @@ Recv-Q Send-QLocal Address:Port  Peer Address:Port
 11         10         *:3306               *:*
 </code></pre>
 <p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
-<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;&#x3D;</strong> 。</p>
+<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;&#x3D;</strong> </p>
 <blockquote>
 <p>Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果</p>
 <p>kill -19 pid 即可； kill -18 pid 恢复暂停进程</p>
@@ -565,7 +565,7 @@ Recv-Q Send-QLocal Address:Port  Peer Address:Port
 <blockquote>
 <p>tsar –tcpx -s&#x3D;lisove -li 1</p>
 </blockquote>
-<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
+<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat 默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
 <pre><code>#ss -lnt
 Recv-Q Send-Q   Local Address:Port Peer Address:Port
 0       100                 *:8080            *:*
@@ -596,8 +596,8 @@ Fri May  5 15:39:59 CST 2017
 1641906 times the listen queue of a socket overflowed
 1641906 SYNs to LISTEN sockets ignored
 </code></pre>
-<p>如上所示：<br>overflowed和ignored 总是一样多，并且都是同步增加，overflowed 表示全连接队列溢出次数，SYNs to LISTEN socket ignored 表示半连接队列溢出等等指标的次数，没这么巧吧。</p>
-<p>翻看内核源代码（<a href="http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c%EF%BC%89%EF%BC%9A" target="_blank" rel="noopener">http://elixir.free-electrons.com/linux/v3.18/source/net/ipv4/tcp_ipv4.c）：</a></p>
+<p>如上所示：<br>overflowed 和 ignored 总是一样多，并且都是同步增加，overflowed 表示全连接队列溢出次数，SYNs to LISTEN socket ignored 表示半连接队列溢出等等指标的次数，没这么巧吧。</p>
+<p>翻看内核源代码（<a href="https://github.com/torvalds/linux/blob/v6.13-rc6/net/ipv4/tcp_ipv4.c#L1849" target="_blank" rel="noopener">https://github.com/torvalds/linux/blob/v6.13-rc6/net/ipv4/tcp_ipv4.c#L1849</a> ）：</p>
 <p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/a5616904df3a505572d99d557b534db2.png" alt="image.png"></p>
 <p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
 <p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
@@ -619,10 +619,13 @@ server5
 984932 times the listen queue of a socket overflowed
 988003 SYNs to LISTEN sockets dropped
 </code></pre>
-<p>总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接&#x2F;半连接队列溢出以及PAWSPassive 等造成的 SYN 丢包</p>
+<p>总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接&#x2F;半连接队列溢出<strong>以及PAWSPassive</strong> 等造成的 SYN 丢包</p>
+<blockquote>
+<p>ListenDrops 表示： SYNs to LISTEN sockets dropped</p>
+</blockquote>
 <h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249%EF%BC%89%EF%BC%9A" target="_blank" rel="noopener">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
 <p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png" alt="image.png"></p>
-<p>TCP 三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生。大概流程的如下：</p>
+<p>TCP 三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生，流程的如下：</p>
 <pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
 //如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
   if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
@@ -817,7 +820,7 @@ server5
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">189</span>
+                <span class="site-state-item-count">190</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -907,7 +910,7 @@ server5
 <div class="copyright">
   
   &copy; 
-  <span itemprop="copyrightYear">2024</span>
+  <span itemprop="copyrightYear">2025</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>

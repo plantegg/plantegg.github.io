@@ -292,6 +292,198 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/24/到底是谁reset了你的连接/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2019/11/24/到底是谁reset了你的连接/" itemprop="url">到底是谁reset了你的连接</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-11-24T17:30:03+08:00">
+                2019-11-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/TCP/" itemprop="url" rel="index">
+                    <span itemprop="name">TCP</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="到底是谁reset了你的连接"><a href="#到底是谁reset了你的连接" class="headerlink" title="到底是谁reset了你的连接"></a>到底是谁reset了你的连接</h1><p>通过一个案例展示TCP连接是如何被reset的，以及identification、ttl都可以帮我们干点啥。</p>
+<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>用户经常连不上服务，经过抓包发现是链路上连接被reset了，需要定位到是哪个设备发起的reset</p>
+<p>比如：</p>
+<ol>
+<li>用户用navicat从自己访问云上的MySQL的时候，点开数据库总是报错（不是稳定报错，有一定的概率报错）</li>
+<li>某家居客户通过专线访问云上MySQL，总是被reset( 内网ip地址重复–都是192.168.*， 导致连接被reset)</li>
+</ol>
+<blockquote>
+<p><strong>进程被kill、异常退出时，针对它打开的连接，内核就会发送 RST 报文来关闭</strong>。RST 的全称是 Reset 复位的意思，它可以不走四次挥手强制关闭连接，但当报文延迟或者重复传输时，这种方式会导致数据错乱，所以这是不得已而为之的关闭连接方案。当然还有其它场景也会触发reset</p>
+</blockquote>
+<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>在 Navicat 机器上抓包如下：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/83b07725d92b9e4d3eb4a504cf83cc09.png" alt="image.png"></p>
+<p>从抓包可以清楚看到 Navicat 发送 Use Database后收到了 MySQL（来自3306端口）的Reset重接连接命令，所以连接强行中断，然后 Navicat报错了。注意图中红框中的 Identification 两次都是13052，先留下不表，这是个线索。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/53b5dc8e0a90ed9ad641caf38399141b.png" alt="image.png"></p>
+<h2 id="MySQL-Server上抓包"><a href="#MySQL-Server上抓包" class="headerlink" title="MySQL Server上抓包"></a>MySQL Server上抓包</h2><p>特别说明下，MySQL上抓到的不是跟Navicat上抓到的同一次报错，所以报错的端口等会不一样</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/70287488290b38cd4753d9fce0bee945.png" alt="image.png"></p>
+<p>从这个图中可以清楚看到reset是从 Navicat 客户端发过来的，并且 Use Database被拦截了，没有发到MySQL上。</p>
+<p>从这里基本可以判断是客户的防火墙之类的中间设备监控到了关键字之类的触发了防火墙向两边发送了reset，导致了 Navicat 报错。</p>
+<h3 id="如果连接已经断开"><a href="#如果连接已经断开" class="headerlink" title="如果连接已经断开"></a>如果连接已经断开</h3><p>如果连接已经断开后还收到Client的请求包，因为连接在Server上是不存在的，这个时候Server收到这个包后也会发一个reset回去，这个reset的特点是identification是0.</p>
+<h2 id="到底是谁动了这个连接呢？"><a href="#到底是谁动了这个连接呢？" class="headerlink" title="到底是谁动了这个连接呢？"></a>到底是谁动了这个连接呢？</h2><h3 id="得帮客户解决问题"><a href="#得帮客户解决问题" class="headerlink" title="得帮客户解决问题"></a>得帮客户解决问题</h3><p>虽然原因很清楚，但是客户说连本地 MySQL就没这个问题，连你的云上MySQL就这样，你让我们怎么用？你们得帮我们找到是哪个设备。</p>
+<p>这不废话么，连本地没经过这么多防火墙、网关当然没事了。但是客户第一，不能这么说，得找到问题所在。</p>
+<h2 id="Identification-和-TTL"><a href="#Identification-和-TTL" class="headerlink" title="Identification 和 TTL"></a>Identification 和 TTL</h2><h3 id="线索一-Identification"><a href="#线索一-Identification" class="headerlink" title="线索一 Identification"></a>线索一 Identification</h3><p>还记得第一个截图中的两个相同的identification 13052吧，让我们来看看基础知识：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/eed9ba1f9ba492ed8954ae7f39e72803.png" alt="image.png"></p>
+<p>（摘自 TCP卷一），简单来说这个 identification 用来标识一个连接中的每个包，这个序号按包的个数依次递增，通信双方是两个不同的序列。<strong>主要是用于ip packet的reassemble</strong>。</p>
+<p>所以如果这个reset是MySQL发出来的话，因为MySQL发出的前一个包的 identification 是23403，所以这个必须是23404，实际上居然是13502（而且还和Navicat发出的 Use Database包是同一个 identification），这是非常不对的。</p>
+<p>所以可以大胆猜测，这里有个中间设备收到 Use Database后触发了不放行的逻辑，于是冒充 Navicat给 MySQL Server发了reset包，src ip&#x2F;src port&#x2F;seq等都直接用Navicat的，identification也用Navicat的，所以 MySQL Server收到的 Reset看起来很正常（啥都是对的，没留下一点冒充的痕迹）。</p>
+<p>但是这个中间设备还要冒充MySQL Server给 Navicat 也发个reset，有点难为中间设备了，这个时候中间设备手里只有 Navicat 发出来的包， src ip&#x2F;src port&#x2F;seq 都比较好反过来，但是 identification 就不好糊弄了，手里只有 Navicat的，因为 Navicat和MySQL Server是两个序列的 identification，这下中间设备搞不出来MySQL Server的identification，怎么办？ 只能糊弄了，就随手用 Navicat 自己的 identification填回去了（所以看到这么个奇怪的 identification）</p>
+<p><strong>identification不对不影响实际连接被reset，也就是验证包的时候不会判断identification的正确性。</strong></p>
+<h3 id="TTL"><a href="#TTL" class="headerlink" title="TTL"></a>TTL</h3><p>identification基本撇清了MySQL的嫌疑，还得进一步找到是哪个机器，我们先来看一个基础知识 TTL(Time-to-Live):</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ed8c624b704b0c94da2ca76a37b39916.png" alt="image.png"></p>
+<p>然后我们再看看 Navicat收到的这个reset包的ttl是63，而正常的MySQL Server回过来的包是47，而发出的第一个包初始ttl是64，所以这里可以很清楚地看到在Navicat 下一跳发出的这个reset</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/b288a740f9f10007485e37fd339051f8.png" alt="image.png"></p>
+<p>既然是下一跳干的直接拿这个包的src mac地址，然后到内网中找这个内网设备就可以了，最终找到是一个锐捷的防火墙。</p>
+<p>如果不是下一跳可以通过 traceroute&#x2F;mtr 来找到这个设备的ip</p>
+<h2 id="某家居的reset"><a href="#某家居的reset" class="headerlink" title="某家居的reset"></a>某家居的reset</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/1573793438383-3a05c4da-1443-4fcf-8b59-b93bc2a246de.png" alt="undefined"> </p>
+<p>从图中可以清楚看到都是3306收到ttl为62的reset，正常ttl是61，所以推定reset来自client的下一跳上。</p>
+<h2 id="某ISV-vpn环境reset"><a href="#某ISV-vpn环境reset" class="headerlink" title="某ISV vpn环境reset"></a>某ISV vpn环境reset</h2><p>client通过公网到server有几十跳，偶尔会出现连接被reset。反复重现发现只要是： select * from table1 ; 就一定reset，但是select * from table1 limit 1 之有极低的概率会被reset，reset的概率跟查询结果的大小比较相关。</p>
+<p>于是在server和client上同时抓到了一次完整的reset</p>
+<p>如下图红框 Server正常发出了一个大小为761的response包，id 51101，注意seq号，另外通过上下文知道server client之间的rt是15ms左右（15ms后 server收到了一个reset id为0）</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/89f584899a5e5e00ba5c2b16707ed24a.png" alt="image.png"></p>
+<p>下图是client收到的 id 51101号包，seq也正常，只是原来的response内容被替换成了reset，可以推断是中间环节检测到id 51101号包触发了某个条件，然后向server、client同时发出了reset，server收到的reset包是id 是0（伪造出来的），client收到的reset包还是51101，可以判断出是51101号包触发的reset，中间环节披着51101号包的外衣将response替换成了reset，这种双向reset基本是同时发出，从server和client的接收时间来看，这个中间环节挨着client，同时server收到的reset 的id是0，结合ttl等综合判断client侧的防火墙发出了这个reset</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/ec1f04befe56823668b4d1f831bd3ea4.png"></p>
+<p>最终排查后client端</p>
+<blockquote>
+<p>公司部分网络设置了一些拦截措施，然后现在把这次项目中涉及到的服务器添加到了白名单中，现在运行正常了</p>
+</blockquote>
+<h3 id="扩展一下"><a href="#扩展一下" class="headerlink" title="扩展一下"></a>扩展一下</h3><p>假如这里不是下一跳，而是隔了几跳发过来的reset，那么这个src mac地址就不是发reset设备的mac了，那该怎么办呢？</p>
+<p>可以根据中间的跳数(TTL)，再配合 traceroute 来找到这个设备的ip</p>
+<h2 id="SLB-reset"><a href="#SLB-reset" class="headerlink" title="SLB reset"></a>SLB reset</h2><p>如果连接闲置15分钟(900秒)后，SLB会给两端发送reset，设置的ttl为102（102年，下图经过3跳后到达RS 节点所以看到的是99），identification 为31415（π）</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20220722161729776.png" alt="image-20220722161729776"></p>
+<h2 id="被忽略的reset"><a href="#被忽略的reset" class="headerlink" title="被忽略的reset"></a><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">被忽略的reset</a></h2><p>不是收到reset就一定释放连接，OS还是会验证一下这个reset 包的有效性，主要是通过reset包的seq是否落在接收窗口内来验证，当然五元组一定要对。</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/640-20220224102640374.png" alt="Image"></p>
+<p>但是对于SLB来说，收到reset就会clean 连接的session（SLB没做合法性验证），一般等session失效后（10秒）</p>
+<h2 id="SLB主动reset的话"><a href="#SLB主动reset的话" class="headerlink" title="SLB主动reset的话"></a>SLB主动reset的话</h2><p>ttl是102, identification是31415，探活reset不是这样的。</p>
+<p>如下图就是SLB发出来的reset packet</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/9de70216-188c-4ca4-898f-0fa88e853c18.png" alt="img"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>基础知识很重要，但是知道ttl、identification到会用ttl、identification是两个不同的层次。只是看书的话未必会有很深的印象，实际也不一定会灵活使用。</p>
+<p>平时不要看那么多书，会用才是关键。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ" target="_blank" rel="noopener">TCP中并不是所有的RST都有效</a></p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/11/05/该死的virtualbox/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -6719,290 +6911,6 @@ tcp0  0 server:2376  client-1:60269 ESTABLISHED
 
 
     
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/Linux Module/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2019/01/24/Linux Module/" itemprop="url">Linux Module and make debug</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">
-                2019-01-24
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/Linux/" itemprop="url" rel="index">
-                    <span itemprop="name">Linux</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
-Makefile:4: *** missing separator.  Stop.
-</code></pre>
-<p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
-<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
-make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
-make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&#39;
-make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&#39;, needed by `arch/x86/include/generated/asm/syscalls_32.h&#39;.  Stop.
-make[1]: *** [archheaders] Error 2
-make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&#39;
-make: *** [all] Error 2
-</code></pre>
-<p>Makefile中的：<br>    make -C &#x2F;lib&#x2F;modules&#x2F;$(shell uname -r)&#x2F;build M&#x3D;$(pwd) modules</p>
-<p>$(pwd) 需要修改成：$(shell pwd)</p>
-<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
-$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
-$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
-$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
-
-推荐版本(会输出执行的具体命令)：
-make --debug=b SHELL=&quot;bash -x&quot;  &gt; make.log.simple  2&gt;&amp;1
-or
-make V=1
-</code></pre>
-<h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
-<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &#39;^# makefile&#39; | grep -v &#39;^--&#39; | awk &#39;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&#39; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
-$ cat variable.log
-# makefile (from `Makefile&#39;, line 1) ; aa := 11
-# makefile (from `Makefile&#39;, line 3) ; cc := 11
-# makefile (from `Makefile&#39;, line 4) ; bb := 9999
-# makefile (from `cfg_makefile&#39;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
-# makefile (from `cfg_makefile&#39;, line 1) ; xx := 4444
-# makefile (from `cfg_makefile&#39;, line 2) ; yy := 4444
-# makefile (from `cfg_makefile&#39;, line 3) ; zz := 4444
-# makefile (from `sub_makefile&#39;, line 1) ; MAKEFILE_LIST :=  sub_makefile
-# makefile (from `sub_makefile&#39;, line 1) ; aaaa := 222222
-# makefile (from `sub_makefile&#39;, line 2) ; bbbb := 222222
-# makefile (from `sub_makefile&#39;, line 3) ; cccc := 222222
-</code></pre>
-<h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
-<pre><code>$(warning $(var123))
-</code></pre>
-<p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
-<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">debug方法</a></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
-<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
-<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison&#x2F;flex)</p>
-<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
-<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
-</code></pre>
-<h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
-    TCP_ESTABLISHED = 1,
-    TCP_SYN_SENT,
-    TCP_SYN_RECV,
-    TCP_FIN_WAIT1,
-    TCP_FIN_WAIT2,
-    TCP_TIME_WAIT,
-    TCP_CLOSE,
-    TCP_CLOSE_WAIT,
-    TCP_LAST_ACK,
-    TCP_LISTEN,
-    TCP_CLOSING,    /* Now a valid state */
-
-    TCP_MAX_STATES  /* Leave at the end! */
-};
-</code></pre>
-<h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a><a href="https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&mid=2666565525&idx=2&sn=f5adc9ad8f192dac9d1d46f6c2140749" target="_blank" rel="noopener">kdump</a></h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(&#x2F;var&#x2F;crash)</p>
-<pre><code>sudo systemctl start kdump
-</code></pre>
-<p>参考：<a href="https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/" target="_blank" rel="noopener">Linux 系统内核崩溃分析处理简介</a></p>
-<p>Kdump 的概念出现在 2005 左右，是迄今为止最可靠的内核转存机制，已经被主要的 linux™ 厂商选用。kdump是一种先进的基于 kexec 的内核崩溃转储机制。当系统崩溃时，kdump 使用 kexec 启动到第二个内核。第二个内核通常叫做捕获内核，以很小的内存启动以捕获转储镜像。</p>
-<p>第一个内核保留了内存的一部分给第二个内核启动用。由于 kdump 利用 kexec 启动捕获内核，绕过了 BIOS，所以第一个内核的内存得以保留。这是内核崩溃转储的本质。</p>
-<p>kdump 需要两个不同目的的内核，生产内核和捕获内核。生产内核是捕获内核服务的对象。捕获内核会在生产内核崩溃时启动起来，与相应的 ramdisk 一起组建一个微环境，用以对生产内核下的内存进行收集和转存。</p>
-<h3 id="什么是-kexec-？"><a href="#什么是-kexec-？" class="headerlink" title="什么是 kexec ？"></a>什么是 kexec ？</h3><p>Kexec 是实现 kdump 机制的关键，它包括 2 一是组成部分：一是内核空间的系统调用 kexec_load，负责在生产内核（production kernel 或 first kernel）启动时将捕获内核（capture kernel 或 sencond kernel）加载到指定地址。二是用户空间的工具 kexec-tools，他将捕获内核的地址传递给生产内核，从而在系统崩溃的时候能够找到捕获内核的地址并运行。</p>
-<p>没有 kexec 就没有 kdump。先有 kexec 实现了在一个内核中可以启动另一个内核，才让 kdump 有了用武之地。kexec 原来的目的是为了节省时间 kernel 开发人员重启系统的时间，谁能想到这个“偷懒”的技术却孕育了最成功的内存转存机制呢？</p>
-<h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
-//手动触发crash
-#echo 1 &gt; /proc/sys/kernel/sysrq
-#echo c &gt; /proc/sysrq-trigger
-//系统crash，然后重启，重启后分析：
-sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
-</code></pre>
-<p>可以触发dump但是系统没有crash, 以下两个命令都可以</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore</span><br><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem</span><br><span class="line"></span><br><span class="line">写内存hack内核，那就在crash命令执行前，先执行下面的命令：</span><br><span class="line">stap -g -e &apos;probe kernel.function(&quot;devmem_is_allowed&quot;).return &#123; $return = 1 &#125;&apos;</span><br></pre></td></tr></table></figure>
-
-<h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
-<pre><code>static int __init hotfix_init(void)
-{
-  unsigned char e8_call[POKE_LENGTH];
-  s32 offset, i;
-
-  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
-  if (!addr) {
-    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
-    return -1;
-  }
-
-  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
-  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
-
-  stub = (void *)test_stub1;
-
-  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
-
-  e8_call[0] = 0xe8;
-  (*(s32 *)(&amp;e8_call[1])) = offset;
-  for (i = 5; i &lt; POKE_LENGTH; i++) {
-    e8_call[i] = 0x90;
-  }
-  get_online_cpus();
-  mutex_lock(_text_mutex);
-  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
-  mutex_unlock(_text_mutex);
-  put_online_cpus();
-
-  return 0;
-}
-
-void test_stub1(void)
-{
-  struct sock *sk = NULL;
-  unsigned long sk_addr = 0;
-  char buf[MAX_BUF_SIZE];
-  int size=0;
-  asm (&quot;push %rdi&quot;);
-
-  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
-  sk = (struct sock *)sk_addr;
-
-  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
-      sk-&gt;sk_state,
-      sk-&gt;sk_rcv_saddr,
-      sk-&gt;sk_daddr);
-/*
-  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
-                     get_seconds(),
-                     sk-&gt;sk_state,
-                     &amp;(inet_sk(sk)-&gt;inet_saddr),
-                     ntohs(inet_sk(sk)-&gt;inet_sport),
-                     ntohs(inet_sk(sk)-&gt;inet_dport),
-                     &amp;(inet_sk(sk)-&gt;inet_daddr));
-*/
-//  tcp_rt_log_output(buf,size,1);
-
-  asm (&quot;pop %rdi&quot;);
-}
-</code></pre>
-<h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234" target="_blank" rel="noopener">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
-<p><a href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary" target="_blank" rel="noopener">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
-<p><a href="https://blog.csdn.net/dog250/article/details/105394840" target="_blank" rel="noopener">Linux系统中如何彻底隐藏一个TCP连接</a></p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
   </section>
 
   
@@ -7050,7 +6958,7 @@ void test_stub1(void)
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">189</span>
+                <span class="site-state-item-count">190</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -7124,7 +7032,7 @@ void test_stub1(void)
 <div class="copyright">
   
   &copy; 
-  <span itemprop="copyrightYear">2024</span>
+  <span itemprop="copyrightYear">2025</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
