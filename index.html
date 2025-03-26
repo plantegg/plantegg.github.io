@@ -449,6 +449,299 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/03/26/问题:为什么你的SYN包被丢了——求答案/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2025/03/26/问题:为什么你的SYN包被丢了——求答案/" itemprop="url">未命名</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2025-03-26T15:00:01+08:00">
+                2025-03-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">title: 问题：为什么你的 SYN 包被丢了——求答案</span><br><span class="line">date: 2025-02-29 17:30:03</span><br><span class="line">categories:</span><br><span class="line">    - tcp</span><br><span class="line">tags:</span><br><span class="line">    - tcp_tw_recycle</span><br><span class="line">    - tcp_timestamp</span><br><span class="line">    - PAWS</span><br><span class="line">    - tcp</span><br></pre></td></tr></table></figure>
+
+<h2 id="问题：为什么你的-SYN-包被丢了——求答案"><a href="#问题：为什么你的-SYN-包被丢了——求答案" class="headerlink" title="问题：为什么你的 SYN 包被丢了——求答案"></a>问题：为什么你的 SYN 包被丢了——求答案</h2><p>江湖有个传说：一旦设置了 <a href="https://ieevee.com/tech/2017/07/19/tcp-tw-recycle.html" target="_blank" rel="noopener">net.ipv4.tcp_tw_recycle 在 NAT 场景</a>下(多个客户端经过一个 LVS 访问一个服务端，NAT 后服务端看到的客户端是同一个 IP) 就会发生丢包</p>
+<p>也可以看看这节：<a href="https://xiaolincoding.com/network/3_tcp/syn_drop.html#%E5%9D%91%E7%88%B9%E7%9A%84-tcp-tw-recycle" target="_blank" rel="noopener">https://xiaolincoding.com/network/3_tcp&#x2F;syn_drop.html#%E5%9D%91%E7%88%B9%E7%9A%84-tcp-tw-recycle</a> </p>
+<p>我们来重现和分析一下这个问题，这应该会是个连续剧，我会根据大家实验情况来推进后面的内容</p>
+<h2 id="客户端"><a href="#客户端" class="headerlink" title="客户端"></a>客户端</h2><p>我们默认 99 的 ECS 就行，默认配置。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install tcptraceroute //装一下这个工具，可以对端口进行探测</span><br></pre></td></tr></table></figure>
+
+<p>想要持续对端口探测，类似 ping 一样，就装一下下面的 shell 脚本(tcpping , tcpping 里面会调用 tcptraceroute )：</p>
+<p>介绍：<a href="http://www.vdberg.org/~richard/tcpping.html" target="_blank" rel="noopener">http://www.vdberg.org/~richard/tcpping.html</a> </p>
+<p>脚本我放仓库里了：<a href="https://github.com/plantegg/programmer_case/commit/7c59a7d3666db2fe5af9ba598104cd88cad52497" target="_blank" rel="noopener">https://github.com/plantegg/programmer_case/commit/7c59a7d3666db2fe5af9ba598104cd88cad52497</a> </p>
+<p>探测端口通不通：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">tcpping -d 1.2.3.4 22</span><br></pre></td></tr></table></figure>
+
+<p> 通的话会收到：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">seq 0: tcp response from e237  &lt;syn,ack&gt;  0.088 ms</span><br></pre></td></tr></table></figure>
+
+<p>端口不存在肯定不通，且会被 RST</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">seq 3: tcp response from e237  &lt;rst,ack&gt;  0.076 ms</span><br></pre></td></tr></table></figure>
+
+<p>端口在但是偶尔不通，是今天的主角：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">Thu Aug  8 16:48:44 CST 2024</span><br><span class="line">traceroute to , 255 hops max, 60 byte packets</span><br><span class="line">seq 13: tcp response from  &lt;syn,ack&gt;  28.850 ms //通</span><br><span class="line">Thu Aug  8 16:48:52 CST 2024</span><br><span class="line">traceroute to , 255 hops max, 60 byte packets</span><br><span class="line">seq 21: no response (timeout)  //不通</span><br></pre></td></tr></table></figure>
+
+<h2 id="服务端"><a href="#服务端" class="headerlink" title="服务端"></a>服务端</h2><p><strong>建议找一个 3.10 内核的机器</strong>，4.13 开始已经没有 tcp_tw_recycle 这个参数了</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#sysctl -a |egrep &quot;recycle|timestamp&quot;</span><br><span class="line">net.ipv4.tcp_timestamps = 1</span><br><span class="line">net.ipv4.tcp_tw_recycle = 1 //这个参数默认是 0，必须改成 1</span><br><span class="line"></span><br><span class="line">#uname -r</span><br><span class="line">3.10.0-1062.18.1.el7.x86_64  //我在阿里云上买的一个 CentOS7，版本只要是 4.12 之前的都行</span><br></pre></td></tr></table></figure>
+
+<h2 id="实验步骤"><a href="#实验步骤" class="headerlink" title="实验步骤"></a>实验步骤</h2><ol>
+<li>服务端随便起一个 http 服务端口，比如 1234</li>
+<li>在客户端上执行 tcpping -d 服务端 ip 1234 &#x2F;&#x2F;这一步可以看到 100% 是通的</li>
+<li>在客户端执行下 curl 服务端 ip:1234 &#x2F;&#x2F;可以很快看到 tcpping 开始报偶尔通&#x2F;偶尔不通</li>
+</ol>
+<p> 重现效果，如下图，本来一次都没有 timeout，但我 curl 一下立即就 timeout 了</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/FnP3wU4C6J24MdOBAnHEnT-cAXRM.png" alt="img"></p>
+<p>请分析，为什么 curl 一下 tcpping 就不通了？</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/01/29/跨Die热迁移迁移/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2025/01/29/跨Die热迁移迁移/" itemprop="url">跨 Die 热迁移迁移导致的性能问题</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2025-01-29T17:30:03+08:00">
+                2025-01-29
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/CPU/" itemprop="url" rel="index">
+                    <span itemprop="name">CPU</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="跨-Die-热迁移迁移导致的性能问题"><a href="#跨-Die-热迁移迁移导致的性能问题" class="headerlink" title="跨 Die 热迁移迁移导致的性能问题"></a>跨 Die 热迁移迁移导致的性能问题</h1><h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p>在 ARM 上，本来业务跑在 Die0 上，如果通过taskset 将 CPU 绑到 Die1，经过一段时间运行，内存也会慢慢随着释放&#x2F;新分配慢慢都迁移到 Die1， 但是这之后仍然发现性能比在 Die0 上要差很多。而在 Intel X86 上没碰到过这个问题</p>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>下图是内存带宽使用率监控数据，可以看到跨 Die 绑定后原来的 Die0 带宽急剧增加（7.5% -&gt; 13%）这是因为内存都需要跨 Die 访问了，随着跨 Die 访问并慢慢将内存迁移到 Die1 后内存带宽使用率回落到 5%：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/893058e1-0f19-4fc1-a76c-49b48f49317a.png" alt="img"></p>
+<p>同时可以看到 CPU 使用率也从 35% 飙升到 76%，随着内存的迁移完毕，CPU  使用率回落到 48%，但仍然比最开始的 35% 高不少：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/6b396de3-36cb-42d9-b14b-56be896509f8.png" alt="img"></p>
+<h3 id="Intel-X86-下跨-Die-迁移"><a href="#Intel-X86-下跨-Die-迁移" class="headerlink" title="Intel X86 下跨 Die 迁移"></a>Intel X86 下跨 Die 迁移</h3><p>Intel 基本都是一路就是一个 Die，所以你可以理解这里的跨 Die 就是跨路&#x2F;Socket 迁移：</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/22e39654-d8d3-4d5d-ae88-d2c137be71a0.png" alt="img"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/5b4477a5-a8d9-45b2-84e4-fb01cf8cc0b7.png" alt="img"></p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>ARM 比 X86 差这么多的原因是内存页表跨 Die 访问导致的，业务同学测试了开启 THP 负载的影响，从结果看，THP on 可有效降低cpu水位，但是依然存在跨die迁移cpu水位上升的问题。</p>
+<p>alios 对应的 patch：<a href="https://gitee.com/anolis/cloud-kernel/pulls/2254/commits" target="_blank" rel="noopener">https://gitee.com/anolis/cloud-kernel/pulls/2254/commits</a>  不区分 x86 和 arm</p>
+<p>页表是进程创建时在内核空间分配好的，所以迁移内存时并不会迁移页表。通过测试页表跨die迁移的poc，验证了跨die页表访问是导致本文所述问题的根本原因</p>
+<p>课后作业：</p>
+<p>去了解下内存页表&#x2F;THP(透明大页)</p>
+<p>学习 CPU 访问内存延时是怎么回事，然后学习 CPU 和内存速度的差异，最后再去看看大学的计算机组成原理</p>
+<p>学习下 taskset&#x2F;perf 等命令</p>
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/01/09/CPU 使用率高就一定有效率吗/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -2859,6 +3152,35 @@
 <li>OS 镜像层面也可以将 tcp_retries2 设置为5-10次做一个兜底</li>
 <li>对你的超时时间做到可控、可预期</li>
 </ul>
+<p>假如你的业务不是 Java，而是 Python 的话，请参考Java&#x2F;Python超时参数对照表：</p>
+<table>
+<thead>
+<tr>
+<th><strong>功能</strong></th>
+<th><strong>JDBC (Java)</strong></th>
+<th><strong>mysql-connector-python</strong></th>
+<th><strong>PyMySQL</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连接建立超时</td>
+<td>connectTimeout</td>
+<td>connect_timeout</td>
+<td>connect_timeout</td>
+</tr>
+<tr>
+<td>读写操作超时</td>
+<td>socketTimeout</td>
+<td>connection_timeout</td>
+<td>read_timeout&#x2F;write_timeout</td>
+</tr>
+<tr>
+<td>连接池等待超时</td>
+<td>poolTimeout</td>
+<td>pool_timeout</td>
+<td>需手动实现</td>
+</tr>
+</tbody></table>
 <h2 id="相关故障和资料"><a href="#相关故障和资料" class="headerlink" title="相关故障和资料"></a>相关故障和资料</h2><p>ALB 黑洞问题详述：<a href="https://mp.weixin.qq.com/s/BJWD2V_RM2rnU1y7LPB9aw" target="_blank" rel="noopener">https://mp.weixin.qq.com/s/BJWD2V_RM2rnU1y7LPB9aw</a></p>
 <p>数据库故障引发的“血案” ：<a href="https://www.cnblogs.com/nullllun/p/15073022.html" target="_blank" rel="noopener">https://www.cnblogs.com/nullllun/p/15073022.html</a> 这篇描述较细致，推荐看看</p>
 <p>tcp_retries2 的解释：</p>
@@ -3818,11 +4140,15 @@
 <li>后侧网球肘 :亦称三头肌腱炎 。</li>
 <li>混合型网球 肘 :内外侧网球肘同时发生 ，并不少见</li>
 </ol>
-<h2 id="读懂医疗发票"><a href="#读懂医疗发票" class="headerlink" title="读懂医疗发票"></a>读懂医疗发票</h2><p>自付二：对有自付的药品、检查费收取自费部分；比如药品：10%或50%；检查费：8%；材料费：30%；</p>
-<p>自付一：根据下图，报销比例是90%，也就是你还要出总医药费的90%；但是要注意<strong>总医药费要减掉自付二的部分</strong></p>
+<h2 id="读懂医疗发票"><a href="#读懂医疗发票" class="headerlink" title="读懂医疗发票"></a>读懂医疗发票</h2><p>自付二：对有自付的药品、检查费收取自费部分；比如药品：10%或50%；检查费：8%；材料费：30%；——可以理解为医保不管的全自付</p>
+<p>自付一：根据下图，报销比例是90%，也就是你还要出总医药费的10%；但是要注意<strong>总医药费要减掉自付二的部分</strong> —— 医保报销之外要自付的部分，比如未满起付线；满了起付线的 30%</p>
 <p>举例：一张发票开了一盒泰诺(酚麻美敏片) 13.47块(乙类清单 10%自付)，还有一盒没有无自付的头孢 5.17块，共18.64</p>
-<p>最后发票显示自付二：1.35 就是13.47<em>10% ——这个10%是因为该药有部分自费，自付一：1.73 是 (18.64-(13.47</em>10%))*10%  ——这个10%就是达到起付线1800后报销90% </p>
+<p>最后发票显示自付二：1.35 就是13.47 的10% ——这个10%是因为该药有部分自费，自付一：1.73 是 (18.64-(13.47X10%))X10%  ——这个10%就是达到起付线1800后报销90%   比如 CT 平扫收费 135，属于有自付的自付 2，自付钱是：135*8%&#x3D;10.8 这 10.8 在商保里不报</p>
 <p>如果你没有达到起付线，就是100%自付，那么不存在自付二，付款金额全部显示为自付一</p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog//image-20250211115151569.png" alt="image-20250211115151569"></p>
+<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog//image-20250211114917084.png" alt="image-20250211114917084"></p>
+<p>一般商保赔付逻辑：自付 1 赔 100%；自付 2 不赔；超过 1800 起付线后剩下的自付部分 90% 赔(去掉自付 2 后)</p>
+<p>超过起付线后：(账单-自付 2)*90%（社区 90&#x2F;医院 70）&#x3D; 自付 1</p>
 <p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/W020230920365631669567.png" alt="职工基本医疗保险门（急）诊待遇标准"></p>
 <h2 id="痛风"><a href="#痛风" class="headerlink" title="痛风"></a><a href="https://mp.weixin.qq.com/s/hujlWS3Q0xde0z0rDKiPpQ" target="_blank" rel="noopener">痛风</a></h2><p>痛风是由于血中尿酸含量过高（高尿酸血症）而导致尿酸盐结晶沉积在关节内的疾病。沉积的结晶导致关节内和关节周围出现疼痛性炎症的发作。通常具有家族遗传性</p>
 <p>痛风在男性中的发病率高于女性。男性痛风患者较女性常见，通常发生在中年男性和绝经期后的女性。很少发生于年轻人，但如果小于 30 岁的人发生痛风，其病情一般较重。</p>
@@ -3837,399 +4163,6 @@
 <h2 id="风湿性多肌痛"><a href="#风湿性多肌痛" class="headerlink" title="风湿性多肌痛"></a>风湿性多肌痛</h2><p>风湿性多肌痛是关节滑膜的炎症，是一种能引起颈、肩、髋部肌肉疼痛和僵硬的疾病。</p>
 <p>风湿性多肌痛发病年龄在 55 岁以上，原因尚不清楚。女性的患病率较男性高。风湿性多肌痛的病因尚不清楚。风湿性多肌痛可与 <a href="https://www.msdmanuals.cn/home/bone-joint-and-muscle-disorders/vasculitic-disorders/giant-cell-arteritis" target="_blank" rel="noopener">巨细胞（颞）动脉炎</a>同时出现，也可在它之前或之后出现。有学者认为这两种疾病是同一种病变的不同表现。风湿性多肌痛似乎比巨细胞动脉炎更常见。</p>
 <h2 id="类风湿性关节炎-RA"><a href="#类风湿性关节炎-RA" class="headerlink" title="类风湿性关节炎 (RA)"></a>类风湿性关节炎 (RA)</h2><p>类风湿性关节炎是一种炎症性关节炎，表现为关节的炎症，受累关节通常包括手脚关节，可导致关节肿胀、疼痛以及常常遭到破坏。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/03/05/从一道面试题谈起/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2024/03/05/从一道面试题谈起/" itemprop="url">从一道面试题谈起</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2024-03-05T17:30:03+08:00">
-                2024-03-05
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/MySQL/" itemprop="url" rel="index">
-                    <span itemprop="name">MySQL</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="从一道面试题谈起"><a href="#从一道面试题谈起" class="headerlink" title="从一道面试题谈起"></a>从一道面试题谈起</h1><p>这是一道BAT 的面试题，针对的是应届生，其实我觉得这种题目也适合所有面试人，比刷算法题、八股文要有用、实际多了</p>
-<h2 id="题目"><a href="#题目" class="headerlink" title="题目"></a>题目</h2><p>给你几天时间自己在家可以借助任何资源用测试工具Sysbench 完成一次MySQL数据的性能测试，并编写测试报告(自行搭建数据库)</p>
-<p>sysbench压MySQL常用有只读、读写、只写、update等6个场景</p>
-<h2 id="结果"><a href="#结果" class="headerlink" title="结果"></a>结果</h2><p>这个候选人把他的结果发给我看了，我看完一惊要坏事，这个结果估计要不及格了</p>
-<p>他用 sysbench 跑了一下只读、读写、只写等场景然后截图就没有了！</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230908223348050.png" alt="image-20230908223348050"></p>
-<p>(如上图，大概就是6&#x2F;7个这样的截图就没有了！)</p>
-<p>我看到这个结果是很震惊的，你希望面试官挨个去看截图？<strong>最起码要有测试结果表格当做结论汇总吧</strong>。</p>
-<p>如果你不知道怎么做可以先去搜一下别人做的测试报告，你可以按照别人的测试流程完全走一遍，基本算是模仿，要有结论的话也能得60分。</p>
-<h2 id="60分的答案"><a href="#60分的答案" class="headerlink" title="60分的答案"></a>60分的答案</h2><p>每个场景增加1&#x2F;8&#x2F;16&#x2F;32等并发，然后按照6个场景不同并发做成一个表格，并观察rt、cpu的指标最后汇总形成图表、给出结论分析，比如拐点在哪里、为什么</p>
-<p>我觉得这个面试题好就好在这里的分析可以无穷展开，适合新手也适合多年的老手，任何结论理由你都可以写上去，只要有理有据有分析</p>
-<h2 id="80分的答案"><a href="#80分的答案" class="headerlink" title="80分的答案"></a>80分的答案</h2><p>给自己出一个拟题，比如对比5.7和8.0的性能差异，8.0相对5.7在哪些场景有优化、优劣势，比如<a href="http://dimitrik.free.fr/blog/posts/mysql-performance-80-iobound-oltprw-vs-percona57.html" target="_blank" rel="noopener">这个测试报告</a></p>
-<p>比如官方说的8.0在全局锁、pagesize等方面有些有优化，那么就针对性地设置场景来测试这些功能。</p>
-<p>比如这是如上链接测试报告中间有数据图表：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230908224210461.png" alt="image-20230908224210461"></p>
-<p>最后有结论和分析：</p>
-<ul>
-<li>the main impact in the given <strong>IO-bound</strong> OLTP_RW workload is only DBLWR and nothing else !</li>
-<li>and again, if your workload has more than 32 <em>concurrent</em> users sessions + using a very fast flash storage..</li>
-<li>so far, impatient to see DBLWR fixed in MySQL 8.0 ;-))</li>
-<li>using <strong>4K page size</strong> is absolutely to consider for any IO-bound workloads !</li>
-<li><strong>NOTE</strong> : every Linux vendor today is claiming that 4K IO writes in Linux are <em>atomic</em> ! – and if this is really true for your platform, then you can safely disable DBLWR if you’re using 4K page and already reach <strong>x2 times higher TPS</strong> with MySQL 8.0 today in the given IO-bound OLTP_RW or any similar ! ;-)) – the same x2 times higher TPS was <a href="http://dimitrik.free.fr/blog/posts/mysql-performance-80-ga-iobound-tpcc.html" target="_blank" rel="noopener">also observed on IO-bound TPCC</a> even with an old SSD drive !</li>
-<li>while if your workload is not IO-bound (having active dataset mostly cached in BP, none or very low IO reads) – then DBLWR is not your main impact ! – you may always tune your MySQL instance to make it mostly “invisible”..</li>
-<li><strong>Binlog</strong> – is the main impact in this case.. Unfortunately it’s another old historical PITA in MySQL Server, and it’s largely a time now to get it fixed (or come with a more advanced alternative).. – “nature is always finding its way”, so let’s see..</li>
-<li>no comments on MariaDB 10.3 performance.. – but a good live example that just copying InnoDB code from MySQL 5.7 is not enough to get it running right..</li>
-</ul>
-<p>之所以有80分是因为超出面试官的期待，给出了一个更高级的结论，面试官肯定很愿意约你过去谈谈</p>
-<h2 id="还有没有更高的分"><a href="#还有没有更高的分" class="headerlink" title="还有没有更高的分"></a>还有没有更高的分</h2><p>也许有，但是不好说，80分那个就是优秀很好了，挖掘能力强的应届生会搞出来(肯定没有这么细致和周到，但是有几个关键点的结论就够80分了)，再想出彩一点可以根据这个我的星球案例 <a href="https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/</a> 去搞几台物理机开关NUMA 验证一下，然后给一个对性能影响结果的测试数据报告</p>
-<p>或者我博客这篇也行 <a href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/%EF%BC%8C%E6%89%BE%E4%B8%8D%E5%90%8CIntel%E6%9C%BA%E5%99%A8%E9%AA%8C%E8%AF%81">https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/，找不同Intel机器验证</a></p>
-<p>给出不同的MySQL参数在不同Intel 芯片下性能的差异报告：</p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
-<p>这种结论抛出去肯定会让面试官惊到，并对你刮目相看，至少说明你能在某个点上可以钻研很深，到哪里都要的是火车头，而不是普通工程师。</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>从一个简单的面试题就可以看出应试人员的主观能动性，最起码你要会抄，先去抄别人的测试报告，然后验证一遍然后思考清楚每一个数据的原因(面试大概率会问)</p>
-<p>但是大部分工程师都想临时抱佛脚，其实面试官可能会知道你不懂，但是希望看到给你几天你的深度挖掘和学习能力</p>
-<p>最后可以从一个问题深挖、总结能力上能看出来候选人的天花板上限，而我们大部分时候都是凑合可以、又不是不能用，逼着自己向前精进一步总是很难的。</p>
-
-          
-        
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <div>
-      
-    </div>
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/02/20/必读 星球成长路径/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="twitter @plantegg">
-      <meta itemprop="description" content>
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h2 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2024/02/20/必读 星球成长路径/" itemprop="url">必读 成长路径</a></h2>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">发表于</span>
-              
-              <time title="创建于" itemprop="dateCreated datePublished" datetime="2024-02-20T17:30:03+08:00">
-                2024-02-20
-              </time>
-            
-
-            
-
-            
-          </span>
-
-          
-            <span class="post-category">
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">分类于</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/others/" itemprop="url" rel="index">
-                    <span itemprop="name">others</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
-        </div>
-      </header>
-    
-
-    <div class="post-body" itemprop="articleBody">
-
-      
-      
-
-      
-        
-          
-            <h1 id="必读-成长路径"><a href="#必读-成长路径" class="headerlink" title="必读 成长路径"></a>必读 成长路径</h1><p>我的<a href="https://plantegg.github.io/2023/05/10/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/">星球介绍</a></p>
-<p>这篇是关于我星球里的内容、目标以及如何达到这个目标的一些概述</p>
-<h2 id="星球目标"><a href="#星球目标" class="headerlink" title="星球目标"></a>星球目标</h2><p>本星球致力深度分析各种程序员领域疑难案例，通过案例带动对基础核心知识的理解，同时强化动手能力</p>
-<p>一年星球没法让大家称为顶尖程序员(我自己都不是)，只是希望用我的方法、知识、经验、案例作为你的垫脚石，帮助你快速、早日成为一个基本合格的程序员。</p>
-<h2 id="必会技能"><a href="#必会技能" class="headerlink" title="必会技能"></a>必会技能</h2><p>在星球一年的时间你能学到什么(跟着做一定可以学会的)：</p>
-<ul>
-<li>网络入门，抓包分析网络能力，wireshark使用 网络篇章索引：<a href="https://articles.zsxq.com/id_jr1w5wvb8j9f.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_jr1w5wvb8j9f.html</a> </li>
-<li><a href="https://t.zsxq.com/17CmWErZB" target="_blank" rel="noopener">QPS、RT和并发的关系</a>，记住查瓶颈追着 RT跑（哪里RT增加快瓶颈就在哪里）</li>
-<li>IPC是什么和性能的本质</li>
-<li><a href="https://wx.zsxq.com/dweb2/index/topic_detail/411522214118158" target="_blank" rel="noopener">养成</a><a href="https://wx.zsxq.com/dweb2/index/topic_detail/411522214118158" target="_blank" rel="noopener">做会</a><a href="https://wx.zsxq.com/dweb2/index/topic_detail/411522214118158" target="_blank" rel="noopener">而不是</a><a href="https://wx.zsxq.com/dweb2/index/topic_detail/411522214118158" target="_blank" rel="noopener">学会</a><a href="https://wx.zsxq.com/dweb2/index/topic_detail/411522214118158" target="_blank" rel="noopener">的习惯</a></li>
-</ul>
-<h2 id="视频素材"><a href="#视频素材" class="headerlink" title="视频素材"></a>视频素材</h2><p><strong>如果你发现看文章、做实验有些障碍，我特意录制了视频做演示（如果你基础好，看文章就能看懂并把实验做完，其实没必要看视频）</strong>：<a href="https://articles.zsxq.com/id_blqwkgux7i0a.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_blqwkgux7i0a.html</a> </p>
-<p>视频内容目前已经完成了：</p>
-<ul>
-<li>抓包技巧演示</li>
-<li>QPS、并发、RT 的关系</li>
-<li>tcp-rt 展示和在性能定位中的使用</li>
-<li>瓶颈定位分析——追着RT 跑</li>
-<li>单机内瓶颈定位</li>
-<li>认识CPU 和 Cache，以及测试Cache、内存时延</li>
-</ul>
-<p>我在星球内一直强调视频不是高效的学习方法，因为你没有办法仔细思索、随时前后反复看等等，看完视频容易形成学懂了的错觉实际很快就忘了，但是我录完这些视频看大家的反馈我发现视频也有优点那就是：很直观、门槛低等，但是一定要注意一个错觉：以为看视频看懂了。但实际就是看视频看完了忘得比看文章快多了，所以看完视频一定要再去实验一下，实验所需要的素材基本都在星球内有了，代码等我都放在了github上</p>
-<h2 id="挑战技能"><a href="#挑战技能" class="headerlink" title="挑战技能"></a>挑战技能</h2><p>有些技能不好描述，或者说是一些暗知识，我们尽量去讨论这些技能的逻辑，同时对一些特别有效的工具、知识会重点突破，这些恰恰是我希望你们最终能掌握的：</p>
-<ul>
-<li>分析解决问题的能力，在一定的知识的基础上靠谱地去分析</li>
-<li>掌握技能而不是死知识</li>
-<li>掌握核心知识点，核心知识点是指理解了一个点很容易对一个领域有较大的突破，比如IPC对于CPU性能、比如内存墙对计算机组成原理的理解、比如RT 对性能瓶颈的定位等</li>
-</ul>
-<p>知识总是学不完的，况且大多时候我们有了知识也解决不了问题，所以我们更注重能力的训练，比如这个提问：<a href="https://t.zsxq.com/0cfBnpmLw" target="_blank" rel="noopener">https://t.zsxq.com/0cfBnpmLw</a></p>
-<h2 id="节奏安排"><a href="#节奏安排" class="headerlink" title="节奏安排"></a>节奏安排</h2><ul>
-<li>一个月完成这一年唯一的一个必做作业：<a href="https://t.zsxq.com/0cUhJcVNa" target="_blank" rel="noopener">https://t.zsxq.com/0cUhJcVNa</a> 目的体验做会和学会的差别</li>
-<li>一个月QPS、并发、RT的关系：<a href="https://t.zsxq.com/0dCmWErZB" target="_blank" rel="noopener">https://t.zsxq.com/0dCmWErZB</a> 性能、瓶颈定位的最核心理论</li>
-<li>一个月补CPU基础，核心可以从内存墙、IPC、NUMA 入手，星球内都有不错的案例，可以查看 CPU 专栏</li>
-<li>一个月用来实践性能瓶颈定位，比如就用Sysbench + MySQL 来构造：<a href="https://articles.zsxq.com/id_blqwkgux7i0a.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_blqwkgux7i0a.html</a> </li>
-<li>……补充中</li>
-</ul>
-<p>如果你发现这个节奏你跟不上，那么就先去<a href="https://articles.zsxq.com/id_blqwkgux7i0a.html" target="_blank" rel="noopener">看视频</a>，然后再按这个节奏来，如果还不行可以再去看视频，如果视频看不懂可以到微信群里讨论或者就视频里的哪个点提问，如果觉得看懂了，但是还是没法独立实验，那可以这个看懂了还是错觉，或者是基础缺的太多了</p>
-<p>请先浏览星球专栏里的必看资源以及学习方法，做到做会而不是看会。另外每个主题后面的留言也很有价值</p>
-<p>本星球大部分理论指导部分请看视频：<a href="https://t.zsxq.com/0dF2WvzEF" target="_blank" rel="noopener">https://t.zsxq.com/0dF2WvzEF</a> (5-10节共90分钟)，视频中的理论要和案例结合</p>
-<h2 id="案例选择"><a href="#案例选择" class="headerlink" title="案例选择"></a>案例选择</h2><p>星球选用的案例尽量典型普适性强，代表基础组件基本原理等知识。</p>
-<p>分析手段尽量通用，分析过程一定要逻辑合理每个疑问都能回答清晰。</p>
-<p>搞清楚一个案例基本能横扫一个领域，其次在一个案例后再带3&#x2F;5个相关小案例可以帮你丰富场景，多角度理解</p>
-<p>基于以上目标一年内选择了如下4个案例：</p>
-<ul>
-<li>TCP传输性能–对应星球有一年唯一的必做实验让大家上手：<a href="https://t.zsxq.com/0dUhJcVNa" target="_blank" rel="noopener">https://t.zsxq.com/0dUhJcVNa</a> <strong>目标：动手</strong></li>
-<li>[历时3年的Nginx卡顿分析](<a href="https://github.com/plantegg/programmer_case/blame/main/performance/Nginx" target="_blank" rel="noopener">https://github.com/plantegg/programmer_case/blame/main/performance/Nginx</a> resueport 导致偶发性卡顿.md)–Nginx的架构本身的设计缺陷带来的卡顿，<strong>修复放来来自TCP传输性能，知识之间的联系</strong></li>
-<li><a href="https://t.zsxq.com/0f00mI5gF" target="_blank" rel="noopener">MySQL有的连接一直慢、有的连接一直快，为什么</a>？目的：<strong>Wireshark分析的巧用，这个方法普适性极强</strong></li>
-<li>同样的QPS，但CPU使用率相差3倍是为什么。<strong>目标：实现对CPU理解的入门</strong></li>
-</ul>
-<p>详细描述请看这里：<a href="https://t.zsxq.com/0cyPswpVB" target="_blank" rel="noopener">https://t.zsxq.com/0cyPswpVB</a></p>
-<h2 id="本星球口头禅"><a href="#本星球口头禅" class="headerlink" title="本星球口头禅"></a>本星球口头禅</h2><p><strong>慢就是快，做会而不是看会，无招胜有招</strong></p>
-<p>慢就是快指的是不要贪多，而是要彻底搞懂一个问题、一个知识点，让这个点成为一个支柱长成体系，贪多往往啥都没有掌握</p>
-<p>做会而不是看会：程序员是工程类(也有科学家，但我们CRUD boy肯定不是)，尤其像网络包、CPU流水线都是看不到无法感受，所以建议你去抓包、去做实验体会、触摸到每个包就能够更好地理解，所以星球强调做案例</p>
-<p>无招胜有招：尽量找我普适性强的技能，比如ping ping神功，比如抓包，比如Google搜索，你会反复看到我的案例中使用这些技能</p>
-<h2 id="如何在本星球获得成长的基本步骤"><a href="#如何在本星球获得成长的基本步骤" class="headerlink" title="如何在本星球获得成长的基本步骤"></a>如何在本星球获得成长的基本步骤</h2><p>多和以前的学习方式对比，学了一大堆几个月后全忘了，学了很多不会解决问题，学了很多但要靠反复刷。你不应该继续像以前一样忙忙碌碌但是收获很小</p>
-<ul>
-<li>该买的书买了：<a href="https://t.zsxq.com/0c3P6gpJE" target="_blank" rel="noopener">https://t.zsxq.com/0c3P6gpJE</a></li>
-<li>该做的实验做了:<a href="https://t.zsxq.com/0cUhJcVNa" target="_blank" rel="noopener">https://t.zsxq.com/0cUhJcVNa</a> ，反复试过后，不懂的尽量提问</li>
-<li>该看的视频看过了：<a href="https://articles.zsxq.com/id_blqwkgux7i0a.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_blqwkgux7i0a.html</a> (实验你能独立完成就不用看视频了)</li>
-<li>薅住几个case使劲干，能干多深干多深，看不懂的慢慢想，最好能在工作中找到场景实践一下</li>
-<li>学习方法一定要看</li>
-<li>不要急于求成，贪多不化，尽量单点突破(就是一个点使劲往深里干)，彻底学懂一个后你会感受到加速</li>
-<li>体会到动手做和看书的差异，体会到深度学习案例和看书的差异</li>
-<li>不要相信自己看会了，不要相信自己的记忆能力</li>
-<li>为什么你有知识但是没有能力：<a href="https://t.zsxq.com/0cfBnpmLw" target="_blank" rel="noopener">https://t.zsxq.com/0cfBnpmLw</a></li>
-<li>养成记笔记，然后总结输出的习惯</li>
-<li>必看专栏一定要高优先级先看</li>
-</ul>
-<p>最好能有自己的总结输出，比如博客文章，写文章是一次最好的总结，不一定要发出来，也不一定一次写完美了，我经常修改7、8年前的文章，因为随着经验的丰富有了更深入、不同的理解，这时不要写一篇新的，我都是在原来的基础上修改、扩充，这才是体系建设</p>
-<h2 id="成长案例"><a href="#成长案例" class="headerlink" title="成长案例"></a>成长案例</h2><p>这是大学刚毕业几个月的新同学写的博客：<a href="https://yishenggong.com/2023/05/06/why-does-my-network-speed-drop-cn" target="_blank" rel="noopener">https://yishenggong.com/2023/05/06/why-does-my-network-speed-drop-cn/</a> </p>
-<p><a href="https://yishenggong.com/2023/05/22/is-20m-of-rows-still-a-valid-soft-limit-of-mysql-table-in-2023" target="_blank" rel="noopener">https://yishenggong.com/2023/05/22/is-20m-of-rows-still-a-valid-soft-limit-of-mysql-table-in-2023/</a> 你可以比较他加入星球前后的博客文章(20230315 加入星球), 第二篇是英文版上了hacker news前三</p>
-<p>我观察到的学员成长好习惯：</p>
-<ul>
-<li>动手动手，不论事情大小先干起来；</li>
-<li>有自己的节奏，不贪多先把一篇文章、一个知识点薅扎实了</li>
-</ul>
-<h2 id="欢迎在星球里提问"><a href="#欢迎在星球里提问" class="headerlink" title="欢迎在星球里提问"></a>欢迎在星球里提问</h2><p>欢迎大家提问，越具体越好</p>
-<p>比如这个问题就很具体、很好： <a href="https://t.zsxq.com/0enzptS47" target="_blank" rel="noopener">https://t.zsxq.com/0enzptS47</a> (千万不要微信上问，回答了也没有价值)</p>
-<p>我自己一个人写写出来的东西难免自嗨，但是如果是你碰到的实际业务问题我觉得就更有代表性一些</p>
-<p>提问肯定尽力要把问题描述具体，好重现，典型的就是之前 aws 流量降速导致MySQL QPS下降，提问的同学做得特别好的就是把这个问题自己反复分析后发现是网络流量被限速了，然后问题就很容易描述和重现，最后一大帮人帮忙分析问题，最后的结果大家都很开心学到了东西。问题在这里：<a href="https://articles.zsxq.com/id_iq5a872u8sux.html" target="_blank" rel="noopener">https://articles.zsxq.com/id_iq5a872u8sux.html</a> </p>
-<p>你要是通过星球里的方法帮你解决了实际问题这是星球的最终目的，我当然最开心，如果你提了一个你工作中的问题大家一起帮你分析、讨论并最终解决了这就是最好的N对1的私教训练——觉得适合你的能力提升</p>
-<p>我有时候绞尽脑汁写了文章然后大家不关心，有时候一个普通问题似乎大家都很嗨，我也喜欢能让你们很嗨的问题(即使我不懂也可以一起讨论)</p>
-<h2 id="专栏介绍"><a href="#专栏介绍" class="headerlink" title="专栏介绍"></a>专栏介绍</h2><p>必看(一定要看的，我尽量控制必看的少)、实战案例(年度计划一定要分享和搞清楚的案例)、动手实验(做会一直是本星球的重要原则)、学习方法(磨刀不误砍柴工)，剩下的就是按类别分比较好理解</p>
-<h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>星主自我介绍：<a href="https://t.zsxq.com/0c33AXrCi" target="_blank" rel="noopener">https://t.zsxq.com/0c33AXrCi</a></p>
-<p>或者在推特找我：<a href="https://twitter.com/plantegg" target="_blank" rel="noopener">https://twitter.com/plantegg</a> </p>
-<p>个人博客：<a href="https://plantegg.github.io/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B">https://plantegg.github.io/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B/</a> </p>
-<p>博客存放在github，图多的文章会慢一些，可以刷新几次。 </p>
-<p>建议大家多用PC版星球( <a href="https://wx.zsxq.com/" target="_blank" rel="noopener">https://wx.zsxq.com</a> )，第一次记住密码后也很方便，主要是打字看图更合适些</p>
-<p>画图工具和素材：<a href="https://t.zsxq.com/0enaoOUBp" target="_blank" rel="noopener">https://t.zsxq.com/0enaoOUBp</a> </p>
-<p>知识星球：<a href="https://t.zsxq.com/0cSFEUh2J" target="_blank" rel="noopener">https://t.zsxq.com/0cSFEUh2J</a> 或者看看星球的介绍：<a href="https://plantegg.github.io/2023/05/10/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/">https://plantegg.github.io/2023/05/10/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/</a> </p>
-<p><img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20240324161113874.png" alt="image-20240324161113874"></p>
-<img src="https://cdn.jsdelivr.net/gh/plantegg/plantegg.github.io/images/951413iMgBlog/image-20230407232314969.png" alt="image-20230407232314969" style="zoom:50%;">
 
           
         
@@ -4311,7 +4244,7 @@
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">190</span>
+                <span class="site-state-item-count">191</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -4333,7 +4266,7 @@
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">281</span>
+                <span class="site-state-item-count">282</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>

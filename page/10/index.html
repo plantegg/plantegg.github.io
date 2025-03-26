@@ -292,6 +292,192 @@
   
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/03/24/docker swarm的Label使用/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="twitter @plantegg">
+      <meta itemprop="description" content>
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h2 class="post-title" itemprop="name headline">
+                
+                <a class="post-title-link" href="/2017/03/24/docker swarm的Label使用/" itemprop="url">docker、swarm的Label使用</a></h2>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">发表于</span>
+              
+              <time title="创建于" itemprop="dateCreated datePublished" datetime="2017-03-24T17:30:03+08:00">
+                2017-03-24
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/docker/" itemprop="url" rel="index">
+                    <span itemprop="name">docker</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        
+          
+            <h1 id="docker、swarm的Label使用"><a href="#docker、swarm的Label使用" class="headerlink" title="docker、swarm的Label使用"></a>docker、swarm的Label使用</h1><h2 id="需求背景"><a href="#需求背景" class="headerlink" title="需求背景"></a>需求背景</h2><p>广发银行需要把方舟集群部署在多个机房（多个机房组成一个大集群），这样物理机和容器vlan没法互相完全覆盖，</p>
+<p>也就是可能会出现A机房的网络subnet:192.168.1.0&#x2F;24, B 机房的网络subnet：192.168.100.0&#x2F;24 但是他们属于同一个vlan，要求如果容器在A机房的物理机拉起，分到的是192.168.1.0&#x2F;24中的IP，B机房的容器分到的IP是：192.168.100.0&#x2F;24</p>
+<p><strong>功能实现：</strong></p>
+<ul>
+<li><strong>本质就是对所有物理机打标签，同一个asw下的物理机用同样的标签，不同asw下的物理机标签不同；</strong></li>
+<li><strong>创建容器网络的时候也加标签，不同asw下的网络标签不一样，同时跟这个asw下的物理机标签匹配；</strong></li>
+<li><strong>创建容器的时候使用 –net&#x3D;driver:vlan 来动态选择多个vlan网络中的任意一个，然后swarm根据网络的标签要和物理机的标签一致，从而把容器调度到正确的asw下的物理机上。</strong></li>
+</ul>
+<p><strong>分为如下三个改造点</strong></p>
+<p><strong>1：</strong></p>
+<p>daemon启动的时候增加标签（其中一个就行）：</p>
+<table>
+<thead>
+<tr>
+<th>上联交换机组的名称，多个逗号隔开</th>
+<th>com.alipay.acs.engine.asw.hostname</th>
+</tr>
+</thead>
+<tbody><tr>
+<td></td>
+<td></td>
+</tr>
+</tbody></table>
+<p><strong>2：</strong><br>创建网络的时候使用对应的标签：</p>
+<table>
+<thead>
+<tr>
+<th>网络域交换机组asw列表的名称，多个逗号隔开</th>
+<th>com.alipay.acs.network.asw.hostname</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>该VLAN网络是否必须显式指定，默认为0即不必须，此时当传入–net driver:vlan时ACS会根据调度结果自行选择一个可用的VLAN网络并拼装到参数中</td>
+<td>com.alipay.acs.network.explicit</td>
+</tr>
+</tbody></table>
+<p><strong>3：</strong></p>
+<p>Swarm manager增加可选启动选项netarch.multiscope，值为true</p>
+<h3 id="功能实现逻辑"><a href="#功能实现逻辑" class="headerlink" title="功能实现逻辑"></a>功能实现逻辑</h3><ol>
+<li>Swarm manager增加可选启动选项netarch.multiscope，当为1时，network create时强制要求必须指定label描述配置VLAN的ASW信息</li>
+<li>Swarm manager在创建容器时检查网络类型，VLAN网络时则将网络ASW的label放入过滤器中，在调度时按照机器的ASW标签过滤</li>
+<li>如果使用者如果不关心具体使用哪个VLAN，则可以指定–net&#x3D;”driver:vlan”，会自动查找driver&#x3D;vlan的network，并根据调度结果（Node所关联的ASW）自动选择合适的network填入Config.HostConfig.NetworkMode传递给Docker daemon.</li>
+</ol>
+<p>如果是现存的环境，修改zk来更新网络标签：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 21] get /Cluster/docker/network/v1.0/network/c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc </span><br><span class="line">&#123;&quot;addrSpace&quot;:&quot;GlobalDefault&quot;,&quot;enableIPv6&quot;:false,&quot;generic&quot;:&#123;&quot;com.docker.network.enable_ipv6&quot;:false,&quot;com.docker.network.generic&quot;:&#123;&quot;VlanId&quot;:&quot;192&quot;&#125;&#125;,&quot;id&quot;:&quot;c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc&quot;,&quot;inDelete&quot;:false,&quot;internal&quot;:false,&quot;ipamOptions&quot;:&#123;&quot;VlanId&quot;:&quot;192&quot;&#125;,&quot;ipamType&quot;:&quot;default&quot;,&quot;ipamV4Config&quot;:&quot;[&#123;\&quot;PreferredPool\&quot;:\&quot;192.168.8.0/24\&quot;,\&quot;SubPool\&quot;:\&quot;\&quot;,\&quot;Gateway\&quot;:\&quot;192.168.8.1\&quot;,\&quot;AuxAddresses\&quot;:null&#125;]&quot;,&quot;ipamV4Info&quot;:&quot;[&#123;\&quot;IPAMData\&quot;:\&quot;&#123;\\\&quot;AddressSpace\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;Gateway\\\&quot;:\\\&quot;192.168.8.1/24\\\&quot;,\\\&quot;Pool\\\&quot;:\\\&quot;192.168.8.0/24\\\&quot;&#125;\&quot;,\&quot;PoolID\&quot;:\&quot;GlobalDefault/192.168.8.0/24\&quot;&#125;]&quot;,&quot;labels&quot;:&#123;&#125;,&quot;name&quot;:&quot;vlan192-8&quot;,&quot;networkType&quot;:&quot;vlan&quot;,&quot;persist&quot;:true,&quot;postIPv6&quot;:false,&quot;scope&quot;:&quot;global&quot;&#125;</span><br><span class="line">cZxid = 0x4100008cce</span><br><span class="line">ctime = Fri Mar 09 12:46:44 CST 2018</span><br><span class="line">mZxid = 0x4100008cce</span><br><span class="line">mtime = Fri Mar 09 12:46:44 CST 2018</span><br><span class="line">pZxid = 0x4100008cce</span><br><span class="line">cversion = 0</span><br><span class="line">dataVersion = 0</span><br><span class="line">aclVersion = 0</span><br><span class="line">ephemeralOwner = 0x0</span><br><span class="line">dataLength = 716</span><br><span class="line">numChildren = 0</span><br></pre></td></tr></table></figure>
+
+<p>&#x2F;&#x2F;注意上面的网络还没有标签，修改如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[zk: localhost:2181(CONNECTED) 28] set /Cluster/docker/network/v1.0/network/c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc &#123;&quot;addrSpace&quot;:&quot;GlobalDefault&quot;,&quot;enableIPv6&quot;:false,&quot;generic&quot;:&#123;&quot;com.docker.network.enable_ipv6&quot;:false,&quot;com.docker.network.generic&quot;:&#123;&quot;VlanId&quot;:&quot;192&quot;&#125;&#125;,&quot;id&quot;:&quot;c79e533e4444294ac9cb7838608115c961c6e403d3610367ff4b197ef6b981fc&quot;,&quot;inDelete&quot;:false,&quot;internal&quot;:false,&quot;ipamOptions&quot;:&#123;&quot;VlanId&quot;:&quot;192&quot;&#125;,&quot;ipamType&quot;:&quot;default&quot;,&quot;ipamV4Config&quot;:&quot;[&#123;\&quot;PreferredPool\&quot;:\&quot;192.168.8.0/24\&quot;,\&quot;SubPool\&quot;:\&quot;\&quot;,\&quot;Gateway\&quot;:\&quot;192.168.8.1\&quot;,\&quot;AuxAddresses\&quot;:null&#125;]&quot;,&quot;ipamV4Info&quot;:&quot;[&#123;\&quot;IPAMData\&quot;:\&quot;&#123;\\\&quot;AddressSpace\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;Gateway\\\&quot;:\\\&quot;192.168.8.1/24\\\&quot;,\\\&quot;Pool\\\&quot;:\\\&quot;192.168.8.0/24\\\&quot;&#125;\&quot;,\&quot;PoolID\&quot;:\&quot;GlobalDefault/192.168.8.0/24\&quot;&#125;]&quot;,**&quot;labels&quot;:&#123;&quot;com.alipay.acs.network.asw.hostname&quot;:&quot;238&quot;&#125;,**&quot;name&quot;:&quot;vlan192-8&quot;,&quot;networkType&quot;:&quot;vlan&quot;,&quot;persist&quot;:true,&quot;postIPv6&quot;:false,&quot;scope&quot;:&quot;global&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>example：</p>
+<p>创建网络：&#x2F;&#x2F;–label&#x3D;”com.alipay.acs.network.asw.hostname&#x3D;vlan902-63”<br>docker network create -d vlan –label&#x3D;”com.alipay.acs.network.asw.hostname&#x3D;vlan902-63” –subnet&#x3D;11.162.63.0&#x2F;24  –gateway&#x3D;11.162.63.247  –opt VlanId&#x3D;902 –ipam-opt VlanId&#x3D;902 hanetwork2<br>跟daemon中的标签：com.alipay.acs.engine.asw.hostname&#x3D;vlan902-63 对应，匹配调度</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$sudo cat /etc/docker/daemon.json</span><br><span class="line">&#123;&quot;labels&quot;:[&quot;com.alipay.acs.engine.hostname=11.239.142.46&quot;,&quot;com.alipay.acs.engine.ip=11.239.142.46&quot;,&quot;com.alipay.acs.engine.device_type=Server&quot;,&quot;com.alipay.acs.engine.status=free&quot;,&quot;ark.network.vlan.range=vlan902-63&quot;,&quot;com.alipay.acs.engine.asw.hostname=vlan902-63&quot;,&quot;com.alipay.acs.network.asw.hostname=vlan902-63&quot;]&#125;</span><br><span class="line">//不指定具体网络，有多个网络的时候自动调度  --net driver:vlan 必须是network打过标签了</span><br><span class="line">docker run -d -it --name=&quot;udp10&quot; --net driver:vlan --restart=always reg.docker.alibaba-inc.com/middleware.udp</span><br></pre></td></tr></table></figure>
+
+
+          
+        
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <div>
+      
+    </div>
+
+    <footer class="post-footer">
+      
+
+      
+
+      
+
+      
+      
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+
+
+    
+      
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/03/24/方舟环境容器调度/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -3097,7 +3283,7 @@ ok =&gt; 10.125.12.174 =&gt; {
           
             <div class="site-state-item site-state-posts">
               <a href="/archives">
-                <span class="site-state-item-count">190</span>
+                <span class="site-state-item-count">191</span>
                 <span class="site-state-item-name">日志</span>
               </a>
             </div>
@@ -3119,7 +3305,7 @@ ok =&gt; 10.125.12.174 =&gt; {
             
             <div class="site-state-item site-state-tags">
               <a href="/tags/index.html">
-                <span class="site-state-item-count">281</span>
+                <span class="site-state-item-count">282</span>
                 <span class="site-state-item-name">标签</span>
               </a>
             </div>
