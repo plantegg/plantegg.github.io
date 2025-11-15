@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>就是要你懂负载均衡--lvs和转发模式 | plantegg</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="基础知识的力量–lvs和转发模式 本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。  大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。 如果我们能从网络包">
+<meta property="og:type" content="article">
+<meta property="og:title" content="就是要你懂负载均衡--lvs和转发模式">
+<meta property="og:url" content="https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="基础知识的力量–lvs和转发模式 本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。  大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。 如果我们能从网络包">
+<meta property="og:locale">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/739447baddd120ca23c68ac85c0ea36d.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bb209bc08a21a28e99703e700acc82e4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/b806e1615d99f6a018c537a18addc464.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bd311051c55f08c8d0add3cb329b87bf.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/51b694409882318d5acd6a1422afce03.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/94d55b926b5bb1573c4cab8353428712.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/5b498ed88c3233977a592f924affc43a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png">
+<meta property="article:published_time" content="2019-06-20T07:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-15T08:52:58.097Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="LVS">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="LoadBalance">
+<meta property="article:tag" content="network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png">
+  
+    <link rel="alternate" href="/atom.xml" title="plantegg" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+    
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typeface-source-code-pro@0.0.71/index.min.css">
+
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 8.1.1"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">plantegg</a>
+      </h1>
+      
+        <h2 id="subtitle-wrap">
+          <a href="/" id="subtitle">java tcp mysql performance network docker Linux</a>
+        </h2>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+        
+          <a class="nav-icon" href="/atom.xml" title="RSS Feed"><span class="fa fa-rss"></span></a>
+        
+        <a class="nav-icon nav-search-btn" title="Suche"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Suche"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://plantegg.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-就是要你懂负载均衡--lvs和转发模式" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/" class="article-date">
+  <time class="dt-published" datetime="2019-06-20T07:30:03.000Z" itemprop="datePublished">2019-06-20</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/LVS/">LVS</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      就是要你懂负载均衡--lvs和转发模式
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
+<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
+</blockquote>
+<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
+<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
+<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
+<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
+vip：Virtual IP，LVS实例IP
+rip：Real IP，后端RS地址
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+sip： source ip
+dip： destination
+</code></pre>
+<h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
+<li>DR模型 – (Director Routing-直接路由)</li>
+<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
+<li>fullNAT – (full NAT)</li>
+<li>ENAT – (enhence NAT 或者叫三角模式&#x2F;DNAT，阿里云提供)</li>
+<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
+</ul>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
+<ol>
+<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
+<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
+<li>然后丢给Director，Director将这个包丢给选中的RS</li>
+<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
+<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
+<li>经过交换机直接回复给client了(不再走LVS)</li>
+</ol>
+<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
+<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
+<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
+<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
+<li>RS需要配置vip同时特殊处理arp；</li>
+<li>配置比较复杂；</li>
+<li>不支持端口映射。</li>
+</ul>
+<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
+<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
+<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
+<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
+<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
+<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
+<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
+<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
+<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>配置简单</li>
+<li>支持端口映射(看名字就知道)</li>
+<li>RIP一般是私有地址，主要用户LVS和RS之间通信</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>LVS和所有RS必须在同一个vlan</li>
+<li>进出流量都要走LVS转发</li>
+<li>LVS容易成为瓶颈</li>
+<li>一般而言需要将VIP配置成RS的网关</li>
+</ul>
+<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
+<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
+<li>请求包到达lvs，lvs修改请求包为**(sip 200.200.200.1， dip rip)** 注意这里sip&#x2F;dip都被修改了</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS看不到cip(NAT模式下可以看到)</li>
+<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
+</ul>
+<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
+<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的 toa(Tcp Option as Address)模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
+<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
+<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
+<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
+<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
+<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
+<p>优点：</p>
+<ul>
+<li>不要求LVS和RS在同一个vlan</li>
+<li>出去的流量不需要走LVS，性能好</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
+</ul>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(cip，vip)</li>
+<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
+<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
+<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
+<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
+</ol>
+<p>ENAT模式在内部也会被称为 三角模式或者DNAT&#x2F;SNAT模式</p>
+<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS 再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
+<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<p>最后说一下不太常用的 TUN模型</p>
+<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
+<ol>
+<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
+<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
+<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
+<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>集群节点可以跨vlan</li>
+<li>跟DR一样，响应报文直接发给client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS上必须安装运行IPIP模块</li>
+<li>多增加了一个IP头</li>
+<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
+</ul>
+<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
+<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
+<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
+<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
+<h2 id="阿里云-SLB-的-FNAT"><a href="#阿里云-SLB-的-FNAT" class="headerlink" title="阿里云 SLB 的 FNAT"></a>阿里云 SLB 的 FNAT</h2><p>本质就是前面所讲的 fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机&#x2F;宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
+<p>这个进出的替换过程在物理机&#x2F;宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
+<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
+<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
+<p>所以推出NGLB来解决这个问题</p>
+<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
+<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
+<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
+<li>toa模块主要用在Classic网络SLB&#x2F;ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB&#x2F;ALB发送给后端RS的报文中源IP已经被替换为SLB&#x2F;ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见&#x2F;lib&#x2F;modules&#x2F;<code>uname -r</code>&#x2F;kernel&#x2F;net&#x2F;toa&#x2F;toa.ko）。</li>
+<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB&#x2F;ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB&#x2F;ALB发送给后端RS的报文中源IP已经被替换为SLB&#x2F;ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
+<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
+<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
+</ol>
+<p>!！注意：一般来说，ctk与toa&#x2F;vtoa模块不同时使用，toa和vtoa不同时使用:</p>
+<blockquote>
+<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip&#x2F;vip可能失败。</p>
+<p>当toa&#x2F;vtoa单独工作时，toa&#x2F;vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername&#x2F;getsockname系统接口给用户提供服务。</p>
+<p>如果同时加载ctk和toa&#x2F;vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa&#x2F;vtoa信息。</p>
+</blockquote>
+<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 &#x2F;27 的路由到lsw，csr，备机房发布 &#x2F;26 路由到lsw, csr。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1&#x2F;27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的&#x2F;27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
+<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
+<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
+<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
+<p>dpdk基于内核的<a href="https://lwn.net/Articles/232575/">uio机制</a>，提供了<a href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
+<p>另外dpdk也采用了<a href="https://yq.aliyun.com/articles/90383">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
+<p>1.session&#x2F;svc 数据结构调整 热点字段聚集到同个cache line</p>
+<p>2.结合性能测试数据，调整session的prefecth</p>
+<p>3.消除false sharing。</p>
+<p>目前LVS 40G机型，单机4块 40G网卡。</p>
+<p>平均包长1k的情况下能跑满4个网口(160G)</p>
+<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
+<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
+<p>lvs的优化方案为大小桶算法：</p>
+<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
+<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
+<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
+<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
+<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
+<p><a href="https://yq.aliyun.com/articles/52752">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
+<p><a href="https://yizhi.ren/2019/05/03/lvs/">https://yizhi.ren/2019/05/03/lvs/</a></p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/" data-id="cuidzqikTae8A-HbP6aNE90Lt" data-title="就是要你懂负载均衡--lvs和转发模式" class="article-share-link"><span class="fa fa-share">Teilen</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/LVS/" rel="tag">LVS</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Linux/" rel="tag">Linux</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/LoadBalance/" rel="tag">LoadBalance</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/network/" rel="tag">network</a></li></ul>
+
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%A4%A7%E5%85%A8/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Neuer</strong>
+      <div class="article-nav-title">
+        
+          就是要你懂TCP--性能优化大全
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Älter</strong>
+      <div class="article-nav-title">就是要你懂DNS--一文搞懂域名解析相关问题</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Kategorien</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/Ansible/">Ansible</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/CPU/">CPU</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/DNS/">DNS</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/Java/">Java</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/LVS/">LVS</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/Linux/">Linux</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/Memory/">Memory</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/MySQL/">MySQL</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/SSH/">SSH</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/TCP/">TCP</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/network/">network</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/others/">others</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/performance/">performance</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/tcpdump/">tcpdump</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/troubleshooting/">troubleshooting</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E5%85%B6%E5%AE%83/">其它</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%8A%80%E5%B7%A7/">技巧</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tags</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/etc-hosts/" rel="tag">&#x2F;etc&#x2F;hosts</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/etc-nsswitch/" rel="tag">&#x2F;etc&#x2F;nsswitch</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ADM/" rel="tag">ADM</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AMD/" rel="tag">AMD</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Ansible/" rel="tag">Ansible</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Ansible-Linux/" rel="tag">Ansible - Linux</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Apple/" rel="tag">Apple</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/AsyncAppender/" rel="tag">AsyncAppender</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/BCC/" rel="tag">BCC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/BDP/" rel="tag">BDP</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/BIOS/" rel="tag">BIOS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/CLOSE-WAIT/" rel="tag">CLOSE_WAIT</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/CPU/" rel="tag">CPU</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/CVE/" rel="tag">CVE</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/CWND/" rel="tag">CWND</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DNS/" rel="tag">DNS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Die/" rel="tag">Die</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Docker/" rel="tag">Docker</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DropWatch/" rel="tag">DropWatch</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/EDNS/" rel="tag">EDNS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/EPOLLEXCLUSIVE/" rel="tag">EPOLLEXCLUSIVE</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ET/" rel="tag">ET</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/FT2500/" rel="tag">FT2500</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/FullGC/" rel="tag">FullGC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/HTTP-Proxy/" rel="tag">HTTP Proxy</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/HeapDumpBeforeFullGC/" rel="tag">HeapDumpBeforeFullGC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/HugePage/" rel="tag">HugePage</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8/" rel="tag">IO多路复用</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IP/" rel="tag">IP</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IPC/" rel="tag">IPC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Index/" rel="tag">Index</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Intel/" rel="tag">Intel</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/JDBC/" rel="tag">JDBC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Java/" rel="tag">Java</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/LT/" rel="tag">LT</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/LVM/" rel="tag">LVM</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/LVS/" rel="tag">LVS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Linux/" rel="tag">Linux</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/LoadBalance/" rel="tag">LoadBalance</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/M1/" rel="tag">M1</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/MSS/" rel="tag">MSS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/MTU/" rel="tag">MTU</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Mac/" rel="tag">Mac</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Memory/" rel="tag">Memory</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/MySQL/" rel="tag">MySQL</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/NIO/" rel="tag">NIO</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/NUMA/" rel="tag">NUMA</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OSS/" rel="tag">OSS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PageCache/" rel="tag">PageCache</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Pause/" rel="tag">Pause</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Proxy/" rel="tag">Proxy</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RT/" rel="tag">RT</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RTO/" rel="tag">RTO</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RTT/" rel="tag">RTT</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SO-REUSEADDR/" rel="tag">SO_REUSEADDR</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SSD/" rel="tag">SSD</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SSH/" rel="tag">SSH</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SSH-Proxy/" rel="tag">SSH Proxy</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SSTHRESH/" rel="tag">SSTHRESH</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/S-IFCHR/" rel="tag">S_IFCHR</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/S-IFIFO/" rel="tag">S_IFIFO</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SocketTimeout/" rel="tag">SocketTimeout</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Socks5/" rel="tag">Socks5</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SpringMVC/" rel="tag">SpringMVC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Sysbench/" rel="tag">Sysbench</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/SystemStap/" rel="tag">SystemStap</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TCP/" rel="tag">TCP</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TCP-connection/" rel="tag">TCP connection</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TCP-queue/" rel="tag">TCP queue</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TCPWqueueTooBig/" rel="tag">TCPWqueueTooBig</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TCP-USER-TIMEOUT/" rel="tag">TCP_USER_TIMEOUT</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ThreadPool/" rel="tag">ThreadPool</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Unix-Socket/" rel="tag">Unix-Socket</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Wireshark/" rel="tag">Wireshark</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Zen/" rel="tag">Zen</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/accept/" rel="tag">accept</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/accept-queue/" rel="tag">accept queue</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ansible/" rel="tag">ansible</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/arm/" rel="tag">arm</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/arp/" rel="tag">arp</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/arthas/" rel="tag">arthas</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bash-posix/" rel="tag">bash posix</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bpftrace/" rel="tag">bpftrace</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/branch-miss/" rel="tag">branch_miss</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/btrace/" rel="tag">btrace</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/buddyinfo/" rel="tag">buddyinfo</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/buffer/" rel="tag">buffer</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bug/" rel="tag">bug</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/cache/" rel="tag">cache</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/cache-line/" rel="tag">cache_line</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/calico/" rel="tag">calico</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/capinfos/" rel="tag">capinfos</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/context/" rel="tag">context</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/contextswitch/" rel="tag">contextswitch</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/createrepo/" rel="tag">createrepo</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/crond/" rel="tag">crond</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dd/" rel="tag">dd</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/debug/" rel="tag">debug</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/delay-ack/" rel="tag">delay ack</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dns/" rel="tag">dns</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dropped/" rel="tag">dropped</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/druid/" rel="tag">druid</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dtrace/" rel="tag">dtrace</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/du/" rel="tag">du</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/env/" rel="tag">env</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/epoll/" rel="tag">epoll</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/flannel/" rel="tag">flannel</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/forward/" rel="tag">forward</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/free/" rel="tag">free</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/gdb/" rel="tag">gdb</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/github/" rel="tag">github</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/glibc/" rel="tag">glibc</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/hexo/" rel="tag">hexo</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/hygon/" rel="tag">hygon</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ifconfig/" rel="tag">ifconfig</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/iftop/" rel="tag">iftop</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/immediateFlush/" rel="tag">immediateFlush</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/innodb-spin-wait-delay/" rel="tag">innodb_spin_wait_delay</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/insmod/" rel="tag">insmod</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/intel/" rel="tag">intel</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ip-local-port-range/" rel="tag">ip_local_port_range</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ipmi/" rel="tag">ipmi</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ipmitool/" rel="tag">ipmitool</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/iptables/" rel="tag">iptables</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/irqbalance/" rel="tag">irqbalance</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/isatty/" rel="tag">isatty</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/iso/" rel="tag">iso</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/java/" rel="tag">java</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/journald/" rel="tag">journald</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/keepalive/" rel="tag">keepalive</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/keepalived/" rel="tag">keepalived</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/kernel/" rel="tag">kernel</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/kill/" rel="tag">kill</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/kubernetes/" rel="tag">kubernetes</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/linux/" rel="tag">linux</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/listen/" rel="tag">listen</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/load/" rel="tag">load</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/localhost/" rel="tag">localhost</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lock/" rel="tag">lock</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/log/" rel="tag">log</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/log4j2/" rel="tag">log4j2</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/logback/" rel="tag">logback</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/macOS/" rel="tag">macOS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/make/" rel="tag">make</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/memory/" rel="tag">memory</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/module/" rel="tag">module</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/mysql/" rel="tag">mysql</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/nagles/" rel="tag">nagles</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/nbns/" rel="tag">nbns</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/net-write-timeout/" rel="tag">net_write_timeout</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/nethogs/" rel="tag">nethogs</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/netstat/" rel="tag">netstat</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/neverBlock/" rel="tag">neverBlock</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/nginx/" rel="tag">nginx</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/no-login/" rel="tag">no-login</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/nslookup/" rel="tag">nslookup</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/numa/" rel="tag">numa</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/overflows/" rel="tag">overflows</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/pam/" rel="tag">pam</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/password/" rel="tag">password</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/perf/" rel="tag">perf</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/performance/" rel="tag">performance</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ping/" rel="tag">ping</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/pipe/" rel="tag">pipe</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/pipeline/" rel="tag">pipeline</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/queue/" rel="tag">queue</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/receiveBuffer/" rel="tag">receiveBuffer</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/recv-q/" rel="tag">recv-q</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/recvBuffer/" rel="tag">recvBuffer</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/reset/" rel="tag">reset</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/retransmission/" rel="tag">retransmission</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/reuseport/" rel="tag">reuseport</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/rmem/" rel="tag">rmem</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/rotate/" rel="tag">rotate</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/route/" rel="tag">route</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/rp-filter/" rel="tag">rp_filter</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/rsyslogd/" rel="tag">rsyslogd</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/san/" rel="tag">san</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/scapy/" rel="tag">scapy</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/send-q/" rel="tag">send-q</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/sendBuffer/" rel="tag">sendBuffer</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/shell/" rel="tag">shell</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/simultaneous/" rel="tag">simultaneous</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/socat/" rel="tag">socat</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/socket/" rel="tag">socket</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/softirq/" rel="tag">softirq</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/speed/" rel="tag">speed</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ss/" rel="tag">ss</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ssh/" rel="tag">ssh</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/strace/" rel="tag">strace</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/stream/" rel="tag">stream</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/syn-flood/" rel="tag">syn flood</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/syn-queue/" rel="tag">syn queue</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/sysbench/" rel="tag">sysbench</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tc/" rel="tag">tc</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tcp-windows-scale/" rel="tag">tcp windows scale</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tcp-metrics/" rel="tag">tcp_metrics</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tcpdump/" rel="tag">tcpdump</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tcpretrans/" rel="tag">tcpretrans</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tcptrack/" rel="tag">tcptrack</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/thread-pool/" rel="tag">thread pool</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/time-zone/" rel="tag">time_zone</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/timeout/" rel="tag">timeout</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/timer/" rel="tag">timer</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/timer-keepalive/" rel="tag">timer(keepalive)</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/troubleshooting/" rel="tag">troubleshooting</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tshark/" rel="tag">tshark</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tuning/" rel="tag">tuning</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ubuntu/" rel="tag">ubuntu</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/unres-qlen/" rel="tag">unres_qlen</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vipclient/" rel="tag">vipclient</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/virtualbox/" rel="tag">virtualbox</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vmtouch/" rel="tag">vmtouch</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/volume/" rel="tag">volume</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vxlan/" rel="tag">vxlan</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/weibo/" rel="tag">weibo</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/windows/" rel="tag">windows</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/wireshark/" rel="tag">wireshark</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/wlc/" rel="tag">wlc</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/wmem/" rel="tag">wmem</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/wrr/" rel="tag">wrr</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/x86/" rel="tag">x86</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/yum/" rel="tag">yum</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/yum-utils/" rel="tag">yum-utils</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/zone-reclaim-mode/" rel="tag">zone_reclaim_mode</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E4%B8%BE%E4%B8%89%E5%8F%8D%E4%B8%80/" rel="tag">举三反一</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E4%B9%B1%E5%BA%8F/" rel="tag">乱序</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E4%BA%8B%E5%8A%A1/" rel="tag">事务</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E4%BF%9D%E9%99%A9/" rel="tag">保险</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%85%89%E7%BA%A4/" rel="tag">光纤</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%89%AF%E4%B8%9A/" rel="tag">副业</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%8D%8F%E7%A8%8B/" rel="tag">协程</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%8D%A1%E9%A1%BF/" rel="tag">卡顿</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%8F%82%E6%95%B0/" rel="tag">参数</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%8F%91%E9%80%81%E7%AA%97%E5%8F%A3/" rel="tag">发送窗口</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%90%8C%E6%AD%A5%E9%98%BB%E5%A1%9EIO/" rel="tag">同步阻塞IO</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%90%8C%E6%AD%A5%E9%9D%9E%E9%98%BB%E5%A1%9EIO/" rel="tag">同步非阻塞IO</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%90%91%E9%87%8F%E5%8C%96/" rel="tag">向量化</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%A4%8D%E7%9B%98/" rel="tag">复盘</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%AD%98%E5%82%A8/" rel="tag">存储</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%AE%9E%E8%B7%B5/" rel="tag">实践</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%B8%A6%E8%B4%A7/" rel="tag">带货</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E5%BB%BA%E7%AB%99/" rel="tag">建站</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%80%9D%E8%B7%AF/" rel="tag">思路</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%83%8A%E7%BE%A4/" rel="tag">惊群</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%8C%A5%E6%89%8B/" rel="tag">挥手</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%8E%A5%E6%94%B6%E7%AA%97%E5%8F%A3/" rel="tag">接收窗口</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%98%9F%E7%90%83/" rel="tag">星球</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%9D%A1%E4%BB%B6%E8%A7%A6%E5%8F%91/" rel="tag">条件触发</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%A1%88%E4%BE%8B/" rel="tag">案例</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%A1%88%E4%BE%8B%E5%AD%A6%E4%B9%A0/" rel="tag">案例学习</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B0%9F%E6%AF%94%E6%B4%9B%E8%8A%AC%E5%87%9D%E8%83%B6/" rel="tag">氟比洛芬凝胶</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B3%BD%E6%99%AE%E6%80%9D/" rel="tag">泽普思</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B5%B7%E5%85%89/" rel="tag">海光</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%9F%A5%E8%AF%86%E7%A7%AF%E7%B4%AF/" rel="tag">知识积累</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%A2%8E%E7%89%87/" rel="tag">碎片</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%A3%81%E7%9B%98/" rel="tag">磁盘</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD/" rel="tag">磁盘性能</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%A7%92%E6%9D%80/" rel="tag">秒杀</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%BB%8F%E6%B5%8E/" rel="tag">经济</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E7%BD%91%E7%90%83%E8%82%98/" rel="tag">网球肘</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%87%AA%E8%BF%9E%E6%8E%A5/" rel="tag">自连接</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%AF%BB%E7%BB%8F%E5%85%B8%E4%B9%A6/" rel="tag">读经典书</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%B4%B7%E6%AC%BE/" rel="tag">贷款</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%B5%9A%E9%92%B1/" rel="tag">赚钱</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%B6%85%E7%BA%BF%E7%A8%8B/" rel="tag">超线程</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E8%BE%B9%E7%BC%98%E8%A7%A6%E5%8F%91/" rel="tag">边缘触发</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E9%80%BB%E8%BE%91/" rel="tag">逻辑</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E9%9B%B6%E6%8B%B7%E8%B4%9D/" rel="tag">零拷贝</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E9%A3%9E%E8%85%BE/" rel="tag">飞腾</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E9%BB%84%E5%A5%87%E5%B8%86/" rel="tag">黄奇帆</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Tag Cloud</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/etc-hosts/" style="font-size: 10px;">/etc/hosts</a> <a href="/tags/etc-nsswitch/" style="font-size: 10px;">/etc/nsswitch</a> <a href="/tags/ADM/" style="font-size: 10.67px;">ADM</a> <a href="/tags/AMD/" style="font-size: 10.67px;">AMD</a> <a href="/tags/Ansible/" style="font-size: 11.33px;">Ansible</a> <a href="/tags/Ansible-Linux/" style="font-size: 10px;">Ansible - Linux</a> <a href="/tags/Apple/" style="font-size: 10px;">Apple</a> <a href="/tags/AsyncAppender/" style="font-size: 10px;">AsyncAppender</a> <a href="/tags/BCC/" style="font-size: 10px;">BCC</a> <a href="/tags/BDP/" style="font-size: 10.67px;">BDP</a> <a href="/tags/BIOS/" style="font-size: 10.67px;">BIOS</a> <a href="/tags/CLOSE-WAIT/" style="font-size: 10.67px;">CLOSE_WAIT</a> <a href="/tags/CPU/" style="font-size: 17.33px;">CPU</a> <a href="/tags/CVE/" style="font-size: 10px;">CVE</a> <a href="/tags/CWND/" style="font-size: 10px;">CWND</a> <a href="/tags/DNS/" style="font-size: 14px;">DNS</a> <a href="/tags/Die/" style="font-size: 10px;">Die</a> <a href="/tags/Docker/" style="font-size: 10px;">Docker</a> <a href="/tags/DropWatch/" style="font-size: 10px;">DropWatch</a> <a href="/tags/EDNS/" style="font-size: 10px;">EDNS</a> <a href="/tags/EPOLLEXCLUSIVE/" style="font-size: 10.67px;">EPOLLEXCLUSIVE</a> <a href="/tags/ET/" style="font-size: 10px;">ET</a> <a href="/tags/FT2500/" style="font-size: 10px;">FT2500</a> <a href="/tags/FullGC/" style="font-size: 10.67px;">FullGC</a> <a href="/tags/HTTP-Proxy/" style="font-size: 10px;">HTTP Proxy</a> <a href="/tags/HeapDumpBeforeFullGC/" style="font-size: 10.67px;">HeapDumpBeforeFullGC</a> <a href="/tags/HugePage/" style="font-size: 10px;">HugePage</a> <a href="/tags/IO%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8/" style="font-size: 10px;">IO多路复用</a> <a href="/tags/IP/" style="font-size: 10px;">IP</a> <a href="/tags/IPC/" style="font-size: 11.33px;">IPC</a> <a href="/tags/Index/" style="font-size: 10px;">Index</a> <a href="/tags/Intel/" style="font-size: 10.67px;">Intel</a> <a href="/tags/JDBC/" style="font-size: 10.67px;">JDBC</a> <a href="/tags/Java/" style="font-size: 10.67px;">Java</a> <a href="/tags/LT/" style="font-size: 10px;">LT</a> <a href="/tags/LVM/" style="font-size: 10px;">LVM</a> <a href="/tags/LVS/" style="font-size: 12.67px;">LVS</a> <a href="/tags/Linux/" style="font-size: 20px;">Linux</a> <a href="/tags/LoadBalance/" style="font-size: 10.67px;">LoadBalance</a> <a href="/tags/M1/" style="font-size: 10px;">M1</a> <a href="/tags/MSS/" style="font-size: 10px;">MSS</a> <a href="/tags/MTU/" style="font-size: 10px;">MTU</a> <a href="/tags/Mac/" style="font-size: 10px;">Mac</a> <a href="/tags/Memory/" style="font-size: 12px;">Memory</a> <a href="/tags/MySQL/" style="font-size: 16px;">MySQL</a> <a href="/tags/NIO/" style="font-size: 10.67px;">NIO</a> <a href="/tags/NUMA/" style="font-size: 10px;">NUMA</a> <a href="/tags/OSS/" style="font-size: 10px;">OSS</a> <a href="/tags/PageCache/" style="font-size: 10px;">PageCache</a> <a href="/tags/Pause/" style="font-size: 10.67px;">Pause</a> <a href="/tags/Proxy/" style="font-size: 10px;">Proxy</a> <a href="/tags/RT/" style="font-size: 11.33px;">RT</a> <a href="/tags/RTO/" style="font-size: 10px;">RTO</a> <a href="/tags/RTT/" style="font-size: 10px;">RTT</a> <a href="/tags/SO-REUSEADDR/" style="font-size: 10px;">SO_REUSEADDR</a> <a href="/tags/SSD/" style="font-size: 10px;">SSD</a> <a href="/tags/SSH/" style="font-size: 10.67px;">SSH</a> <a href="/tags/SSH-Proxy/" style="font-size: 10px;">SSH Proxy</a> <a href="/tags/SSTHRESH/" style="font-size: 10px;">SSTHRESH</a> <a href="/tags/S-IFCHR/" style="font-size: 10px;">S_IFCHR</a> <a href="/tags/S-IFIFO/" style="font-size: 10px;">S_IFIFO</a> <a href="/tags/SocketTimeout/" style="font-size: 10px;">SocketTimeout</a> <a href="/tags/Socks5/" style="font-size: 10px;">Socks5</a> <a href="/tags/SpringMVC/" style="font-size: 10px;">SpringMVC</a> <a href="/tags/Sysbench/" style="font-size: 10px;">Sysbench</a> <a href="/tags/SystemStap/" style="font-size: 10px;">SystemStap</a> <a href="/tags/TCP/" style="font-size: 18px;">TCP</a> <a href="/tags/TCP-connection/" style="font-size: 10.67px;">TCP connection</a> <a href="/tags/TCP-queue/" style="font-size: 12px;">TCP queue</a> <a href="/tags/TCPWqueueTooBig/" style="font-size: 10px;">TCPWqueueTooBig</a> <a href="/tags/TCP-USER-TIMEOUT/" style="font-size: 10px;">TCP_USER_TIMEOUT</a> <a href="/tags/ThreadPool/" style="font-size: 10px;">ThreadPool</a> <a href="/tags/Unix-Socket/" style="font-size: 10px;">Unix-Socket</a> <a href="/tags/Wireshark/" style="font-size: 10px;">Wireshark</a> <a href="/tags/Zen/" style="font-size: 12px;">Zen</a> <a href="/tags/accept/" style="font-size: 10px;">accept</a> <a href="/tags/accept-queue/" style="font-size: 11.33px;">accept queue</a> <a href="/tags/ansible/" style="font-size: 10px;">ansible</a> <a href="/tags/arm/" style="font-size: 10px;">arm</a> <a href="/tags/arp/" style="font-size: 11.33px;">arp</a> <a href="/tags/arthas/" style="font-size: 10px;">arthas</a> <a href="/tags/bash-posix/" style="font-size: 10px;">bash posix</a> <a href="/tags/bpftrace/" style="font-size: 10px;">bpftrace</a> <a href="/tags/branch-miss/" style="font-size: 10px;">branch_miss</a> <a href="/tags/btrace/" style="font-size: 10px;">btrace</a> <a href="/tags/buddyinfo/" style="font-size: 10px;">buddyinfo</a> <a href="/tags/buffer/" style="font-size: 10px;">buffer</a> <a href="/tags/bug/" style="font-size: 10px;">bug</a> <a href="/tags/cache/" style="font-size: 10px;">cache</a> <a href="/tags/cache-line/" style="font-size: 10.67px;">cache_line</a> <a href="/tags/calico/" style="font-size: 11.33px;">calico</a> <a href="/tags/capinfos/" style="font-size: 10px;">capinfos</a> <a href="/tags/context/" style="font-size: 10px;">context</a> <a href="/tags/contextswitch/" style="font-size: 10px;">contextswitch</a> <a href="/tags/createrepo/" style="font-size: 10.67px;">createrepo</a> <a href="/tags/crond/" style="font-size: 10px;">crond</a> <a href="/tags/dd/" style="font-size: 10px;">dd</a> <a href="/tags/debug/" style="font-size: 10px;">debug</a> <a href="/tags/delay-ack/" style="font-size: 10px;">delay ack</a> <a href="/tags/dns/" style="font-size: 10px;">dns</a> <a href="/tags/docker/" style="font-size: 16.67px;">docker</a> <a href="/tags/dropped/" style="font-size: 11.33px;">dropped</a> <a href="/tags/druid/" style="font-size: 10.67px;">druid</a> <a href="/tags/dtrace/" style="font-size: 10px;">dtrace</a> <a href="/tags/du/" style="font-size: 10px;">du</a> <a href="/tags/env/" style="font-size: 10px;">env</a> <a href="/tags/epoll/" style="font-size: 11.33px;">epoll</a> <a href="/tags/flannel/" style="font-size: 10px;">flannel</a> <a href="/tags/forward/" style="font-size: 10px;">forward</a> <a href="/tags/free/" style="font-size: 12.67px;">free</a> <a href="/tags/gdb/" style="font-size: 10.67px;">gdb</a> <a href="/tags/github/" style="font-size: 10px;">github</a> <a href="/tags/glibc/" style="font-size: 10.67px;">glibc</a> <a href="/tags/hexo/" style="font-size: 10px;">hexo</a> <a href="/tags/hygon/" style="font-size: 12.67px;">hygon</a> <a href="/tags/ifconfig/" style="font-size: 10.67px;">ifconfig</a> <a href="/tags/iftop/" style="font-size: 10px;">iftop</a> <a href="/tags/immediateFlush/" style="font-size: 10px;">immediateFlush</a> <a href="/tags/innodb-spin-wait-delay/" style="font-size: 10.67px;">innodb_spin_wait_delay</a> <a href="/tags/insmod/" style="font-size: 10px;">insmod</a> <a href="/tags/intel/" style="font-size: 10.67px;">intel</a> <a href="/tags/ip-local-port-range/" style="font-size: 10px;">ip_local_port_range</a> <a href="/tags/ipmi/" style="font-size: 10px;">ipmi</a> <a href="/tags/ipmitool/" style="font-size: 10px;">ipmitool</a> <a href="/tags/iptables/" style="font-size: 13.33px;">iptables</a> <a href="/tags/irqbalance/" style="font-size: 10px;">irqbalance</a> <a href="/tags/isatty/" style="font-size: 10px;">isatty</a> <a href="/tags/iso/" style="font-size: 10.67px;">iso</a> <a href="/tags/java/" style="font-size: 11.33px;">java</a> <a href="/tags/journald/" style="font-size: 10px;">journald</a> <a href="/tags/keepalive/" style="font-size: 10.67px;">keepalive</a> <a href="/tags/keepalived/" style="font-size: 10px;">keepalived</a> <a href="/tags/kernel/" style="font-size: 10.67px;">kernel</a> <a href="/tags/kill/" style="font-size: 10px;">kill</a> <a href="/tags/kubernetes/" style="font-size: 14.67px;">kubernetes</a> <a href="/tags/linux/" style="font-size: 10px;">linux</a> <a href="/tags/listen/" style="font-size: 10px;">listen</a> <a href="/tags/load/" style="font-size: 10px;">load</a> <a href="/tags/localhost/" style="font-size: 10px;">localhost</a> <a href="/tags/lock/" style="font-size: 10px;">lock</a> <a href="/tags/log/" style="font-size: 10.67px;">log</a> <a href="/tags/log4j2/" style="font-size: 10px;">log4j2</a> <a href="/tags/logback/" style="font-size: 10px;">logback</a> <a href="/tags/macOS/" style="font-size: 10px;">macOS</a> <a href="/tags/make/" style="font-size: 10px;">make</a> <a href="/tags/memory/" style="font-size: 10px;">memory</a> <a href="/tags/module/" style="font-size: 10px;">module</a> <a href="/tags/mysql/" style="font-size: 10.67px;">mysql</a> <a href="/tags/nagles/" style="font-size: 10px;">nagles</a> <a href="/tags/nbns/" style="font-size: 10px;">nbns</a> <a href="/tags/net-write-timeout/" style="font-size: 10.67px;">net_write_timeout</a> <a href="/tags/nethogs/" style="font-size: 10px;">nethogs</a> <a href="/tags/netstat/" style="font-size: 13.33px;">netstat</a> <a href="/tags/network/" style="font-size: 18.67px;">network</a> <a href="/tags/neverBlock/" style="font-size: 10px;">neverBlock</a> <a href="/tags/nginx/" style="font-size: 13.33px;">nginx</a> <a href="/tags/no-login/" style="font-size: 10px;">no-login</a> <a href="/tags/nslookup/" style="font-size: 10.67px;">nslookup</a> <a href="/tags/numa/" style="font-size: 10px;">numa</a> <a href="/tags/overflows/" style="font-size: 11.33px;">overflows</a> <a href="/tags/pam/" style="font-size: 10px;">pam</a> <a href="/tags/password/" style="font-size: 10px;">password</a> <a href="/tags/perf/" style="font-size: 14.67px;">perf</a> <a href="/tags/performance/" style="font-size: 19.33px;">performance</a> <a href="/tags/ping/" style="font-size: 11.33px;">ping</a> <a href="/tags/pipe/" style="font-size: 10px;">pipe</a> <a href="/tags/pipeline/" style="font-size: 10.67px;">pipeline</a> <a href="/tags/queue/" style="font-size: 10px;">queue</a> <a href="/tags/receiveBuffer/" style="font-size: 10px;">receiveBuffer</a> <a href="/tags/recv-q/" style="font-size: 10px;">recv-q</a> <a href="/tags/recvBuffer/" style="font-size: 10px;">recvBuffer</a> <a href="/tags/reset/" style="font-size: 11.33px;">reset</a> <a href="/tags/retransmission/" style="font-size: 10px;">retransmission</a> <a href="/tags/reuseport/" style="font-size: 10.67px;">reuseport</a> <a href="/tags/rmem/" style="font-size: 10px;">rmem</a> <a href="/tags/rotate/" style="font-size: 10px;">rotate</a> <a href="/tags/route/" style="font-size: 12px;">route</a> <a href="/tags/rp-filter/" style="font-size: 11.33px;">rp_filter</a> <a href="/tags/rsyslogd/" style="font-size: 10px;">rsyslogd</a> <a href="/tags/san/" style="font-size: 10.67px;">san</a> <a href="/tags/scapy/" style="font-size: 10px;">scapy</a> <a href="/tags/send-q/" style="font-size: 10px;">send-q</a> <a href="/tags/sendBuffer/" style="font-size: 10.67px;">sendBuffer</a> <a href="/tags/service/" style="font-size: 10.67px;">service</a> <a href="/tags/shell/" style="font-size: 10.67px;">shell</a> <a href="/tags/simultaneous/" style="font-size: 10px;">simultaneous</a> <a href="/tags/socat/" style="font-size: 10px;">socat</a> <a href="/tags/socket/" style="font-size: 10px;">socket</a> <a href="/tags/softirq/" style="font-size: 10px;">softirq</a> <a href="/tags/speed/" style="font-size: 10px;">speed</a> <a href="/tags/ss/" style="font-size: 12px;">ss</a> <a href="/tags/ssh/" style="font-size: 10px;">ssh</a> <a href="/tags/strace/" style="font-size: 10px;">strace</a> <a href="/tags/stream/" style="font-size: 10px;">stream</a> <a href="/tags/syn-flood/" style="font-size: 11.33px;">syn flood</a> <a href="/tags/syn-queue/" style="font-size: 11.33px;">syn queue</a> <a href="/tags/sysbench/" style="font-size: 10.67px;">sysbench</a> <a href="/tags/tc/" style="font-size: 10px;">tc</a> <a href="/tags/tcp-windows-scale/" style="font-size: 10px;">tcp windows scale</a> <a href="/tags/tcp-metrics/" style="font-size: 10px;">tcp_metrics</a> <a href="/tags/tcpdump/" style="font-size: 15.33px;">tcpdump</a> <a href="/tags/tcpretrans/" style="font-size: 10px;">tcpretrans</a> <a href="/tags/tcptrack/" style="font-size: 10px;">tcptrack</a> <a href="/tags/thread-pool/" style="font-size: 10px;">thread pool</a> <a href="/tags/time-zone/" style="font-size: 10px;">time_zone</a> <a href="/tags/timeout/" style="font-size: 10.67px;">timeout</a> <a href="/tags/timer/" style="font-size: 10px;">timer</a> <a href="/tags/timer-keepalive/" style="font-size: 10px;">timer(keepalive)</a> <a href="/tags/troubleshooting/" style="font-size: 14px;">troubleshooting</a> <a href="/tags/tshark/" style="font-size: 11.33px;">tshark</a> <a href="/tags/tuning/" style="font-size: 10px;">tuning</a> <a href="/tags/ubuntu/" style="font-size: 10px;">ubuntu</a> <a href="/tags/unres-qlen/" style="font-size: 10px;">unres_qlen</a> <a href="/tags/vipclient/" style="font-size: 10px;">vipclient</a> <a href="/tags/virtualbox/" style="font-size: 10.67px;">virtualbox</a> <a href="/tags/vmtouch/" style="font-size: 10px;">vmtouch</a> <a href="/tags/volume/" style="font-size: 10px;">volume</a> <a href="/tags/vxlan/" style="font-size: 10px;">vxlan</a> <a href="/tags/weibo/" style="font-size: 10px;">weibo</a> <a href="/tags/windows/" style="font-size: 10px;">windows</a> <a href="/tags/wireshark/" style="font-size: 12px;">wireshark</a> <a href="/tags/wlc/" style="font-size: 10px;">wlc</a> <a href="/tags/wmem/" style="font-size: 10px;">wmem</a> <a href="/tags/wrr/" style="font-size: 10px;">wrr</a> <a href="/tags/x86/" style="font-size: 10px;">x86</a> <a href="/tags/yum/" style="font-size: 10.67px;">yum</a> <a href="/tags/yum-utils/" style="font-size: 10.67px;">yum-utils</a> <a href="/tags/zone-reclaim-mode/" style="font-size: 10px;">zone_reclaim_mode</a> <a href="/tags/%E4%B8%BE%E4%B8%89%E5%8F%8D%E4%B8%80/" style="font-size: 10.67px;">举三反一</a> <a href="/tags/%E4%B9%B1%E5%BA%8F/" style="font-size: 10px;">乱序</a> <a href="/tags/%E4%BA%8B%E5%8A%A1/" style="font-size: 10px;">事务</a> <a href="/tags/%E4%BF%9D%E9%99%A9/" style="font-size: 10px;">保险</a> <a href="/tags/%E5%85%89%E7%BA%A4/" style="font-size: 10.67px;">光纤</a> <a href="/tags/%E5%89%AF%E4%B8%9A/" style="font-size: 10px;">副业</a> <a href="/tags/%E5%8D%8F%E7%A8%8B/" style="font-size: 10px;">协程</a> <a href="/tags/%E5%8D%A1%E9%A1%BF/" style="font-size: 10px;">卡顿</a> <a href="/tags/%E5%8F%82%E6%95%B0/" style="font-size: 10px;">参数</a> <a href="/tags/%E5%8F%91%E9%80%81%E7%AA%97%E5%8F%A3/" style="font-size: 10px;">发送窗口</a> <a href="/tags/%E5%90%8C%E6%AD%A5%E9%98%BB%E5%A1%9EIO/" style="font-size: 10px;">同步阻塞IO</a> <a href="/tags/%E5%90%8C%E6%AD%A5%E9%9D%9E%E9%98%BB%E5%A1%9EIO/" style="font-size: 10px;">同步非阻塞IO</a> <a href="/tags/%E5%90%91%E9%87%8F%E5%8C%96/" style="font-size: 10px;">向量化</a> <a href="/tags/%E5%A4%8D%E7%9B%98/" style="font-size: 14px;">复盘</a> <a href="/tags/%E5%AD%98%E5%82%A8/" style="font-size: 10px;">存储</a> <a href="/tags/%E5%AE%9E%E8%B7%B5/" style="font-size: 14px;">实践</a> <a href="/tags/%E5%B8%A6%E8%B4%A7/" style="font-size: 10px;">带货</a> <a href="/tags/%E5%BB%BA%E7%AB%99/" style="font-size: 10px;">建站</a> <a href="/tags/%E6%80%9D%E8%B7%AF/" style="font-size: 10px;">思路</a> <a href="/tags/%E6%83%8A%E7%BE%A4/" style="font-size: 10.67px;">惊群</a> <a href="/tags/%E6%8C%A5%E6%89%8B/" style="font-size: 10px;">挥手</a> <a href="/tags/%E6%8E%A5%E6%94%B6%E7%AA%97%E5%8F%A3/" style="font-size: 10px;">接收窗口</a> <a href="/tags/%E6%98%9F%E7%90%83/" style="font-size: 12px;">星球</a> <a href="/tags/%E6%9D%A1%E4%BB%B6%E8%A7%A6%E5%8F%91/" style="font-size: 10px;">条件触发</a> <a href="/tags/%E6%A1%88%E4%BE%8B/" style="font-size: 10.67px;">案例</a> <a href="/tags/%E6%A1%88%E4%BE%8B%E5%AD%A6%E4%B9%A0/" style="font-size: 10px;">案例学习</a> <a href="/tags/%E6%B0%9F%E6%AF%94%E6%B4%9B%E8%8A%AC%E5%87%9D%E8%83%B6/" style="font-size: 10px;">氟比洛芬凝胶</a> <a href="/tags/%E6%B3%BD%E6%99%AE%E6%80%9D/" style="font-size: 10px;">泽普思</a> <a href="/tags/%E6%B5%B7%E5%85%89/" style="font-size: 12.67px;">海光</a> <a href="/tags/%E7%9F%A5%E8%AF%86%E7%A7%AF%E7%B4%AF/" style="font-size: 14.67px;">知识积累</a> <a href="/tags/%E7%A2%8E%E7%89%87/" style="font-size: 10px;">碎片</a> <a href="/tags/%E7%A3%81%E7%9B%98/" style="font-size: 10px;">磁盘</a> <a href="/tags/%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD/" style="font-size: 11.33px;">磁盘性能</a> <a href="/tags/%E7%A7%92%E6%9D%80/" style="font-size: 10px;">秒杀</a> <a href="/tags/%E7%BB%8F%E6%B5%8E/" style="font-size: 10px;">经济</a> <a href="/tags/%E7%BD%91%E7%90%83%E8%82%98/" style="font-size: 10px;">网球肘</a> <a href="/tags/%E8%87%AA%E8%BF%9E%E6%8E%A5/" style="font-size: 10px;">自连接</a> <a href="/tags/%E8%AF%BB%E7%BB%8F%E5%85%B8%E4%B9%A6/" style="font-size: 10px;">读经典书</a> <a href="/tags/%E8%B4%B7%E6%AC%BE/" style="font-size: 10px;">贷款</a> <a href="/tags/%E8%B5%9A%E9%92%B1/" style="font-size: 10px;">赚钱</a> <a href="/tags/%E8%B6%85%E7%BA%BF%E7%A8%8B/" style="font-size: 13.33px;">超线程</a> <a href="/tags/%E8%BE%B9%E7%BC%98%E8%A7%A6%E5%8F%91/" style="font-size: 10px;">边缘触发</a> <a href="/tags/%E9%80%BB%E8%BE%91/" style="font-size: 14px;">逻辑</a> <a href="/tags/%E9%9B%B6%E6%8B%B7%E8%B4%9D/" style="font-size: 10px;">零拷贝</a> <a href="/tags/%E9%A3%9E%E8%85%BE/" style="font-size: 10px;">飞腾</a> <a href="/tags/%E9%BB%84%E5%A5%87%E5%B8%86/" style="font-size: 10px;">黄奇帆</a>
+    </div>
+  </div>
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archiv</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2117/06/">June 2117</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2025/01/">January 2025</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/11/">November 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/10/">October 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/09/">September 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/05/">May 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/04/">April 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/03/">March 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/02/">February 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2024/01/">January 2024</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/12/">December 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/10/">October 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/09/">September 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/08/">August 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/07/">July 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/06/">June 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/05/">May 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/04/">April 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/11/">November 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/10/">October 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/07/">July 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">June 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/05/">May 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">March 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">January 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">November 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">August 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">July 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">June 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">May 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">April 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/03/">March 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/02/">February 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/01/">January 2021</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/12/">December 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/11/">November 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/09/">September 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/08/">August 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/07/">July 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/05/">May 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/04/">April 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/03/">March 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2020/01/">January 2020</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/12/">December 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/11/">November 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/10/">October 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/09/">September 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/08/">August 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/07/">July 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/06/">June 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/05/">May 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/04/">April 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/01/">January 2019</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/12/">December 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/11/">November 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/10/">October 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/09/">September 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/08/">August 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/07/">July 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/06/">June 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/05/">May 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/04/">April 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/03/">March 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/02/">February 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2018/01/">January 2018</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/12/">December 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/10/">October 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/08/">August 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/06/">June 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/03/">March 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2017/01/">January 2017</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2016/10/">October 2016</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2016/08/">August 2016</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2016/03/">March 2016</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">letzter Beitrag</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2117/06/07/%E5%85%B3%E4%BA%8E%E6%9C%AC%E5%8D%9A/">关于本博</a>
+          </li>
+        
+          <li>
+            <a href="/2025/01/29/%E8%B7%A8Die%E7%83%AD%E8%BF%81%E7%A7%BB%E8%BF%81%E7%A7%BB/">跨 Die 热迁移迁移导致的性能问题</a>
+          </li>
+        
+          <li>
+            <a href="/2025/01/09/CPU%20%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97/">CPU 使用率高就一定有效率吗？</a>
+          </li>
+        
+          <li>
+            <a href="/2024/11/02/tcp%E4%BC%9A%E5%81%B6%E5%B0%943%E7%A7%92timeout/">tcp会偶尔3秒timeout的分析以及如何用php规避这个问题</a>
+          </li>
+        
+          <li>
+            <a href="/2024/10/10/%E4%B8%80%E6%AC%A1%E6%8A%93%E5%8C%85%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B/">一次抓包分析过程——Wireshark 新手上车</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2025 twitter @plantegg<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>
