@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="就是要你懂TCP队列–通过实战案例来展示问题详细理论和实践部分可以看这篇 再写这篇原因是，即使我在上篇文章里将这个问题阐述的相当清晰，但是当我再次碰到这个问题居然还是费了一些周折，所以想再次总结下。 问题描述 使用其他团队的WEBShell 调试问题的时候非常卡，最开始怀疑是定时任务导致压力大，然后重启Server端的Tomcat就恢复了，当时该应用的开发同学看到机器磁盘、cpu、内存、gc等都正">
+<meta property="og:type" content="article">
+<meta property="og:title" content="就是要你懂TCP队列--通过实战案例来展示问题">
+<meta property="og:url" content="https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="就是要你懂TCP队列–通过实战案例来展示问题详细理论和实践部分可以看这篇 再写这篇原因是，即使我在上篇文章里将这个问题阐述的相当清晰，但是当我再次碰到这个问题居然还是费了一些周折，所以想再次总结下。 问题描述 使用其他团队的WEBShell 调试问题的时候非常卡，最开始怀疑是定时任务导致压力大，然后重启Server端的Tomcat就恢复了，当时该应用的开发同学看到机器磁盘、cpu、内存、gc等都正">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/c6a60ee1c4e93e2d4912b7c5ef26a95e.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/91a12c64e360ffd5a7ab7231da6d8430.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/adca65f70c19929d78f63d8e5f70ed5a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d12cd194822280906353d9961897ad19.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1e7a22621908e7b6f790ebcb6970ae39.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230315143053615.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/ffb525eb443e0656712f6d8c6357adc2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/be6ac944fb72b089dc0357298a47dc37.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/e9efaffe357a2d1ac72806ce36066532.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/9340023fac65d9c1d0aeda8e73557792.png">
+<meta property="article:published_time" content="2019-08-31T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.559Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="TCP queue">
+<meta property="article:tag" content="accept queue">
+<meta property="article:tag" content="dropped">
+<meta property="article:tag" content="netstat">
+<meta property="article:tag" content="overflows">
+<meta property="article:tag" content="ss">
+<meta property="article:tag" content="syn flood">
+<meta property="article:tag" content="syn queue">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/c6a60ee1c4e93e2d4912b7c5ef26a95e.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/","path":"2019/08/31/就是要你懂TCP队列--通过实战案例来展示问题/","title":"就是要你懂TCP队列--通过实战案例来展示问题"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>就是要你懂TCP队列--通过实战案例来展示问题 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97%E2%80%93%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98"><span class="nav-number">1.</span> <span class="nav-text">就是要你懂TCP队列–通过实战案例来展示问题</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E9%97%AE%E9%A2%98"><span class="nav-number">1.2.</span> <span class="nav-text">分析问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%87%8D%E5%90%AFTomcat"><span class="nav-number">1.2.1.</span> <span class="nav-text">重启Tomcat</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E6%95%B4%E5%8F%82%E6%95%B0%EF%BC%8C%E5%8A%A0%E9%80%9F%E9%97%AE%E9%A2%98%E9%87%8D%E7%8E%B0"><span class="nav-number">1.2.2.</span> <span class="nav-text">调整参数，加速问题重现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%88%96%E8%80%85%E8%BF%99%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%8A%B6%E6%80%81%E7%9A%84%E6%88%AA%E5%9B%BE"><span class="nav-number">1.2.3.</span> <span class="nav-text">或者这个异常状态的截图</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E4%BA%9B%E7%96%91%E9%97%AE"><span class="nav-number">1.3.</span> <span class="nav-text">一些疑问</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B9%8B%E5%89%8D%E6%8A%93%E5%8C%85%E7%9C%8B%E4%B8%8D%E5%88%B0%E8%BF%99%E4%BA%9B%E9%87%8D%E4%BC%A0"><span class="nav-number">1.3.1.</span> <span class="nav-text">为什么之前抓包看不到这些重传</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88-ss-lnt-netstat-s-%E9%83%BD%E6%B2%A1%E5%8F%91%E7%8E%B0%E9%97%AE%E9%A2%98"><span class="nav-number">1.3.2.</span> <span class="nav-text">为什么 ss -lnt &#x2F; netstat -s 都没发现问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E7%BA%BF%E7%A8%8B%E6%9A%B4%E6%B6%A8%E6%B2%A1%E6%9C%89%E7%9B%91%E6%8E%A7%E5%88%B0"><span class="nav-number">1.3.3.</span> <span class="nav-text">为什么线程暴涨没有监控到</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BD%91%E7%BB%9C%E9%87%8D%E4%BC%A0%E5%92%8C%E4%B8%9A%E5%8A%A1%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="nav-number">1.4.</span> <span class="nav-text">网络重传和业务的关系</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E5%BF%AB%E9%80%9F%E5%AE%9A%E4%BD%8D%E7%BD%91%E7%BB%9C%E9%87%8D%E4%BC%A0%E5%8F%91%E7%94%9F%E7%9A%84%E7%AB%AF%E5%8F%A3"><span class="nav-number">1.4.1.</span> <span class="nav-text">如何快速定位网络重传发生的端口</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.5.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="就是要你懂TCP队列--通过实战案例来展示问题 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          就是要你懂TCP队列--通过实战案例来展示问题
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-08-31 17:30:03" itemprop="dateCreated datePublished" datetime="2019-08-31T17:30:03+08:00">2019-08-31</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="就是要你懂TCP队列–通过实战案例来展示问题"><a href="#就是要你懂TCP队列–通过实战案例来展示问题" class="headerlink" title="就是要你懂TCP队列–通过实战案例来展示问题"></a>就是要你懂TCP队列–通过实战案例来展示问题</h1><p>详细理论和实践部分可以看<a href="/2117/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">这篇</a></p>
+<p>再写这篇原因是，即使我在上篇文章里将这个问题阐述的相当清晰，但是当我再次碰到这个问题居然还是费了一些周折，所以想再次总结下。</p>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><blockquote>
+<p>使用其他团队的WEBShell 调试问题的时候非常卡，最开始怀疑是定时任务导致压力大，然后重启Server端的Tomcat就恢复了，当时该应用的开发同学看到机器磁盘、cpu、内存、gc等都正常，实在不知道为什么会这么卡</p>
+</blockquote>
+<p>​    </p>
+<h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><p>因为每天都是上午出现问题，拿到权限后，也跟着先检查一遍定时任务，没发现什么异常。</p>
+<p>既然在客户端表现出来卡顿，那么tsar先看看网络吧，果然大致是卡顿的时候网络重传率有点高，不过整个问题不是一直出现，只是间歇性的。</p>
+<p>抓包、netstat -s 看重传、reset等都还好、ss -lnt 看也没有溢出，我看了很多次当前队列都是0</p>
+<h3 id="重启Tomcat"><a href="#重启Tomcat" class="headerlink" title="重启Tomcat"></a>重启Tomcat</h3><p>问题恢复，所以基本觉得问题还是跟Tomcat非常相关，抓包看到的重传率非常低（不到0.01%—被这里坑了一下），因为中间链路还有nginx等，一度怀疑是不是抓包没抓到本地回环网卡导致的，要不不会tsar看到的重传率高，而tcpdump抓下来的非常低。</p>
+<p>重启后 jstack 看看tomcat状态，同时跟正常的server对比了一下，发现明显有一个线程不太对，一直在增加</p>
+<p><img src="/images/oss/c6a60ee1c4e93e2d4912b7c5ef26a95e.png" alt="image.png"></p>
+<p>所以到这里大概知道问题的原因了，只是还不能完全确认。</p>
+<p>应该是Tomcat里面的线程越来越多导致Tomcat越来越慢，这个慢不是表现在gc、cpu等上，所以开发同学发现卡顿上去也没看出端倪来。</p>
+<p>那么对于网络很熟悉的同学，上去看到网络重传很高也没找到原因有点不太应该，主要是问题出现的时候间歇性非常低，通过ss -lnt去看溢出队列和netstat -s |grep -i listen 的时候基本都没什么问题，就忽视了，再说在tcpdump抓包只看到很少的几个重传，反倒是几百个reset包干扰了问题（几百个reset肯定不对，但是没有影响我所说的应用）。</p>
+<h3 id="调整参数，加速问题重现"><a href="#调整参数，加速问题重现" class="headerlink" title="调整参数，加速问题重现"></a>调整参数，加速问题重现</h3><p>因为总是每天上午一卡顿、有人抱怨、然后重启恢复，第二天仍是这个循环，也就是问题轻微出现后就通过重启解决了</p>
+<p>故意将全连接队列从当前的128改成16，重启后运行正常，实际并发不是很高的时候16也够了，改成16是为了让问题出现的时候如果是全连接队列不够导致的，那么会影响更明显一些，经过一天的运行后，可以清晰地观察到：</p>
+<p><img src="/images/oss/91a12c64e360ffd5a7ab7231da6d8430.png" alt="image.png"></p>
+<p>tsar的重传率稳定的很高，ss -lnt也能明显地看到全连接队列完全满了，这个满不是因为压力大了，压力一直还是差不多的，所以只能理解是Tomcat处理非常慢了，同时netstat -s 看到 overflowed也稳定增加</p>
+<p>这个时候客户端不只是卡顿了，是完全连不上。</p>
+<p>Tomcat jstack也能看到这几个线程创建了2万多个：</p>
+<p><img src="/images/oss/adca65f70c19929d78f63d8e5f70ed5a.png" alt="image.png"></p>
+<p>抓包(第二次抓包的机会，所以这次抓了所有网卡而不只是eth0)看到 Tomcat的8080端口上基本是这样的：</p>
+<p><img src="/images/oss/d12cd194822280906353d9961897ad19.png" alt="image.png"></p>
+<p>而看所有网卡的所有重传的话，这次终于可以看到重传率和tsar看到的一致，同时也清晰的看到主要127.0.0.1的本地流量，也就是Nginx过来的，而之前的抓包只抓了eth0，只能零星看到几个eth0上的重传包，跟tsar对不上，也导致问题跑偏了（重点去关注reset了）</p>
+<p><img src="/images/oss/1e7a22621908e7b6f790ebcb6970ae39.png" alt="image.png"></p>
+<h3 id="或者这个异常状态的截图"><a href="#或者这个异常状态的截图" class="headerlink" title="或者这个异常状态的截图"></a>或者这个异常状态的截图</h3><p><img src="/images/951413iMgBlog/image-20230315143053615.png" alt="image-20230315143053615"></p>
+<h2 id="一些疑问"><a href="#一些疑问" class="headerlink" title="一些疑问"></a>一些疑问</h2><h3 id="为什么之前抓包看不到这些重传"><a href="#为什么之前抓包看不到这些重传" class="headerlink" title="为什么之前抓包看不到这些重传"></a>为什么之前抓包看不到这些重传</h3><p>因为对业务部署的不了解只抓了eth0, 导致没抓到真正跟客户端表现出来的卡顿相关的重传。比如这是只抓eth0上的包，看到的重传：</p>
+<p><img src="/images/oss/ffb525eb443e0656712f6d8c6357adc2.png" alt="image.png"></p>
+<p>可以看到明显非常少，这完全不是问题。</p>
+<h3 id="为什么-ss-lnt-netstat-s-都没发现问题"><a href="#为什么-ss-lnt-netstat-s-都没发现问题" class="headerlink" title="为什么 ss -lnt &#x2F; netstat -s 都没发现问题"></a>为什么 ss -lnt &#x2F; netstat -s 都没发现问题</h3><p>当时抱怨的时候都是间歇性的，所以 ss -lnt看了10多次都是当前连接0， netstat -s 倒是比较疏忽没仔细比较</p>
+<h3 id="为什么线程暴涨没有监控到"><a href="#为什么线程暴涨没有监控到" class="headerlink" title="为什么线程暴涨没有监控到"></a>为什么线程暴涨没有监控到</h3><p>边缘业务，本身就是监控管理其它服务的，本身监控不健全。</p>
+<h2 id="网络重传和业务的关系"><a href="#网络重传和业务的关系" class="headerlink" title="网络重传和业务的关系"></a>网络重传和业务的关系</h2><p>一般我们通过tsar等看到的是整个机器的重传率，而实际影响我们业务的（比如这里的8080端口）只是我这个端口上的重传率，有时候tsar看到重传率很高，那可能是因为机器上其他无关应用拉高的，所以这里需要一个查看具体业务（或者说具体端口上的重传率的工具）</p>
+<h3 id="如何快速定位网络重传发生的端口"><a href="#如何快速定位网络重传发生的端口" class="headerlink" title="如何快速定位网络重传发生的端口"></a>如何快速定位网络重传发生的端口</h3><p>bcc、bpftrace或者systemtap等工具都提供了观察网络重传包发生的时候的网络四元组以及发生重传的阶段（握手、建立连接后……），这样对我们定位问题就很容易了</p>
+<p><img src="/images/oss/be6ac944fb72b089dc0357298a47dc37.png" alt="image.png"></p>
+<p><img src="/images/oss/e9efaffe357a2d1ac72806ce36066532.png" alt="image.png"></p>
+<p><img src="/images/oss/9340023fac65d9c1d0aeda8e73557792.png" alt="image.png"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>问题的根本原因不是因为TCP连接队列不够，而是 Tomcat中线程泄露，导致Tomcat反应越来越慢，进而导致TCP连接队列溢出，然后网络重传率升高，最终导致了client端操作卡顿。</p>
+<p>这种问题最快的是 jstack 发现，但是因为这只是一个后台Manager，所以基本没有监控，当时也漏看了jstack，所以导致问题定位花的时间长一些。当然通过tcpdump(漏抓了 lo 网卡，主要重传都是本地nginx和本地tomcat的，所以没有发现问题），通过 ss -lnt 和 netstat -s 本来也应该可以发现的，但是因为干扰因素太多而导致也没有发现，这个时候tcp_retrans等工具可以帮我们看的更清楚。</p>
+<p>当然从发现连接队列不够到Tomcat处理太慢这个是紧密联系的，一般应用重启的时候也会短暂连接队列不够，那是因为重启的时候Tomcat前累积了太多连接，这个时候Tomcat重启中，需要热身，本身处理也慢，所以短暂会出现连接队列不够，等Tomcat启动几分钟后就正常了。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/netstat/" rel="tag"># netstat</a>
+              <a href="/tags/ss/" rel="tag"># ss</a>
+              <a href="/tags/TCP-queue/" rel="tag"># TCP queue</a>
+              <a href="/tags/accept-queue/" rel="tag"># accept queue</a>
+              <a href="/tags/syn-queue/" rel="tag"># syn queue</a>
+              <a href="/tags/syn-flood/" rel="tag"># syn flood</a>
+              <a href="/tags/overflows/" rel="tag"># overflows</a>
+              <a href="/tags/dropped/" rel="tag"># dropped</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2019/07/31/NIO%E5%92%8CEpoll/" rel="prev" title="NIO和epoll">
+                  <i class="fa fa-angle-left"></i> NIO和epoll
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2019/09/12/logback%E6%97%A5%E5%BF%97%E5%BC%82%E6%AD%A5%E5%8C%96%E8%BE%93%E5%87%BA%E5%AF%B9%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D/" rel="next" title="logback 日志异步化输出对性能的影响">
+                  logback 日志异步化输出对性能的影响 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

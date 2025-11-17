@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="CPU 使用率高就一定有效率吗？背景最近碰到一个客户业务跑在8C ECS 上，随着业务压力增加 CPU使用率也即将跑满，于是考虑将 8C 升级到16C，事实是升级后业务 RT 反而略有增加，这个事情也超出了所有程序员们的预料，所以我们接下来分析下这个场景 分析通过采集升配前后、以前和正常时段的火焰图对比发现CPU 增加主要是消耗在 自旋锁上了：  用一个案例来解释下自旋锁和锁，如果我们要用多线程对">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CPU 使用率高就一定有效率吗？">
+<meta property="og:url" content="https://plantegg.github.io/2025/01/09/CPU%20%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="CPU 使用率高就一定有效率吗？背景最近碰到一个客户业务跑在8C ECS 上，随着业务压力增加 CPU使用率也即将跑满，于是考虑将 8C 升级到16C，事实是升级后业务 RT 反而略有增加，这个事情也超出了所有程序员们的预料，所以我们接下来分析下这个场景 分析通过采集升配前后、以前和正常时段的火焰图对比发现CPU 增加主要是消耗在 自旋锁上了：  用一个案例来解释下自旋锁和锁，如果我们要用多线程对">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240202085410669.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240202090428778.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240202090714845.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/image-20240324161113874-5525714.png">
+<meta property="article:published_time" content="2025-01-09T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.511Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="Linux">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240202085410669.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2025/01/09/CPU%20%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2025/01/09/CPU%20%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97/","path":"2025/01/09/CPU 使用率高就一定有效率吗/","title":"CPU 使用率高就一定有效率吗？"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>CPU 使用率高就一定有效率吗？ | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#CPU-%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">CPU 使用率高就一定有效率吗？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81"><span class="nav-number">1.3.</span> <span class="nav-text">代码</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9C%A8MySQL-INNODB-%E9%87%8C%E6%80%8E%E4%B9%88%E4%BC%98%E5%8C%96%E8%BF%99%E4%B8%AA%E8%87%AA%E6%97%8B%E9%94%81"><span class="nav-number">1.4.</span> <span class="nav-text">在MySQL INNODB 里怎么优化这个自旋锁</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%AF%A5%E4%BD%A0%E5%8A%A8%E6%89%8B%E4%BA%86"><span class="nav-number">1.5.</span> <span class="nav-text">该你动手了</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.6.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%9B%B8%E5%85%B3%E9%98%85%E8%AF%BB"><span class="nav-number">1.7.</span> <span class="nav-text">相关阅读</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A6%82%E6%9E%9C%E4%BD%A0%E8%A7%89%E5%BE%97%E7%9C%8B%E5%AE%8C%E5%AF%B9%E4%BD%A0%E5%BE%88%E6%9C%89%E5%B8%AE%E5%8A%A9%E5%8F%AF%E4%BB%A5%E9%80%9A%E8%BF%87%E5%A6%82%E4%B8%8B%E6%96%B9%E5%BC%8F%E6%89%BE%E5%88%B0%E6%88%91"><span class="nav-number">1.8.</span> <span class="nav-text">如果你觉得看完对你很有帮助可以通过如下方式找到我</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/01/09/CPU%20%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E5%B0%B1%E4%B8%80%E5%AE%9A%E6%9C%89%E6%95%88%E7%8E%87%E5%90%97/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="CPU 使用率高就一定有效率吗？ | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          CPU 使用率高就一定有效率吗？
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2025-01-09 17:30:03" itemprop="dateCreated datePublished" datetime="2025-01-09T17:30:03+08:00">2025-01-09</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="CPU-使用率高就一定有效率吗？"><a href="#CPU-使用率高就一定有效率吗？" class="headerlink" title="CPU 使用率高就一定有效率吗？"></a>CPU 使用率高就一定有效率吗？</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>最近碰到一个客户业务跑在8C ECS 上，随着业务压力增加 CPU使用率也即将跑满，于是考虑将 8C 升级到16C，事实是升级后业务 RT 反而略有增加，这个事情也超出了所有程序员们的预料，所以我们接下来分析下这个场景</p>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>通过采集升配前后、以前和正常时段的火焰图对比发现CPU 增加主要是消耗在 自旋锁上了：</p>
+<p><img src="/images/951413iMgBlog/image-20240202085410669.png" alt="image-20240202085410669"></p>
+<p>用一个案例来解释下自旋锁和锁，如果我们要用多线程对一个整数进行计数，要保证线程安全的话，可以加锁(synchronized), 这个加锁操作也有人叫悲观锁，抢不到锁就让出这个线程的CPU 调度(代价上下文切换一次，几千个时钟周期)</p>
+<p>另外一种是用自旋锁(CAS、spin_lock) 来实现，抢不到锁就耍赖占住CPU 死磕不停滴抢(CPU 使用率一直100%)，自旋锁的设计主要是针对抢锁概率小、并发低的场景。这两种方案针对场景不一样各有优缺点</p>
+<p>假如你的机器是8C，你有100个线程来对这个整数进行计数的话，你用synchronized 方式来实现会发现CPU 使用率永远达不到50%</p>
+<p><img src="/images/951413iMgBlog/image-20240202090428778.png" alt="image-20240202090428778"></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">#taskset -a -c 56-63 java LockAccumulator 100 1000000000</span><br><span class="line">累加结果: 1000000000 and time:84267</span><br><span class="line"></span><br><span class="line">Performance counter stats for &#x27;taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 100 100000000&#x27;:</span><br><span class="line"></span><br><span class="line">      17785.271791      task-clock (msec)         #    2.662 CPUs utilized</span><br><span class="line">           110,351      context-switches          #    0.006 M/sec</span><br><span class="line">            10,094      cpu-migrations            #    0.568 K/sec</span><br><span class="line">            11,724      page-faults               #    0.659 K/sec</span><br><span class="line">    44,187,609,686      cycles                    #    2.485 GHz</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">    22,588,807,670      instructions              #    0.51  insns per cycle</span><br><span class="line">     6,919,355,610      branches                  #  389.050 M/sec</span><br><span class="line">        28,707,025      branch-misses             #    0.41% of all branches</span><br></pre></td></tr></table></figure>
+
+<p>如果我们改成自旋锁版本的实现，8个核CPU 都是100%</p>
+<p><img src="/images/951413iMgBlog/image-20240202090714845.png" alt="image-20240202090714845"></p>
+<p>以下代码累加次数只有加锁版本的10%，时间还长了很多，也就是效率产出实在是低</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 100 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 106593 毫秒</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &#x27;taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 100 100000000&#x27;:</span><br><span class="line"></span><br><span class="line">      85363.429249      task-clock (msec)         #    7.909 CPUs utilized</span><br><span class="line">            23,010      context-switches          #    0.270 K/sec</span><br><span class="line">             1,262      cpu-migrations            #    0.015 K/sec</span><br><span class="line">            13,403      page-faults               #    0.157 K/sec</span><br><span class="line">   213,191,037,155      cycles                    #    2.497 GHz</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">    43,523,454,723      instructions              #    0.20  insns per cycle</span><br><span class="line">    10,306,663,291      branches                  #  120.739 M/sec</span><br><span class="line">        14,704,466      branch-misses             #    0.14% of all branches</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="代码"><a href="#代码" class="headerlink" title="代码"></a>代码</h2><p>我<a target="_blank" rel="noopener" href="https://github.com/plantegg/programmer_case/tree/main/code/spin_lock">放在了github 上</a>，有个带调X86 平台 pause 指令的汇编，Java 中要用JNI 来调用，ChatGPT4帮我写的，并给了编译、运行方案：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">javac SpinLockAccumulator.java</span><br><span class="line">javah -jni SpinLockAccumulator</span><br><span class="line"></span><br><span class="line"># Assuming GCC is installed and the above C code is in SpinLockAccumulator.c</span><br><span class="line">gcc -shared -o libpause.so -fPIC SpinLockAccumulator.c</span><br><span class="line"></span><br><span class="line">java -Djava.library.path=. SpinLockAccumulator</span><br><span class="line"></span><br><span class="line">实际gcc编译要带上jdk的头文件：</span><br><span class="line">gcc -I/opt/openjdk/include/ -I/opt/openjdk/include/linux/ -shared -o libpause.so  -fPIC SpinLockAccumulator.c</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="在MySQL-INNODB-里怎么优化这个自旋锁"><a href="#在MySQL-INNODB-里怎么优化这个自旋锁" class="headerlink" title="在MySQL INNODB 里怎么优化这个自旋锁"></a>在MySQL INNODB 里怎么优化这个自旋锁</h2><p>MySQL 在自旋锁抢锁的时候每次会调 ut_delay（底层会掉CPU指令，让CPU暂停一下但是不让出——避免上下文切换），发现性能好了几倍。这是MySQL 的官方文档：<a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html">https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html</a></p>
+<p>所以我们继续在以上代码的基础上在自旋的时候故意让CPU pause(50个), 这个优化详细案例：<a href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/</a></p>
+<h2 id="该你动手了"><a href="#该你动手了" class="headerlink" title="该你动手了"></a>该你动手了</h2><p>随便找一台x86 机器，笔记本也可以，macOS 也行，核数多一些效果更明显。只要有Java环境，就用我编译好的class、libpause.so 理论上也行，不兼容的话按代码那一节再重新编译一下</p>
+<p>可以做的实验：</p>
+<ul>
+<li>重复我前面两个运行，看CPU 使用率以及最终耗时</li>
+<li>尝试优化待pause版本的自旋锁实现，是不是要比没有pause性能反而要好</li>
+<li>尝试让线程sleep 一下，效果是不是要好？</li>
+<li>尝试减少线程数量，慢慢是不是发现自旋锁版本的性能越来越好了</li>
+</ul>
+<p>改变线程数量运行对比：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">//自旋锁版本线程数对总时间影响很明显，且线程少的话性能要比加锁版本好，这符合自旋锁的设定:大概率不需要抢就用自旋锁</span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 1 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 2542 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 2 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 2773 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 4 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 4109 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 8 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 11931 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 16 100000000</span><br><span class="line">累加结果: 100000000</span><br><span class="line">操作耗时: 13476 毫秒</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">//加锁版本线程数变化对总时间影响不那么大</span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 16 100000000</span><br><span class="line">累加结果: 100000000 and time:9074</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 8 100000000</span><br><span class="line">累加结果: 100000000 and time:8832</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 4 100000000</span><br><span class="line">累加结果: 100000000 and time:7330</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 2 100000000</span><br><span class="line">累加结果: 100000000 and time:6298</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. LockAccumulator 1 100000000</span><br><span class="line">累加结果: 100000000 and time:3143</span><br></pre></td></tr></table></figure>
+
+<p>设定100并发下，改变机器核数对比：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">//16核机器跑3次 耗时稳定在12秒以上，CPU使用率 1600%</span><br><span class="line">#taskset -a -c 48-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 12860 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 48-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 12949 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 48-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 13692 毫秒</span><br><span class="line"></span><br><span class="line">//8核机器跑3次，耗时稳定5秒左右，CPU使用率 800%</span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 6773 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 5557 毫秒</span><br><span class="line"></span><br><span class="line">#taskset -a -c 56-63 java -Djava.library.path=. SpinLockAccumulator 100 10000000</span><br><span class="line">累加结果: 10000000</span><br><span class="line">操作耗时: 2724 毫秒</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>以后应该不会再对升配后CPU 使用率也上去了，但是最终效率反而没变展现得很惊诧了</p>
+<p>从CPU 使用率、上下文切换上理解自旋锁(乐观锁)和锁(悲观锁)</p>
+<p>MySQL 里对自旋锁的优化，增加配置 <a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_spin_wait_delay"><code>innodb_spin_wait_delay</code></a>  来增加不同场景下DBA 的干预手段</p>
+<p>这篇文章主要功劳要给 ChatGPT4 ，里面所有演示代码都是它完成的</p>
+<h2 id="相关阅读"><a href="#相关阅读" class="headerlink" title="相关阅读"></a>相关阅读</h2><p><a target="_blank" rel="noopener" href="https://articles.zsxq.com/id_332xqfhuxern.html">流量一样但为什么CPU使用率差别很大</a> 同样也是跟CPU 要效率，不过这个案例不是因为自旋锁导致CPU 率高，而是内存延时导致的</p>
+<p><a target="_blank" rel="noopener" href="https://t.zsxq.com/16PqQ3p4x">今日短平快，ECS从16核升配到48核后性能没有任何提升（Netflix）</a> 也是CPU 使用率高没有产出，cacheline伪共享导致的</p>
+<p><a href="https://plantegg.github.io/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/">听风扇声音来定位性能瓶颈</a></p>
+<p>你要是把这个案例以及上面三个案例综合看明白了，相当于把计算机组成原理就学明白了。这里最核心的就是“内存墙”，也就是内存速度没有跟上CPU的发展速度，导致整个计算机内绝大多场景下读写内存缓慢成为主要的瓶颈</p>
+<h2 id="如果你觉得看完对你很有帮助可以通过如下方式找到我"><a href="#如果你觉得看完对你很有帮助可以通过如下方式找到我" class="headerlink" title="如果你觉得看完对你很有帮助可以通过如下方式找到我"></a>如果你觉得看完对你很有帮助可以通过如下方式找到我</h2><p>find me on twitter: <a target="_blank" rel="noopener" href="https://twitter.com/plantegg">@plantegg</a></p>
+<p>知识星球：<a target="_blank" rel="noopener" href="https://t.zsxq.com/0cSFEUh2J">https://t.zsxq.com/0cSFEUh2J</a></p>
+<p>开了一个星球，在里面讲解一些案例、知识、学习方法，肯定没法让大家称为顶尖程序员(我自己都不是)，只是希望用我的方法、知识、经验、案例作为你的垫脚石，帮助你快速、早日成为一个基本合格的程序员。</p>
+<p>争取在星球内：</p>
+<ul>
+<li>养成基本动手能力</li>
+<li>拥有起码的分析推理能力–按我接触的程序员，大多都是没有逻辑的</li>
+<li>知识上教会你几个关键的知识点</li>
+</ul>
+<img src="/Users/ren/case/951413iMgBlog/image-20240324161113874-5525714.png" alt="image-20240324161113874" style="zoom:50%;" />
+
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2024/11/02/tcp%E4%BC%9A%E5%81%B6%E5%B0%943%E7%A7%92timeout/" rel="prev" title="tcp会偶尔3秒timeout的分析以及如何用php规避这个问题">
+                  <i class="fa fa-angle-left"></i> tcp会偶尔3秒timeout的分析以及如何用php规避这个问题
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2025/01/29/%E8%B7%A8Die%E7%83%AD%E8%BF%81%E7%A7%BB%E8%BF%81%E7%A7%BB/" rel="next" title="跨 Die 热迁移迁移导致的性能问题">
+                  跨 Die 热迁移迁移导致的性能问题 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

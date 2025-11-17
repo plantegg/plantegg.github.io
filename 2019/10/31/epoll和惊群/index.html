@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="epoll和惊群本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。 什么是惊群惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“">
+<meta property="og:type" content="article">
+<meta property="og:title" content="epoll和惊群">
+<meta property="og:url" content="https://plantegg.github.io/2019/10/31/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="epoll和惊群本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。 什么是惊群惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-11-05-10-49-41.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-10-14-11-21-46.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645142.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-9645236.">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-12-31-12-44-05.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/worker2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/sharedqueue.png">
+<meta property="article:published_time" content="2019-10-31T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.533Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="EPOLLEXCLUSIVE">
+<meta property="article:tag" content="epoll">
+<meta property="article:tag" content="nginx">
+<meta property="article:tag" content="reuseport">
+<meta property="article:tag" content="惊群">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/2021-11-05-10-49-41.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2019/10/31/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2019/10/31/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/","path":"2019/10/31/epoll和惊群/","title":"epoll和惊群"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>epoll和惊群 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#epoll%E5%92%8C%E6%83%8A%E7%BE%A4"><span class="nav-number">1.</span> <span class="nav-text">epoll和惊群</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BB%80%E4%B9%88%E6%98%AF%E6%83%8A%E7%BE%A4"><span class="nav-number">1.1.</span> <span class="nav-text">什么是惊群</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%88%E4%B8%8A%E6%80%BB%E7%BB%93"><span class="nav-number">1.2.</span> <span class="nav-text">先上总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%97%A0IO%E5%A4%8D%E7%94%A8%E6%97%B6Accept"><span class="nav-number">1.3.</span> <span class="nav-text">无IO复用时Accept</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#epoll%E7%9A%84Accept"><span class="nav-number">1.4.</span> <span class="nav-text">epoll的Accept</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SO-REUSEPORT"><span class="nav-number">1.4.1.</span> <span class="nav-text">SO_REUSEPORT</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Nginx%E4%B8%8BSO-REUSEPORT-%E5%B8%A6%E6%9D%A5%E7%9A%84%E5%B0%8F%E9%97%AE%E9%A2%98"><span class="nav-number">1.4.1.1.</span> <span class="nav-text">Nginx下SO_REUSEPORT 带来的小问题</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#SO-REUSEPORT%E5%8F%A6%E5%A4%96%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">1.4.1.2.</span> <span class="nav-text">SO_REUSEPORT另外的问题</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#EPOLLEXCLUSIVE"><span class="nav-number">1.4.2.</span> <span class="nav-text">EPOLLEXCLUSIVE</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%A4%9A%E4%B8%AAworker%E5%85%B1%E4%BA%AB%E4%B8%80%E4%B8%AA-accept-queue-%E5%B8%A6%E6%9D%A5%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">1.4.2.1.</span> <span class="nav-text">多个worker共享一个 accept queue 带来的问题</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%AF%94%E8%BE%83%E4%B8%8BEPOLLEXCLUSIVE-%E5%92%8C-SO-REUSEPORT"><span class="nav-number">1.4.3.</span> <span class="nav-text">比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/10/31/epoll%E5%92%8C%E6%83%8A%E7%BE%A4/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="epoll和惊群 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          epoll和惊群
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-10-31 12:30:03" itemprop="dateCreated datePublished" datetime="2019-10-31T12:30:03+08:00">2019-10-31</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="epoll和惊群"><a href="#epoll和惊群" class="headerlink" title="epoll和惊群"></a>epoll和惊群</h1><p>本文尝试追踪不同的内核版本增加的方案来看内核是如何来尝试解决惊群问题的。以及像 SO_REUSEPORT 和EPOLLEXCLUSIVE又带来了什么小问题。</p>
+<h2 id="什么是惊群"><a href="#什么是惊群" class="headerlink" title="什么是惊群"></a>什么是惊群</h2><p>惊群效应也有人叫做雷鸣群体效应，惊群就是多进程（多线程）在同时阻塞等待同一个事件的时候（休眠状态），如果等待的这个事件发生，那么他就会唤醒等待的所有进程（或者线程），但是最终却只可能有一个进程（线程）获得这个事件的“控制权”，对该事件进行处理，而其他进程（线程）获取“控制权”失败，只能重新进入休眠状态，这种现象和性能浪费就叫做惊群。</p>
+<p>惊群的本质在于多个线程处理同一个事件。</p>
+<p>为了更好的理解何为惊群，举一个很简单的例子，当你往一群鸽子中间扔一粒谷子，所有的鸽子都被惊动前来抢夺这粒食物，但是最终只有一只鸽子抢到食物。这里鸽子表示进程（线程），那粒谷子就是等待处理的事件。</p>
+<p>linux 内核通过睡眠队列来组织所有等待某个事件的 task，而 wakeup 机制则可以异步唤醒整个睡眠队列上的 task，wakeup 逻辑在唤醒睡眠队列时，会遍历该队列链表上的每一个节点，调用每一个节点的 callback，从而唤醒睡眠队列上的每个 task，为什么要欢行所有的task，关键在于内核不知道这个消息是一个task处理就够了还是从逻辑上这些wakeup的所有task都要处理，所以只能全部唤醒。这样，在一个 connect 到达这个 lisent socket 的时候，内核会唤醒所有睡眠在 accept 队列上的 task。N 个 task 进程(线程)同时从 accept 返回，但是，只有一个 task 返回这个 connect 的 fd，其他 task 都返回-1(EAGAIN)。这是典型的 accept”惊群”现象。</p>
+<p>如果一个连接的请求需要通知多个线程，就容易出现惊群。比如accept，一般都是一个线程负责accept新连接然后分发，这样不会有惊群，但是如果一个线程成为瓶颈那么就要安排多个线程来accept，当有新连接进来默认只能通知所有线程都来处理，这就是惊群。如果用reuseport来用多个线程监听同一个端口的话，在内核层面会通过hash将新连接派发给一个具体的worker这样也不会有惊群了。</p>
+<p>连接建立后，一般的处理逻辑就是将连接一对一挂到一个epoll 红黑树上，一般会有多个epoll 红黑树，然后每个epoll都由一个固定的线程来处理上面的消息，这种是不会有惊群的。也是典型的server处理模式（nginx、tomcat、netty都是如此）</p>
+<p>关键点：多个进程监听相同事件（或者说一个epoll有多个进程来处理）</p>
+<h2 id="先上总结"><a href="#先上总结" class="headerlink" title="先上总结"></a>先上总结</h2><p>如果服务器采用accept阻塞调用方式群在2.6内核就通过增加WQ_FLAG_EXCLUSIVE在内核中就行排他解决惊群了；</p>
+<p>只有epoll的accept才有惊群，这是因为epoll监听句柄中后续可能是accept(建连接)，也有可能是read&#x2F;write网络IO事件，accept有时候一个进程处理不过来、或者accept跟读写混用进程处理，所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p>epoll的惊群在3.10内核加了SO_REUSEPORT来解决惊群，但如果处理accept的worker也要处理read&#x2F;write（Nginx的工作方式）就可能导致不同的worker有的饥饿有的排队假死一样；4.5的内核增加EPOLLEXCLUSIVE在内核中直接将worker放在一个大queue，同时感知worker状态来派发任务更好地解决了惊群，但是因为LIFO的机制导致在压力不大的情况下，任务主要派发给少数几个worker（能接受，压力大就会正常了）。</p>
+<h2 id="无IO复用时Accept"><a href="#无IO复用时Accept" class="headerlink" title="无IO复用时Accept"></a>无IO复用时Accept</h2><blockquote>
+<p>无IO复用（就只能一个进程监听listen 端口）的accept 不会有惊群，epoll_wait 才会。accept一定是只需要一个进程处理消息，内核可以解决。但是select、epoll就不一定了，所以内核只能唤醒所有的。</p>
+</blockquote>
+<p>在linux2.6版本以后，linux内核已经解决了accept()函数的“惊群”现象，大概的处理方式就是，当内核接收到一个客户连接后，只会唤醒等待队列上的第一个进程（线程）,所以如果服务器采用accept阻塞调用方式，在2.6的linux系统中已经没有“惊群效应”了。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"> <span class="comment">/* nr_exclusive的值默认设为1 */</span></span><br><span class="line"> <span class="meta">#<span class="keyword">define</span> wake_up_interruptible_sync_poll(x, m)              \</span></span><br><span class="line"><span class="meta">    __wake_up_sync_key((x), TASK_INTERRUPTIBLE, 1, (void *) (m))</span></span><br><span class="line"></span><br><span class="line">tcp_v4_rcv</span><br><span class="line">tcp_v4_do_rcv</span><br><span class="line">tcp_child_process</span><br><span class="line">sock_def_readable</span><br><span class="line">wake_up_interruptible_sync_poll</span><br><span class="line">__wake_up_common</span><br><span class="line"> <span class="comment">/* 从头遍历监听socket的等待队列，唤醒等待进程，有EXCLUSIVE标识时只唤醒一个进程 */</span></span><br><span class="line">list_for_each_entry_safe(curr, next, &amp;q-&gt;task_list, task_list)</span><br><span class="line">    <span class="comment">/* func最终调用try_to_wake_up，设置进程状态为TASK_RUNNING，并把进程插入CPU运行队列，来唤醒睡眠的进程 */</span></span><br><span class="line">    <span class="keyword">if</span> (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;</span><br><span class="line">       !--nr_exclusive)</span><br><span class="line">       <span class="keyword">break</span>; </span><br></pre></td></tr></table></figure>
+
+<p>sock中定义了几个I&#x2F;O事件，当协议栈遇到这些事件时，会调用它们的处理函数。当监听socket收到新的连接时，会触发有数据可读事件，调用sock_def_readable，唤醒socket等待队列中的进程。进程被唤醒后，会执行accept的后续操作，最终返回新连接的描述符。</p>
+<p>这个socket等待队列是一个FIFO，所以最终是均衡的，也不需要惊群，有tcp connection ready的话直接让等待队列中第一个的线程出队就好了。</p>
+<p>2.6内核层面添加了一个WQ_FLAG_EXCLUSIVE标记，告诉内核进行排他性的唤醒，即唤醒一个进程后即退出唤醒的过程(适合accept，但是不适合 epoll–因为epoll除了有accept，还有其它IO事件）</p>
+<p>所以这就是大家经常看到的accept不存在惊群问题，内核10年前就解决了这个问题的场景，实际指的是非epoll下的accept 惊群。</p>
+<h2 id="epoll的Accept"><a href="#epoll的Accept" class="headerlink" title="epoll的Accept"></a>epoll的Accept</h2><p>epoll监听句柄，后续可能是accept，也有可能是read&#x2F;write网络IO事件，这些IO事件不一定只能由一个进程处理（很少见需要多个进程处理的），所以内核层面没直接解决epoll的惊群，交由上层应用来根据IO事件如何处理。</p>
+<p><img src="/images/951413iMgBlog/2021-11-05-10-49-41.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/2021-10-14-11-21-46.png" alt="img"></p>
+<p>也就是只要是epoll事件，os默认会唤醒监听这个epoll的所有线程。所以常见的做法是一个epoll绑定到一个thread。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//主进程中：</span></span><br><span class="line">ngx_init_cycle</span><br><span class="line">ngx_open_listening_sockets</span><br><span class="line">    socket</span><br><span class="line">    bind</span><br><span class="line">    listen</span><br><span class="line">    epoll_create</span><br><span class="line">    epoll_ctl</span><br><span class="line"></span><br><span class="line"><span class="comment">//子进程中：</span></span><br><span class="line">ngx_event_process_init</span><br><span class="line">ngx_prcocess_events_and_timers</span><br><span class="line">ngx_epoll_process_events</span><br><span class="line">    epoll_wait</span><br><span class="line">    rev-&gt;handler(rev) <span class="comment">// 对于listening socket，handler是ngx_event_accept</span></span><br></pre></td></tr></table></figure>
+
+<p>和普通的accept不同，使用epoll时，是在epoll_wait()返回后，发现监听socket有可读事件，才调用accept()。由于epoll_wait()是LIFO，导致多个子进程在accept新连接时，也变成了LIFO。</p>
+<pre><code>epoll_wait
+ep_poll
+    /* 创建等待任务，把等待任务加入到epfd等待队列的头部，而不是尾部 */
+    init_waitqueue_entry(&amp;wait, current) 
+    __add_wait_queue_exclusive(&amp;ep-&gt;wq, &amp;wait)
+    ...
+    __remove_wait-queue(&amp;ep-&gt;wq, &amp;wait) /* 最终从epfd等待队列中删除 */
+</code></pre>
+<p>回调触发逻辑：</p>
+<pre><code>tcp_v4_rcv
+tcp_v4_do_rcv
+tcp_child_process
+sock_def_readable /* sock I/O 有数据可读事件 */
+wake_up_interruptible_sync_poll
+__wake_up_common
+    /* curr-&gt;func是等待任务的回调函数，在ep_insert初始化等待任务时，设置为ep_poll_callback */
+    if (curr-&gt;func(curr, mode, wake_flags, key) &amp;&amp; (flags &amp; WQ_FLAG_EXCLUSIVE)  &amp;&amp;
+        !--nr_exclusive)
+        break;
+</code></pre>
+<p><img src="/images/951413iMgBlog/2021-12-31-12-44-05-9819612.png" alt="img"></p>
+<p>那么这种情况下内核如何来解决惊群呢？ </p>
+<h3 id="SO-REUSEPORT"><a href="#SO-REUSEPORT" class="headerlink" title="SO_REUSEPORT"></a>SO_REUSEPORT</h3><p>虽然通过将一个epoll绑定到一个thread来解决竞争问题，但是对于高并发的处理一个thread明显不够，所以有时候不得不设置多个thread来处理一个epoll上的所有socket事件（比如accept）</p>
+<p>在3.10的内核中通过引入SO_REUSEPORT解决了这个epoll accept惊群的问题。</p>
+<p>linux man文档中一段文字描述其作用：</p>
+<blockquote>
+<p>The new socket option allows multiple sockets on the same host to bind to the same port, and is intended to improve the performance of multithreaded network server applications running on top of multicore systems.</p>
+</blockquote>
+<p>SO_REUSEPORT支持多个进程或者线程绑定到同一端口，提高服务器程序的性能，解决的问题：</p>
+<ul>
+<li>允许多个套接字 bind()&#x2F;listen() 同一个TCP&#x2F;UDP端口</li>
+<li>每一个线程拥有自己的服务器套接字</li>
+<li>在服务器套接字上没有了锁的竞争</li>
+<li>内核层面实现负载均衡，内核通过socket的五元组来hash到不同的socket listener上</li>
+<li>安全层面，监听同一个端口的套接字只能位于同一个用户下面</li>
+</ul>
+<p>其核心的实现主要有三点：</p>
+<ul>
+<li>扩展 socket option，增加 SO_REUSEPORT 选项，用来设置 reuseport。</li>
+<li>修改 bind 系统调用实现，以便支持可以绑定到相同的 IP 和端口</li>
+<li>修改处理新建连接的实现，查找 listener 的时候，能够支持在监听相同 IP 和端口的多个 sock 之间均衡选择。</li>
+</ul>
+<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
+<ul>
+<li>Nginx的accept_mutex通过抢锁来控制是否将监听套接字加入到epoll 中。监听套接字只在一个子进程的 epoll 中，当新的连接来到时，其他子进程当然不会惊醒了。通过 accept_mutex加锁性能要比reuseport差</li>
+<li>Linux内核解决了epoll_wait 惊群的问题，Nginx 1.9.1利用Linux3.10 的reuseport也能解决惊群、提升性能。</li>
+<li>内核的reuseport中相当于所有listen同一个端口的多个进程是一个组合，<strong>内核收包时不管查找到哪个socket，都能映射到他们所属的 reuseport 数组，再通过五元组哈希选择一个socket，这样只有这个socket队列里有数据，所以即便所有的进程都添加了epoll事件，也只有一个进程会被唤醒。</strong></li>
+</ul>
+<p>以nginx为例，一个worker处理一个epoll(对应一个红黑树)上的所有事件，一般连接新建由accept线程专门处理，连接建立后会加入到某个epoll上，也就是以后会由一个固定的worker&#x2F;线程来处理。</p>
+<ul>
+<li>每个 Worker 都会有一个属于自己的 epoll 对象</li>
+<li>每个 Worker 会关注所有的 listen 状态上的新连接事件（可以通过accept_mutex或者reuseport来解决惊群）</li>
+<li>对于用户连接，只有一个 Worker 会处理，其它 Worker 不会持有该用户连接的 socket（不会惊群）</li>
+</ul>
+<p><img src="/images/951413iMgBlog/640-9645142.png" alt="Image"></p>
+<p>当有包进来，根据5元组，如果socket是ESTABLISHED那么直接给对应的socket，如果是握手，则跟据<strong>SO_REUSEPORT</strong>匹配到对应的监听port的多个线程中的一个</p>
+<p><img src="/images/951413iMgBlog/640-9645236."></p>
+<p>因为Established socket对应于一个唯一的worker，其上所有的读写事件一般是只有<strong>一个worker在监听一个的epoll</strong>，所以不存在惊群。Listen Socket才可能会对应多个worker，才有可能惊群。</p>
+<p><img src="/images/951413iMgBlog/2021-12-31-12-44-05.png" alt="img"></p>
+<p>图片来自：<a target="_blank" rel="noopener" href="https://wenfh2020.com/2021/11/22/question-thundering-herd/">https://wenfh2020.com/2021/11/22/question-thundering-herd/</a></p>
+<h4 id="Nginx下SO-REUSEPORT-带来的小问题"><a href="#Nginx下SO-REUSEPORT-带来的小问题" class="headerlink" title="Nginx下SO_REUSEPORT 带来的小问题"></a>Nginx下SO_REUSEPORT 带来的小问题</h4><p>从下图可以看出Nginx的一个worker即处理上面的accept也处理对应socket的read&#x2F;write，如果一个read&#x2F;write比较耗时的话也会影响到这个worker下的别的socket上的read&#x2F;write或者accept</p>
+<p><img src="/images/951413iMgBlog/912854ed07613bbef1feaede37508548.png" alt="image.png"></p>
+<p>SO_REUSEPORT打开后，去掉了上图的共享锁，变成了如下结构：</p>
+<p><img src="/images/951413iMgBlog/b432f41572f17529d4a1da774d0d34a6.png" alt="image.png"></p>
+<p>再有请求进来不再是各个进程一起去抢，而是内核通过五元组Hash来分配，所以不再会惊群了。但是可能会导致撑死或者饿死的问题，比如一个worker一直在做一件耗时的任务（比如压缩、解码），但是内核通过hash分配新连接过来的时候是不知道worker在忙（抢锁就不会发生这种情况，你没空就不会去抢），以Nginx为例</p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/89653">因为Nginx是ET模式，epoll处理worker要一直将事件处理完毕才能进入epoll_wait（才能响应新的请求）。带来了新的问题：如果有一个慢请求（比如gzip压缩文件需要2分钟），那么处理这个慢请求的进程在reuseport模式下还是会被内核分派到新的连接（或者这个worker上的其它请求），但是这个时候worker一直在压缩如同hang死了，新分配进来的请求无法处理。如果不是reuseport模式，他在处理慢请求就根本腾不出来时间去在惊群中抢到锁。但是还是会影响Established 连接上的请求，这个影响和Reuseport没有关系，是一个线程处理多个Socket带来的必然结果</a> 当然这里如果Nginx把accept和read&#x2F;write分开用不同的线程来处理也不会有这个问题，毕竟accept正常都很快。</p>
+<blockquote>
+<p>上面Nginx Hang死的原因是：Nginx 使用了边缘触发模式，因此Nginx 在套接字有可读性事件的情况下，必须把所有数据都读掉才行，在gzip buffer &lt; connection rcvbuf 同时后端比较快时候，一次性读不完连接上所有数据，就会出现读数据-&gt;压缩-&gt;新数据到达-&gt;继续读数据-&gt; 继续压缩… 的循环，由于压缩需要时间，此时套接字上又来了新的数据，只要数据来的速度比压缩的快，就会出现数据一直读不完的情况，CPU 就一直切不出去。</p>
+<p>解决：OSS gzip_buffers 配置为 64*8k &#x3D; 512K，给后端进程增加了设置sndbuf&#x2F;rcvbuf 指令之后通过配置Tengine 与后 oss_server 之间的连接的rcvbuf 到512k 以内，这样就能解决这个问题了，实测这个修改几乎不影响后端整体吞吐，同时也不会出现Nginx worker Hang 的情况。</p>
+</blockquote>
+<p>如果不开启SO_REUSEPORT模式，那么即使有一个worker在处理慢请求，那么他就不会去抢accept锁，也就没有accept新连接，这样就不应影响新连接的处理。当然也有极低的概率阻塞accept（准确来说是刚accept，还没处理完accept后的请求，就又切换到耗时的处理去了，导致这个新accept的请求没得到处理）</p>
+<p>开了reuse_port 之后每个worker 都单独有个syn 队列，能按照nginx worker 数成倍提升抗synflood 攻击能力。</p>
+<p>但是开启了SO_REUSEPORT后，内核没法感知你的worker是不是特别忙，只是按Hash逻辑派发accept连接。也就是SO_REUSEPORT会导致rt偏差更大（抖动明显一些）。<a href="/2020/06/05/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">这跟MySQL Thread Pool导致的卡顿原理类似，多个Pool类似这里的SO_REUSEPORT。</a></p>
+<p>用图形展示大概如下：</p>
+<p><img src="/images/951413iMgBlog/49d19ef1eaf13638b488ad126beb58ef.png" alt="image.png"></p>
+<p>比如中间的worker即使处理得很慢，内核还是正常派连接过来，即使其它worker空闲, 这会导致 RT 抖动加大：</p>
+<p>Here is the same test run against the SO_REUSEPORT multi-queue NGINX setup (c):</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</span><br><span class="line">        | cut -d &quot; &quot; -f 1</span><br><span class="line">        | ./mmhistogram -t &quot;Duration in ms (multiple queues)&quot;</span><br><span class="line">min:1.49 avg:31.37 med=24.67 max:144.55 dev:25.27 count:100000</span><br><span class="line">Duration in ms (multiple queues):</span><br><span class="line"> value |-------------------------------------------------- count</span><br><span class="line">     0 |                                                   0</span><br><span class="line">     1 |                                                 * 1023</span><br><span class="line">     2 |                                         ********* 5321</span><br><span class="line">     4 |                                 ***************** 9986</span><br><span class="line">     8 |                  ******************************** 18443</span><br><span class="line">    16 |    ********************************************** 25852</span><br><span class="line">    32 |************************************************** 27949</span><br><span class="line">    64 |                              ******************** 11368</span><br><span class="line">   128 |                                                   58</span><br></pre></td></tr></table></figure>
+
+<p>相对地一个accept queue多个 worker的模式 running against a single-queue NGINX:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">$ ./benchhttp -n 100000 -c 200 -r target:8181 http://a.a/</span><br><span class="line">        | cut -d &quot; &quot; -f 1</span><br><span class="line">        | ./mmhistogram -t &quot;Duration in ms (single queue)&quot;</span><br><span class="line">min:3.61 avg:30.39 med=30.28 max:72.65 dev:1.58 count:100000</span><br><span class="line">Duration in ms (single queue):</span><br><span class="line"> value |-------------------------------------------------- count</span><br><span class="line">     0 |                                                   0</span><br><span class="line">     1 |                                                   0</span><br><span class="line">     2 |                                                   1</span><br><span class="line">     4 |                                                   16</span><br><span class="line">     8 |                                                   67</span><br><span class="line">    16 |************************************************** 91760</span><br><span class="line">    32 |                                              **** 8155</span><br><span class="line">    64 |                                                   1</span><br></pre></td></tr></table></figure>
+
+<p>可以看到一个accept queue多个 worker的模式下 RT 极其稳定</p>
+<h4 id="SO-REUSEPORT另外的问题"><a href="#SO-REUSEPORT另外的问题" class="headerlink" title="SO_REUSEPORT另外的问题"></a>SO_REUSEPORT另外的问题</h4><p>在OS层面一个连接hash到了某个socket fd，但是正好这个 listen socket fd 被关了，已经被分到这个 listen socket fd 的 accept 队列上的请求会被丢掉，具体可以<a target="_blank" rel="noopener" href="https://engineeringblog.yelp.com/2015/04/true-zero-downtime-haproxy-reloads.html">参考</a> 和 LWN 上的 <a target="_blank" rel="noopener" href="https://lwn.net/Articles/542866/">comment</a></p>
+<p>从 Linux 4.5 开始引入了 SO_ATTACH_REUSEPORT_CBPF 和 SO_ATTACH_REUSEPORT_EBPF 这两个 BPF 相关的 socket option。通过巧妙的设计，应该可以避免掉建连请求被丢掉的情况。</p>
+<h3 id="EPOLLEXCLUSIVE"><a href="#EPOLLEXCLUSIVE" class="headerlink" title="EPOLLEXCLUSIVE"></a>EPOLLEXCLUSIVE</h3><p>epoll引起的accept惊群，在4.5内核中再次引入<strong>EPOLLEXCLUSIVE</strong>来解决，且需要应用层的配合，Ngnix 在 1.11.3 之后添加了NGX_EXCLUSIVE_EVENT来支持。像tengine尚不支持，所以只能在应用层面上来避免惊群，开启accept_mutex才可避免惊群。</p>
+<p>在epoll_ctl ADD描述符时设置 EPOLLEXCLUSIVE 标识。 </p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">epoll_ctl</span><br><span class="line">ep_insert</span><br><span class="line">ep_ptable_queue_proc</span><br><span class="line">    <span class="comment">/* 在这里，初始化等待任务，把等待任务加入到socket等待队列的头部 */</span></span><br><span class="line">     * 注意，和标准accept的等待任务不同，这里并没有给等待任务设置WQ_FLAG_EXCLUSIVE。</span><br><span class="line">     */</span><br><span class="line">    init_waitqueue_func_entry(&amp;pwq-&gt;wait, ep_poll_callback);</span><br><span class="line">    <span class="comment">/* 检查应用程序是否设置了EPOLLEXCLUSIVE标识 */</span></span><br><span class="line">    <span class="keyword">if</span> (epi-&gt;event.events &amp; EPOLLEXCLUSIVE)</span><br><span class="line">        <span class="comment">/* 新增逻辑，等待任务携带WQ_FLAG_EXCLUSIVE标识，之后只唤醒一个进程 */</span></span><br><span class="line">        add_wait_queue_exclusive(whead, &amp;pwq-&gt;wait);</span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        <span class="comment">/* 原来逻辑，等待任务没有WQ_FLAG_EXCLUSIVE标识，会唤醒所有等待进程 */</span></span><br><span class="line">        add_wait_queue(whead, &amp;pwq-&gt;wait);</span><br></pre></td></tr></table></figure>
+
+<p>在加入listen socket的sk_sleep队列的唤醒队列里使用了 add_wait_queue_exculsive()函数，当tcp收到三次握手最后一个 ack 报文时调用sock_def_readable时，只唤醒一个等待源，从而避免‘惊群’.<br>调用栈如下：</p>
+<pre><code>//  tcp_v4_do_rcv()
+//  --&gt;tcp_child_process()
+//  ---&gt;sock_def_readable()
+//  ----&gt;wake_up_interruptible_sync_poll()
+//  -----&gt;__wake_up_sync_key()
+</code></pre>
+<p>EPOLLEXCLUSIVE可以在单个Listen Queue对多个Worker Process的时候均衡压力，不会惊群。</p>
+<p><img src="/images/951413iMgBlog/worker2.png"></p>
+<p>连接从一个队列里由内核分发，不需要惊群，对worker是否忙也能感知（忙的worker就不分发连接过去）</p>
+<p><img src="/images/951413iMgBlog/9bbf15909be8d1bffd3ee1958463c041.png" alt="image.png"></p>
+<p>图中的电话机相当于一个worker，只是<strong>实际内核中空闲的worker像是在一个堆栈中（LIFO），有连接过来，worker堆栈会出栈，处理完毕又入栈，如此反复</strong>。而需要处理的消息是一个队列（FIFO），所以总会发现栈顶的几个worker做的事情更多。</p>
+<h4 id="多个worker共享一个-accept-queue-带来的问题"><a href="#多个worker共享一个-accept-queue-带来的问题" class="headerlink" title="多个worker共享一个 accept queue 带来的问题"></a><a target="_blank" rel="noopener" href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/">多个worker共享一个 accept queue 带来的问题</a></h4><p>下面这个case是观察发现Nginx在压力不大的情况下会导致最后几个核cpu消耗时间更多一些，如下图看到的：</p>
+<p><img src="/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040.png" alt="image.png"></p>
+<p>这是如前面所述，所有worker像是在一个栈（LIFO）中等着任务处理，在压力不大的时候会导致连接总是在少数几个worker上（栈底的worker没什么机会出栈），如果并发任务多，导致worker栈经常空掉，这个问题就不存在了。当然最终来看EPOLLEXCLUSIVE没有产生什么实质性的不好的影响。值得推荐</p>
+<p>图中LIFO场景出现是在多个worker共享一个accept queue的epoll场景下，如果用 SO_REUSEPORT 搞成每个worker一个accept queue就不存在这个问题了</p>
+<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept(非复用)是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
+<p>当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
+<p>比如这个case，压力低的worker进程和压力高的worker进程差异比较大：</p>
+<p><img src="/images/951413iMgBlog/sharedqueue.png"></p>
+<h3 id="比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT"><a href="#比较下EPOLLEXCLUSIVE-和-SO-REUSEPORT" class="headerlink" title="比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT"></a>比较下EPOLLEXCLUSIVE 和 SO_REUSEPORT</h3><p>EPOLLEXCLUSIVE 和 SO_REUSEPORT 都是在内核层面将连接分到多个worker，解决了epoll下的惊群，SO_REUSEPORT 会更均衡一些，EPOLLEXCLUSIVE在压力不大的时候会导致连接总是在少数几个worker上（但这个不会产生任何不利影响）。 SO_REUSEPORT在最坏的情况下会导致一个worker即使Hang了，OS也依然会派连接过去，这是非常致命的，所以4.5内核引入了 EPOLLEXCLUSIVE（总是给闲置等待队列的第一个worker派连接）</p>
+<p>相对 SO_REUSEPORT导致的stuck, EPOLLEXCLUSIV 还是更好接受一些。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/lyztyycode/article/details/78648798">Linux惊群效应详解（最详细的了吧）</a></p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/dog250/article/details/80837278">再谈Linux epoll惊群问题的原因和解决方案</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/117111">epoll lifo引发的nginx “负载不均”</a> </p>
+<p><a target="_blank" rel="noopener" href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/">Why does one NGINX worker take all the load?</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/89653">一次Nginx Gzip 导致的诡异健康检查失败问题调查</a> </p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/174248">Gzip 导致 Nginx worker Hang 问题解法</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/112471">Socket多进程分发原理</a></p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/dog250/article/details/107227145">从SO_REUSEPORT服务器的一个弊端看多队列服务模型</a></p>
+<p><a target="_blank" rel="noopener" href="https://my.oschina.net/alchemystar/blog/3008840">https://my.oschina.net/alchemystar/blog/3008840</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/nginx/" rel="tag"># nginx</a>
+              <a href="/tags/epoll/" rel="tag"># epoll</a>
+              <a href="/tags/%E6%83%8A%E7%BE%A4/" rel="tag"># 惊群</a>
+              <a href="/tags/reuseport/" rel="tag"># reuseport</a>
+              <a href="/tags/EPOLLEXCLUSIVE/" rel="tag"># EPOLLEXCLUSIVE</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/" rel="prev" title="TCP性能和发送接收窗口、Buffer的关系">
+                  <i class="fa fa-angle-left"></i> TCP性能和发送接收窗口、Buffer的关系
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2019/11/05/%E8%AF%A5%E6%AD%BB%E7%9A%84virtualbox/" rel="next" title="该死的错误">
+                  该死的错误 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

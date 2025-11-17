@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="MySQL 线程池导致的卡顿问题描述简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。 通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。 所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，T">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL线程池导致的延时卡顿排查">
+<meta property="og:url" content="https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="MySQL 线程池导致的卡顿问题描述简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。 通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。 所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，T">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/36a2a60f64011bc73fee06c291bcd79f.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/07146ff29534a1070adbdb8cedd280c9.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d129dfe1a50b182f4d100ac7147f9099.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/92069e7521368e4d2519b3b861cc7faa.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230308214801877.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230308222538102.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230308222416238.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230308223126774.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/52dbeb1c1058e6dbff0a790b4b4ba477.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211104130625676.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/8987545cc311fdd3ae232aee8c3f855a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/114b5b71468b33128e76129bbc7fb8f4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/7cf291546a167b0ca6a017e98db5a821.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211104163732499.png">
+<meta property="article:published_time" content="2020-11-16T23:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.525Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="ThreadPool">
+<meta property="article:tag" content="network">
+<meta property="article:tag" content="nginx">
+<meta property="article:tag" content="卡顿">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/","path":"2020/11/17/MySQL线程池导致的延时卡顿排查/","title":"MySQL线程池导致的延时卡顿排查"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>MySQL线程池导致的延时卡顿排查 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%8D%A1%E9%A1%BF"><span class="nav-number">1.</span> <span class="nav-text">MySQL 线程池导致的卡顿</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Tomcat%E4%B8%8A%E6%8A%93%E5%8C%85%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">Tomcat上抓包分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%85%A2%E7%9A%84%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.2.1.</span> <span class="nav-text">慢的连接</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BF%AB%E7%9A%84%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.2.2.</span> <span class="nav-text">快的连接</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#MySQL%E7%9B%B8%E5%85%B3%E5%8F%82%E6%95%B0"><span class="nav-number">1.3.</span> <span class="nav-text">MySQL相关参数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%BC%E4%B8%8A%E7%BB%93%E8%AE%BA"><span class="nav-number">1.4.</span> <span class="nav-text">综上结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E8%A7%A3%E5%86%B3"><span class="nav-number">1.5.</span> <span class="nav-text">问题解决</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B1%BB%E4%BC%BC%E6%A1%88%E4%BE%8B"><span class="nav-number">1.6.</span> <span class="nav-text">类似案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Thread-Pool%E5%8E%9F%E7%90%86"><span class="nav-number">1.7.</span> <span class="nav-text">Thread Pool原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#thread-pool-size-%E8%BF%87%E5%B0%8F%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.7.1.</span> <span class="nav-text">thread_pool_size 过小的案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#MySQL-ping-%E5%92%8C-MySQL-%E5%8D%8F%E8%AE%AE%E7%9B%B8%E5%85%B3%E7%9F%A5%E8%AF%86"><span class="nav-number">1.7.2.</span> <span class="nav-text">MySQL ping 和 MySQL 协议相关知识</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8D%A1%E6%AD%BB%E6%A1%88%E4%BE%8B%EF%BC%9Ashow-stats%E5%AF%BC%E8%87%B4%E9%9B%86%E7%BE%A43406%E7%9B%91%E6%8E%A7%E5%8D%A1%E6%AD%BB"><span class="nav-number">1.8.</span> <span class="nav-text">线程池卡死案例：show stats导致集群3406监控卡死</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%8E%B0%E8%B1%A1"><span class="nav-number">1.8.1.</span> <span class="nav-text">现象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8E%9F%E5%9B%A0"><span class="nav-number">1.8.2.</span> <span class="nav-text">原因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88"><span class="nav-number">1.8.3.</span> <span class="nav-text">解决方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#X%E5%BA%94%E7%94%A8%E5%AF%B9%E5%88%86%E5%B8%83%E5%BC%8F%E4%BB%BB%E5%8A%A1%E6%89%93%E6%8C%82%E7%BA%BF%E7%A8%8B%E6%B1%A0%E7%9A%84%E4%BC%98%E5%8C%96"><span class="nav-number">1.9.</span> <span class="nav-text">X应用对分布式任务打挂线程池的优化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%BA%BF%E7%A8%8B%E6%B1%A0%E6%8B%86%E6%88%90%E5%A4%9A%E4%B8%AAbucket%E4%BC%98%E5%8C%96%E5%88%86%E6%9E%90"><span class="nav-number">1.9.1.</span> <span class="nav-text">线程池拆成多个bucket优化分析</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E6%96%87%E7%AB%A0"><span class="nav-number">1.10.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="MySQL线程池导致的延时卡顿排查 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          MySQL线程池导致的延时卡顿排查
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-11-17 07:30:03" itemprop="dateCreated datePublished" datetime="2020-11-17T07:30:03+08:00">2020-11-17</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="MySQL-线程池导致的卡顿"><a href="#MySQL-线程池导致的卡顿" class="headerlink" title="MySQL 线程池导致的卡顿"></a>MySQL 线程池导致的卡顿</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>简单小表的主键点查SQL，单条执行很快，但是放在业务端，有时快有时慢，取了一条慢sql，在MySQL侧查看，执行时间很短。</p>
+<p>通过Tomcat业务端监控有显示慢SQL，取slow.log里显示有12秒执行时间的SQL，但是这次12秒的执行在MySQL上记录下来的执行时间都不到1ms。</p>
+<p>所在节点的tsar监控没有异常，Tomcat manager监控上没有fgc，Tomcat实例规格 16C32g*8, MySQL  32c128g  *32 。</p>
+<p>5-28号现象复现，从监控图上CPU、内存、网络都没发现异常，MySQL侧查到的SQL依然执行很快，Tomcat侧记录12S执行时间，当时Tomcat节点的网络流量、CPU压力都很小。</p>
+<p>所以客户怀疑Tomcat有问题或者Tomcat上的代码写得有问题导致了这个问题，需要排查和解决掉。</p>
+<p>接下来我们会先分析这个问题出现的原因，然后会分析这类问题的共性同时拓展到其它场景下的类似问题。</p>
+<h2 id="Tomcat上抓包分析"><a href="#Tomcat上抓包分析" class="headerlink" title="Tomcat上抓包分析"></a>Tomcat上抓包分析</h2><h3 id="慢的连接"><a href="#慢的连接" class="headerlink" title="慢的连接"></a>慢的连接</h3><p>经过抓包分析发现在慢的连接上，所有操作都很慢，包括set 命令，慢的时间主要分布在3秒以上，1-3秒的慢查询比较少，这明显不太符合分布规律。并且目前看慢查询基本都发生在MySQL的0库的部分连接上（后端有一堆MySQL组成的集群），下面抓包的4637端口是MySQL的服务端口：</p>
+<p><img src="/images/oss/b8ed95b7081ee80eb23465ee0e9acc74.png" alt="image.png"></p>
+<p>以上两个连接都很慢，对应的慢查询在MySQL里面记录很快。</p>
+<p>慢的SQL的response按时间排序基本都在3秒以上：</p>
+<img src="/images/oss/36a2a60f64011bc73fee06c291bcd79f.png" alt="image.png" style="zoom:67%;" />
+
+<p>或者只看response time 排序，中间几个1秒多的都是 Insert语句。也就是1秒到3秒之间的没有，主要是3秒以上的查询</p>
+<img src="/images/oss/07146ff29534a1070adbdb8cedd280c9.png" alt="image.png" style="zoom:67%;" />
+
+
+
+<h3 id="快的连接"><a href="#快的连接" class="headerlink" title="快的连接"></a>快的连接</h3><p>同样一个查询SQL，发到同一个MySQL上(4637端口)，下面的连接上的所有操作都很快，下面是两个快的连接上的执行截图</p>
+<p><img src="/images/oss/d129dfe1a50b182f4d100ac7147f9099.png" alt="image.png"></p>
+<p>别的MySQL上都比较快，比如5556分片上的所有response RT排序，只有偶尔极个别的慢SQL</p>
+<p><img src="/images/oss/01531d138b9bc8dafda76b7c8bbb5bc9.png" alt="image.png"></p>
+<h2 id="MySQL相关参数"><a href="#MySQL相关参数" class="headerlink" title="MySQL相关参数"></a>MySQL相关参数</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; show variables like &#x27;%thread%&#x27;;</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| Variable_name                              | Value           |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">| innodb_purge_threads                       | 1               |</span><br><span class="line">| innodb_MySQL_thread_extra_concurrency        | 0               |</span><br><span class="line">| innodb_read_io_threads                     | 16              |</span><br><span class="line">| innodb_thread_concurrency                  | 0               |</span><br><span class="line">| innodb_thread_sleep_delay                  | 10000           |</span><br><span class="line">| innodb_write_io_threads                    | 16              |</span><br><span class="line">| max_delayed_threads                        | 20              |</span><br><span class="line">| max_insert_delayed_threads                 | 20              |</span><br><span class="line">| myisam_repair_threads                      | 1               |</span><br><span class="line">| performance_schema_max_thread_classes      | 50              |</span><br><span class="line">| performance_schema_max_thread_instances    | -1              |</span><br><span class="line">| pseudo_thread_id                           | 12882624        |</span><br><span class="line">| MySQL_is_dump_thread                         | OFF             |</span><br><span class="line">| MySQL_threads_running_ctl_mode               | SELECTS         |</span><br><span class="line">| MySQL_threads_running_high_watermark         | 50000           |</span><br><span class="line">| rocksdb_enable_thread_tracking             | OFF             |</span><br><span class="line">| rocksdb_enable_write_thread_adaptive_yield | OFF             |</span><br><span class="line">| rocksdb_signal_drop_index_thread           | OFF             |</span><br><span class="line">| thread_cache_size                          | 100             |</span><br><span class="line">| thread_concurrency                         | 10              |</span><br><span class="line">| thread_handling                            | pool-of-threads |</span><br><span class="line">| thread_pool_high_prio_mode                 | transactions    |</span><br><span class="line">| thread_pool_high_prio_tickets              | 4294967295      |</span><br><span class="line">| thread_pool_idle_timeout                   | 60              |</span><br><span class="line">| thread_pool_max_threads                    | 100000          |</span><br><span class="line">| thread_pool_oversubscribe                  | 10              |</span><br><span class="line">| thread_pool_size                           | 96              |</span><br><span class="line">| thread_pool_stall_limit                    | 30              |</span><br><span class="line">| thread_stack                               | 262144          |</span><br><span class="line">| threadpool_workaround_epoll_bug            | OFF             |</span><br><span class="line">| tokudb_cachetable_pool_threads             | 0               |</span><br><span class="line">| tokudb_checkpoint_pool_threads             | 0               |</span><br><span class="line">| tokudb_client_pool_threads                 | 0               |</span><br><span class="line">+--------------------------------------------+-----------------+</span><br><span class="line">33 rows in set (0.00 sec)</span><br></pre></td></tr></table></figure>
+
+<h2 id="综上结论"><a href="#综上结论" class="headerlink" title="综上结论"></a>综上结论</h2><p>问题原因跟MySQL线程池比较相关，慢的连接总是慢，快的连接总是快。需要到MySQL Server下排查线程池相关参数。</p>
+<p>同一个慢的连接上的回包，所有 ack 就很快（OS直接回，不需要进到MySQL），但是set就很慢，基本理解只要进到MySQL的就慢了，所以排除了网络原因（流量本身也很小，也没看到乱序、丢包之类的）</p>
+<h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a>问题解决</h2><p>18点的时候将4637端口上的MySQL thread_pool_oversubscribe 从10调整到20后，基本没有慢查询了：</p>
+<img src="/images/oss/92069e7521368e4d2519b3b861cc7faa.png" alt="image.png" style="zoom:50%;" />
+
+<p>当时从MySQL的观察来看，并发压力很小，很难抓到running thread比较高的情况（update: 可能是任务积压在队列中，只是96个thread pool中的一个thread全部running，导致整体running不高）</p>
+<p>MySQL记录的执行时间是指SQL语句开始解析后统计，中间的等锁、等Worker都不会记录在执行时间中，所以当时对应的SQL在MySQL日志记录中很快。</p>
+<p>thread_pool_stall_limit 会控制一个SQL过长时间（默认60ms）占用线程，如果出现stall_limit就放更多的SQL进入到thread pool中直到达到thread_pool_oversubscribe个</p>
+<blockquote>
+<p>The thread_pool_stall_limit affects executing statements. The value is the amount of time a statement has to finish after starting to execute before it becomes defined as stalled, at which point the thread pool permits the thread group to begin executing another statement. The value is measured in 10 millisecond units, so the default of 6 means 60ms. Short wait values permit threads to start more quickly. Short values are also better for avoiding deadlock situations. Long wait values are useful for workloads that include long-running statements, to avoid starting too many new statements while the current ones execute.</p>
+</blockquote>
+<h2 id="类似案例"><a href="#类似案例" class="headerlink" title="类似案例"></a>类似案例</h2><p>一个其它客户同样的问题的解决过程，最终发现是因为thread pool group中的active thread count 计数有泄漏，导致达到thread_pool_oversubscribe 的上限(实际没有任何线程运行)</p>
+<p>问题：1）为什么调整到20后 active_thread_count 没变，但是不卡了？那以前卡着的10个 thread在干嘛？</p>
+<p>​             2）卡住的根本原因是，升级能解决？</p>
+<p><img src="/images/951413iMgBlog/image-20230308214801877.png" alt="image-20230308214801877"></p>
+<p>调整前的 thread pool 配置：</p>
+<p><img src="/images/951413iMgBlog/image-20230308222538102.png" alt="image-20230308222538102"></p>
+<p>出问题时候的线程池 32个 group状态，有两个group queue count、active thread都明显到了瓶颈：select * from information_schema.THREAD_POOL_STATUS;</p>
+<p><img src="/images/951413iMgBlog/image-20230308222416238.png" alt="image-20230308222416238"></p>
+<ul>
+<li>id 线程组id</li>
+<li>thread_count &#x2F;&#x2F; 当前线程组中的线程数量</li>
+<li>active_thread_count &#x2F;&#x2F;当前线程组中活跃线程数量，这个不包含dump线程</li>
+<li>waiting_thread_count &#x2F;&#x2F; 当前线程组中处于waiting状态的线程数量</li>
+<li>dump_thread_count &#x2F;&#x2F; dump类线程数量</li>
+<li>slow_thread_timeout_count &#x2F;&#x2F; 目前仅对DDL生效</li>
+<li>connection_count &#x2F;&#x2F; 当前线程组中的连接数量</li>
+<li>low_queue_count &#x2F;&#x2F; 低优先级队列中的请求数量</li>
+<li>high_queue_count &#x2F;&#x2F; 高优先级队列中的请求数量</li>
+<li>waiting_thread_timeout_count &#x2F;&#x2F; 处于waiting状态并且超时的线程数量</li>
+</ul>
+<p>or: select sum(LOW_QUEUE_COUNT) from information_schema.thread_pool_status;</p>
+<p>调整 thread_pool_oversubscribe由10到20后不卡了，这时的 pool status(重点注意 ACTIVE_THREAD_COUNT 数字没有任何变化)：</p>
+<p><img src="/images/951413iMgBlog/image-20230308223126774.png" alt="image-20230308223126774"></p>
+<p>看起来像是 ACTIVE_THREAD 全假死了，没有跑任务也不去take新任务一直卡在那里，类似线程泄露。查看了一下所有MySQLD 线程都是 S 的正常状态，并无异常。</p>
+<p>继续分析统计了一下mysqld线程数量(157)，远小于 thread pool 中的active线程数量(202)，看起来像是计数器在线程异常(磁盘故障时)忘记 减减 了，导致计数器虚高进而无法新创建新线程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">#top -H -b -n 1 -p 130650 |grep mysqld | wc -l</span><br><span class="line">157</span><br><span class="line"></span><br><span class="line"># mysql -e &quot;select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">|                71 |                      206 |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line"># mysql -e &quot;select sum(THREAD_COUNT), sum(ACTIVE_THREAD_COUNT)  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">| sum(THREAD_COUNT) | sum(ACTIVE_THREAD_COUNT) |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line">|                75 |                      202 |</span><br><span class="line">+-------------------+--------------------------+</span><br><span class="line"># mysql_secbox  --exe-path=mysql -A -uroot -h127.0.0.1 -P3054 -e  &quot;select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT  from information_schema.THREAD_POOL_STATUS&quot;</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">|  0 |            3 |   7 | 13 |               0 |                0 |</span><br><span class="line">| 19 |            3 |  10 | 14 |               0 |                0 |</span><br><span class="line">| 20 |            3 |   8 | 13 |               0 |                0 |</span><br><span class="line">| 21 |            2 |   5 |  9 |               0 |                0 |</span><br><span class="line">| 28 |            2 |   6 |  6 |               0 |                0 |</span><br><span class="line">//增加了一个active count,执行完毕后active thread count会减下去</span><br><span class="line">| 29 |            2 |  12 | 14 |               0 |                0 | </span><br><span class="line">| 30 |            2 |   4 | 11 |               0 |                0 | </span><br><span class="line">| 31 |            2 |   8 | 10 |               0 |                0 |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br></pre></td></tr></table></figure>
+
+<p>正常的thread_pool状态, ACTIVE_THREAD_COUNT极小且小于 THREAD_COUNT：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; select ID,THREAD_COUNT,ACTIVE_THREAD_COUNT AS ATC,CONNECTION_COUNT AS CC,LOW_QUEUE_COUNT,HIGH_QUEUE_COUNT from information_schema.THREAD_POOL_STATUS;</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">| ID | THREAD_COUNT | ATC | CC | LOW_QUEUE_COUNT | HIGH_QUEUE_COUNT |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br><span class="line">|  0 |            2 |   0 |  3 |               0 |                0 |</span><br><span class="line">|  1 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  2 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  3 |            2 |   0 |  2 |               0 |                0 |</span><br><span class="line">|  4 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">|  5 |            2 |   0 |  3 |               0 |                0 |</span><br><span class="line">|  6 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">|  7 |            2 |   0 |  4 |               0 |                0 |</span><br><span class="line">+----+--------------+-----+----+-----------------+------------------+</span><br></pre></td></tr></table></figure>
+
+<h2 id="Thread-Pool原理"><a href="#Thread-Pool原理" class="headerlink" title="Thread Pool原理"></a><a target="_blank" rel="noopener" href="https://dbaplus.cn/news-11-1989-1.html">Thread Pool原理</a></h2><p><img src="/images/oss/6fbe1c10f07dd1c26eba0c0e804fa9a8.png" alt="image.png"></p>
+<p>MySQL 原有线程调度方式有每个连接一个线程(one-thread-per-connection)和所有连接一个线程（no-threads）。</p>
+<p>no-threads一般用于调试，生产环境一般用one-thread-per-connection方式。one-thread-per-connection 适合于低并发长连接的环境，而在高并发或大量短连接环境下，大量创建和销毁线程，以及线程上下文切换，会严重影响性能。另外 one-thread-per-connection 对于大量连接数扩展也会影响性能。</p>
+<p>为了解决上述问题，MariaDB、Percona、Aliyun RDS、Oracle MySQL 都推出了线程池方案，它们的实现方式大体相似，这里以 Percona 为例来简略介绍实现原理，同时会介绍我们在其基础上的一些改进。</p>
+<p>线程池由一系列 worker 线程组成，这些worker线程被分为<code>thread_pool_size</code>个group。用户的连接按 round-robin 的方式映射到相应的group 中，一个连接可以由一个group中的一个或多个worker线程来处理。</p>
+<p>thread_pool_oversubscribe  一个group中活跃线程和等待中的线程超过<code>thread_pool_oversubscribe</code>时，不会创建新的线程。 此参数可以控制系统的并发数，同时可以防止调度上的死锁，考虑如下情况，A、B、C三个事务，A、B 需等待C提交。A、B先得到调度，同时活跃线程数达到了<code>thread_pool_max_threads</code>上限，随后C继续执行提交，此时已经没有线程来处理C提交，从而导致A、B一直等待。<code>thread_pool_oversubscribe</code>控制group中活跃线程和等待中的线程总数，从而防止了上述情况。</p>
+<p><strong>MySQL Thread Pool之所以分成多个小的Thread Group Pool而不是一个大的Pool，是为了分解锁（每个group中都有队列，队列需要加锁。类似ConcurrentHashMap提高并发的原理），提高并发效率。另外如果对每个Pool的 Worker做CPU 亲和性绑定也会对cache更友好、效果更高</strong></p>
+<p>group中又有多个队列，用来区分优先级的，事务中的语句会放到高优先队列（非事务语句和autocommit 都会在低优先队列）；等待太久的SQL也会挪到高优先队列，防止饿死。</p>
+<p>比如启用Thread Pool后，如果出现多个慢查询，容易导致拨测类请求超时，进而出现Server异常的判断（类似Nginx 边缘触发问题）；或者某个group满后导致慢查询和拨测失败之类的问题</p>
+<h3 id="thread-pool-size-过小的案例"><a href="#thread-pool-size-过小的案例" class="headerlink" title="thread_pool_size 过小的案例"></a>thread_pool_size 过小的案例</h3><p>应用出现大量1秒超时报错：</p>
+<p><img src="/images/951413iMgBlog/52dbeb1c1058e6dbff0a790b4b4ba477.png" alt="image.png"></p>
+<p><img src="/images/951413iMgBlog/image-20211104130625676.png" alt="image-20211104130625676"></p>
+<p>分析代码，这个Druid报错堆栈是数据库连接池在创建到MySQL的连接后或者从连接池取一个连接给业务使用前会发送一个ping来验证下连接是否有效，有效后才给应用使用。说明TCP连接创建成功，但是MySQL 超过一秒钟都没有响应这个 ping，说明 MySQL处理指令缓慢。</p>
+<p>继续分析MySQL的参数：</p>
+<p><img src="/images/oss/8987545cc311fdd3ae232aee8c3f855a.png" alt="image.png"></p>
+<p>可以看到thread_pool_size是1，太小了，将所有MySQL线程都放到一个buffer里面来抢锁，锁冲突的概率太高。调整到16后可以明显看到MySQL的RT从原来的12ms下降到了3ms不到，整个QPS大概有8%左右的提升。这是因为pool size为1的话所有sql都在一个队列里面，多个worker thread加锁等待比较严重，导致rt延迟增加。</p>
+<p><img src="/images/oss/114b5b71468b33128e76129bbc7fb8f4.png" alt="image.png"></p>
+<p>这个问题发现是因为压力一上来的时候要创建大量新的连接，这些连结创建后会去验证连接的有效性，也就是Druid给MySQL发一个ping指令，一般都很快，同时Druid对这个valid操作设置了1秒的超时时间，从实际看到大量超时异常堆栈，从而发现MySQL内部响应有问题。</p>
+<h3 id="MySQL-ping-和-MySQL-协议相关知识"><a href="#MySQL-ping-和-MySQL-协议相关知识" class="headerlink" title="MySQL ping 和 MySQL 协议相关知识"></a>MySQL ping 和 MySQL 协议相关知识</h3><blockquote>
+<p><a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-usagenotes-j2ee-concepts-connection-pooling.html#idm47306928802368">Ping</a> use the JDBC method <a target="_blank" rel="noopener" href="http://docs.oracle.com/javase/7/docs/api/java/sql/Connection.html#isValid(int)">Connection.isValid(int timeoutInSecs)</a>. Digging into the MySQL Connector&#x2F;J source, the actual implementation uses com.mysql.jdbc.ConnectionImpl.pingInternal() to send a simple ping packet to the DB and returns true as long as a valid response is returned.</p>
+</blockquote>
+<p>MySQL ping protocol是发送了一个 <code>0e</code> 的byte标识给Server，整个包加上2byte的Packet Length（内容为：1），2byte的Packet Number（内容为：0），总长度为5 byte。Druid、DRDS默认都会 testOnBorrow，所以每个连接使用前都会先做ping。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">public class MySQLPingPacket implements CommandPacket &#123;</span><br><span class="line">    private final WriteBuffer buffer = new WriteBuffer();</span><br><span class="line">    public MySQLPingPacket() &#123;</span><br><span class="line">        buffer.writeByte((byte) 0x0e);</span><br><span class="line">    &#125;</span><br><span class="line">    public int send(final OutputStream os) throws IOException &#123;</span><br><span class="line">        os.write(buffer.getLengthWithPacketSeq((byte) 0)); // Packet Number</span><br><span class="line">        os.write(buffer.getBuffer(),0,buffer.getLength()); // Packet Length 固定为1</span><br><span class="line">        os.flush();</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/oss/7cf291546a167b0ca6a017e98db5a821.png" alt="image.png"></p>
+<p>也就是一个TCP包中的Payload为 MySQL协议中的内容长度 + 4（Packet Length+Packet Number）：<a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/dev/mysql-server/8.4.2/page_protocol_com_ping.html">https://dev.mysql.com/doc/dev/mysql-server/8.4.2/page_protocol_com_ping.html</a></p>
+<h2 id="线程池卡死案例：show-stats导致集群3406监控卡死"><a href="#线程池卡死案例：show-stats导致集群3406监控卡死" class="headerlink" title="线程池卡死案例：show stats导致集群3406监控卡死"></a>线程池卡死案例：show stats导致集群3406监控卡死</h2><h3 id="现象"><a href="#现象" class="headerlink" title="现象"></a>现象</h3><p>应用用于获取监控信息的端口 3406卡死，监控脚本无法连接上3406，监控没有数据（需要从3406采集）、DDL操作、show processlist、show stats操作卡死（需要跟整个集群的3406端口同步）。</p>
+<p>通过jstack看到应用进程的3406端口线程池都是这样: </p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&quot;ManagerExecutor-1-thread-1&quot;</span> #<span class="number">47</span> daemon prio=<span class="number">5</span> os_prio=<span class="number">0</span> tid=<span class="number">0x00007fe924004000</span> nid=<span class="number">0x15c</span> runnable [<span class="number">0x00007fe9034f4000</span>]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">    at java.net.SocketInputStream.socketRead0(Native Method)</span><br><span class="line">    at java.net.SocketInputStream.socketRead(SocketInputStream.java:<span class="number">116</span>)</span><br><span class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:<span class="number">171</span>)</span><br><span class="line">    at java.net.SocketInputStream.read(SocketInputStream.java:<span class="number">141</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.fill(ReadAheadInputStream.java:<span class="number">101</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.readFromUnderlyingStreamIfNecessary(ReadAheadInputStream.java:<span class="number">144</span>)</span><br><span class="line">    at com.mysql.jdbc.util.ReadAheadInputStream.read(ReadAheadInputStream.java:<span class="number">174</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x0000000722538b60</span>&gt; (a com.mysql.jdbc.util.ReadAheadInputStream)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:<span class="number">3005</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:<span class="number">3466</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:<span class="number">3456</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:<span class="number">3897</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:<span class="number">2524</span>)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:<span class="number">2677</span>)</span><br><span class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:<span class="number">2545</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x00000007432e19c8</span>&gt; (a com.mysql.jdbc.JDBC4Connection)</span><br><span class="line">    at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:<span class="number">2503</span>)</span><br><span class="line">    at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:<span class="number">1369</span>)</span><br><span class="line">    - locked &lt;<span class="number">0x00000007432e19c8</span>&gt; (a com.mysql.jdbc.JDBC4Connection)</span><br><span class="line">    at com.alibaba.druid.pool.ValidConnectionCheckerAdapter.isValidConnection(ValidConnectionCheckerAdapter.java:<span class="number">44</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidAbstractDataSource.testConnectionInternal(DruidAbstractDataSource.java:<span class="number">1298</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnectionDirect(DruidDataSource.java:<span class="number">1057</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">997</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">987</span>)</span><br><span class="line">    at com.alibaba.druid.pool.DruidDataSource.getConnection(DruidDataSource.java:<span class="number">103</span>)</span><br><span class="line">    at com.taobao.tddl.atom.AbstractTAtomDataSource.getConnection(AbstractTAtomDataSource.java:<span class="number">32</span>)</span><br><span class="line">    at com.alibaba.cobar.ClusterSyncManager$<span class="number">1.</span>run(ClusterSyncManager.java:<span class="number">60</span>)</span><br><span class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:<span class="number">511</span>)</span><br><span class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:<span class="number">266</span>)</span><br><span class="line">    at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:<span class="number">511</span>)</span><br><span class="line">    at java.util.concurrent.FutureTask.run(FutureTask.java:<span class="number">266</span>)</span><br><span class="line">    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:<span class="number">1152</span>)</span><br><span class="line">    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:<span class="number">627</span>)</span><br><span class="line">    at java.lang.Thread.run(Thread.java:<span class="number">882</span>)</span><br></pre></td></tr></table></figure>
+
+<h3 id="原因"><a href="#原因" class="headerlink" title="原因"></a>原因</h3><ol>
+<li>用户监控采集数据通过访问3306端口上的show stats，这个show stats命令要访问集群下所有节点的3406端口来执行show stats，3406端口上是一个大小为8个的Manager 线程池在执行这些show stats命令，导致占满了manager线程池的8个线程，每个3306的show stats线程都在wait 所有节点3406上的子任务的返回</li>
+<li>每个子任务的线程，都在等待向集群所有节点3406端口的manager建立连接，建连接后会先执行testValidatation操作验证连接的有效性，这个验证操作会执行SQL Query：select 1，这个query请求又要申请一个manager线程才能执行成功</li>
+<li>默认isValidConnection操作没有超时时间，如果Manager线程池已满后需要等待至socketTimeout后才会返回，导致这里出现卡死，还不如快速返回错误，可以增加超时来改进</li>
+</ol>
+<p>从线程栈来说，就是出现了活锁</p>
+<h3 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h3><ul>
+<li>增加manager线程池大小</li>
+<li>代码逻辑上优化3406 jdbc连接池参数，修改jdbc默认的socketTimeout超时时间以及替换默认checker（一般增加一个1秒超时的checker）</li>
+</ul>
+<p>对于checker，参考druid的实现，com&#x2F;alibaba&#x2F;druid&#x2F;pool&#x2F;vendor&#x2F;MySqlValidConnectionChecker.java：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//druid的MySqlValidConnectionChecker设定了valid超时时间为1秒</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">isValidConnection</span><span class="params">(Connection conn, String validateQuery, <span class="type">int</span> validationQueryTimeout)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="keyword">if</span> (conn.isClosed()) &#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (usePingMethod) &#123;</span><br><span class="line">            <span class="keyword">if</span> (conn <span class="keyword">instanceof</span> DruidPooledConnection) &#123;</span><br><span class="line">                conn = ((DruidPooledConnection) conn).getConnection();</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> (conn <span class="keyword">instanceof</span> ConnectionProxy) &#123;</span><br><span class="line">                conn = ((ConnectionProxy) conn).getRawObject();</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> (clazz.isAssignableFrom(conn.getClass())) &#123;</span><br><span class="line">                <span class="keyword">if</span> (validationQueryTimeout &lt;= <span class="number">0</span>) &#123;</span><br><span class="line">                    validationQueryTimeout = DEFAULT_VALIDATION_QUERY_TIMEOUT;<span class="comment">// 默认值1ms</span></span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                    ping.invoke(conn, <span class="literal">true</span>, validationQueryTimeout * <span class="number">1000</span>); <span class="comment">//1秒</span></span><br><span class="line">                &#125; <span class="keyword">catch</span> (InvocationTargetException e) &#123;</span><br><span class="line">                    <span class="type">Throwable</span> <span class="variable">cause</span> <span class="operator">=</span> e.getCause();</span><br><span class="line">                    <span class="keyword">if</span> (cause <span class="keyword">instanceof</span> SQLException) &#123;</span><br><span class="line">                        <span class="keyword">throw</span> (SQLException) cause;</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">throw</span> e;</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="type">String</span> <span class="variable">query</span> <span class="operator">=</span> validateQuery;</span><br><span class="line">        <span class="keyword">if</span> (validateQuery == <span class="literal">null</span> || validateQuery.isEmpty()) &#123;</span><br><span class="line">            query = DEFAULT_VALIDATION_QUERY;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="type">Statement</span> <span class="variable">stmt</span> <span class="operator">=</span> <span class="literal">null</span>;</span><br><span class="line">        <span class="type">ResultSet</span> <span class="variable">rs</span> <span class="operator">=</span> <span class="literal">null</span>;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            stmt = conn.createStatement();</span><br><span class="line">            <span class="keyword">if</span> (validationQueryTimeout &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                stmt.setQueryTimeout(validationQueryTimeout);</span><br><span class="line">            &#125;</span><br><span class="line">            rs = stmt.executeQuery(query);</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            JdbcUtils.close(rs);</span><br><span class="line">            JdbcUtils.close(stmt);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//使用如上validation</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">static</span> <span class="type">String</span> <span class="variable">DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS</span> <span class="operator">=</span></span><br><span class="line">        <span class="string">&quot;com.alibaba.druid.pool.vendor.MySqlValidConnectionChecker&quot;</span>;</span><br><span class="line"></span><br><span class="line"> <span class="type">String</span> <span class="variable">validConnnectionCheckerClassName</span> <span class="operator">=</span></span><br><span class="line">                    TAtomConstants.DEFAULT_DRUID_MYSQL_VALID_CONNECTION_CHECKERCLASS;</span><br><span class="line">                <span class="keyword">try</span> &#123;</span><br><span class="line">                    Class.forName(validConnnectionCheckerClassName);</span><br><span class="line">                    localDruidDataSource.setValidConnectionCheckerClassName(validConnnectionCheckerClassName);</span><br></pre></td></tr></table></figure>
+
+
+
+<p>这种线程池打满特别容易在分布式环境下出现，除了以上案例比如还有:</p>
+<blockquote>
+<p>分库分表业务线程池，接收一个逻辑 SQL，如果需要查询1024分片的sort merge join，相当于派生了一批子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁</p>
+<p>比如并行执行的SQL MPP线程池也有这个问题，多个查询节点收到SQL，拆分出子任务做并行，互相等待资源</p>
+</blockquote>
+<h2 id="X应用对分布式任务打挂线程池的优化"><a href="#X应用对分布式任务打挂线程池的优化" class="headerlink" title="X应用对分布式任务打挂线程池的优化"></a>X应用对分布式任务打挂线程池的优化</h2><p>对如下这种案例：</p>
+<blockquote>
+<p>X 应用通过线程池来接收一个逻辑SQL并处理，如果需要查询1024分片的sort merge join，相当于派生了1024个子任务，每个子任务占用一个线程，父任务等待子任务执行后返回数据。如果这样的逻辑SQL同时来一批并发，就会出现父任务都在等子任务，子任务又因为父任务占用了线程，导致子任务也在等着从线程池中取线程，这样父子任务就进入了死锁</p>
+</blockquote>
+<p>首先X对执行SQL 的线程池分成了多个bucket，每个SQL只跑在一个bucket里面的线程上，同时通过滑动窗口向线程池提交任务数，来控制并发量，进而避免线程池的死锁、活锁问题。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> ServerThreadPool <span class="title function_">create</span><span class="params">(String name, <span class="type">int</span> poolSize, <span class="type">int</span> deadLockCheckPeriod, <span class="type">int</span> bucketSize)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">ServerThreadPool</span>(name, poolSize, deadLockCheckPeriod, bucketSize); <span class="comment">//bucketSize可以设置</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="title function_">ServerThreadPool</span><span class="params">(String poolName, <span class="type">int</span> poolSize, <span class="type">int</span> deadLockCheckPeriod, <span class="type">int</span> bucketSize)</span> &#123;</span><br><span class="line">    <span class="built_in">this</span>.poolName = poolName;</span><br><span class="line">    <span class="built_in">this</span>.deadLockCheckPeriod = deadLockCheckPeriod;</span><br><span class="line"></span><br><span class="line">    <span class="built_in">this</span>.numBuckets = bucketSize;</span><br><span class="line">    <span class="built_in">this</span>.executorBuckets = <span class="keyword">new</span> <span class="title class_">ThreadPoolExecutor</span>[bucketSize];</span><br><span class="line">    <span class="type">int</span> <span class="variable">bucketPoolSize</span> <span class="operator">=</span> poolSize / bucketSize; <span class="comment">//将整个pool分成多个bucket</span></span><br><span class="line">    <span class="built_in">this</span>.poolSize = bucketPoolSize;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">bucketIndex</span> <span class="operator">=</span> <span class="number">0</span>; bucketIndex &lt; bucketSize; bucketIndex++) &#123;</span><br><span class="line">        <span class="type">ThreadPoolExecutor</span> <span class="variable">executor</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ThreadPoolExecutor</span>(bucketPoolSize,</span><br><span class="line">            bucketPoolSize,</span><br><span class="line">            <span class="number">0L</span>,</span><br><span class="line">            TimeUnit.MILLISECONDS,</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">LinkedBlockingQueue</span>&lt;Runnable&gt;(),</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">NamedThreadFactory</span>(poolName + <span class="string">&quot;-bucket-&quot;</span> + bucketIndex, <span class="literal">true</span>));</span><br><span class="line"></span><br><span class="line">        executorBuckets[bucketIndex] = executor;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="built_in">this</span>.lastCompletedTaskCountBuckets = <span class="keyword">new</span> <span class="title class_">long</span>[bucketSize];</span><br><span class="line">    <span class="comment">// for check thread</span></span><br><span class="line">    <span class="keyword">if</span> (deadLockCheckPeriod &gt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">this</span>.timer = <span class="keyword">new</span> <span class="title class_">Timer</span>(SERVER_THREAD_POOL_TIME_CHECK, <span class="literal">true</span>);</span><br><span class="line">        buildCheckTask();</span><br><span class="line">        <span class="built_in">this</span>.timer.scheduleAtFixedRate(checkTask, deadLockCheckPeriod, deadLockCheckPeriod);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>通过bucketSize将一个大的线程池分成多个小的线程池，每个SQL 控制跑在一个小的线程池中，这里和MySQL的thread_pool是同样的设计思路，当然MySQL 的thread_pool主要是为了改进大锁的问题。</p>
+<p>另外DRDS上线程池拆分后性能也有提升：</p>
+<p><img src="/images/951413iMgBlog/image-20211104163732499.png" alt="image-20211104163732499"></p>
+<p>测试结果说明：(以全局线程池为基准，分别关注：关日志、分桶线程池、协程)</p>
+<blockquote>
+<ol>
+<li>关日志，整体性能提升在20%左右 (8core最好成绩在6.4w qps)</li>
+<li>协程，整体性能15%左右</li>
+<li>关日志+协程，整体提升在35%左右 (8core最好成绩在7w qps)</li>
+<li>分桶，整体性能提升在18%左右 </li>
+<li>分桶+关日志，整体提升在39%左右 (8core最好成绩在7.4w qps)</li>
+<li>分桶+协程，整体提升在36%左右</li>
+<li>分桶+关日志+协程，整体提升在60%左右 (8core最好成绩在8.3w qps)</li>
+</ol>
+</blockquote>
+<h3 id="线程池拆成多个bucket优化分析"><a href="#线程池拆成多个bucket优化分析" class="headerlink" title="线程池拆成多个bucket优化分析"></a>线程池拆成多个bucket优化分析</h3><p>拆分前锁主要是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line">Started [lock] profiling</span><br><span class="line">--- Execution profile ---</span><br><span class="line">Total samples:         <span class="number">496</span></span><br><span class="line"></span><br><span class="line">Frame buffer usage:    <span class="number">0.0052</span>%</span><br><span class="line"></span><br><span class="line">--- <span class="number">352227700</span> ns (<span class="number">53.09</span>%), <span class="number">248</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.util.Properties</span><br><span class="line">  [ <span class="number">1</span>] java.util.Hashtable.get</span><br><span class="line">  [ <span class="number">2</span>] java.util.Properties.getProperty</span><br><span class="line">  [ <span class="number">3</span>] com.taobao.tddl.common.properties.SystemPropertiesHelper.getPropertyValue</span><br><span class="line">  [ <span class="number">4</span>] com.taobao.tddl.executor.MatrixExecutor.configMppExecutionContext</span><br><span class="line">  [ <span class="number">5</span>] com.taobao.tddl.executor.MatrixExecutor.optimize</span><br><span class="line">  [ <span class="number">6</span>] com.taobao.tddl.matrix.jdbc.TConnection.optimizeThenExecute</span><br><span class="line">  [ <span class="number">7</span>] com.taobao.tddl.matrix.jdbc.TConnection.executeSQL</span><br><span class="line">  [ <span class="number">8</span>] com.taobao.tddl.matrix.jdbc.TPreparedStatement.executeSQL</span><br><span class="line">  [ <span class="number">9</span>] com.taobao.tddl.matrix.jdbc.TStatement.executeInternal</span><br><span class="line">  [<span class="number">10</span>] com.taobao.tddl.matrix.jdbc.TPreparedStatement.execute</span><br><span class="line">  [<span class="number">11</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [<span class="number">12</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [<span class="number">13</span>] com.alibaba.cobar.server.ServerConnection$<span class="number">1.</span>run</span><br><span class="line">  [<span class="number">14</span>] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line">  [<span class="number">15</span>] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line">  [<span class="number">16</span>] java.util.concurrent.FutureTask.run</span><br><span class="line">  [<span class="number">17</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [<span class="number">18</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [<span class="number">19</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">307781689</span> ns (<span class="number">46.39</span>%), <span class="number">243</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.util.Properties</span><br><span class="line">  [ <span class="number">1</span>] java.util.Hashtable.get</span><br><span class="line">  [ <span class="number">2</span>] java.util.Properties.getProperty</span><br><span class="line">  [ <span class="number">3</span>] com.taobao.tddl.common.properties.SystemPropertiesHelper.getPropertyValue</span><br><span class="line">  [ <span class="number">4</span>] com.taobao.tddl.config.ConfigDataMode.isDrdsMasterMode</span><br><span class="line">  [ <span class="number">5</span>] com.taobao.tddl.matrix.jdbc.TConnection.updatePlanManagementInfo</span><br><span class="line">  [ <span class="number">6</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [ <span class="number">7</span>] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line">  [ <span class="number">8</span>] com.alibaba.cobar.server.ServerConnection$<span class="number">1.</span>run</span><br><span class="line">  [ <span class="number">9</span>] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line">  [<span class="number">10</span>] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line">  [<span class="number">11</span>] java.util.concurrent.FutureTask.run</span><br><span class="line">  [<span class="number">12</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [<span class="number">13</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [<span class="number">14</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">3451038</span> ns (<span class="number">0.52</span>%), <span class="number">4</span> samples</span><br><span class="line">  [ <span class="number">0</span>] java.lang.Object</span><br><span class="line">  [ <span class="number">1</span>] sun.nio.ch.SocketChannelImpl.ensureReadOpen</span><br><span class="line">  [ <span class="number">2</span>] sun.nio.ch.SocketChannelImpl.read</span><br><span class="line">  [ <span class="number">3</span>] com.alibaba.cobar.net.AbstractConnection.read</span><br><span class="line">  [ <span class="number">4</span>] com.alibaba.cobar.net.NIOReactor$R.read</span><br><span class="line">  [ <span class="number">5</span>] com.alibaba.cobar.net.NIOReactor$R.run</span><br><span class="line">  [ <span class="number">6</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">--- <span class="number">4143</span> ns (<span class="number">0.00</span>%), <span class="number">1</span> sample</span><br><span class="line">  [ <span class="number">0</span>] com.taobao.tddl.common.IdGenerator</span><br><span class="line">  [ <span class="number">1</span>] com.taobao.tddl.common.IdGenerator.nextId</span><br><span class="line">  [ <span class="number">2</span>] com.alibaba.cobar.server.ServerConnection.genTraceId</span><br><span class="line">  [ <span class="number">3</span>] com.alibaba.cobar.server.ServerQueryHandler.query</span><br><span class="line">  [ <span class="number">4</span>] com.alibaba.cobar.net.FrontendConnection.query</span><br><span class="line">  [ <span class="number">5</span>] com.alibaba.cobar.net.handler.FrontendCommandHandler.handle</span><br><span class="line">  [ <span class="number">6</span>] com.alibaba.cobar.net.FrontendConnection$<span class="number">1.</span>run</span><br><span class="line">  [ <span class="number">7</span>] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line">  [ <span class="number">8</span>] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line">  [ <span class="number">9</span>] java.lang.Thread.run</span><br><span class="line"></span><br><span class="line">          ns  percent  samples  top</span><br><span class="line">  ----------  -------  -------  ---</span><br><span class="line">   <span class="number">660009389</span>   <span class="number">99.48</span>%      <span class="number">491</span>  java.util.Properties</span><br><span class="line">     <span class="number">3451038</span>    <span class="number">0.52</span>%        <span class="number">4</span>  java.lang.Object</span><br><span class="line">        <span class="number">4143</span>    <span class="number">0.00</span>%        <span class="number">1</span>  com.taobao.tddl.common.IdGenerator</span><br></pre></td></tr></table></figure>
+
+<p>com.taobao.tddl.matrix.jdbc.TConnection.optimizeThenExecute调用对应代码逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (InsertSplitter.needSplit(sql, policy, extraCmd)) &#123;</span><br><span class="line">             executionContext.setDoingBatchInsertBySpliter(<span class="literal">true</span>);</span><br><span class="line">             <span class="type">InsertSplitter</span> <span class="variable">insertSplitter</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">InsertSplitter</span>(executor);</span><br><span class="line">                        <span class="comment">// In batch insert, update transaction policy in writing</span></span><br><span class="line">                        <span class="comment">// broadcast table is also needed.</span></span><br><span class="line">     resultCursor = insertSplitter.execute(sql,executionContext,policy,</span><br><span class="line">         (String insertSql) -&gt; optimizeThenExecute(insertSql, executionContext,trxPolicyModified));</span><br><span class="line">                    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">       resultCursor = optimizeThenExecute(sql, executionContext,trxPolicyModified);</span><br><span class="line">                    &#125;</span><br><span class="line">                    </span><br><span class="line"> 最终会访问到：</span><br><span class="line"> <span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">configMppExecutionContext</span><span class="params">(ExecutionContext executionContext)</span> &#123;</span><br><span class="line"></span><br><span class="line">        <span class="type">String</span> <span class="variable">instRole</span> <span class="operator">=</span> (String) SystemPropertiesHelper.getPropertyValue(SystemPropertiesHelper.INST_ROLE);</span><br><span class="line">        <span class="type">SqlType</span> <span class="variable">sqlType</span> <span class="operator">=</span> executionContext.getSqlType();</span><br><span class="line">        </span><br><span class="line"> 相当于执行每个SQL都要加锁访问HashMap(SystemPropertiesHelper.getPropertyValue)，这里排队比较厉害       </span><br></pre></td></tr></table></figure>
+
+<p>实际以上测试结果显示bucket对性能有提升这么大是不对的，刚好这个版本把对HashMap的访问去掉了，这才是提升的主要原因，当然如果线程池入队出队有等锁的话改成多个肯定是有帮助的，但是从等锁观察是没有这个问题的。</p>
+<p>在这个代码基础上将bucket改成1，在4core机器下经过反复对比测试性能基本没有明显的差异，可能core越多这个问题会更明显些。总结</p>
+<p>回到最开始部分查询卡顿这个问题，本质在于 MySQL线程池开启后，因为会将多个连接分配在一个池子中共享这个池子中的几个线程。导致一个池子中的线程特别慢的时候会影响这个池子中所有的查询都会卡顿。即使别的池子很空闲也不会将任务调度过去。</p>
+<p>MySQL线程池设计成多个池子（Group）的原因是为了将任务队列拆成多个，这样每个池子中的线程只是内部竞争锁，跟其他池子不冲突，类似ConcurrentHashmap的实现，当然这个设计带来的问题就是多个池子中的任务不能均衡了。</p>
+<p>同时从案例我们也可以清楚地看到这个池子太小会造成锁冲突严重的卡顿，池子太大（每个池子中的线程数量就少）容易造成等线程的卡顿。</p>
+<p>**类似地这个问题也会出现在Nginx的多worker中，一旦一个连接分发到了某个worker，就会一直在这个worker上处理，如果这个worker上的某个连接有一些慢操作，会导致这个worker上的其它连接的所有操作都受到影响，特别是会影响一些探活任务的误判。**Nginx的worker这么设计也是为了将单worker绑定到固定的cpu，然后避免多核之间的上下文切换。</p>
+<p>如果池子卡顿后，调用方有快速fail，比如druid的MySqlValidConnectionChecker，那么调用方从堆栈很快能发现这个问题，如果没有异常一直死等的话对问题的排查不是很友好。</p>
+<p>另外可以看到分布式环境下死锁、活锁还是很容易产生的，想要一次性提前设计好比较难，需要不断踩坑爬坑。</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/36343">记一次诡异的数据库故障的排查过程</a></p>
+<p><a target="_blank" rel="noopener" href="http://mysql.taobao.org/monthly/2016/02/09/">http://mysql.taobao.org/monthly/2016/02/09/</a></p>
+<p><a target="_blank" rel="noopener" href="https://dbaplus.cn/news-11-1989-1.html">https://dbaplus.cn/news-11-1989-1.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://kb.aliyun-inc.com/repo/921/article?id=G71264">慢查询触发kill后导致集群卡死</a> <strong>把queryTimeout换成socketTimeout，这个不会发送kill，只会断开连接</strong></p>
+<p><a target="_blank" rel="noopener" href="https://kb.aliyun-inc.com/repo/921/article?id=G56753">青海湖、天津医保 RDS线程池过小导致DRDS查询卡顿问题排查 </a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/nginx/" rel="tag"># nginx</a>
+              <a href="/tags/ThreadPool/" rel="tag"># ThreadPool</a>
+              <a href="/tags/%E5%8D%A1%E9%A1%BF/" rel="tag"># 卡顿</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/" rel="prev" title="Linux内存--PageCache">
+                  <i class="fa fa-angle-left"></i> Linux内存--PageCache
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/" rel="next" title="MySQL针对秒杀场景的优化">
+                  MySQL针对秒杀场景的优化 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

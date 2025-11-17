@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="就是要你懂TCP–通过案例来学习MSS、MTU问题的描述 最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题） 发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现）  手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了">
+<meta property="og:type" content="article">
+<meta property="og:title" content="通过案例来理解MSS、MTU等相关TCP概念">
+<meta property="og:url" content="https://plantegg.github.io/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="就是要你懂TCP–通过案例来学习MSS、MTU问题的描述 最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题） 发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现）  手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240506090810608.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/23df36d95295c839722627b5d63bac48.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221125133218008.png">
+<meta property="article:published_time" content="2018-05-07T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.558Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="IP">
+<meta property="article:tag" content="MSS">
+<meta property="article:tag" content="MTU">
+<meta property="article:tag" content="TCP">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240506090810608.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/","path":"2018/05/07/就是要你懂TCP--通过案例来学习MSS、MTU/","title":"通过案例来理解MSS、MTU等相关TCP概念"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>通过案例来理解MSS、MTU等相关TCP概念 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E2%80%93%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU"><span class="nav-number">1.</span> <span class="nav-text">就是要你懂TCP–通过案例来学习MSS、MTU</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E7%9A%84%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题的描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B"><span class="nav-number">1.2.</span> <span class="nav-text">分析过程</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9C%A8%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%8A%93%E5%8C%85%E5%A6%82%E4%B8%8B%EF%BC%9A%EF%BC%8833%E7%AB%AF%E5%8F%A3%E6%98%AF%E6%9C%8D%E5%8A%A1%E7%AB%AF%E7%9A%84sshd%E7%AB%AF%E5%8F%A3%EF%BC%8C10-16-11-108%E6%98%AF%E5%AE%A2%E6%88%B7%E7%AB%AFip%EF%BC%89"><span class="nav-number">1.2.1.</span> <span class="nav-text">在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BB%8E%E6%8A%93%E5%8C%85%E4%B8%AD%E5%8F%AF%E4%BB%A5%E5%BE%97%E5%88%B0%E8%BF%99%E6%A0%B7%E4%B8%80%E4%BA%9B%E7%BB%93%E8%AE%BA%EF%BC%9A"><span class="nav-number">1.2.2.</span> <span class="nav-text">从抓包中可以得到这样一些结论：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%8E%A5%E4%B8%8B%E6%9D%A5%E5%88%86%E6%9E%90%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%93%BE%E8%B7%AF"><span class="nav-number">1.3.</span> <span class="nav-text">接下来分析网络传输链路</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#scp%E4%BC%A0%E8%BE%93%E7%9A%84%E6%97%B6%E5%80%99%E5%AE%9E%E9%99%85%E8%B7%AF%E7%94%B1%E5%A4%A7%E6%A6%82%E6%98%AF%E8%BF%99%E6%A0%B7%E7%9A%84"><span class="nav-number">1.3.1.</span> <span class="nav-text">scp传输的时候实际路由大概是这样的</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9F%A5%E7%9C%8B%E5%AE%BF%E4%B8%BB%E6%9C%BA1%E7%9A%84dmesg%E7%9C%8B%E5%88%B0%E4%BA%86%E8%BF%99%E6%A0%B7%E4%B8%80%E4%BA%9B%E4%BF%A1%E6%81%AF"><span class="nav-number">1.4.</span> <span class="nav-text">查看宿主机1的dmesg看到了这样一些信息</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E6%96%B9%E6%B3%95"><span class="nav-number">1.5.</span> <span class="nav-text">验证方法</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E4%BA%9B%E7%BB%93%E8%AE%BA"><span class="nav-number">1.6.</span> <span class="nav-text">一些结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.7.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98"><span class="nav-number">1.8.</span> <span class="nav-text">常见问题</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="通过案例来理解MSS、MTU等相关TCP概念 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          通过案例来理解MSS、MTU等相关TCP概念
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2018-05-07 12:30:03" itemprop="dateCreated datePublished" datetime="2018-05-07T12:30:03+08:00">2018-05-07</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="就是要你懂TCP–通过案例来学习MSS、MTU"><a href="#就是要你懂TCP–通过案例来学习MSS、MTU" class="headerlink" title="就是要你懂TCP–通过案例来学习MSS、MTU"></a>就是要你懂TCP–通过案例来学习MSS、MTU</h1><h2 id="问题的描述"><a href="#问题的描述" class="headerlink" title="问题的描述"></a>问题的描述</h2><ul>
+<li>最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题）</li>
+<li>发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现） </li>
+<li>手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了</li>
+<li>尝试单独scp这个文件依然卡死</li>
+<li>在这个容器上scp其它文件没问题(小文件)</li>
+<li>换一个容器scp这个文件没问题</li>
+</ul>
+<h2 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h2><blockquote>
+<p>实在很难理解为什么单单这个文件在这个容器上scp就卡死了，既然scp网络传输卡死，那么就同时在两个容器上tcpdump抓包，想看看为什么传不动了</p>
+</blockquote>
+<h4 id="在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）"><a href="#在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）" class="headerlink" title="在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）"></a>在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</h4><p><img src="/images/951413iMgBlog/image-20240506090810608.png" alt="image-20240506090810608"></p>
+<h4 id="从抓包中可以得到这样一些结论："><a href="#从抓包中可以得到这样一些结论：" class="headerlink" title="从抓包中可以得到这样一些结论："></a>从抓包中可以得到这样一些结论：</h4><ul>
+<li>从抓包中可以明显知道scp之所以卡死是因为丢包了，客户端一直在重传，图中绿框</li>
+<li>图中篮框显示时间间隔，时间都是花在在丢包重传等待的过程</li>
+<li>奇怪的问题是图中橙色框中看到的，网络这时候是联通的，客户端跟服务端在这个会话中依然有些包能顺利到达（Keep-Alive包）</li>
+<li>同时注意到重传的包长是1442，包比较大了，看了一下tcp建立连接的时候MSS是1500，应该没有问题</li>
+<li>查看了scp的两个容器的网卡mtu都是1500，正常</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了</span><br></pre></td></tr></table></figure>
+
+<h2 id="接下来分析网络传输链路"><a href="#接下来分析网络传输链路" class="headerlink" title="接下来分析网络传输链路"></a>接下来分析网络传输链路</h2><h4 id="scp传输的时候实际路由大概是这样的"><a href="#scp传输的时候实际路由大概是这样的" class="headerlink" title="scp传输的时候实际路由大概是这样的"></a>scp传输的时候实际路由大概是这样的</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">容器A---&gt; 宿主机1 ---&gt; ……中间的路由设备 …… ---&gt; 宿主机2 ---&gt; 容器B  </span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>前面提过其它容器scp同一个文件到容器B没问题，所以我认为中间的路由设备没问题，问题出在两台宿主机上</li>
+<li>在宿主机1上抓包发现抓不到丢失的那个长度为 1442 的包，也就是问题出在了  容器A—&gt; 宿主机1 上</li>
+</ul>
+<h2 id="查看宿主机1的dmesg看到了这样一些信息"><a href="#查看宿主机1的dmesg看到了这样一些信息" class="headerlink" title="查看宿主机1的dmesg看到了这样一些信息"></a>查看宿主机1的dmesg看到了这样一些信息</h2><pre><code>2016-08-08T08:15:27.125951+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+2016-08-08T08:15:27.536517+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+</code></pre>
+<h2 id="验证方法"><a href="#验证方法" class="headerlink" title="验证方法"></a>验证方法</h2><blockquote>
+<p>-D      Set the Don’t Fragment bit.<br>-s packetsize<br>             Specify the number of data bytes to be sent.  The default is 56, which translates into 64<br>             ICMP data bytes when combined with the 8 bytes of ICMP header data.  This option cannot be<br>             used with ping sweeps.</p>
+</blockquote>
+<p>ping 测试</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1500 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1500 data bytes</span><br><span class="line">ping: sendto: Message too long</span><br><span class="line">^C</span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 0 packets received, 100.0% packet loss</span><br><span class="line"> ✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1400 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1400 data bytes</span><br><span class="line">1408 bytes from 110.242.68.4: icmp_seq=0 ttl=49 time=21.180 ms</span><br><span class="line"></span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 1 packets received, 0.0% packet loss</span><br><span class="line">round-trip min/avg/max/stddev = 21.180/21.180/21.180/0.000 ms</span><br><span class="line"> ren@mac  ~/Downloads </span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="一些结论"><a href="#一些结论" class="headerlink" title="一些结论"></a>一些结论</h2><p> <strong>到这里问题已经很明确了 openvswitch 收到了 一个1428大小的包因为比mtu1400要大，所以扔掉了，接着查看宿主机1的网卡mtu设置果然是1400，悲催，马上修改mtu到1500，问题解决。</strong></p>
+<p>正常分片是ip层来操作，路由器工作在3层，有分片能力，从容器到宿主机走的是bridge，没有进行分片，或者是因为收到这个IP包的时候里面带了 Don’t Fragment标志，路由器就不进行分片了，那为什么IP包要带这个标志呢？当然是为了有更好的性能，都经过TCP握手协商出了一个MSS，就不要再进行分片了。</p>
+<p>当然这里TCP协商MSS的时候应该经过 <a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Path_MTU_Discovery">PMTUD（ This process is called “Path MTU discovery”.）</a> 来确认整个路由上的所有最小MTU，但是有些路由器会因为安全的原因过滤掉ICMP，导致PMTUD不可靠，所以这里的PMTUD形同虚设，比如在我们的三次握手中会协商一个MSS，这只是基于Client和Server两方的MTU来确定的，链路上如果还有比Client和Server的MTU更小的那么就会出现包超过MTU的大小，同时设置了DF标志而不再进行分片被丢掉。</p>
+<p>centos或者ubuntu下：</p>
+<pre><code>$cat /proc/sys/net/ipv4/tcp_mtu_probing //1 表示开启路径mtu检测
+0
+
+$sudo sysctl -a |grep -i pmtu
+net.ipv4.ip_forward_use_pmtu = 0
+net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
+net.ipv4.route.min_pmtu = 552
+</code></pre>
+<p><a target="_blank" rel="noopener" href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
+<p><a target="_blank" rel="noopener" href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
+<p><img src="/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 </p>
+<p><img src="/images/951413iMgBlog/image-20221125133218008.png" alt="image-20221125133218008"></p>
+<p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
+<p>这个ICMP包在链路上有可能会被丢掉，比如：</p>
+<p>Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。<br>简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
+<li>通过这个案例对mtu&#x2F;mss等有了进一步的了解</li>
+<li>从这个案例也理解了vlan模式下容器、宿主机、交换机之间的网络传输链路</li>
+<li>其实抓包还发现了比1500大得多的包顺利通过，反而更小的包无法通过，这是因为网卡基本都有拆包的功能了</li>
+<li>设置由<a target="_blank" rel="noopener" href="https://sysctl-explorer.net/net/ipv4/ip_no_pmtu_disc/">系统主动允许分片的参数</a> sysctl -w net.ipv4.ip_no_pmtu_disc&#x3D;1  可以解决这种问题</li>
+</ul>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><p>Q: 传输的包超过MTU后表现出来的症状？<br>A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。</p>
+<p>Q: mtu 如何配置<br>ifconfig eth1 mtu 9000 up<br>vi &#x2F;etc&#x2F;sysconfig&#x2F;network-scripts&#x2F;ifcfg-eth0</p>
+<p>Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？<br>A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。</p>
+<p>Q: 到哪里可以设置MSS</p>
+<p>A: 网卡配置–ifconfig；ip route在路由上指定；iptables中限制</p>
+<blockquote>
+<p># Add rules<br>$ sudo iptables -I OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48<br># delete rules<br>$ sudo iptables -D OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48</p>
+<p># show router information<br>$ route -ne<br>$ ip route show<br>192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100<br># modify route table<br>$ sudo ip route change 192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100 advmss 48</p>
+</blockquote>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/TCP/" rel="tag"># TCP</a>
+              <a href="/tags/IP/" rel="tag"># IP</a>
+              <a href="/tags/MTU/" rel="tag"># MTU</a>
+              <a href="/tags/MSS/" rel="tag"># MSS</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2018/04/26/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug/" rel="prev" title="如何定位上亿次调用才出现一次的Bug">
+                  <i class="fa fa-angle-left"></i> 如何定位上亿次调用才出现一次的Bug
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/" rel="next" title="如何在工作中学习">
+                  如何在工作中学习 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

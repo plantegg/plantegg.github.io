@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="CPU的制造和概念为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CPU的制造和概念">
+<meta property="og:url" content="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="CPU的制造和概念为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524-1011377.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/images.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/yp6cf.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/weixin15664418828781.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/e510d61ed3e648a3ae64be7ac1da26e7.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210601160424815.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/weixin15664418828785.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/738303bb-e157-47d2-a085-6daac98f04ec.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230621183939476.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230621184113927.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/xCqqv.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1000px-skylake_sp_mesh_core_tile_zoom_with_client_shown.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/dataf1-1372099277050.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210601162558479.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602113401202.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/northsouth2.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602114931825.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-20210601095028465">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220711110145506.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/cache-ht-hierarchy-2.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602165525641.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602172555232.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602171352551.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602170727459.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/main-qimg-7a34de25ee9d09ba88a1671d22d4b0f1.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Ice-Lake-3rd-Gen-Xeon-overview-slide.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/intel-ice-lake-sunny-cove-dpdk-latency.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210715094527563.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210715094637227.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210715100609552.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1000.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/numa-fsb-3.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Skylake-SP-28-Core-Die-Mesh-800x666.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602104851803.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220418101937564.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f5e72f61ed8b6c2ba163e00491c7db40.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210602154509596.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/e4a2fb522be7aa65158778b7ea825207.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/webp">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/webp-20210601102242967">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210615105019238.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/313d469d57e6b92eyy03dee63614a72c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/639990db9d26a8a54d1baaf3d6e513d4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/3bb8531b7ab4c503436838ab15434310.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/a37bd5e13f2920fb2e85a7907cdc852a.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210728095829384.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f6.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f3.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f5.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f2.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f7.jpg">
+<meta property="article:published_time" content="2021-06-01T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.513Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="Linux">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161410524-1011377.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/","path":"2021/06/01/CPU的制造和概念/","title":"CPU的制造和概念"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>CPU的制造和概念 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5"><span class="nav-number">1.</span> <span class="nav-text">CPU的制造和概念</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="nav-number">1.1.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%87%A0%E4%B8%AA%E9%87%8D%E8%A6%81%E6%A6%82%E5%BF%B5"><span class="nav-number">1.2.</span> <span class="nav-text">几个重要概念</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%94%AE%E5%8D%96%E7%9A%84CPU%E5%AE%9E%E7%89%A9"><span class="nav-number">1.3.</span> <span class="nav-text">售卖的CPU实物</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%A3%B8%E7%89%87Die-%E5%88%B6%E4%BD%9C"><span class="nav-number">1.4.</span> <span class="nav-text">裸片Die 制作</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%8A%AF%E7%89%87%E8%AE%BE%E8%AE%A1"><span class="nav-number">1.4.1.</span> <span class="nav-text">芯片设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%85%89%E5%88%BB"><span class="nav-number">1.4.2.</span> <span class="nav-text">光刻</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Die%E5%92%8Ccore"><span class="nav-number">1.4.3.</span> <span class="nav-text">Die和core</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8C%97%E6%A1%A5%E5%92%8C%E5%8D%97%E6%A1%A5"><span class="nav-number">1.5.</span> <span class="nav-text">北桥和南桥</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%8E%B0%E4%BB%A3CPU%E7%9A%84%E5%9F%BA%E6%9C%AC%E6%9E%B6%E6%9E%84"><span class="nav-number">1.6.</span> <span class="nav-text">现代CPU的基本架构</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E4%B8%AACore%E7%9A%84%E5%85%B8%E5%9E%8B%E7%BB%93%E6%9E%84"><span class="nav-number">1.7.</span> <span class="nav-text">一个Core的典型结构</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A4%9A%E6%A0%B8%E5%92%8C%E5%A4%9A%E4%B8%AACPU"><span class="nav-number">1.8.</span> <span class="nav-text">多核和多个CPU</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%96%B9%E6%A1%881%EF%BC%9A%E4%B8%80%E4%B8%AA%E5%A4%A7Die%E9%9B%86%E6%88%9048core%EF%BC%9A"><span class="nav-number">1.8.1.</span> <span class="nav-text">方案1：一个大Die集成48core：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%96%B9%E6%A1%882%EF%BC%9A%E4%B8%80%E4%B8%AACPU%E5%B0%81%E8%A3%858%E4%B8%AADie%EF%BC%8C%E4%B9%9F%E5%8F%ABMCM%EF%BC%88Multi-Chip-Module%EF%BC%89%EF%BC%8C%E6%AF%8F%E4%B8%AADie-6%E4%B8%AAcore"><span class="nav-number">1.8.2.</span> <span class="nav-text">方案2：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die 6个core</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%96%B9%E6%A1%883%EF%BC%9A%E5%9B%9B%E4%B8%AA%E7%89%A9%E7%90%86CPU%EF%BC%88%E5%A4%9ASocket%EF%BC%89%EF%BC%8C%E6%AF%8F%E4%B8%AA%E7%89%A9%E7%90%86CPU%EF%BC%88Package%EF%BC%89%E9%87%8C%E9%9D%A2%E4%B8%80%E4%B8%AADie%EF%BC%8C%E6%AF%8F%E4%B8%AADie12%E4%B8%AAcore%EF%BC%9A"><span class="nav-number">1.8.3.</span> <span class="nav-text">方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%9D%A2%E7%A7%AF%E5%92%8C%E6%80%A7%E8%83%BD"><span class="nav-number">1.8.4.</span> <span class="nav-text">面积和性能</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%9920%E5%B9%B4%E4%B8%BB%E9%A2%91%E5%9F%BA%E6%9C%AC%E6%B2%A1%E6%9C%89%E6%8F%90%E5%8D%87%E4%BA%86"><span class="nav-number">1.9.</span> <span class="nav-text">为什么这20年主频基本没有提升了</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%AF%94%E8%BE%83%E4%B8%A4%E4%BB%A3CPU%E6%80%A7%E8%83%BD%E5%8F%98%E5%8C%96"><span class="nav-number">1.9.1.</span> <span class="nav-text">比较两代CPU性能变化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%87%E4%BB%A4%E9%9B%86%E4%BC%98%E5%8C%96"><span class="nav-number">1.9.2.</span> <span class="nav-text">指令集优化</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#AVX-Advanced-Vector-Extension%EF%BC%8C%E9%AB%98%E7%BA%A7%E7%9F%A2%E9%87%8F%E6%89%A9%E5%B1%95%E6%8C%87%E4%BB%A4%E9%9B%86"><span class="nav-number">1.9.2.1.</span> <span class="nav-text">AVX(Advanced Vector Extension，高级矢量扩展指令集)</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%85%B3%E4%BA%8E%E6%80%A7%E8%83%BD%E6%8F%90%E5%8D%87%E7%9A%84%E5%B0%8F%E7%BB%93"><span class="nav-number">1.9.3.</span> <span class="nav-text">关于性能提升的小结</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BB%E9%A2%91%E5%92%8C%E5%A4%96%E9%A2%91"><span class="nav-number">1.10.</span> <span class="nav-text">主频和外频</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A4%9Acore%E9%80%9A%E8%AE%AF%E5%92%8CNUMA"><span class="nav-number">1.11.</span> <span class="nav-text">多core通讯和NUMA</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#uma%E4%B8%8Bcpu%E8%AE%BF%E9%97%AE%E5%86%85%E5%AD%98"><span class="nav-number">1.11.1.</span> <span class="nav-text">uma下cpu访问内存</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#NUMA"><span class="nav-number">1.11.2.</span> <span class="nav-text">NUMA</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Ring-Bus"><span class="nav-number">1.11.2.1.</span> <span class="nav-text">Ring Bus</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Mesh%E7%BD%91%E7%BB%9C"><span class="nav-number">1.11.2.2.</span> <span class="nav-text">Mesh网络</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#SUB-NUMA-Cluster-SNC"><span class="nav-number">1.11.3.</span> <span class="nav-text">SUB_NUMA Cluster(SNC)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#uncore"><span class="nav-number">1.11.4.</span> <span class="nav-text">uncore</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E4%BA%9BIntel-CPU-NUMA%E7%BB%93%E6%9E%84%E5%8F%82%E8%80%83"><span class="nav-number">1.12.</span> <span class="nav-text">一些Intel CPU NUMA结构参考</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#intel-%E6%9E%B6%E6%9E%84%E8%BF%AD%E4%BB%A3"><span class="nav-number">1.12.1.</span> <span class="nav-text">intel 架构迭代</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%91%BD%E5%90%8D%E8%A7%84%E5%BE%8B"><span class="nav-number">1.12.2.</span> <span class="nav-text">命名规律</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%8D%E5%90%8C%E7%9A%84%E6%9E%B6%E6%9E%84%E4%B8%8B%E7%9A%84%E5%8F%82%E6%95%B0"><span class="nav-number">1.12.3.</span> <span class="nav-text">不同的架构下的参数</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#UEFI%E5%92%8CBios"><span class="nav-number">1.13.</span> <span class="nav-text">UEFI和Bios</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#socket"><span class="nav-number">1.14.</span> <span class="nav-text">socket</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#GPU"><span class="nav-number">1.15.</span> <span class="nav-text">GPU</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88GPU%E6%AF%94CPU%E5%BF%AB"><span class="nav-number">1.15.1.</span> <span class="nav-text">为什么GPU比CPU快</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%8B%B1%E4%BC%9F%E8%BE%BE%E7%9A%84GPU%E5%87%BA%E5%9C%88"><span class="nav-number">1.15.2.</span> <span class="nav-text">英伟达的GPU出圈</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%8E%B0%E5%9C%BA%E5%8F%AF%E7%BC%96%E7%A8%8B%E9%97%A8%E9%98%B5%E5%88%97FPGA%EF%BC%88Field-Programmable-Gate-Array%EF%BC%89"><span class="nav-number">1.16.</span> <span class="nav-text">现场可编程门阵列FPGA（Field-Programmable Gate Array）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%93%E7%94%A8%E9%9B%86%E6%88%90%E7%94%B5%E8%B7%AFASIC%EF%BC%88Application-Specific-Integrated-Circuit%EF%BC%89"><span class="nav-number">1.17.</span> <span class="nav-text">专用集成电路ASIC（Application-Specific Integrated Circuit）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BC%A0%E9%87%8F%E5%A4%84%E7%90%86%E5%99%A8TPU-%EF%BC%88tensor-processing-unit%EF%BC%89"><span class="nav-number">1.18.</span> <span class="nav-text">张量处理器TPU （tensor processing unit）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%B6%E5%AE%83%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86"><span class="nav-number">1.19.</span> <span class="nav-text">其它基础知识</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%8F%E8%A7%82%E8%AE%A4%E8%AF%86%E9%9B%86%E6%88%90%E7%94%B5%E8%B7%AF%E5%8D%8A%E5%AF%BC%E4%BD%93%E8%A1%8C%E4%B8%9A"><span class="nav-number">1.20.</span> <span class="nav-text">宏观认识集成电路半导体行业</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8D%8A%E5%AF%BC%E4%BD%93%E4%BA%A7%E4%B8%9A%E7%9A%84%E4%BA%A7%E5%80%BC%E5%88%86%E5%B8%83"><span class="nav-number">1.20.1.</span> <span class="nav-text">半导体产业的产值分布</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E4%B8%80%E5%8F%B0iPhone%E6%9D%A5%E7%9C%8B%E9%9B%86%E6%88%90%E7%94%B5%E8%B7%AF%E5%92%8C%E8%8A%AF%E7%89%87"><span class="nav-number">1.20.2.</span> <span class="nav-text">从一台iPhone来看集成电路和芯片</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%85%A8%E7%90%83%E5%8D%8A%E5%AF%BC%E4%BD%93%E8%90%A5%E6%94%B6%E5%88%86%E5%B8%83"><span class="nav-number">1.20.3.</span> <span class="nav-text">全球半导体营收分布</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8D%8A%E5%AF%BC%E4%BD%93%E4%BA%A7%E5%93%81%E7%9A%84%E5%8D%81%E5%A4%A7%E4%B9%B0%E5%AE%B6"><span class="nav-number">1.20.3.1.</span> <span class="nav-text">半导体产品的十大买家</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%9B%BD%E5%86%85%E5%8D%8A%E5%AF%BC%E4%BD%93%E5%B8%82%E5%9C%BA%E6%83%85%E5%86%B5"><span class="nav-number">1.20.4.</span> <span class="nav-text">国内半导体市场情况</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B7%A5%E8%89%BA"><span class="nav-number">1.20.5.</span> <span class="nav-text">工艺</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%AE%A1%E7%AE%97%E6%9C%BA%E8%8A%AF%E7%89%87%E5%8F%91%E5%B1%95%E6%80%BB%E7%BB%93%E5%92%8C%E5%B1%95%E6%9C%9B"><span class="nav-number">1.21.</span> <span class="nav-text">计算机芯片发展总结和展望</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%AE%A1%E7%AE%97%E6%9C%BA%E6%9E%B6%E6%9E%84%E7%9A%84%E6%9C%AA%E6%9D%A5%E6%9C%BA%E9%81%87"><span class="nav-number">1.21.1.</span> <span class="nav-text">计算机架构的未来机遇</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%89%B9%E5%AE%9A%E9%A2%86%E5%9F%9F%E7%9A%84%E4%BD%93%E7%B3%BB%E7%BB%93%E6%9E%84%EF%BC%88DSA%EF%BC%89"><span class="nav-number">1.21.1.1.</span> <span class="nav-text">特定领域的体系结构（DSA）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BC%80%E6%94%BE%E5%BC%8F%E6%9E%B6%E6%9E%84%EF%BC%88Open-Architectures%EF%BC%89"><span class="nav-number">1.21.1.2.</span> <span class="nav-text">开放式架构（Open Architectures）</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.22.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0-1"><span class="nav-number">1.23.</span> <span class="nav-text">系列文章</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="CPU的制造和概念 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          CPU的制造和概念
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-06-01 17:30:03" itemprop="dateCreated datePublished" datetime="2021-06-01T17:30:03+08:00">2021-06-01</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="CPU的制造和概念"><a href="#CPU的制造和概念" class="headerlink" title="CPU的制造和概念"></a>CPU的制造和概念</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
+<p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
+<p>大的方面主要是从这几个疑问来写这些文章：</p>
+<ul>
+<li>同样程序为什么CPU跑到800%还不如CPU跑到200%快？</li>
+<li>IPC背后的原理和和程序效率的关系？</li>
+<li>为什么数据库领域都爱把NUMA关了，这对吗？</li>
+<li>几个国产芯片的性能到底怎么样？</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><img src="/images/951413iMgBlog/image-20210802161410524-1011377.png" alt="image-20210802161410524"></p>
+<h2 id="几个重要概念"><a href="#几个重要概念" class="headerlink" title="几个重要概念"></a>几个重要概念</h2><p>为了增加对文章的理解先解释下几个高频概念</p>
+<p>Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路</p>
+<p>Die：从晶圆上切割下来的CPU(通常一个Die中包含多个core、L3cache、内存接口、GPU等，core里面又包含了L1、L2cache），Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试，服务器所用的Intel CPU的Die大小一般是大拇指指甲大小。</p>
+<p>封装：将一个或多个Die封装成一个物理上可以售卖的CPU</p>
+<p>路：就是socket、也就是封装后的物理CPU</p>
+<p>node：同一个Die下的多个core以及他们对应的内存，对应着NUMA</p>
+<h2 id="售卖的CPU实物"><a href="#售卖的CPU实物" class="headerlink" title="售卖的CPU实物"></a>售卖的CPU实物</h2><p>购买到的CPU实体外观和大小，一般是40mm X 50mm大小，可以看出一个CPU比一个Die大多了。</p>
+<p><img src="/images/951413iMgBlog/AFCCC93B-D8A7-400A-9E80-978F8B05CD7E.jpeg" alt="How to Perform a CPU Stress Test and Push It to the Limit | AVG"></p>
+<p><img src="/images/951413iMgBlog/images.jpeg" alt="Coffee Lake-Refresh Desktop CPU List Surfaces: 35W Core i9-9900T &amp; 8-Core  Xeon E-2200 Confirmed"></p>
+<p><img src="/images/951413iMgBlog/yp6cf.jpg" alt="enter image description here"></p>
+<h2 id="裸片Die-制作"><a href="#裸片Die-制作" class="headerlink" title="裸片Die 制作"></a>裸片Die 制作</h2><p>晶圆为什么总是圆的呢？生产过程就是从沙子中提纯硅，硅晶柱生长得到晶圆，生长是以圆柱形式的，所以切割下来的晶圆就是圆的了：</p>
+<p><img src="/images/951413iMgBlog/gif/weixin15664418828781.gif" alt="img"></p>
+<p>硅晶柱切片：</p>
+<p><img src="/images/951413iMgBlog/e510d61ed3e648a3ae64be7ac1da26e7.png" alt="img"></p>
+<p>直径为 300 毫米的纯硅晶圆（从硅柱上切割下来的圆片），俗称 12 寸晶圆，大约是 400 美金。但尺寸并不是衡量硅晶圆的最重要指标，纯度才是。日本的信越公司可以生产 13 个 9 纯度的晶圆。</p>
+<p>高纯硅的传统霸主依然是德国Wacker和美国Hemlock(美日合资)，中国任重而道远。太阳能级高纯硅要求是99.9999%，低纯度的硅全世界超过一半是中国产的，但是不值钱。而芯片用的电子级高纯硅要求99.999999999%，几乎全赖进口，直到2018年江苏鑫华公司才实现量产，目前年产0.5万吨，而中国一年进口15万吨。核心材料技术这块毫无疑问“外国仍然把中国摁在地上摩擦”。</p>
+<h3 id="芯片设计"><a href="#芯片设计" class="headerlink" title="芯片设计"></a>芯片设计</h3><p>主要依赖EDA， EDA工具是电子设计自动化（Electronic Design Automation）的简称，从计算机辅助设计（CAD）、计算机辅助制造（CAM）、计算机辅助测试（CAT）和计算机辅助工程（CAE）的概念发展而来的，是IC基础设计能力。利用EDA工具，工程师将芯片的电路设计、性能分析、设计出IC版图的整个过程交由计算机自动处理完成。</p>
+<p> EDA软件方面早已形成了三巨头——Synopsys、Cadence、Mentor。Synopsys是EDA三巨头之首，国内从事EDA软件开发的华大九天和这三家比起来不是一个数量级。国内IC设计公司几乎100%采用国外EDA工具，在未来的相当长的一段时间里，我们应该看不到缩小和Synopsys、Cadence、Mentor技术差距的可能性。</p>
+<h3 id="光刻"><a href="#光刻" class="headerlink" title="光刻"></a>光刻</h3><p>使用特定波长的光，透过光罩（类似印炒里面的母版），照射在涂有光刻胶的晶圆上，光罩上芯片的设计图像，就复制到晶圆上了，这就是光刻，这一步是由光刻机完成的，光刻机是芯片制造中光刻环节的核心设备。你可以把光刻理解为，就是用光罩这个母版，一次次在晶圆上印电路的过程。</p>
+<p><img src="/images/951413iMgBlog/b62d2a87a74c1ba90a069624bdc91eee.jpeg" alt="img"></p>
+<p>光刻是最贵的一个环节，一方面是光罩越来越多，越来越贵，另一方面光刻机也很贵。光刻机是半导体制造设备中价格占比最大，也是最核心的设备。2020 年荷兰公司 ASML 的极紫外光源（EUV）光刻机每台的平均售价是 1.45 亿欧元，而且全世界独家供货，年产量 31 台，有钱也未必能买得到。</p>
+<p><img src="/images/951413iMgBlog/image-20210601160424815.png" alt="image-20210601160424815"></p>
+<p>短波长光源是提高光刻机分辨力的有效方，光刻机的发展历史，就从紫外光源（UV）、深紫外光源（DUV），发展到了现在的极紫外光源（EUV）。</p>
+<p>回顾光刻机的发展历史，从 1960 年代的接触式光刻机、接近式光刻机，到 1970 年代的投影式光刻机，1980 年代的步进式光刻机，到步进式扫描光刻机、浸入式光刻机和现在的深紫外光源（DUV）和极紫外光源（EUV）光刻机，一边是设备性能的不断提高，另一边是价格逐年上升，且供应商逐渐减少。到了 EUV 光刻机，ASML(阿斯麦) 就是独家供货了。英特尔有阿斯麦15%的股份，台积电有5%，三星有3%，另外美国弄了一个《瓦森纳协定》，敏感技术不能卖，中国、朝鲜、伊朗、利比亚均是被限制国家。</p>
+<p>品质合格的die切割下去后，原来的晶圆成了下图的样子，是挑剩下的Downgrade Flash Wafer。残余的die是品质不合格的晶圆。黑色的部分是合格的die，会被原厂封装制作为成品NAND颗粒，而不合格的部分，也就是图中留下的部分则当做废品处理掉。</p>
+<p>从晶圆上切割检测合格的Die（螺片），所以Die跟Wafer不一样不是圆的，而是是方形的，因为方形的在切割封测工艺上最简单</p>
+<p><img src="/images/951413iMgBlog/gif/weixin15664418828785.gif" alt="img"></p>
+<p>一个大晶圆，拿走了合格的Die后剩下的次品：</p>
+<p><img src="/images/951413iMgBlog/bba1cd11728b47103777e2dbcccec3fdfc032348.png" alt="img"></p>
+<p>可见次品率不低，后面会谈到怎么降低次品率，次品率决定了CPU的价格。</p>
+<p>台积电一片 5nm 晶圆的加工费高达 12500 美金。根据台积电的财报推算，台积电平均每片晶圆可以产生近 4000 美金（300mm 晶圆）的利润。无论是哪个数字，对比 400 美金的纯硅晶圆原料来说，这都是一个至少增值 10 倍的高价值的加工过程。</p>
+<p>随着Die的缩小，浪费的比例也从36%缩小成为12.6%。根据极限知识，我们知道如果Die的大小足够小，我们理论上可以100%用上所有的Wafer大小。从中我们可以看出越小的Die，浪费越小，从而降低CPU价格，对CPU生产者和消费者都是好事。</p>
+<p>光刻机有一个加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。</p>
+<p>AMD在工艺落后Intel的前提下，又想要堆核，只能采取一个Package封装4个独立Die的做法，推出了Zen1 EPYC服务器芯片，即不影响良率，又可以核心数目好看，可谓一举两得。</p>
+<p>可惜连接四个Die的片外总线终归没有片内通信效率高，在好些benchmark中败下阵来，可见没有免费的午餐。</p>
+<p><img src="/images/951413iMgBlog/v2-7d77aa1100b77261f2626791954e79ad_720w.jpg" alt="img"></p>
+<p>Intel的Pakcage内部是一个Die, Core之间原来是Ring Bus，在Skylake后改为Mesh。<strong>AMD多Die封装的目的是省钱和增加灵活性！AMD每个Zeppelin Die都比Intel的小，这对良品率提高很大，节约了生产费用。</strong></p>
+<p>这种胶水核强行将多个die拼一起是没考虑跨die之间的延迟，基本上跨die跟intel跨socket（numa）时延一样了。</p>
+<p>一颗芯片的 1&#x2F;3 的成本，是花在封测阶段的</p>
+<p><img src="/images/951413iMgBlog/738303bb-e157-47d2-a085-6daac98f04ec.jpeg" alt="img"></p>
+<p>一个晶体管（纳米尺度），注意三个黄色的导电铜点</p>
+<p><img src="/images/951413iMgBlog/image-20230621183939476.png" alt="image-20230621183939476"></p>
+<p>对应的一个逻辑意义上的NPMOS 晶体管：</p>
+<p><img src="/images/951413iMgBlog/image-20230621184113927.png" alt="image-20230621184113927"></p>
+<blockquote>
+<p>MOS :<strong>金属-氧化物-半导体</strong>，而拥有这种结构的晶体管我们称之为MOS晶体管。 MOS晶体管有P型MOS管和N型MOS管之分。 由MOS管构成的集成电路称为MOS集成电路，由NMOS组成的电路就是NMOS集成电路，由PMOS管组成的电路就是PMOS集成电路，由NMOS和PMOS两种管子组成的互补MOS电路，即CMOS电路</p>
+</blockquote>
+<h3 id="Die和core"><a href="#Die和core" class="headerlink" title="Die和core"></a>Die和core</h3><p>One die with multiple cores，下图是一个Die内部图:</p>
+<p><img src="/images/951413iMgBlog/xCqqv.jpg" alt="enter image description here"></p>
+<p>或者Skylake：</p>
+<p><img src="/images/951413iMgBlog/1000px-skylake_sp_mesh_core_tile_zoom_with_client_shown.png" alt="skylake sp mesh core tile zoom with client shown.png"></p>
+<p>将两个Die封装成一块CPU(core多，成本低):</p>
+<p><img src="/images/951413iMgBlog/dataf1-1372099277050.jpg" alt="data f1"></p>
+<p>第4代酷睿（Haswell）的die：</p>
+<p><img src="/images/951413iMgBlog/image-20210601162558479.png" alt="image-20210601162558479"></p>
+<p>第4代酷睿（Haswell）的die主要分为几个部分：GPU、4个core、System Agent(uncore,类似北桥)、cache和内存控制器和其他小部件。<strong>比如我们发现core 3和4有问题，我们可以直接关闭3和4。坏的关掉就是i5, 都是好的就当i7来卖。</strong></p>
+<h2 id="北桥和南桥"><a href="#北桥和南桥" class="headerlink" title="北桥和南桥"></a>北桥和南桥</h2><p>早期CPU core和内存硬盘的连接方式(FSB 是瓶颈)：</p>
+<p><img src="/images/951413iMgBlog/image-20210602113401202.png" alt="image-20210602113401202"></p>
+<p>个人PC主板实物图：</p>
+<p><img src="/images/951413iMgBlog/northsouth2.jpg" alt="img"></p>
+<p>由于FSB变成了系统性能的瓶颈和对多CPU的制约，在台式机和笔记本电脑中，MCH(Memory Control Hub)被请进CPU中，服务器市场虽然短暂的出现了IOH。</p>
+<p><img src="/images/951413iMgBlog/640.jpeg" alt="Image"></p>
+<p>集成北桥后的内存实物图：</p>
+<p><img src="/images/951413iMgBlog/image-20210602114931825.png" alt="image-20210602114931825"></p>
+<p>北桥已经集成到CPU中，南桥还没有，主要是因为：集成后Die增大不少，生产良品率下降成本上升；不集成两者采用不同的工艺；另外就是CPU引脚不够了！</p>
+<p><img src="/images/951413iMgBlog/640-20210601095028465" alt="Image"></p>
+<p>SoC（System on Chip）：南桥北桥都集成在CPU中，单芯片解决方案。ATOM就是SoC</p>
+<h2 id="现代CPU的基本架构"><a href="#现代CPU的基本架构" class="headerlink" title="现代CPU的基本架构"></a><a target="_blank" rel="noopener" href="https://frankdenneman.nl/2016/07/08/numa-deep-dive-part-2-system-architecture/">现代CPU的基本架构</a></h2><p>下图是一个两路的服务器结构，每路4个内存channel</p>
+<p><img src="/images/951413iMgBlog/image-20220711110145506.png" alt="image-20220711110145506"></p>
+<h2 id="一个Core的典型结构"><a href="#一个Core的典型结构" class="headerlink" title="一个Core的典型结构"></a>一个Core的典型结构</h2><p>Intel skylake 架构图</p>
+<p><img src="/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png" alt="skylake server block diagram.svg"></p>
+<p>iTLB:instruct TLB </p>
+<p>dTLB:data TLB</p>
+<p>多个core加上L3等组成一个Die：</p>
+<p><img src="/images/951413iMgBlog/cache-ht-hierarchy-2.jpg" alt="img"></p>
+<h2 id="多核和多个CPU"><a href="#多核和多个CPU" class="headerlink" title="多核和多个CPU"></a>多核和多个CPU</h2><p>如果要实现一台48core的计算能力的服务器，可以有如下三个方案</p>
+<h3 id="方案1：一个大Die集成48core："><a href="#方案1：一个大Die集成48core：" class="headerlink" title="方案1：一个大Die集成48core："></a>方案1：一个大Die集成48core：<img src="/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png" alt="Intel Skylake SP Mesh Architecture Conceptual Diagram"></h3><h3 id="方案2：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die-6个core"><a href="#方案2：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die-6个core" class="headerlink" title="方案2：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die 6个core"></a><a target="_blank" rel="noopener" href="https://wccftech.com/amd-epyc-rome-zen-2-7nm-server-cpu-162-pcie-gen-4-lanes-report/">方案2</a>：一个CPU封装8个Die，也叫MCM（Multi-Chip-Module），每个Die 6个core</h3><p><img src="/images/951413iMgBlog/image-20210602165525641.png" alt="image-20210602165525641"></p>
+<p>四个Die之间的连接方法：</p>
+<p><img src="/images/951413iMgBlog/image-20210602172555232.png" alt="image-20210602172555232"></p>
+<p>上图最下面的方案为<a target="_blank" rel="noopener" href="https://venturebeat.com/2017/03/28/intel-moves-tech-forward-by-putting-two-chips-in-a-single-package/">Intel采用的EMIB</a>（Embedded Multi-die Interconnect Bridge）方案，cost 最低。中间的方案是使用“硅中介层”(Interposer，AMD采用的方案)。这意味着你能在两枚主要芯片的下面放置和使用第三枚芯片。这枚芯片的目的是使得多个设备的连接更加容易，但是也带来了更高的成本。</p>
+<h3 id="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："><a href="#方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：" class="headerlink" title="方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core："></a>方案3：四个物理CPU（多Socket），每个物理CPU（Package）里面一个Die，每个Die12个core：</h3><p><img src="/images/951413iMgBlog/image-20210602171352551.png" alt="image-20210602171352551"></p>
+<p>三者的比较：</p>
+<p>性能肯定是大Die最好，但是良品率低、成本高；</p>
+<p>方案2的多个Die节省了主板上的大量布线和VR成本，总成本略低，但是方案3更容易堆出更多的core和<strong>内存</strong></p>
+<p><img src="/images/951413iMgBlog/image-20210602170727459.png" alt="image-20210602170727459"></p>
+<h3 id="面积和性能"><a href="#面积和性能" class="headerlink" title="面积和性能"></a>面积和性能</h3><p>我们使用了当时Intel 用在数据中心计算的大核CPU IvyBridge与当时用于 存储系列的小核CPU Avoton（ATOM）, 分别测试阿里巴巴的workload，得到性能吞吐如下：</p>
+<table>
+<thead>
+<tr>
+<th>Intel 大小CPU 核心</th>
+<th>阿里 Workload Output(QPS)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Avoton(8 cores) 2.4GHZ</td>
+<td>10K on single core</td>
+</tr>
+<tr>
+<td>Ivy Bridge(2650 v2 disable HT) 2.6GHZ</td>
+<td>20K on single core</td>
+</tr>
+<tr>
+<td>Ivy Bridge(2650 v2 enable HT) 2.4GHZ</td>
+<td>25K on single core</td>
+</tr>
+<tr>
+<td>Ivy Bridge(2650 v2 enable HT) 2.6GHZ</td>
+<td>27K on single core</td>
+</tr>
+</tbody></table>
+<ol>
+<li>大小核心直观比较：超线程等于将一个大核CPU 分拆成两个小核，Ivy Bridge的数据显示超线程给 Ivy Bridge <strong>1.35倍</strong>(27K&#x2F;20K) 的提升</li>
+<li>性能与芯片面积方面比较：现在我们分别评判 两种CPU对应的性能密度 (performance&#x2F;core die size) ，该数据越大越好，根据我们的计算和测量发现 Avoton(包含L1D, L1I, and L2 per core)大约是 3<del>4平方毫米，Ivy Bridge (包含L1D, L1I, L2 )大约是12</del>13平方毫米, L3&#x2F;core是 6~7平方毫米, 所以 Ivy Bridge 单核心的芯片面积需要18 ~ 20平方毫米。基于上面的数据我们得到的 Avoton core的性能密度为 2.5 (10K&#x2F;4sqmm)，而Ivy Bridge的性能密度是1.35 (27K&#x2F;20sqmm)，因此相同的芯片面积下 Avoton 的性能是 Ivy Bridge的 <strong>1.85倍</strong>(2.5&#x2F;1.35).</li>
+<li>性能与功耗方面比较：  从功耗的角度看性能的提升的对比数据，E5-2650v2(Ivy Bridge) 8core TDP 90w， Avoton 8 core TDP 20瓦， 性能&#x2F;功耗 Avoton 是 10K QPS&#x2F;20瓦， Ivy Bridge是 27KQPS&#x2F;90瓦， 因此 相同的功耗下 Avoton是 Ivy Bridge的 <strong>1.75倍</strong>（10K QPS&#x2F;20）&#x2F; （27KQPS&#x2F;95）</li>
+<li>性能与价格方面比较：  从价格方面再进行比较，E5-2650v2(Ivy Bridge) 8core 官方价格是1107美元， Avoton 8 core官方价格是171美元性能&#x2F;价格 Avoton是 10KQPS&#x2F;171美元，Ivy Bridge 是 27KQPS&#x2F;1107美元， 因此相同的美元 Avoton的性能是 Ivy Bridge 的**2.3倍（**1 10KQPS&#x2F;171美元）&#x2F; （27KQPS&#x2F;1107美元）</li>
+</ol>
+<p>总结：在数据中心的场景下，由于指令数据相关性较高，同时由于内存访问的延迟更多，复杂的CPU体系结构并不能获得相应性能提升，该原因导致我们需要的是更多的小核CPU，以达到高吞吐量的能力，因此2014 年我们向Intel提出数据中心的CPU倾向“小核”CPU，需要将现有的大核CPU的超线程由 2个升级到4个&#x2F;8个， 或者直接将用更多的小核CPU增加服务器的吞吐能力，经过了近8年，最新数据表明Intel 会在每个大核CPU中引入4个超线程，和在相同的芯片面积下单socket CPU 引入200多个小核CPU，该方案与我们的建议再次吻合</p>
+<h2 id="为什么这20年主频基本没有提升了"><a href="#为什么这20年主频基本没有提升了" class="headerlink" title="为什么这20年主频基本没有提升了"></a>为什么这20年主频基本没有提升了</h2><p>今天的2.5G CPU性能和20年前的2.5G比起来性能差别大吗？</p>
+<p>因为能耗导致CPU的主频近些年基本不怎么提升了，不是技术上不能提升，是性价比不高. </p>
+<p>在提升主频之外可以提升性能的有：提升跳转预测率，增加Decoded Cache，增加每周期的并发读个数，增加执行通道，增加ROB， RS，Read &amp; Write buffer等等，这些主要是为了增加IPC，当然增加core数量也是提升整体性能的王道。另外就是优化指令所需要的时钟周期、增加并行度更好的指令等等指令集相关的优化。</p>
+<p><img src="/images/951413iMgBlog/main-qimg-7a34de25ee9d09ba88a1671d22d4b0f1.jpeg" alt="img"></p>
+<p>the industry came up with many different solution to create better computers w&#x2F;o (or almost without) increasing the clock speed. </p>
+<h3 id="比较两代CPU性能变化"><a href="#比较两代CPU性能变化" class="headerlink" title="比较两代CPU性能变化"></a>比较两代CPU性能变化</h3><p>Intel 最新的CPU Ice Lake(8380)和其上一代(8280)的性能对比数据：</p>
+<p><img src="/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg" alt="img"></p>
+<p><img src="/images/951413iMgBlog/Intel-Ice-Lake-3rd-Gen-Xeon-overview-slide.png" alt="img"></p>
+<p>上图最终结果导致了IPC提升了20%</p>
+<blockquote>
+<p>But tock Intel did with the <a target="_blank" rel="noopener" href="https://www.nextplatform.com/2021/04/19/deep-dive-into-intels-ice-lake-xeon-sp-architecture/">Ice Lake</a> processors and their Sunny Cove cores, and the tock, at 20 percent instructions per clock (IPC) improvement on integer work</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg" alt="img"></p>
+<p>ICE Lake在网络转发上的延时更小、更稳定了：</p>
+<p><img src="/images/951413iMgBlog/intel-ice-lake-sunny-cove-dpdk-latency.jpg" alt="img"></p>
+<p><a target="_blank" rel="noopener" href="https://wccftech.com/intel-unveils-ice-lake-sp-xeon-cpu-family-10nm-sunny-cove-cores-28-core-die/">两代CPU整体性能差异</a>：</p>
+<p><img src="/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png" alt="img"></p>
+<h3 id="指令集优化"><a href="#指令集优化" class="headerlink" title="指令集优化"></a>指令集优化</h3><p>新增等效于某种常见指令组合的指令。原来多个指令执行需要多个时钟周期，合并后的单条指令可以在一个时钟周期执行完成。例如FMA指令，就是一条指令计算A×B+C，而无需分两个时钟周期计算。这种指令一般来说现有程序直接就能用上，无需优化。限制在于只对特定代码有效，还是以FMA为例，更普遍的普通加法、乘法运算都不能从中获益。</p>
+<p>案例， ssse3(<strong>Supplemental Streaming SIMD Extensions 3</strong> ) 是simd的一种，在libc-2.17.so中就有使用到，如下是mysqld进程中采集到的</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">2.79</span>%  mysqld                [.] MYSQLparse                                   </span><br><span class="line"><span class="number">2.27</span>%  libc<span class="number">-2.17</span>.so          [.] __memcpy_ssse3_back  <span class="comment">//ssse3                </span></span><br><span class="line"><span class="number">2.19</span>%  mysqld                [.] ha_insert_for_fold_func                         </span><br><span class="line"><span class="number">1.95</span>%  mysqld                [.] rec_get_offsets_func                           </span><br><span class="line"><span class="number">1.35</span>%  mysqld                [.] <span class="built_in">malloc</span></span><br></pre></td></tr></table></figure>
+
+
+
+<h4 id="AVX-Advanced-Vector-Extension，高级矢量扩展指令集"><a href="#AVX-Advanced-Vector-Extension，高级矢量扩展指令集" class="headerlink" title="AVX(Advanced Vector Extension，高级矢量扩展指令集)"></a>AVX(Advanced Vector Extension，高级矢量扩展指令集)</h4><p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
+<p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
+<p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>
+<blockquote>
+<p>2013 年， 英特尔 发布了<strong>AVX</strong>-<strong>512 指令</strong>集，其<strong>指令</strong>宽度扩展为512bit，每个时钟周期内可打包32 次双精度或64 次单精度浮点运算，因此在图像&#x2F; 音视频处理、数据分析、科学计算、数据加密和压缩和 深度学习 等应用场景中，会带来更强大的性能表现，理论上浮点性能翻倍，整数计算则增加约33% 的性能。</p>
+</blockquote>
+<p>Linus Torvalds ：</p>
+<blockquote>
+<p>AVX512 有很明显的缺点。我宁愿看到那些晶体管被用于其他更相关的事情。即使同样是用于进行浮点数学运算（通过 GPU 来做，而不是通过 AVX512 在 CPU 上），或者直接给我更多的核心（有着更多单线程性能，而且没有 AVX512 这样的垃圾），就像 AMD 所做的一样。</p>
+<p>我希望通过常规的整数代码来达到自己能力的极限，而不是通过 AVX512 这样的功率病毒来达到最高频率（因为人们最终还是会拿它来做 memory-to-memory copy），还占据了核心的很大面积。</p>
+</blockquote>
+<h3 id="关于性能提升的小结"><a href="#关于性能提升的小结" class="headerlink" title="关于性能提升的小结"></a>关于性能提升的小结</h3><p>所以今天的2.6G单核skylake，能秒掉20年前2.6G的酷睿, 尤其是复杂场景。</p>
+<p><img src="/images/951413iMgBlog/image-20210715094527563.png" alt="image-20210715094527563"></p>
+<p><img src="/images/951413iMgBlog/image-20210715094637227.png" alt="image-20210715094637227"></p>
+<p>CPU能耗公式：</p>
+<blockquote>
+<p>P &#x3D; C V*V * f</p>
+</blockquote>
+<p>C是常数，f就是频率，V 电压。 f频率加大后因为充放电带来的Gate Delay，也就是频率增加，充放电时间短，为了保证信号的完整性就一定要增加电压来加快充放电。</p>
+<p>所以最终能耗和f频率是 f^3 的指数关系。</p>
+<blockquote>
+<p>The successive nodes of CMOS technologies lead to x1.4 decrease of the gate delays. It led to a 25% increase per year of clock frequencies from 740 kHz (Intel 4004) to 3 GHz (Intel Xeons with 45-nm nodes).</p>
+<p>每一代光刻工艺的改进可以降低1.4倍的门延迟</p>
+</blockquote>
+<p>即使不考虑散热问题，Core也没法做到无限大，目前光刻机都有最大加工尺寸限制。光刻机加工的最大尺寸，一般是 858mm²，而 Cerebras 和台积电紧密合作，做了一个 46255mm²，1.2T 个晶体管的世界第一大芯片。这也是超摩尔定律的一个突破。</p>
+<p><img src="/images/951413iMgBlog/image-20210715100609552.png" alt="image-20210715100609552"></p>
+<h2 id="主频和外频"><a href="#主频和外频" class="headerlink" title="主频和外频"></a>主频和外频</h2><p><strong>主频&#x3D;外频×倍频系数</strong></p>
+<p>不只是CPU需要一个切换频率，像GPU、cache、内存都需要一个外频来指导他们的电压脉冲的切换频率。CPU的发展比其它设备快，所以没法统一一个，于是就各自在外频的基础上X倍频系数。</p>
+<p>超频：认为加大CPU的倍频系数，切换变快以后最大的问题是电容在短时间内充电不完整，这样导致信号失真，所以一般配套需要增加电压（充电更快），带来的后果是温度更高。</p>
+<p>睿频：大多时候多核用不上，如果能智能地关掉无用的核同时把这些关掉的核的电源累加到在用的核上（通过增加倍频来实现），这样单核拥有更高的主频。也就是把其它核的电源指标和发热指标给了这一个核来使用。</p>
+<p><img src="/images/951413iMgBlog/1000.jpeg" alt="img"></p>
+<h2 id="多core通讯和NUMA"><a href="#多core通讯和NUMA" class="headerlink" title="多core通讯和NUMA"></a>多core通讯和NUMA</h2><h3 id="uma下cpu访问内存"><a href="#uma下cpu访问内存" class="headerlink" title="uma下cpu访问内存"></a>uma下cpu访问内存</h3><p>早期core不多统一走北桥总线访问内存，对所有core时延统一</p>
+<p><img src="/images/951413iMgBlog/numa-fsb-3.png" alt="x86 UMA"></p>
+<h3 id="NUMA"><a href="#NUMA" class="headerlink" title="NUMA"></a>NUMA</h3><p>如下图，左右两边的是内存条，每个NUMA的cpu访问直接插在自己CPU上的内存必然很快，如果访问插在其它NUMA上的内存条还要走QPI，所以要慢很多。</p>
+<p><img src="/images/951413iMgBlog/1620954546311-096702b9-9929-4f47-8811-dc4d08829f31.png" alt="undefined"> </p>
+<p>如上架构是4路CPU，每路之间通过QPI相连，每个CPU内部8core用的是双Ring Bus相连，Memory Control Hub集成到了Die里面。一路CPU能连4个SMB，每个SMB有两个channel，每个channel最多接三个内存条（图中只画了2个）。</p>
+<p><strong>快速通道互联</strong>[<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%BF%AB%E9%80%9F%E9%80%9A%E9%81%93%E4%BA%92%E8%81%94#cite_note-1">1]</a>[<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%BF%AB%E9%80%9F%E9%80%9A%E9%81%93%E4%BA%92%E8%81%94#cite_note-2">2]</a>（英语：Intel <strong>Q</strong>uick<strong>P</strong>ath <strong>I</strong>nterconnect，<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E7%B8%AE%E5%AF%AB">缩写</a>：<strong>QPI</strong>）[<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%BF%AB%E9%80%9F%E9%80%9A%E9%81%93%E4%BA%92%E8%81%94#cite_note-Intel_QPI-3">3]</a>[<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%BF%AB%E9%80%9F%E9%80%9A%E9%81%93%E4%BA%92%E8%81%94#cite_note-4">4]</a>，是一种由英特尔开发并使用的点对点处理器互联架构，用来实现CPU之间的互联。英特尔在2008年开始用QPI取代以往用于<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Intel_Xeon">至强</a>、<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Intel_Itanium">安腾</a>处理器的<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%89%8D%E7%AB%AF%E5%8C%AF%E6%B5%81%E6%8E%92">前端总线</a>（<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/FSB">FSB</a>），<strong>用来实现芯片之间的直接互联，而不是再通过FSB连接到北桥</strong>。Intel于2017年发布的SkyLake-SP Xeon中，用UPI（<strong>U</strong>ltra<strong>P</strong>ath <strong>I</strong>nterconnect）取代QPI。</p>
+<h4 id="Ring-Bus"><a href="#Ring-Bus" class="headerlink" title="Ring Bus"></a>Ring Bus</h4><p>2012年英特尔发布了业界期待已久的Intel Sandy Bridge架构至强E5-2600系列处理器。该系列处理器采用 Intel Sandy Bridge微架构和32nm工艺，与前一代的至强5600系列相比，具有更多的内核、更大的缓存、更多的内存通道，Die内采用的是Ring Bus。</p>
+<p>Ring Bus设计简单，双环设计可以保证任何两个ring stop之间距离不超过Ring Stop总数的一半，延迟控制在60ns，带宽100G以上，但是core越多，ring bus越长性能下降迅速，在12core之后性能下降明显。</p>
+<p>于是采用如下两个Ring Bus并列，然后再通过双向总线把两个Ring Bus连起来。</p>
+<p>在至强HCC(High Core Count, 核很多版)版本中，又加入了一个ring bus。两个ring bus各接12个Core，将延迟控制在可控的范围内。俩个Ring Bus直接用两个双向Pipe Line连接，保证通讯顺畅。与此同时由于Ring 0中的模块访问Ring 1中的模块延迟明显高于本Ring，亲缘度不同，所以两个Ring分属于不同的NUMA（Non-Uniform Memory Access Architecture）node。这点在BIOS设计中要特别注意。</p>
+<p><img src="/images/951413iMgBlog/Intel-Xeon-E5-2600-V4-High-Core-Count-Die.png" alt="Intel Xeon E5-2600 V4 High Core Count Die"></p>
+<p>或者这个更清晰点的图：</p>
+<p><img src="/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg" alt="03-05-Broadwell_HCC_Architecture"></p>
+<h4 id="Mesh网络"><a href="#Mesh网络" class="headerlink" title="Mesh网络"></a><a target="_blank" rel="noopener" href="https://www.servethehome.com/the-new-intel-mesh-interconnect-architecture-and-platform-implications/">Mesh网络</a></h4><p>Intel在Skylake和Knight Landing中引入了新的片内总线：Mesh。它是一种2D的Mesh网络：</p>
+<p><img src="/images/951413iMgBlog/Intel-Skylake-SP-Mesh-Architecture-Conceptual-Diagram.png" alt="Intel Skylake SP Mesh Architecture Conceptual Diagram"></p>
+<p><img src="/images/951413iMgBlog/1620956208262-c20677c5-8bf5-4cd4-81c6-1bf492159394.png" alt="undefined"></p>
+<p>一个skylake 28core die的实现：</p>
+<p><img src="/images/951413iMgBlog/Skylake-SP-28-Core-Die-Mesh-800x666.jpg" alt="Skylake SP 28 Core Die Mesh"></p>
+<p>Mesh网络引入片内总线是一个巨大的进步，它有很多优点：</p>
+<ol>
+<li>首先当然是灵活性。新的模块或者节点在Mesh中增加十分方便，它带来的延迟不是像ring bus一样线性增加，而是非线性的。从而可以容纳更多的内核。</li>
+<li>设计弹性很好，不需要1.5 ring和2ring的委曲求全。</li>
+<li>双向mesh网络减小了两个node之间的延迟。过去两个node之间通讯，最坏要绕过半个ring。而mesh整体node之间距离大大缩减。</li>
+<li>外部延迟大大缩短</li>
+</ol>
+<p>RAM延迟大大缩短：</p>
+<p><img src="/images/951413iMgBlog/Broadwell-Ring-v-Skylake-Mesh-DRAM-Example-696x272.jpg" alt="Broadwell Ring V Skylake Mesh DRAM Example"></p>
+<p>上图左边的是ring bus，从一个ring里面访问另一个ring里面的内存控制器。最坏情况下是那条绿线，拐了一个大圈才到达内存控制器，需要310个cycle。而在Mesh网络中则路径缩短很多。</p>
+<p>Mesh网络带来了这么多好处，那么缺点有没有呢？网格化设计带来复杂性的增加，从而对Die的大小带来了负面影响</p>
+<p>CPU的总线为铜薄膜，虽然摩尔定律使单位面积晶体管的密度不断增加，但是对于连接导线的电阻却没有明显的下降，导线的RC延迟几乎决定现有CPU性能，因此数据传输在CPU的角度来看是个极为沉重的负担。 虽然2D-mesh为数据提供了更多的迁移路径减少了数据堵塞，但也同样为数据一致性带来更多问题，例如过去ring-bus 结构下对于存在于某个CPU私用缓存的数据争抢请求只有两个方向（左和右）， 但是在2D-mesh环境下会来自于4个方向（上，下，左，右）</p>
+<p><img src="/images/951413iMgBlog/image-20210602104851803.png" alt="image-20210602104851803"></p>
+<h3 id="SUB-NUMA-Cluster-SNC"><a href="#SUB-NUMA-Cluster-SNC" class="headerlink" title="SUB_NUMA Cluster(SNC)"></a>SUB_NUMA Cluster(SNC)</h3><p>在intel 8269的CPU中，core比较多，core之间通信采取的是mesh架构，实际在BIOS中的NUMA NODE设置上，还有个sub_numa的设置，开启后，一个Die拆成了两个node</p>
+<p><img src="/images/951413iMgBlog/image-20220418101937564.png" alt="image-20220418101937564"></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">[root@registry Linux]# lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                104</span><br><span class="line">On-line CPU(s) list:   0-103</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    26</span><br><span class="line">座：                 2</span><br><span class="line">NUMA 节点：         4</span><br><span class="line">厂商 ID：           GenuineIntel</span><br><span class="line">CPU 系列：          6</span><br><span class="line">型号：              85</span><br><span class="line">型号名称：        Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</span><br><span class="line">步进：              7</span><br><span class="line">CPU MHz：             1200.000</span><br><span class="line">CPU max MHz:           2501.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS：            5000.00</span><br><span class="line">虚拟化：           VT-x</span><br><span class="line">L1d 缓存：          32K</span><br><span class="line">L1i 缓存：          32K</span><br><span class="line">L2 缓存：           1024K</span><br><span class="line">L3 缓存：           36608K</span><br><span class="line">NUMA 节点0 CPU：    0-3,7-9,13-15,20-22,52-55,59-61,65-67,72-74</span><br><span class="line">NUMA 节点1 CPU：    4-6,10-12,16-19,23-25,56-58,62-64,68-71,75-77</span><br><span class="line">NUMA 节点2 CPU：    26-29,33-35,39-41,46-48,78-81,85-87,91-93,98-100</span><br><span class="line">NUMA 节点3 CPU：    30-32,36-38,42-45,49-51,82-84,88-90,94-97,101-103</span><br></pre></td></tr></table></figure>
+
+<p>不过在8269上开启sub_numa对性能的影响不是特别大，mlc测试如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br></pre></td><td class="code"><pre><span class="line">[root@registry Linux]# ./mlc</span><br><span class="line">Intel(R) Memory Latency Checker - v3.9</span><br><span class="line">Measuring idle latencies (in ns)...</span><br><span class="line">		Numa node</span><br><span class="line">Numa node	     0	     1	     2	     3</span><br><span class="line">       0	  77.3	  81.6	 129.8	 136.1</span><br><span class="line">       1	  82.1	  78.1	 134.1	 137.6</span><br><span class="line">       2	 129.8	 135.8	  73.5	  81.7</span><br><span class="line">       3	 134.4	 137.7	  81.7	  78.5</span><br><span class="line"></span><br><span class="line">Measuring Peak Injection Memory Bandwidths for the system</span><br><span class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</span><br><span class="line">Using all the threads from each core if Hyper-threading is enabled</span><br><span class="line">Using traffic with the following read-write ratios</span><br><span class="line">ALL Reads        :	232777.7</span><br><span class="line">3:1 Reads-Writes :	216680.7</span><br><span class="line">2:1 Reads-Writes :	213856.4</span><br><span class="line">1:1 Reads-Writes :	197430.7</span><br><span class="line">Stream-triad like:	194310.3</span><br><span class="line"></span><br><span class="line">Measuring Memory Bandwidths between nodes within system</span><br><span class="line">Bandwidths are in MB/sec (1 MB/sec = 1,000,000 Bytes/sec)</span><br><span class="line">Using all the threads from each core if Hyper-threading is enabled</span><br><span class="line">Using Read-only traffic type</span><br><span class="line">		Numa node</span><br><span class="line">Numa node	     0	     1	     2	     3</span><br><span class="line">       0	58908.9	59066.0	50548.0	50479.6</span><br><span class="line">       1	59111.3	58882.6	50539.0	50479.3</span><br><span class="line">       2	50541.7	50495.8	58950.2	58934.0</span><br><span class="line">       3	50526.3	50492.4	59171.9	58701.5</span><br><span class="line"></span><br><span class="line">Measuring Loaded Latencies for the system</span><br><span class="line">Using all the threads from each core if Hyper-threading is enabled</span><br><span class="line">Using Read-only traffic type</span><br><span class="line">Inject	Latency	Bandwidth</span><br><span class="line">Delay	(ns)	MB/sec</span><br><span class="line">==========================</span><br><span class="line"> 00000	242.78	 232249.0</span><br><span class="line"> 00002	242.90	 232248.8</span><br><span class="line"> 00008	242.63	 232226.0</span><br><span class="line"> 00015	247.47	 233159.0</span><br><span class="line"> 00050	250.26	 233489.7</span><br><span class="line"> 00100	245.88	 233253.4</span><br><span class="line"> 00200	109.72	 183071.9</span><br><span class="line"> 00300	 93.95	 128676.2</span><br><span class="line"> 00400	 88.51	  98678.4</span><br><span class="line"> 00500	 85.15	  80026.2</span><br><span class="line"> 00700	 83.74	  58136.1</span><br><span class="line"> 01000	 82.16	  41372.4</span><br><span class="line"> 01300	 81.59	  32184.0</span><br><span class="line"> 01700	 81.14	  24896.1</span><br><span class="line"> 02500	 80.80	  17248.5</span><br><span class="line"> 03500	 80.32	  12571.3</span><br><span class="line"> 05000	 79.58	   9060.5</span><br><span class="line"> 09000	 78.27	   5411.6</span><br><span class="line"> 20000	 76.09	   2911.5</span><br><span class="line"></span><br><span class="line">Measuring cache-to-cache transfer latency (in ns)...</span><br><span class="line">Local Socket L2-&gt;L2 HIT  latency	45.0</span><br><span class="line">Local Socket L2-&gt;L2 HITM latency	45.1</span><br><span class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in writer socket)</span><br><span class="line">			Reader Numa Node</span><br><span class="line">Writer Numa Node     0	     1	     2	     3</span><br><span class="line">            0	     -	  48.2	 107.2	 109.2</span><br><span class="line">            1	  50.6	     -	 111.2	 113.1</span><br><span class="line">            2	 107.6	 109.6	     -	  48.0</span><br><span class="line">            3	 111.6	 113.5	  49.7	     -</span><br><span class="line">Remote Socket L2-&gt;L2 HITM latency (data address homed in reader socket)</span><br><span class="line">			Reader Numa Node</span><br><span class="line">Writer Numa Node     0	     1	     2	     3</span><br><span class="line">            0	     -	  48.6	 169.1	 175.0</span><br><span class="line">            1	  46.3	     -	 167.9	 172.1</span><br><span class="line">            2	 171.4	 175.3	     -	  48.6</span><br><span class="line">            3	 169.7	 173.6	  45.1	     -</span><br><span class="line">            </span><br><span class="line">[root@registry Linux]# numactl -H</span><br><span class="line">available: 4 nodes (0-3)</span><br><span class="line">node 0 cpus: 0 1 2 3 7 8 9 13 14 15 20 21 22 52 53 54 55 59 60 61 65 66 67 72 73 74</span><br><span class="line">node 0 size: 64162 MB</span><br><span class="line">node 0 free: 60072 MB</span><br><span class="line">node 1 cpus: 4 5 6 10 11 12 16 17 18 19 23 24 25 56 57 58 62 63 64 68 69 70 71 75 76 77</span><br><span class="line">node 1 size: 65536 MB</span><br><span class="line">node 1 free: 63575 MB</span><br><span class="line">node 2 cpus: 26 27 28 29 33 34 35 39 40 41 46 47 48 78 79 80 81 85 86 87 91 92 93 98 99 100</span><br><span class="line">node 2 size: 65536 MB</span><br><span class="line">node 2 free: 63834 MB</span><br><span class="line">node 3 cpus: 30 31 32 36 37 38 42 43 44 45 49 50 51 82 83 84 88 89 90 94 95 96 97 101 102 103</span><br><span class="line">node 3 size: 65536 MB</span><br><span class="line">node 3 free: 63867 MB</span><br><span class="line">node distances:</span><br><span class="line">node   0   1   2   3</span><br><span class="line">  0:  10  11  21  21</span><br><span class="line">  1:  11  10  21  21</span><br><span class="line">  2:  21  21  10  11</span><br><span class="line">  3:  21  21  11  10</span><br><span class="line">[root@registry Linux]# lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                104</span><br><span class="line">On-line CPU(s) list:   0-103</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    26</span><br><span class="line">座：                 2</span><br><span class="line">NUMA 节点：         4</span><br><span class="line">厂商 ID：           GenuineIntel</span><br><span class="line">CPU 系列：          6</span><br><span class="line">型号：              85</span><br><span class="line">型号名称：        Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</span><br><span class="line">步进：              7</span><br><span class="line">CPU MHz：             1200.000</span><br><span class="line">CPU max MHz:           2501.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS：            5000.00</span><br><span class="line">虚拟化：           VT-x</span><br><span class="line">L1d 缓存：          32K</span><br><span class="line">L1i 缓存：          32K</span><br><span class="line">L2 缓存：           1024K</span><br><span class="line">L3 缓存：           36608K</span><br><span class="line">NUMA 节点0 CPU：    0-3,7-9,13-15,20-22,52-55,59-61,65-67,72-74</span><br><span class="line">NUMA 节点1 CPU：    4-6,10-12,16-19,23-25,56-58,62-64,68-71,75-77</span><br><span class="line">NUMA 节点2 CPU：    26-29,33-35,39-41,46-48,78-81,85-87,91-93,98-100</span><br><span class="line">NUMA 节点3 CPU：    30-32,36-38,42-45,49-51,82-84,88-90,94-97,101-103</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th></th>
+<th>SKL-SP H0</th>
+<th>SKL-SP H0</th>
+<th>SKL-SP H0</th>
+<th>SKL-SP H0</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DDR4 speed MT&#x2F;s (32GB RDIMMs)</td>
+<td>2666</td>
+<td>2666</td>
+<td>2400</td>
+<td>2400</td>
+</tr>
+<tr>
+<td>Page Policy</td>
+<td>Adaptive</td>
+<td>Adaptive</td>
+<td>Adaptive</td>
+<td>Adaptive</td>
+</tr>
+<tr>
+<td>SNC (sub-NUMA cluster)</td>
+<td>disabled</td>
+<td>enabled</td>
+<td>disabled</td>
+<td>enabled</td>
+</tr>
+<tr>
+<td>Uncore frequency (Mhz)</td>
+<td>2400</td>
+<td>2400</td>
+<td>2400</td>
+<td>2400</td>
+</tr>
+<tr>
+<td>L1 cache latency (nsec)</td>
+<td>1.1</td>
+<td>1.1</td>
+<td>1.1</td>
+<td>1.1</td>
+</tr>
+<tr>
+<td>L2 cache latency (nsec)</td>
+<td>4.7</td>
+<td>4.6</td>
+<td>4.7</td>
+<td>4.6</td>
+</tr>
+<tr>
+<td>L3 cache latency (nsec)</td>
+<td>19.5</td>
+<td>17.8</td>
+<td>19.5</td>
+<td>17.8</td>
+</tr>
+<tr>
+<td>Local mem latency (nsec)</td>
+<td>83</td>
+<td>81</td>
+<td>85</td>
+<td>83</td>
+</tr>
+<tr>
+<td>Remote mem latency (nsec)</td>
+<td>143</td>
+<td>139</td>
+<td>145</td>
+<td>141</td>
+</tr>
+</tbody></table>
+<h3 id="uncore"><a href="#uncore" class="headerlink" title="uncore"></a>uncore</h3><p>“<strong>Uncore</strong>“ is a term used by <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Intel">Intel</a> to describe the functions of a <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Microprocessor">microprocessor</a> that are not in the core, but which must be closely connected to the core to achieve high performance.[<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Uncore#cite_note-modular_uncore-1">1]</a> It has been called “<strong>system agent</strong>“ since the release of the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sandy_Bridge">Sandy Bridge</a> <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Microarchitecture">microarchitecture</a>.[<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Uncore#cite_note-sandybridge-2">2]</a></p>
+<p>The core contains the components of the processor involved in executing instructions, including the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Arithmetic_logic_unit">ALU</a>, <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Floating_point_unit">FPU</a>, <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/L1_cache">L1</a> and <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/L2_cache">L2 cache</a>. Uncore functions include <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Intel_QuickPath_Interconnect">QPI</a> controllers, <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/L3_cache">L3 cache</a>, <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Memory_coherence">snoop agent</a> <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Instruction_pipeline">pipeline</a>, on-die <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Memory_controller">memory controller</a>, on-die <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/PCI_Express_Root_Complex">PCI Express Root Complex</a>, and <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Thunderbolt_(interface)">Thunderbolt controller</a>.[<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Uncore#cite_note-thunderbolt-3">3]</a> Other bus controllers such as <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Serial_Peripheral_Interface_Bus">SPI</a> and <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Low_Pin_Count">LPC</a> are part of the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chipset">chipset</a>.[<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Uncore#cite_note-Anandtech:_Nehalem:_The_Unwritten_Chapters-4">4]</a></p>
+<h2 id="一些Intel-CPU-NUMA结构参考"><a href="#一些Intel-CPU-NUMA结构参考" class="headerlink" title="一些Intel CPU NUMA结构参考"></a>一些Intel CPU NUMA结构参考</h2><p>Intel Xeon Platinum 8163（Skylake）阿里云第四代服务器采用的CPU，Skylake架构，主频2.5GHz，计算性能问题。8163这款型号在intel官网上并没有相关信息，应该是阿里云向阿里云定制的，与之相近的Intel Xeon Platinum 8168，价格是$5890，约合￥38900元。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br></pre></td><td class="code"><pre><span class="line">lscpu:</span><br><span class="line">      Architecture:        x86_64</span><br><span class="line">      CPU op-mode(s):      32-bit, 64-bit</span><br><span class="line">      Byte Order:          Little Endian</span><br><span class="line">      CPU(s):              96</span><br><span class="line">      On-line CPU(s) list: 0-95</span><br><span class="line">      Thread(s) per core:  2</span><br><span class="line">      Core(s) per socket:  24</span><br><span class="line">      Socket(s):           2</span><br><span class="line">      NUMA node(s):        4</span><br><span class="line">      Vendor ID:           GenuineIntel</span><br><span class="line">      CPU family:          6</span><br><span class="line">      Model:               85</span><br><span class="line">      Model name:          Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz</span><br><span class="line">      Stepping:            6</span><br><span class="line">      CPU MHz:             2400.000</span><br><span class="line">      CPU max MHz:         3900.0000</span><br><span class="line">      CPU min MHz:         1000.0000</span><br><span class="line">      BogoMIPS:            4800.00</span><br><span class="line">      Virtualization:      VT-x</span><br><span class="line">      L1d cache:           32K</span><br><span class="line">      L1i cache:           32K</span><br><span class="line">      L2 cache:            1024K</span><br><span class="line">      L3 cache:            36608K</span><br><span class="line">      NUMA node0 CPU(s):   0-3,7-9,13-15,19,20,48-51,55-57,61-63,67,68</span><br><span class="line">      NUMA node1 CPU(s):   4-6,10-12,16-18,21-23,52-54,58-60,64-66,69-71</span><br><span class="line">      NUMA node2 CPU(s):   24-27,31-33,37-39,43,44,72-75,79-81,85-87,91,92</span><br><span class="line">      NUMA node3 CPU(s):   28-30,34-36,40-42,45-47,76-78,82-84,88-90,93-95</span><br><span class="line">      </span><br><span class="line"> Model: 85</span><br><span class="line"> Model name: Intel(R) Xeon(R) Platinum 8268 CPU @ 2.90GHz</span><br><span class="line"> Stepping: 6</span><br><span class="line"> CPU MHz: 3252.490</span><br><span class="line"> BogoMIPS: 5800.00</span><br><span class="line"> Virtualization: VT-x</span><br><span class="line"> L1d cache: 32K</span><br><span class="line"> L1i cache: 32K</span><br><span class="line"> L2 cache: 1024K</span><br><span class="line"> L3 cache: 36608K</span><br><span class="line"> NUMA node0 CPU(s):</span><br><span class="line"> 0,4,8,12,16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92</span><br><span class="line"> NUMA node1 CPU(s):</span><br><span class="line"> 1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61,65,69,73,77,81,85,89,93</span><br><span class="line"> NUMA node2 CPU(s):</span><br><span class="line"> 2,6,10,14,18,22,26,30,34,38,42,46,50,54,58,62,66,70,74,78,82,86,90,94</span><br><span class="line"> NUMA node3 CPU(s):</span><br><span class="line"> 3,7,11,15,19,23,27,31,35,39,43,47,51,55,59,63,67,71,75,79,83,87,91,95   </span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">  lscpu:</span><br><span class="line"> Architecture: x86_64</span><br><span class="line"> CPU op-mode(s): 32-bit, 64-bit</span><br><span class="line"> Byte Order: Little Endian</span><br><span class="line"> CPU(s): 192</span><br><span class="line"> On-line CPU(s) list: 0-191</span><br><span class="line"> Thread(s) per core: 1</span><br><span class="line"> Core(s) per socket: 24</span><br><span class="line"> Socket(s): 8 //每个物理CPU 24个物理core，这24个core应该是分布在2个Die中</span><br><span class="line"> NUMA node(s): 16</span><br><span class="line"> Vendor ID: GenuineIntel</span><br><span class="line"> CPU family: 6</span><br><span class="line"> Model: 85</span><br><span class="line"> Model name: Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz</span><br><span class="line"> Stepping: 7</span><br><span class="line"> CPU MHz: 2400.000</span><br><span class="line"> CPU max MHz: 3900.0000</span><br><span class="line"> CPU min MHz: 1000.0000</span><br><span class="line"> BogoMIPS: 4800.00</span><br><span class="line"> Virtualization: VT-x</span><br><span class="line"> L1d cache: 32K</span><br><span class="line"> L1i cache: 32K</span><br><span class="line"> L2 cache: 1024K</span><br><span class="line"> L3 cache: 36608K</span><br><span class="line"> NUMA node0 CPU(s): 0-3,7-9,13-15,19,20</span><br><span class="line"> NUMA node1 CPU(s): 4-6,10-12,16-18,21-23</span><br><span class="line"> NUMA node2 CPU(s): 24-27,31-33,37-39,43,44</span><br><span class="line"> NUMA node3 CPU(s): 28-30,34-36,40-42,45-47</span><br><span class="line"> NUMA node4 CPU(s): 48-51,55,56,60-62,66-68</span><br><span class="line"> NUMA node5 CPU(s): 52-54,57-59,63-65,69-71</span><br><span class="line"> NUMA node6 CPU(s): 72-75,79-81,85-87,91,92</span><br><span class="line"> NUMA node7 CPU(s): 76-78,82-84,88-90,93-95</span><br><span class="line"> NUMA node8 CPU(s): 96-99,103,104,108-110,114-116</span><br><span class="line"> NUMA node9 CPU(s): 100-102,105-107,111-113,117-119</span><br><span class="line"> NUMA node10 CPU(s): 120-123,127,128,132-134,138-140</span><br><span class="line"> NUMA node11 CPU(s): 124-126,129-131,135-137,141-143</span><br><span class="line"> NUMA node12 CPU(s): 144-147,151-153,157-159,163,164</span><br><span class="line"> NUMA node13 CPU(s): 148-150,154-156,160-162,165-167</span><br><span class="line"> NUMA node14 CPU(s): 168-171,175-177,181-183,187,188</span><br><span class="line"> NUMA node15 CPU(s): 172-174,178-180,184-186,189-191</span><br><span class="line"> </span><br><span class="line"> //v62</span><br><span class="line"> #lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                104</span><br><span class="line">On-line CPU(s) list:   0-103</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    26</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 85</span><br><span class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</span><br><span class="line">Stepping:              7</span><br><span class="line">CPU MHz:               3200.097</span><br><span class="line">CPU max MHz:           3800.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              4998.89</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              1024K</span><br><span class="line">L3 cache:              36608K</span><br><span class="line">NUMA node0 CPU(s):     0-25,52-77</span><br><span class="line">NUMA node1 CPU(s):     26-51,78-103</span><br><span class="line"></span><br><span class="line">//2016Intel开始出售Intel Xeon E5-2682 v4。 这是一种基于Broadwell架构的桌面处理器，主要为办公系统而设计。 它具有16 核心和32 数据流并使用, 售价约为7000人民币</span><br><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                64</span><br><span class="line">On-line CPU(s) list:   0-63</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    16</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 79</span><br><span class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</span><br><span class="line">Stepping:              1</span><br><span class="line">CPU MHz:               2499.902</span><br><span class="line">CPU max MHz:           3000.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              5000.06</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              256K</span><br><span class="line">L3 cache:              40960K</span><br><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3</span><br></pre></td></tr></table></figure>
+
+<h3 id="intel-架构迭代"><a href="#intel-架构迭代" class="headerlink" title="intel 架构迭代"></a><a target="_blank" rel="noopener" href="https://jcf94.com/2018/02/13/2018-02-13-intel/">intel 架构迭代</a></h3><p><img src="/images/oss/94d79c38-b577-4d31-b40c-fbec4cdc5f2e.png" alt="Intel processor roadmap"></p>
+<p>2006年90、65纳米工艺酷睿core Yonah上市，32位架构，仍然算是奔腾Pro系列；2006推出酷睿处理器是介于NetBurst和Core之间，其实是NetBurst的改版，Core 2是第一个基于Core架构的原生双核处理器，65nm工艺，使得AMD K8架构优势全无，直接投入开发原生四核架构K10去了。</p>
+<p>2006年7月<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E9%85%B7%E7%9D%BF2">酷睿2</a>处理器代号为“<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/w/index.php?title=Conroe&action=edit&redlink=1">Conroe</a>”，采用<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/X86-64">x86-64</a>指令集与65纳米双核心架构。该处理器基于全新的酷睿微架构，虽然时脉大大降低，但在效率方面和性能方面有了重大改进。从这一时期开始，在深度流水线和资源混乱的运行引擎上维持每个周期的高指令（IPC）</p>
+<p>2008年的 Nehalem （酷睿i7）是采用 45nm 工艺的新架构，主要优势来自重新设计的I&#x2F;O和存储系统，这些系统具有新的Intel QuickPath Interconnect和集成的内存控制器，可支持三通道的DDR3内存。引入片内4-12MB的L3 Cache；重新加入超线程；分支预测分级；取消北桥，IMC(集成内存控制器）从北桥挪到片内</p>
+<p>2009年的 Westmere 升级到 32nm；退出第一代I5&#x2F;I3，Xeon 系列也开始推出第一代E命名的E7-x8xx系列。</p>
+<p>2010年的 Lynnfield&#x2F;Clarkdale 基于 45nm&#x2F;32nm 工艺的新架构，第一代智能酷睿处理器；</p>
+<p>2011年的 <strong>Sandy Bridge</strong> ，基于 32nm 工艺的新架构，第二代智能酷睿处理器，增加AVX指令集扩展， 对虚拟化提供更好支持；实现了GPU和CPU的融合</p>
+<p>2012年的 IVY Bridge，是 Sandy Bridge 的 22nm 升级版，第三代智能酷睿处理器，Tick级改进；</p>
+<p>2013年的 Haswell ，基于 22nm 工艺的新架构，第四代智能酷睿处理器，Tock级改进；</p>
+<p>2014年的 <strong>Broadwell</strong>，是 Haswell 的 14nm 升级版，第五代智能酷睿处理器；</p>
+<p>2015年则推出 <strong>SkyLake</strong>，基于 14nm 工艺的新架构， Tock级改进，Ring-Bus改成了Mesh架构，第6代Core i系列，8163就是这款；socket之间UPI互联，内存频率通道增强。不再使用Xeon命名，而是改用Bronze&#x2F;Silver&#x2F;Gold&#x2F;Platinum 4个系列。青铜和白银系列支持双路（原本的 E5-24xx、E7-28xx 系列），黄金系列支持四路（原本的 E5-46xx、E7-48xx 系列），白金系列支持八路（原本的 E7-88xx 系列）；</p>
+<p>2019年的Cascade Lake(X2XX命名)也是Skylake的优化，是Intel首个支持基于3D XPoint的内存模块的微体系结构。同年也正式宣布了十代酷睿处理器，即i9-10900k，还是Skylake微内核不变。</p>
+<p>2020年的10nm Ice Lake自家工厂无能，改由台积电加工。</p>
+<p>2023年 Intel 发布代号Sapphire Rapids（SPR）的第四代英特尔至强（Intel Xeon）可扩展处理器，其核心数最多可达60个，比代号Ice Lake(-SP)的第三代至强可扩展处理器高出50%。相应的，公开款的TDP指标上限，也从270瓦（W）一跃而至350瓦。这一波核数增长的关键是，大英（终于）从单片式（monolithic）的die，转为四等分的die拼接(跟随了 AMD 的策略)</p>
+<p>Core 架构代号是 Yonah，把 NetBurst 做深了的流水线级数又砍下来了，主频虽然降下来了（而且即使后来工艺提升到 45nm 之后也没有超过 NetBurst 的水平），但是却提高了整个流水线中的资源利用率，所以性能还是提升了；把奔腾 4 上曾经用过的超线程也砍掉了；对各个部分进行了强化，双核共享 L2 cache 等等。</p>
+<p>从 Core 架构开始是真的走向多核了，就不再是以前 “胶水粘的” 伪双核了，这时候已经有最高 4 核的处理器设计了。</p>
+<p>Core 从 65nm 改到 45nm 之后，基于 45nm 又推出了新一代架构叫 Nehalem，新架构Nehalem<strong>采用 Intel QPI 来代替原来的前端总线</strong>，<strong>PCIE 和 DMI 控制器直接做到片内了</strong>，不再需要北桥。</p>
+<p>2006年Intel也提出了Tick-Tock架构战略。Tick年改进制程工艺，微架构基本不做大改，重点在把晶体管的工艺水平往上提升;Tock年改进微架构设计，保持工艺水平不变，重点在用更复杂、更高级的架构设计。然后就是一代 Tick 再一代 Tock交替演进。</p>
+<p>从2006年酷睿架构开始，基本是摁着AMD在地上摩擦，直到2017年的AMD Zen杀回来，性能暴增。<img src="/images/951413iMgBlog/f5e72f61ed8b6c2ba163e00491c7db40.png" alt="img"></p>
+<p><strong>Sandy Bridge 引入核间的ring bus</strong></p>
+<p>感觉Broadwell前面这几代都是在优化cache、通信；接下来的Broadwell和SkyLake就开始改进不大了，疯狂挤牙膏（唯一比较大的改进就是<strong>Ring bus到Mesh</strong>）</p>
+<p><img src="/images/951413iMgBlog/image-20210602154509596.png" alt="image-20210602154509596"></p>
+<h3 id="命名规律"><a href="#命名规律" class="headerlink" title="命名规律"></a>命名规律</h3><p>Intel E3、E5、E7代表了3个不同档次的至强CPU。EX是按性能和应用场景分的，以前是E3 E5 E7，E3核最少，轻负载应用，E5 核多均衡型，E7是超高性能，核最多。Xeon E5是针对高端工作站及服务器的处理器系列，此系列每年更新，不过架构落后Xeon E3一代。从skylake开始，不再使用EX(E3&#x2F;E5&#x2F;E7)了，而是铜、银、金、铂金四种组合。</p>
+<p>V2 是ivy bridge，V3 是 haswell， V4 是broadwell，不带VX的是sandy bridge。所以2682是boradwell系列CPU。<br>然后到了4114，就是Silver，8186就是Platinum，81是skylake，82是cscadelake，再下一代是83。</p>
+<p><img src="/images/951413iMgBlog/750px-cascade_lake_naming_scheme.svg.png" alt="cascade lake naming scheme.svg"></p>
+<h3 id="不同的架构下的参数"><a href="#不同的架构下的参数" class="headerlink" title="不同的架构下的参数"></a>不同的架构下的参数</h3><p><img src="/images/oss/e4a2fb522be7aa65158778b7ea825207.png" alt="image.png"></p>
+<h2 id="UEFI和Bios"><a href="#UEFI和Bios" class="headerlink" title="UEFI和Bios"></a>UEFI和Bios</h2><p><strong>UEFI</strong>，全称Unified Extensible Firmware Interface，即“统一的可扩展固件接口”，是一种详细描述全新类型接口的标准，是适用于电脑的标准固件接口，旨在代替BIOS（基本输入&#x2F;输出系统）</p>
+<p>电脑中有一个BIOS设置，它主要负责开机时检测硬件功能和引导操作系统启动的功能。而UEFI则是用于操作系统自动从预启动的操作环境，加载到一种操作系统上从而节省开机时间。</p>
+<p>UEFI启动是一种新的主板引导项，它被看做是bios的继任者。UEFI最主要的特点是图形界面，更利于用户对象图形化的操作选择。</p>
+<p><img src="/images/951413iMgBlog/webp" alt="img"></p>
+<p>UEFI 图形界面：</p>
+<p><img src="/images/951413iMgBlog/webp-20210601102242967" alt="img"></p>
+<p>简单的来说UEFI启动是新一代的BIOS，功能更加强大，而且它是以图形图像模式显示，让用户更便捷的直观操作。</p>
+<p>如今很多新产品的电脑都支持UEFI启动模式，甚至有的电脑都已抛弃BIOS而仅支持UEFI启动。这不难看出UEFI正在取代传统的BIOS启动。</p>
+<p>UEFI固件通过ACPI报告给OS NUMA的组成结构，其中最重要的是SRAT（System Resource Affinity Table）和SLIT（System Locality Information Table）表。</p>
+<h2 id="socket"><a href="#socket" class="headerlink" title="socket"></a>socket</h2><p>socket对应主板上的一个插槽，也可以简单理解为一块物理CPU。同一个socket对应着 &#x2F;proc&#x2F;cpuinfo 里面的physical id一样。</p>
+<p>一个socket至少对应着一个或多个node&#x2F;NUMA</p>
+<h2 id="GPU"><a href="#GPU" class="headerlink" title="GPU"></a>GPU</h2><p>GPU只处理有限的计算指令（主要是浮点运算–矩阵操作），不需要分支预测、乱序执行等，所以将Core里面的电路简化（如下图左边），同时通过SIMT（Single Instruction，Multiple Threads， 类似 SIMD）在取指令和指令译码的阶段，取出的指令可以给到后面多个不同的 ALU 并行进行运算。这样，我们的一个 GPU 的核里，就可以放下更多的 ALU，同时进行更多的并行运算了（如下图右边） 。 在 SIMD 里面，CPU 一次性取出了固定长度的多个数据，放到寄存器里面，用一个指令去执行。<strong>而 SIMT，可以把多条数据，交给不同的线程去处理。</strong></p>
+<p><img src="/images/951413iMgBlog/3d7ce9c053815f6a32a6fbf6f7fb9628.jpeg" alt="img"></p>
+<p>GPU的core在流水线stall的时候和超线程一样，可以调度别的任务给ALU，既然要调度一个不同的任务过来，我们就需要针对这个任务，提供更多的执行上下文。所以，一个 Core 里面的执行上下文的数量，需要比 ALU 多。</p>
+<p><img src="/images/951413iMgBlog/c971c34e0456dea9e4a87857880bb5b8.jpeg" alt="img"></p>
+<p>在通过芯片瘦身、SIMT 以及更多的执行上下文，我们就有了一个更擅长并行进行暴力运算的 GPU。这样的芯片，也正适合我们今天的深度学习和挖矿的场景。</p>
+<p>NVidia 2080 显卡的技术规格，就可以算出，它到底有多大的计算能力。2080 一共有 46 个 SM（Streaming Multiprocessor，流式处理器），这个 SM 相当于 GPU 里面的 GPU Core，所以你可以认为这是一个 46 核的 GPU，有 46 个取指令指令译码的渲染管线。每个 SM 里面有 64 个 Cuda Core。你可以认为，这里的 Cuda Core 就是我们上面说的 ALU 的数量或者 Pixel Shader 的数量，46x64 呢一共就有 2944 个 Shader。然后，还有 184 个 TMU，TMU 就是 Texture Mapping Unit，也就是用来做纹理映射的计算单元，它也可以认为是另一种类型的 Shader。</p>
+<p><img src="/images/951413iMgBlog/14d05a43f559cecff2b0813e8d5bdde2.png" alt="img"></p>
+<p>2080 的主频是 1515MHz，如果自动超频（Boost）的话，可以到 1700MHz。而 NVidia 的显卡，根据硬件架构的设计，每个时钟周期可以执行两条指令。所以，能做的浮点数运算的能力，就是：</p>
+<blockquote>
+<p> （2944 + 184）× 1700 MHz × 2  &#x3D; 10.06  TFLOPS</p>
+</blockquote>
+<p>最新的 Intel i9 9900K 的性能是多少呢？不到 1TFLOPS。而 2080 显卡和 9900K 的价格却是差不多的。所以，在实际进行深度学习的过程中，用 GPU 所花费的时间，往往能减少一到两个数量级。而大型的深度学习模型计算，往往又是多卡并行，要花上几天乃至几个月。这个时候，用 CPU 显然就不合适了。</p>
+<h3 id="为什么GPU比CPU快"><a href="#为什么GPU比CPU快" class="headerlink" title="为什么GPU比CPU快"></a><a target="_blank" rel="noopener" href="https://medium.com/@shachishah.ce/do-we-really-need-gpu-for-deep-learning-47042c02efe2#:~:text=Bandwidth%20is%20one%20of%20the,be%20used%20for%20other%20tasks.">为什么GPU比CPU快</a></h3><p>GPU拥有更多的计算单元</p>
+<p>GPU像是大卡车，每次去内存取数据取得多，但是Latency高（AP）；CPU像是法拉利，更在意处理速度而不是一次处理很多数据，所以CPU有多级cache，都是围绕速度在优化（TP）。在GPU中取数据和处理是流水线所以能消除高Latency。</p>
+<p>GPU的每个core拥有更小更快的cache和registry，但是整个GPU的registry累加起来能比CPU大30倍，同时带宽也是后者的16倍</p>
+<p><img src="/images/951413iMgBlog/image-20210615105019238.png" alt="image-20210615105019238"></p>
+<p>总之GPU相对于CPU像是一群小学生和一个大学教授一起比赛计算10以内的加减法。</p>
+<h3 id="英伟达的GPU出圈"><a href="#英伟达的GPU出圈" class="headerlink" title="英伟达的GPU出圈"></a>英伟达的GPU出圈</h3><p>2016年之前英伟达的营收和市值基本跟intel一致，但是2021 年 4 月中旬的数字，Intel 是英伟达的近 5 倍，但是如果论市值，英伟达是 Intel 的 1.5 倍。</p>
+<p><strong>GPGPU：点亮并行计算的科技树</strong></p>
+<p>2007 年，英伟达首席科学家 David Kirk 非常前瞻性地提出 GPGPU 的概念，把英伟达和 GPU 从单纯图形计算拓展为通用计算，强调并行计算，鼓励开发者用 GPU 做计算，而不是局限在图形加速这个传统的领域。GPGPU，前面这个 GP，就是 General Purpose 通用的意思。</p>
+<p>CUDA（Compute Unified Device Architecture，统一计算架构），CUDA 不仅仅是一个 GPU 计算的框架，它对下抽象了所有的英伟达出品的 GPU，对上构建了一个通用的编程框架，它实质上制定了一个 GPU 和上层软件之间的接口标准。</p>
+<p>在 GPU 市场的早期竞争中，英伟达认识到软硬件之间的标准的重要性，花了 10 年苦功，投入 CUDA 软件生态建设，把软硬件之间的标准，变成自己的核心竞争力。</p>
+<p>英伟达可以说是硬件公司中软件做得最好的。同样是生态强大，Wintel 的生态是微软帮忙建的，ARM-Android 的生态是 Google 建的，而 GPU-CUDA 的生态是英伟达自建的。</p>
+<p>这个标准有多重要？这么说吧，一流企业定标准，二流企业做品牌，三流企业做产品。在所有的半导体公司中，制定出软件与硬件之间的标准，而且现在还算成功的，只有 3 个，一个是 x86 指令集，一个是 ARM 指令集，还有一个就是 CUDA 了。</p>
+<p><img src="/images/951413iMgBlog/313d469d57e6b92eyy03dee63614a72c.png" alt="img"></p>
+<p>GPU 相对 CPU 的 TOPS per Watt（花费每瓦特电能可以获得的算力）的差异竞争优势，它的本质就是将晶体管花在计算上，而不是逻辑判断上</p>
+<p>2020 年超级计算机 TOP500 更新榜单，可以看到 TOP10 的超级计算机中有 8 台采用了英伟达 GPU、InfiniBand 网络技术，或同时采用了两种技术。TOP500 榜单中，有 333 套（三分之二）采用了英伟达的技术。</p>
+<p>挖矿和深度学习撑起了英伟达的市值。</p>
+<h2 id="现场可编程门阵列FPGA（Field-Programmable-Gate-Array）"><a href="#现场可编程门阵列FPGA（Field-Programmable-Gate-Array）" class="headerlink" title="现场可编程门阵列FPGA（Field-Programmable Gate Array）"></a>现场可编程门阵列FPGA（Field-Programmable Gate Array）</h2><p>设计芯片十分复杂，还要不断验证。</p>
+<p>那么不用单独制造一块专门的芯片来验证硬件设计呢？能不能设计一个硬件，通过不同的程序代码，来操作这个硬件之前的电路连线，通过“编程”让这个硬件变成我们设计的电路连线的芯片呢？这就是FPGA</p>
+<ul>
+<li>P 代表 Programmable，这个很容易理解。也就是说这是一个可以通过编程来控制的硬件。</li>
+<li>G 代表 Gate 也很容易理解，它就代表芯片里面的门电路。我们能够去进行编程组合的就是这样一个一个门电路。</li>
+<li>A 代表的 Array，叫作阵列，说的是在一块 FPGA 上，密密麻麻列了大量 Gate 这样的门电路。</li>
+<li>最后一个 F，不太容易理解。它其实是说，一块 FPGA 这样的板子，可以在“现场”多次进行编程。它不像 PAL（Programmable Array Logic，可编程阵列逻辑）这样更古老的硬件设备，只能“编程”一次，把预先写好的程序一次性烧录到硬件里面，之后就不能再修改了。</li>
+</ul>
+<p>FPGA 通过“软件”来控制“硬件”</p>
+<h2 id="专用集成电路ASIC（Application-Specific-Integrated-Circuit）"><a href="#专用集成电路ASIC（Application-Specific-Integrated-Circuit）" class="headerlink" title="专用集成电路ASIC（Application-Specific Integrated Circuit）"></a>专用集成电路ASIC（Application-Specific Integrated Circuit）</h2><p>为解决特定应用问题而定制设计的集成电路，就是 ASIC（Application Specific IC）。当 ASIC 规模够大，逐渐通用起来，某类 ASIC 就会有一个专有名称，成为一个品类。例如现在用来解决人工智能问题的神经网络处理器。</p>
+<p>除了 CPU、GPU，以及刚刚的 FPGA，我们其实还需要用到很多其他芯片。比如，现在手机里就有专门用在摄像头里的芯片；录音笔里会有专门处理音频的芯片。尽管一个 CPU 能够处理好手机拍照的功能，也能处理好录音的功能，但是我们直接在手机或者录音笔里塞上一个 Intel CPU，显然比较浪费。</p>
+<p>因为 ASIC 是针对专门用途设计的，所以它的电路更精简，单片的制造成本也比 CPU 更低。而且，因为电路精简，所以通常能耗要比用来做通用计算的 CPU 更低。而我们所说的早期的图形加速卡，其实就可以看作是一种 ASIC。</p>
+<p>因为 ASIC 的生产制造成本，以及能耗上的优势，过去几年里，有不少公司设计和开发 ASIC 用来“挖矿”。这个“挖矿”，说的其实就是设计专门的数值计算芯片，用来“挖”比特币、ETH 这样的数字货币。</p>
+<p>如果量产的ASIC比较小的话可以直接用FPGA来实现，FPGA介于ASIC和PLA之间，PLA（可编程控制器）太简单，直接上ASIC又过于复杂、能耗高、成本高。</p>
+<h2 id="张量处理器TPU-（tensor-processing-unit）"><a href="#张量处理器TPU-（tensor-processing-unit）" class="headerlink" title="张量处理器TPU （tensor processing unit）"></a>张量处理器TPU （tensor processing unit）</h2><p><strong>张量处理器</strong>（英语：tensor processing unit，缩写：TPU）是<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/Google">Google</a>为<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0">机器学习</a>定制的专用芯片（ASIC），专为Google的<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0">深度学习</a>框架<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/TensorFlow">TensorFlow</a>而设计。</p>
+<p>在性能上，TPU 比现在的 CPU、GPU 在深度学习的推断任务上，要快 15～30 倍。而在能耗比上，更是好出 30～80 倍。另一方面，Google 已经用 TPU 替换了自家数据中心里 95% 的推断任务，可谓是拿自己的实际业务做了一个明证。</p>
+<h2 id="其它基础知识"><a href="#其它基础知识" class="headerlink" title="其它基础知识"></a>其它基础知识</h2><p><strong>晶振频率</strong>：控制CPU上的晶体管开关切换频率。一次晶振就是一个cycle。</p>
+<p>从最简单的单指令周期 CPU 来说，其实时钟周期应该是放下最复杂的一条指令的时间长度。但是，我们现在实际用的都没有单指令周期 CPU 了，而是采用了流水线技术。采用了流水线技术之后，单个时钟周期里面，能够执行的就不是一个指令了。我们会把一条机器指令，拆分成很多个小步骤。不同的指令的步骤数量可能还不一样。不同的步骤的执行时间，也不一样。所以，一个时钟周期里面，能够放下的是最耗时间的某一个指令步骤。</p>
+<p>不过没有pipeline，一条指令最少也要N个circle（N就是流水线深度）；但是理想情况下流水线跑满的话一个指令也就只需要一个circle了，也就是IPC能到理论最大值1； 加上超标流水线一般IPC都能4，就是一般CPU的超标量。</p>
+<p><strong>制程</strong>：7nm、14nm、4nm都是指的晶体大小，用更小的晶体可以在相同面积CPU上集成更多的晶体数量，那么CPU的运算能力也更强。增加晶体管可以增加硬件能够支持的指令数量，增加数字通路的位数，以及利用好电路天然的并行性，从硬件层面更快地实现特定的指。打个比方，比如我们最简单的电路可以只有加法功能，没有乘法功能。乘法都变成很多个加法指令，那么实现一个乘法需要的指令数就比较多。但是如果我们增加晶体管在电路层面就实现了这个，那么需要的指令数就变少了，执行时间也可以缩短。</p>
+<blockquote>
+<p>功耗 ~&#x3D; 1&#x2F;2 ×负载电容×电压的平方×开关频率×晶体管数量</p>
+</blockquote>
+<p>功耗和电压的平方是成正比的。这意味着电压下降到原来的 1&#x2F;5，整个的功耗会变成原来的 1&#x2F;25。</p>
+<p>堆栈溢出：函数调用用压栈来保存地址、变量等相关信息。没有选择直接嵌套扩展代码是避免循环调用下嵌套是个无尽循环，inline函数内联就是一种嵌套代码扩展优化。</p>
+<p>windows下的exe文件之所以没法放到linux上运行（都是intel x86芯片），是因为可执行程序要经过链接，将所依赖的库函数调用合并进来形成可执行文件。这个可执行文件在Linux 下的 ELF（Execuatable and Linkable File Format） 文件格式，而 Windows 的可执行文件格式是一种叫作 PE（Portable Executable Format）的文件格式。Linux 下的装载器只能解析 ELF 格式而不能解析 PE 格式。而且windows和linux的库函数必然不一样，没法做到兼容。</p>
+<p><strong>链接器</strong>: 扫描所有输入的目标文件，然后把所有符号表里的信息收集起来，构成一个全局的符号表。然后再根据重定位表，把所有不确定要跳转地址的代码，根据符号表里面存储的地址，进行一次修正。最后，把所有的目标文件的对应段进行一次合并，变成了最终的可执行代码。这也是为什么，可执行文件里面的函数调用的地址都是正确的。</p>
+<p><img src="/images/951413iMgBlog/997341ed0fa9018561c7120c19cfa2a7.jpg" alt="img"></p>
+<p><strong>虚拟内存地址</strong>：应用代码可执行地址必须是连续，这也就意味着一个应用的内存地址必须连续，实际一个OS上会运行多个应用，没办法保证地址连续，所以可以通过虚拟地址来保证连续，虚拟地址再映射到实际零散的物理地址上（可以解决碎片问题），这个零散地址的最小组织形式就是Page。虚拟地址本来是连续的，使用一阵后数据部分也会变成碎片，代码部分是不可变的，一直连续。另外虚拟地址也方便了OS层面的库共享。</p>
+<p>为了扩大虚拟地址到物理地址的映射范围同时又要尽可能少地节约空间，虚拟地址到物理地址的映射一般分成了四级Hash，这样4Kb就能管理256T内存。但是带来的问题就是要通过四次查找使得查找慢，这时引入TLAB来换成映射关系。</p>
+<p><strong>共享库</strong>：在 Windows 下，这些共享库文件就是.dll 文件，也就是 Dynamic-Link Libary（DLL，动态链接库）。在 Linux 下，这些共享库文件就是.so 文件，也就是 Shared Object（一般我们也称之为动态链接库). 不同的进程，调用同样的 lib.so，各自 全局偏移表（GOT，Global Offset Table） 里面指向最终加载的动态链接库里面的虚拟内存地址是不同的, 各个程序各自维护好自己的 GOT，能够找到对应的动态库就好了, 有点像函数指针。</p>
+<p><img src="/images/951413iMgBlog/1144d3a2d4f3f4f87c349a93429805c8.jpg" alt="img"></p>
+<p>符号表：&#x2F;boot&#x2F;System.map 和 &#x2F;proc&#x2F;kallsyms </p>
+<p><strong>超线程（Hyper-Threading）</strong>: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。</p>
+<h2 id="宏观认识集成电路半导体行业"><a href="#宏观认识集成电路半导体行业" class="headerlink" title="宏观认识集成电路半导体行业"></a>宏观认识集成电路半导体行业</h2><p>先从市场分布和市场占有率等几个行业宏观概念来了解半导体行业</p>
+<h3 id="半导体产业的产值分布"><a href="#半导体产业的产值分布" class="headerlink" title="半导体产业的产值分布"></a>半导体产业的产值分布</h3><p>下图中的处理器就是我们日常所说的CPU，当然还包含了GPU等</p>
+<p>我们常说的内存、固态硬盘这些存储器也是数字IC，后面你会看到一个CPU core里面还会有用于存储的cache电路</p>
+<p><img src="/images/951413iMgBlog/be159461be7c0a5569be21b30a24db50.png" alt="img"></p>
+<h3 id="从一台iPhone来看集成电路和芯片"><a href="#从一台iPhone来看集成电路和芯片" class="headerlink" title="从一台iPhone来看集成电路和芯片"></a>从一台iPhone来看集成电路和芯片</h3><p>先看一台iPhone X拆解分析里面的所有芯片：</p>
+<p><img src="/images/951413iMgBlog/8bbc7b771359dfc07c81ca2a064cb30c.jpg" alt="img"></p>
+<h3 id="全球半导体营收分布"><a href="#全球半导体营收分布" class="headerlink" title="全球半导体营收分布"></a>全球半导体营收分布</h3><p><img src="/images/951413iMgBlog/d3a2690aaf6be233d08404c108fc4449.png" alt="img"></p>
+<p>美光：美国；Hynix海力士：韩国现代；美国双通：高通(CDMA)、博通(各种买买买、并购，网络设备芯片)；欧洲双雄(汽车芯片)：恩智浦和英飞凌</p>
+<p>半导体行业近 5 年的行业前十的公司列了如下：</p>
+<p><img src="/images/951413iMgBlog/639990db9d26a8a54d1baaf3d6e513d4.png" alt="img"></p>
+<h4 id="半导体产品的十大买家"><a href="#半导体产品的十大买家" class="headerlink" title="半导体产品的十大买家"></a>半导体产品的十大买家</h4><p>BBK是步步高集团，包含vivo、oppo、oneplus、realme等</p>
+<p><img src="/images/951413iMgBlog/3bb8531b7ab4c503436838ab15434310.png" alt="img"></p>
+<h3 id="国内半导体市场情况"><a href="#国内半导体市场情况" class="headerlink" title="国内半导体市场情况"></a>国内半导体市场情况</h3><p>中国半导体协会总结过国产芯片的比例，2014 年出台的《国家集成电路产业发展纲要》和 2015 年的《中国制造 2025》文件中有明确提出：到 2020 年，集成电路产业与国际先进水平的差距逐步缩小；2020 年中国芯片自给率要达到 40%，2025 年要达到 50%。</p>
+<p><img src="/images/951413iMgBlog/a37bd5e13f2920fb2e85a7907cdc852a.jpeg" alt="img"></p>
+<p>国产化国家主导：紫光， 紫光的策略从收购转为自建，2016 年 12 月，合并武汉新芯，成立长江存储，与西数合资成立紫光西数。</p>
+<p>长江存储在量产 64 层 NAND Flash 之后，2020 年首发 192 层 3D NAND，被预测 2021 会拿下 8% 的 NAND Flash 份额。同时，在存储芯片领域，中国还有一家公司叫做长鑫存储，长鑫存储以唯一一家中国公司的名号，杀入 DRAM 领域。在世界著名的行业分析公司 Yole 公司的报告上，显示长江存储和长鑫存储与三星、SK 海力士、美光和 Intel 齐头并进。</p>
+<p>市场份额上，国产存储芯片市场，也许还有望达到 2025 的目标。</p>
+<p>以上是我们对集成电路半导体行业的宏观认识。接下来我们从一颗CPU的生产制造开始讲</p>
+<h3 id="工艺"><a href="#工艺" class="headerlink" title="工艺"></a>工艺</h3><p>光刻的粒度越来越细，玩家也越来越少，基本主流都是代工模式：</p>
+<p><img src="/images/951413iMgBlog/beebe27eacd37075dyy37a4182169f04.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/5eb09cde20395b84ff8c746c27d9f7b7.jpg" alt="img"></p>
+<p>晶体管密度比较</p>
+<p><img src="/images/951413iMgBlog/image-20210728095829384.png" alt="image-20210728095829384"></p>
+<h2 id="计算机芯片发展总结和展望"><a href="#计算机芯片发展总结和展望" class="headerlink" title="计算机芯片发展总结和展望"></a><a target="_blank" rel="noopener" href="https://weibo.com/ttarticle/p/show?id=2309404745052319777615">计算机芯片发展总结和展望</a></h2><p>从最早集成工艺驱动了CPU的性能符合摩尔定律发展，到现在工艺受限于物理上的客观因素：门延迟、电路间的绝缘层越薄漏电越严重–高温导致漏电呈指数级增加、电压无法随着尺寸降低而线性降低–130nm之前电压随线宽(工艺)而线性下降，到90nm工艺之后工作电压始终在1V左右无法进一步下降，越来越难进一步优化，导致摩尔定律基本已经做不到了。</p>
+<p>下图显示最近几年CPU性能改进都在3%左右了（红色部分）</p>
+<p><img src="/images/951413iMgBlog/f6.jpg" alt="f6.jpg"></p>
+<p>从上图可以看到性能的优化从最早CISC每年22%来自于指令本身优化，然后RISC（CISC内部也学习RISC将复杂指令编译成简单指令来适应流水线）每年52%，再到简单多核，然后到大规模多核，最后到红色无所改进。</p>
+<p><strong>登纳德缩放定律</strong>（Dennard scaling）指出，随着晶体管密度的增加，每个晶体管的能耗将降低，因此硅芯片上每平方毫米上的能耗几乎保持恒定。由于每平方毫米硅芯片的计算能力随着技术的迭代而不断增强，计算机将变得更加节能。登纳德缩放定律从 2007 年开始大幅放缓，2012 年左右接近失效（见下图）。</p>
+<blockquote>
+<p>Dennard缩放定律（摩尔定律是经济定律，Dennard才是半导体专业定律）:晶体管的尺寸在每一代技术中都缩小了30% (0.7倍)，因此它们的面积减少了50%。这意味着电路减少了30% (0.7倍)的延迟，因此增加了约40% (1.4倍)的工作频率。最后，为了保持电场恒定，电压降低了30%，能量降低了65%，功率降低了50%。因此，在每一代技术中，晶体管密度增加一倍，电路速度提高40%，功耗(晶体管数量增加一倍)保持不变。</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/f3.jpg" alt="f3.jpg"></p>
+<p>**阿姆达尔定律（Amdahl’s Law）**认为，并行计算机的加速受限于串行计算的部分。如下图假设只在一个处理器上执行时的串行执行的部分所占比例不同，与单个内核相比，最多 64 个内核的应用程序运行速度能快多少。例如，如果只有 1% 的时间是串行的，那么 64 核配置可加速大约 35 倍，但所需能量与 64 个处理器成正比，因此大约有 45% 的能量被浪费了。核数越多多核带来的提升效果越来越差（程序总有地方是串行的）</p>
+<p><img src="/images/951413iMgBlog/f5.jpg" alt="f5.jpg"></p>
+<p>大概从2000年左右CPU的性能增长开始放缓，到2018年实际性能比摩尔定律预估的差了15倍（注意纵坐标是指数级），因为CMOS技术已经接近极限</p>
+<p><img src="/images/951413iMgBlog/f2.jpg" alt="f2.jpg"></p>
+<blockquote>
+<p><a target="_blank" rel="noopener" href="https://baike.baidu.com/item/CMOS">CMOS</a>电路是互补型金属<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E6%B0%A7%E5%8C%96%E7%89%A9%E5%8D%8A%E5%AF%BC%E4%BD%93/6199658">氧化物半导体</a>电路(Complementary Metal-Oxide-Semiconductor)的英文字头缩写，它由绝缘<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E5%9C%BA%E6%95%88%E5%BA%94%E6%99%B6%E4%BD%93%E7%AE%A1/2293646">场效应晶体管</a>组成，由于只有一种<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E8%BD%BD%E6%B5%81%E5%AD%90/7163305">载流子</a>，因‘而是一种<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E5%8D%95%E6%9E%81%E5%9E%8B%E6%99%B6%E4%BD%93%E7%AE%A1/9003337">单极型晶体管</a>集成电路，其基本结构是一个N沟道<a target="_blank" rel="noopener" href="https://baike.baidu.com/item/MOS%E7%AE%A1/8703611">MOS管</a>和一个P沟道MOS管</p>
+</blockquote>
+<p>过去一些对性能或者便利性的改进以及对这些改进的打分：</p>
+<blockquote>
+<p>虚拟地址在计算机体系结构里可以评为特优的一项技术，非性能上的改进，甚至对性能有负面影响；</p>
+<p>超线程、流水线、多发射只是优；</p>
+<p>cache 只是良好（成本高），cache整体肯定比超线程对性能提升要大，但是因为高成本导致得分不高</p>
+</blockquote>
+<h3 id="计算机架构的未来机遇"><a href="#计算机架构的未来机遇" class="headerlink" title="计算机架构的未来机遇"></a><a target="_blank" rel="noopener" href="https://cacm.acm.org/magazines/2019/2/234352-a-new-golden-age-for-computer-architecture/fulltext#body-6">计算机架构的未来机遇</a></h3><p>当实际集成度（性能）已经不再增长后，我们必须找到新的办法</p>
+<p>如下图是用Python实现的矩阵相乘的性能优化过程，简单地将 Python 语言代码重写为 C 代码就可以将性能提升 46 倍（Python 是典型的高级、动态类型语言）。在多核上运行并行循环（parallel loops）又将性能提升接近 7 倍。优化内存配置又将性能提升了近 19 倍，而通过单指令多数据（SIMD）并行化操作（一个指令执行 16 个 32-bit 运算）的硬件扩展，性能又提升了 8 倍多。也就是说，最终的高度优化版本在多核英特尔处理器上的运行速度是初始 Python 版本的 62,000 多倍。这当然只是一个很小的例子，但我们会期望程序员使用优化库。尽管这夸大了常见的性能差距，但很多程序的性能差距可能达到 100 到 1000 倍。</p>
+<p><img src="/images/951413iMgBlog/f7.jpg" alt="f7.jpg"></p>
+<h4 id="特定领域的体系结构（DSA）"><a href="#特定领域的体系结构（DSA）" class="headerlink" title="特定领域的体系结构（DSA）"></a>特定领域的体系结构（DSA）</h4><p>特定领域的体系结构（DSA）–针对具体领域的特定优化和改进可以能是一个大的改进方向。比如SIMD，同时DSA和cache、内存的层次结构更匹配。</p>
+<p>对特定领域降低精度，通用任务的 CPU 通常支持 32 和 64 位整型数和浮点数数据。对于很多机器学习和图像应用来说，这种准确率有点浪费了。例如在深度神经网络中（DNN），推理通常使用 4、8 或 16 位整型数，从而提高数据和计算吞吐量。同样，对于 DNN 训练程序，浮点数很有意义，但 32 位就够了，16 为经常也能用。</p>
+<p>还可以在特定领域通过<strong>特定领域语言（DSL）编写的目标程序，这些程序可以实现更高的并行性</strong>（比如TPU、GPU）</p>
+<h4 id="开放式架构（Open-Architectures）"><a href="#开放式架构（Open-Architectures）" class="headerlink" title="开放式架构（Open Architectures）"></a>开放式架构（Open Architectures）</h4><p>RISC-V</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Wafer：晶圆，一片大的纯硅圆盘，新闻里常说的12寸、30寸晶圆厂说的就是它，光刻机在晶圆上蚀刻出电路</p>
+<p>Die：从晶圆上切割下来的裸片(包含多个core、北桥、GPU等)，Die的大小可以自由决定，得考虑成本和性能, Die做成方形便于切割和测试</p>
+<p>封装：将一个或多个Die封装成一个物理上可以售卖的CPU</p>
+<p>路：就是socket、也就是封装后的物理CPU</p>
+<p>node：同一个Die下的多个core以及他们对应的内存，对应着NUMA</p>
+<p>现在计算机系统的CPU和芯片组内核Die都是先封装到一个印制板上（PCB，printed circuit board），再通过LGA等等插槽（Socket）连上主板或直接焊接在主板上。这个过程叫做封装（Package），相关技术叫做封装技术。</p>
+<h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=Mzg5MjU0NTI5OQ==&mid=2247585454&idx=1&sn=9fc69896305578539b1679ec1624f150">多元 CPU 性能调优的技术挑战、产品设计和业务实践</a> – 2024 百度对AMD、Ampere和Intel 的一些差异进行了比较</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/" rel="prev" title="CPU 性能和Cache Line">
+                  <i class="fa fa-angle-left"></i> CPU 性能和Cache Line
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/" rel="next" title="Intel、海光、鲲鹏920、飞腾2500 CPU性能对比">
+                  Intel、海光、鲲鹏920、飞腾2500 CPU性能对比 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

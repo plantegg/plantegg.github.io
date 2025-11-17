@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="记一次听风扇声音来定位性能瓶颈背景在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群  压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存 压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列比5系列 CPU的性能要好、要贵）  从CPU硬件指标来看压力机2都是碾压压力机1，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="听风扇声音来定位性能瓶颈">
+<meta property="og:url" content="https://plantegg.github.io/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="记一次听风扇声音来定位性能瓶颈背景在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群  压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存 压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列比5系列 CPU的性能要好、要贵）  从CPU硬件指标来看压力机2都是碾压压力机1，">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/05-05_DPC_Bandwidth_Impact.svg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220705104403314.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/8f04a1f57fe07692327b9269ba484ce4.jpg">
+<meta property="article:published_time" content="2022-03-15T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.574Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="memory">
+<meta property="article:tag" content="speed">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/05-05_DPC_Bandwidth_Impact.svg">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/","path":"2022/03/15/记一次听风扇声音来定位性能/","title":"听风扇声音来定位性能瓶颈"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>听风扇声音来定位性能瓶颈 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E7%93%B6%E9%A2%88"><span class="nav-number">1.</span> <span class="nav-text">记一次听风扇声音来定位性能瓶颈</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81"><span class="nav-number">1.3.</span> <span class="nav-text">验证</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%86%85%E5%AD%98%E4%BF%A1%E6%81%AF"><span class="nav-number">1.4.</span> <span class="nav-text">内存信息</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9C%80%E7%BB%88%E7%9A%84%E8%BF%90%E8%A1%8C%E6%96%B9%E6%A1%88"><span class="nav-number">1.5.</span> <span class="nav-text">最终的运行方案</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.6.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.7.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="听风扇声音来定位性能瓶颈 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          听风扇声音来定位性能瓶颈
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-03-15 17:30:03" itemprop="dateCreated datePublished" datetime="2022-03-15T17:30:03+08:00">2022-03-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="记一次听风扇声音来定位性能瓶颈"><a href="#记一次听风扇声音来定位性能瓶颈" class="headerlink" title="记一次听风扇声音来定位性能瓶颈"></a>记一次听风扇声音来定位性能瓶颈</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>在一次POC测试过程中，测试机构提供了两台Intel压力机来压我们的集群</p>
+<ul>
+<li>压力机1：两路共72core intel 5XXX系列 CPU，主频2.2GHz， 128G内存</li>
+<li>压力机2：四路共196core intel 8XXX系列 CPU，主频2.5GHz， 256G内存 （8系列比5系列 CPU的性能要好、要贵）</li>
+</ul>
+<p>从CPU硬件指标来看压力机2都是碾压压力机1，但是实际测试是压力机2只能跑到接近压力机1的能力，两台机器CPU基本都跑满，并且都是压测进程消耗了90%以上的CPU，内核态消耗不到5%CPU</p>
+<p>所以接下来需要在调试我们集群性能前先把测试机优化好，才能把压力打上来。</p>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>测试机构提供的机器上没有任何工具来评估CPU性能，也无法安装，只能<strong>仔细听196core机器的CPU风扇声音更小，说明196core的CPU出工不出力，大概是流水线在频繁地Stall</strong>（不管你信不信反正我是信的）</p>
+<p>进一步分析，首先看到 业务消耗了90%以上的CPU，内核态消耗不到5%CPU，两台机器都是这样，这说明 196core 只跑出了 72core的水平，一定是CPU效率出了问题，top看到的CPU占用率不完全是全力在运算，其实cpu 流水线stall也是占用CPU的。</p>
+<p>这个分析理论请参考我的文章<a href="https://plantegg.github.io/2021/05/16/Perf%20IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/">《Perf IPC以及CPU性能》</a></p>
+<h2 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h2><p>通过stream测试读写内存的带宽和时延，得到如下数据：</p>
+<p>72core机器，  本路时延1.1，跨路时延1.4，因为是2路所以有50%的概率跨路，性能下降30%</p>
+<p>196core机器，本路时延1.2，跨路时延1.85，因为是4路所以有75%的概率跨路，性能下降50%</p>
+<p>从以上测试数据可以明显看到虽然196core机器拥有更强的单核能力以及更多的核数，但是因为访问内存太慢严重拖累了CPU运算能力，导致大部分时间CPU都在等待内存，这里CPU和内存的速度差了2个数量级，所以内存延时才是整体的瓶颈。</p>
+<p>测试数据和方法请参考我的文章<a href="https://plantegg.github.io/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">《AMD Zen CPU 架构以及不同CPU性能大PK》</a></p>
+<p>有了这个数据心里非常有底问题在哪里了，但是还要想清楚怎么解释给测试机构他们才会信服，因为第一次解释他们直接说不可能，怎么会196core打不过72core呢，再说从来没有集群是测试机构196core压力机打不满的，这台压力机用了几年从来没有人说过这个问题 :(</p>
+<h2 id="内存信息"><a href="#内存信息" class="headerlink" title="内存信息"></a>内存信息</h2><p>接下来需要拿到更详细的硬件信息来说服测试机构了。</p>
+<p>通过dmidecode 获取两台机器内存的速度，分别是2100（196core） VS 2900（72core），同时系统也吐出了内存延时分别是 0.5ns VS 0.3 ns，这两个时间对比很直观，普通人也能看懂。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br></pre></td><td class="code"><pre><span class="line">//以下硬件信息是从家里机器上获取，并非测试机构提供的机器，测试机构提供的机器不让拍照和采集</span><br><span class="line">#dmidecode -t memory</span><br><span class="line"># dmidecode 3.2</span><br><span class="line">Getting SMBIOS data from sysfs.</span><br><span class="line">SMBIOS 3.2.1 present.</span><br><span class="line"># SMBIOS implementations newer than version 3.2.0 are not</span><br><span class="line"># fully supported by this version of dmidecode.</span><br><span class="line"></span><br><span class="line">Handle 0x0033, DMI type 16, 23 bytes </span><br><span class="line">Physical Memory Array</span><br><span class="line">	Location: System Board Or Motherboard</span><br><span class="line">	Use: System Memory</span><br><span class="line">	Error Correction Type: Multi-bit ECC</span><br><span class="line">	Maximum Capacity: 2 TB  //最大支持2T</span><br><span class="line">	Error Information Handle: 0x0032</span><br><span class="line">	Number Of Devices: 32   //32个插槽</span><br><span class="line">	</span><br><span class="line">	Handle 0x0041, DMI type 17, 84 bytes</span><br><span class="line">Memory Device</span><br><span class="line">	Array Handle: 0x0033</span><br><span class="line">	Error Information Handle: 0x0040</span><br><span class="line">	Total Width: 72 bits</span><br><span class="line">	Data Width: 64 bits</span><br><span class="line">	Size: 32 GB</span><br><span class="line">	Form Factor: DIMM</span><br><span class="line">	Set: None</span><br><span class="line">	Locator: CPU0_DIMMA0</span><br><span class="line">	Bank Locator: P0 CHANNEL A</span><br><span class="line">	Type: DDR4</span><br><span class="line">	Type Detail: Synchronous Registered (Buffered)</span><br><span class="line">	Speed: 2933 MT/s                    //dmmi 内存插槽支持最大速度 ?</span><br><span class="line">	Manufacturer: SK Hynix</span><br><span class="line">	Serial Number: 220F9EC0</span><br><span class="line">	Asset Tag: Not Specified</span><br><span class="line">	Part Number: HMAA4GR7AJR8N-WM</span><br><span class="line">	Rank: 2</span><br><span class="line">	Configured Memory Speed: 2100 MT/s  //内存实际运行速度</span><br><span class="line">	Minimum Voltage: 1.2 V</span><br><span class="line">	Maximum Voltage: 1.2 V</span><br><span class="line">	Configured Voltage: 1.2 V</span><br><span class="line">	Memory Technology: DRAM</span><br><span class="line">	Memory Operating Mode Capability: Volatile memory</span><br><span class="line">	Module Manufacturer ID: Bank 1, Hex 0xAD</span><br><span class="line">	Non-Volatile Size: None</span><br><span class="line">	Volatile Size: 32 GB</span><br><span class="line">	</span><br><span class="line">	#lshw</span><br><span class="line">	*-bank:19  //主板插槽槽位</span><br><span class="line">             description: DIMM DDR4 Synchronous Registered (Buffered) 2933 MHz (0.3 ns) </span><br><span class="line">             product: HMAA4GR7AJR8N-WM</span><br><span class="line">             vendor: SK Hynix</span><br><span class="line">             physical id: 13</span><br><span class="line">             serial: 220F9F63</span><br><span class="line">             slot: CPU1_DIMMB0</span><br><span class="line">             size: 32GiB  //实际所插内存大小</span><br><span class="line">             width: 64 bits</span><br><span class="line">             clock: 2933MHz (0.3ns)</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>In <code>dmidecode</code>’s output for memory, “Speed” is the highest speed supported by the DIMM, as determined by <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JEDEC">JEDEC</a> SPD information. “Configured Clock Speed” is the speed at which it is currently running (as set up during boot).</p>
+</blockquote>
+<p>Dimm（双列直插式存储模块（dual In-line memory module））： DIMM是内存条印刷电路板正反面均有金手指与主板上的内存条槽接触，这种结构被称为DIMM。于是内存条也有人叫DIMM条，主板上的内存槽也有人称为DIMM槽。</p>
+<p>大多数主板设计为易于用户安装和更换DIMM，通常只需打开侧边卡扣，将DIMM垂直插入插槽，然后关闭卡扣即可固定内存模块。正确安装DIMM时通常会有轻微的“点击”声，表示模块已经正确位于插槽中。</p>
+<p>DIMM 代表物理上的一根内存条，下图中三根内存条共享一个channel连到 CPU</p>
+<p><img src="/images/951413iMgBlog/05-05_DPC_Bandwidth_Impact.svg" alt="05-05_DPC_Bandwidth_Impact"></p>
+<p><img src="/images/951413iMgBlog/image-20220705104403314.png" alt="image-20220705104403314"></p>
+<p><img src="/images/951413iMgBlog/8f04a1f57fe07692327b9269ba484ce4.jpg" alt="img"></p>
+<h2 id="最终的运行方案"><a href="#最终的运行方案" class="headerlink" title="最终的运行方案"></a>最终的运行方案</h2><p>给196core的机器换上新的2933 MHz (0.3 ns)的内存条，速度一下子就上去了。</p>
+<p>然后在196core的机器上起4个压力进程，每个进程分担25%的压力，避免跨路访问内存导致时延从1.2掉到1.8，实际测试也是只用196core中的48core性能和用全部196core是一样的，所以这里一定要起多个进程做内存亲和性绑定，充分使用全部196core。</p>
+<p><strong>最终整机196core机器的打压能力达到了原来的3.6倍左右。</strong></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>程序员要保护好听力，关键时刻可能会用上 :)</p>
+<p>你说196core机器用了这么强的CPU但是为什么搭配那么差的内存以及主板，我也不知道，大概是有人拿回扣吧。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://frankdenneman.nl/2016/07/13/numa-deep-dive-4-local-memory-optimization/">NUMA DEEP DIVE PART 4: LOCAL MEMORY OPTIMIZATION</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/memory/" rel="tag"># memory</a>
+              <a href="/tags/speed/" rel="tag"># speed</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022/01/25/ssd_san%E5%92%8Csas%E7%A3%81%E7%9B%98%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83/" rel="prev" title="ssd&#x2F;san&#x2F;sas&#x2F;磁盘&#x2F;光纤性能比较">
+                  <i class="fa fa-angle-left"></i> ssd/san/sas/磁盘/光纤性能比较
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/" rel="next" title="Netty和Disruptor的cache_line对齐实践">
+                  Netty和Disruptor的cache_line对齐实践 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

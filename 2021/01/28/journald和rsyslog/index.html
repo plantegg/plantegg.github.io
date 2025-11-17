@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="journald和rsyslogd碰到rsyslog-8.24.0-34.1.al7.x86_64 的 rsyslogd 占用内存过高，于是分析了一下原因并学习了一下系统日志、rsyslog、journald之间的关系，流水账记录此文。 rsyslogd 占用内存过高的分析rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-50M之间） 现象：  1234567891011">
+<meta property="og:type" content="article">
+<meta property="og:title" content="journald和rsyslogd">
+<meta property="og:url" content="https://plantegg.github.io/2021/01/28/journald%E5%92%8Crsyslog/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="journald和rsyslogd碰到rsyslog-8.24.0-34.1.al7.x86_64 的 rsyslogd 占用内存过高，于是分析了一下原因并学习了一下系统日志、rsyslog、journald之间的关系，流水账记录此文。 rsyslogd 占用内存过高的分析rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-50M之间） 现象：  1234567891011">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/12d137f9416d7935dbe6540c626ca8b4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/45008a8323742fb7f145211a6281afbc.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/40740cd5cfc8896c07c15b959420646f.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png">
+<meta property="article:published_time" content="2021-01-28T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.536Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="journald">
+<meta property="article:tag" content="log">
+<meta property="article:tag" content="rsyslogd">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/12d137f9416d7935dbe6540c626ca8b4.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/01/28/journald%E5%92%8Crsyslog/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/01/28/journald%E5%92%8Crsyslog/","path":"2021/01/28/journald和rsyslog/","title":"journald和rsyslogd"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>journald和rsyslogd | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#journald%E5%92%8Crsyslogd"><span class="nav-number">1.</span> <span class="nav-text">journald和rsyslogd</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#rsyslogd-%E5%8D%A0%E7%94%A8%E5%86%85%E5%AD%98%E8%BF%87%E9%AB%98%E7%9A%84%E5%88%86%E6%9E%90"><span class="nav-number">1.1.</span> <span class="nav-text">rsyslogd 占用内存过高的分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%A0%B9%E5%9B%A0"><span class="nav-number">1.1.1.</span> <span class="nav-text">问题根因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95"><span class="nav-number">1.1.2.</span> <span class="nav-text">解决办法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%80%E4%BA%9B%E9%85%8D%E7%BD%AE%E6%96%B9%E6%B3%95"><span class="nav-number">1.1.3.</span> <span class="nav-text">一些配置方法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#OOM-kill"><span class="nav-number">1.2.</span> <span class="nav-text">OOM kill</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#What-is-the-difference-between-syslog-rsyslog-and-syslog-ng"><span class="nav-number">1.3.</span> <span class="nav-text">What is the difference between syslog, rsyslog and syslog-ng? </span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#rsyslog%E5%92%8Cjournald%E7%9A%84%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86"><span class="nav-number">1.4.</span> <span class="nav-text">rsyslog和journald的基础知识</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#journald-log%E6%8C%81%E4%B9%85%E5%8C%96"><span class="nav-number">1.4.1.</span> <span class="nav-text">journald log持久化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#rsyslogd"><span class="nav-number">1.4.2.</span> <span class="nav-text">rsyslogd</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#journalctl-%E5%B8%B8%E7%94%A8%E5%8F%82%E6%95%B0"><span class="nav-number">1.5.</span> <span class="nav-text">journalctl 常用参数</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#logrotate"><span class="nav-number">1.6.</span> <span class="nav-text">logrotate</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#kill-HUP"><span class="nav-number">1.6.1.</span> <span class="nav-text">kill -HUP</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#systemd"><span class="nav-number">1.7.</span> <span class="nav-text">systemd</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.8.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/28/journald%E5%92%8Crsyslog/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="journald和rsyslogd | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          journald和rsyslogd
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-01-28 17:30:03" itemprop="dateCreated datePublished" datetime="2021-01-28T17:30:03+08:00">2021-01-28</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="journald和rsyslogd"><a href="#journald和rsyslogd" class="headerlink" title="journald和rsyslogd"></a>journald和rsyslogd</h1><p>碰到rsyslog-8.24.0-34.1.al7.x86_64 的 rsyslogd 占用内存过高，于是分析了一下原因并学习了一下系统日志、rsyslog、journald之间的关系，流水账记录此文。</p>
+<h2 id="rsyslogd-占用内存过高的分析"><a href="#rsyslogd-占用内存过高的分析" class="headerlink" title="rsyslogd 占用内存过高的分析"></a>rsyslogd 占用内存过高的分析</h2><p>rsyslogd使用了大概1.6-2G内存，不正常（正常情况下内存占用30-50M之间）</p>
+<p>现象：</p>
+<p><img src="/images/oss/12d137f9416d7935dbe6540c626ca8b4.png" alt="image.png"></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line">KiB Mem :  7971268 total,   131436 free,  7712020 used,   127812 buff/cache</span><br><span class="line">KiB Swap:        0 total,        0 free,        0 used.    43484 avail Mem</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">24850 admin     20   0 8743896   5.1g      0 S   2.0 66.9   1413:55 java</span><br><span class="line"> 1318 root      20   0 2380404   1.6g    536 S   0.0 21.6 199:09.36 rsyslogd</span><br><span class="line"> </span><br><span class="line"># systemctl status rsyslog</span><br><span class="line">● rsyslog.service - System Logging Service</span><br><span class="line">   Loaded: loaded (/usr/lib/systemd/system/rsyslog.service; enabled; vendor preset: disabled)</span><br><span class="line">   Active: active (running) since Tue 2020-10-20 16:01:01 CST; 3 months 8 days ago</span><br><span class="line">     Docs: man:rsyslogd(8)</span><br><span class="line">           http://www.rsyslog.com/doc/</span><br><span class="line"> Main PID: 1318 (rsyslogd)</span><br><span class="line">   CGroup: /system.slice/rsyslog.service</span><br><span class="line">           └─1318 /usr/sbin/rsyslogd -n</span><br><span class="line"></span><br><span class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 09:10:07 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</span><br><span class="line">Jan 28 10:27:48 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 10:27:49 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</span><br><span class="line">Jan 28 11:45:23 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 11:45:24 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</span><br><span class="line">Jan 28 13:03:00 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 13:03:01 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</span><br><span class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 14:20:42 iZwz95gaul6x9167sqdqz4Z rsyslogd[1318]: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ] </span><br><span class="line"></span><br><span class="line"></span><br><span class="line"># grep HUPed /var/log/messages</span><br><span class="line">Jan 24 03:39:15 iZwz95gaul6x9167sqdqz4Z rsyslogd: [origin software=&quot;rsyslogd&quot; swVersion=&quot;8.24.0-34.1.al7&quot; x-pid=&quot;1318&quot; x-info=&quot;http://www.rsyslog.com&quot;] rsyslogd was HUPed</span><br><span class="line"></span><br><span class="line"># journalctl --verify</span><br><span class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-0000000001567546-0005b9e2e02a0a4f.journal</span><br><span class="line">PASS: /var/log/journal/20190829214900434421844640356160/system@efef6fd56e2e4c9f861d0be25c8c0781-00000000015ae56b-0005b9ea76e922e9.journal</span><br><span class="line">1be1e0: Data object references invalid entry at 1d03018</span><br><span class="line">File corruption detected at /var/log/journal/20190829214900434421844640356160/system.journal:1d02d80 (of 33554432 bytes, 90%).</span><br><span class="line">FAIL: /var/log/journal/20190829214900434421844640356160/system.journal (Bad message)</span><br></pre></td></tr></table></figure>
+
+<p><code>journalctl --verify</code>命令检查发现系统日志卷文件损坏</p>
+<h3 id="问题根因"><a href="#问题根因" class="headerlink" title="问题根因"></a>问题根因</h3><p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/3705051">来自redhat官网的描述</a></p>
+<p><img src="/images/oss/e1a1cd75553b5cbe2a64e835ba9f99a7.png" alt="image.png"></p>
+<p>以下是现场收集到的日志：</p>
+<p><img src="/images/oss/cdfe3fb8d50ee148b816a82a432f1b88.png" alt="image.png"></p>
+<p>主要是rsyslogd的sd_journal_get_cursor报错，然后导致内存泄露。</p>
+<p>journald 报Bad message, 跟rsyslogd内存泄露完全没关系，实际上升级rsyslogd后也有journald bad message,但是rsyslogd的内存一直稳定在30M以内</p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/fanren224/article/details/103991748">这个CSDN的文章中有完全一样的症状</a> 但是作者的结论是：这是systemd的bug，在journald需要压缩的时候就会发生这个问题。实际上我用的是 systemd-219-62.6.al7.9.x86_64 比他描述的已经修复的版本还要要新，也还是有这个问题，所以这个结论是不对的</p>
+<h3 id="解决办法"><a href="#解决办法" class="headerlink" title="解决办法"></a>解决办法</h3><p>1、重启rsyslog <code>systemctl restart rsyslog</code> 可以释放内存</p>
+<p>2、升级rsyslog到rsyslog-8.24.0-38.1.al7.x86_64或更新的版本才能彻底修复这个问题</p>
+<h3 id="一些配置方法"><a href="#一些配置方法" class="headerlink" title="一些配置方法"></a>一些配置方法</h3><p>修改配置&#x2F;etc&#x2F;rsyslog.conf，增加如下两行，然后重启<code>systemctl restart rsyslog</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$imjournalRatelimitInterval 0</span><br><span class="line">$imjournalRatelimitBurst 0</span><br><span class="line">12</span><br></pre></td></tr></table></figure>
+
+<p>1、关掉journal压缩配置</p>
+<p>vi &#x2F;etc&#x2F;systemd&#x2F;journald.conf，把#Compress&#x3D;yes改成Compress&#x3D;no，之后systemctl restart systemd-journald即可</p>
+<p>2、限制rsyslogd 内存大小</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">cat /etc/systemd/system/multi-user.target.wants/rsyslog.service</span><br><span class="line"></span><br><span class="line">在Service配置中添加MemoryAccounting=yes，MemoryMax=80M，MemoryHigh=8M三项如下所示。</span><br><span class="line">[Service]</span><br><span class="line">Type=notify</span><br><span class="line">EnvironmentFile=-/etc/sysconfig/rsyslog</span><br><span class="line">ExecStart=/usr/sbin/rsyslogd -n $SYSLOGD_OPTIONS</span><br><span class="line">Restart=on-failure</span><br><span class="line">UMask=0066</span><br><span class="line">StandardOutput=null</span><br><span class="line">Restart=on-failure</span><br><span class="line">MemoryAccounting=yes</span><br><span class="line">MemoryMax=80M</span><br><span class="line">MemoryHigh=8M</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="OOM-kill"><a href="#OOM-kill" class="headerlink" title="OOM kill"></a>OOM kill</h2><p>rsyslogd内存消耗过高后导致了OOM Kill</p>
+<p><img src="/images/oss/c7332f5b48506ea1faa015cfc6ae1709.png" alt="image.png"></p>
+<p><strong>RSS对应物理内存，单位是4K（page大小）</strong>，红框两个进程用了5G+2G，总内存是8G，所以触发OOM killer了</p>
+<p>每次OOM Kill日志前后总带着systemd-journald的重启</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Permanent journal is using 520.0M (max allowed 500.0M, trying to leave 4.0G free of 83.7G available → current limit 520.0M).</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z journal: Journal started</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun invoked oom-killer: gfp_mask=0x6200ca(GFP_HIGHUSER_MOVABLE), nodemask=(null), order=0, oom_score_adj=0</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: AliYunDun cpuset=/ mems_allowed=0</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: CPU: 3 PID: 13296 Comm: AliYunDun Tainted: G           OE     4.19.57-15.1.al7.x86_64 #1</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Hardware name: Alibaba Cloud Alibaba Cloud ECS, BIOS 8c24b4c 04/01/2014</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Call Trace:</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_stack+0x5c/0x7b</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: dump_header+0x77/0x29f</span><br><span class="line">***</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: [  18118]     0 18118    28218      255   245760        0             0 sshd</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Out of memory: Kill process 18665 (java) score 617 or sacrifice child</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: Killed process 18665 (java) total-vm:8446992kB, anon-rss:4905856kB, file-rss:0kB, shmem-rss:0kB</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z kernel: oom_reaper: reaped process 18665 (java), now anon-rss:0kB, file-rss:0kB, shmem-rss:0kB</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z systemd: systemd-journald.service watchdog timeout (limit 3min)!</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: sd_journal_get_cursor() failed: &#x27;Cannot assign requested address&#x27;  [v8.24.0-34.1.al7]</span><br><span class="line">Jan 28 19:03:04 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-34.1.al7 try http://www.rsyslog.com/e/0 ]</span><br><span class="line">Jan 28 20:14:38 iZwz95gaul6x9167sqdqz5Z rsyslogd: imjournal: journal reloaded... [v8.24.0-57.1.al7 try http://www.rsyslog.com/e/0 ]</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/oss/45008a8323742fb7f145211a6281afbc.png" alt="image.png"></p>
+<p>OOM kill前大概率伴随着systemd-journald 重启是因为watch dog timeout(limit 3min)，造成timeout的原因是journald定期要把日志刷到磁盘上，然后要么是内存不够，要么是io负载太重，导致刷磁盘这个过程非常慢，于是就timeout了。</p>
+<p>当然systemd-journald 重启也不一定意味着OOM Killer，只是肯定是内存比较紧张了。</p>
+<h2 id="What-is-the-difference-between-syslog-rsyslog-and-syslog-ng"><a href="#What-is-the-difference-between-syslog-rsyslog-and-syslog-ng" class="headerlink" title="What is the difference between syslog, rsyslog and syslog-ng? "></a><a target="_blank" rel="noopener" href="https://serverfault.com/questions/692309/what-is-the-difference-between-syslog-rsyslog-and-syslog-ng">What is the difference between syslog, rsyslog and syslog-ng? </a></h2><p>Basically, they are all the same, in the way they all permit the logging of data from different types of systems in a central repository.</p>
+<p>But they are three different project, each project trying to improve the previous one with more reliability and functionalities.</p>
+<p>The <code>Syslog</code> project was the very first project. It started in 1980. It is the root project to <code>Syslog</code> protocol. At this time Syslog is a very simple protocol. At the beginning it only supports UDP for transport, so that it does not guarantee the delivery of the messages.</p>
+<p>Next came <code>syslog-ng</code> in 1998. It extends basic <code>syslog</code> protocol with new features like:</p>
+<ul>
+<li>content-based filtering</li>
+<li>Logging directly into a database</li>
+<li>TCP for transport</li>
+<li>TLS encryption</li>
+</ul>
+<p>Next came <code>Rsyslog</code> in 2004. It extends <code>syslog</code> protocol with new features like:</p>
+<ul>
+<li>RELP Protocol support</li>
+<li>Buffered operation support</li>
+</ul>
+<h2 id="rsyslog和journald的基础知识"><a href="#rsyslog和journald的基础知识" class="headerlink" title="rsyslog和journald的基础知识"></a>rsyslog和journald的基础知识</h2><p><code>systemd-journald</code>是用来协助<code>rsyslog</code>记录系统启动服务和服务启动失败的情况等等. <code>systemd-journald</code>使用内存保存记录, 系统重启记录会丢失. 所有还要用<code>rsyslog</code>来记录分类信息, 如上面<code>/etc/rsyslog.d/listen.conf</code>中的<code>syslog</code>分类.</p>
+<p><code>systemd-journald</code>跟随systemd开机就启动，能及时记录所有日志：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"># systemd-analyze critical-chain systemd-journald.service</span><br><span class="line">The time after the unit is active or started is printed after the &quot;@&quot; character.</span><br><span class="line">The time the unit takes to start is printed after the &quot;+&quot; character.</span><br><span class="line"></span><br><span class="line">systemd-journald.service +13ms</span><br><span class="line">└─system.slice</span><br><span class="line">  └─-.slice</span><br></pre></td></tr></table></figure>
+
+<p>systemd-journald 由于是使用于内存的登录文件记录方式，因此重新开机过后，开机前的登录文件信息当然就不会被记载了。 为此，我们还是建议启动 rsyslogd 来协助分类记录！也就是说， systemd-journald 用来管理与查询这次开机后的登录信息，而 rsyslogd 可以用来记录以前及现在的所以数据到磁盘文件中，方便未来进行查询喔！</p>
+<p><strong>Tips</strong> 虽然 systemd-journald 所记录的数据其实是在内存中，但是系统还是利用文件的型态将它记录到 &#x2F;run&#x2F;log&#x2F; 下面！ 不过我们从前面几章也知道， &#x2F;run 在 CentOS 7 其实是内存内的数据，所以重新开机过后，这个 &#x2F;run&#x2F;log 下面的数据当然就被刷新，旧的当然就不再存在了！</p>
+<blockquote>
+<p>其实鸟哥是这样想的，既然我们还有 rsyslog.service 以及 logrotate 的存在，因此这个 systemd-journald.service 产生的登录文件， 个人建议最好还是放置到 &#x2F;run&#x2F;log 的内存当中，以加快存取的速度！而既然 rsyslog.service 可以存放我们的登录文件， 似乎也没有必要再保存一份 journal 登录文件到系统当中就是了。单纯的建议！如何处理，依照您的需求即可喔！</p>
+</blockquote>
+<p><strong><code>system-journal</code>服务监听 <code>/dev/log</code> socket获取日志, 保存在内存中, 并间歇性的写入<code>/var/log/journal</code>目录中.</strong></p>
+<p><code>rsyslog</code>服务启动后监听<code>/run/systemd/journal/socket</code> 获取syslog类型日志, 并写入<code>/var/log/messages</code>文件中. </p>
+<p>获取日志时需要记录日志条目的<code>position</code>到<code>/var/lib/rsyslog/imjournal.state</code>文件中.</p>
+<p>比如haproxy日志配置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/haproxy/haproxy.cfg</span><br><span class="line">global</span><br><span class="line"># log发给journald(journald监听 /dev/log)</span><br><span class="line">        log /dev/log    local1 warning </span><br></pre></td></tr></table></figure>
+
+<p>以下是drds 的iptables日志配置，将tcp reset包记录下来，默认iptable日志输出到&#x2F;varlog&#x2F;messages中（dmesg也能看到），然后可以通过rsyslog.d 配置将这部分日志输出到单独的文件中：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># 配置iptables 日志，增加 [drds] 标识</span><br><span class="line"># cat /home/admin/drds-worker/install/drds_filter.conf</span><br><span class="line"># Generated by iptables-save v1.4.21 on Wed Apr  1 11:39:31 2020</span><br><span class="line">*filter</span><br><span class="line">:INPUT ACCEPT [557:88127]</span><br><span class="line">:FORWARD ACCEPT [0:0]</span><br><span class="line">:OUTPUT ACCEPT [527:171711]</span><br><span class="line">-A INPUT -p tcp -m tcp ! --sport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line"># -A INPUT -p tcp -m tcp ! --dport 3406  --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">-A OUTPUT -p tcp -m tcp ! --sport 3406 --tcp-flags RST RST -j LOG --log-prefix &quot;[drds] &quot; --log-level 7 --log-tcp-sequence --log-tcp-options --log-ip-options</span><br><span class="line">COMMIT</span><br><span class="line"># Completed on Wed Apr  1 11:39:31 2020</span><br><span class="line"></span><br><span class="line">#通过rsyslogd将日志写出到指定位置(不配置的话默认输出到 dmesg)</span><br><span class="line"># cat /etc/rsyslog.d/drds_filter_log.conf</span><br><span class="line">:msg, startswith, &quot;[drds]&quot; -/home/admin/logs/tcp-rt/drds-tcp.log</span><br></pre></td></tr></table></figure>
+
+<h3 id="journald-log持久化"><a href="#journald-log持久化" class="headerlink" title="journald log持久化"></a>journald log持久化</h3><p>创建 &#x2F;var&#x2F;log&#x2F;journal 文件夹后默认会持久化，设置持久化后 &#x2F;run&#x2F;log 里面就没有日志了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/systemd/journald.conf</span><br><span class="line">#  This file is part of systemd.</span><br><span class="line">#</span><br><span class="line">#  systemd is free software; you can redistribute it and/or modify it</span><br><span class="line">#  under the terms of the GNU Lesser General Public License as published by</span><br><span class="line">#  the Free Software Foundation; either version 2.1 of the License, or</span><br><span class="line">#  (at your option) any later version.</span><br><span class="line">#</span><br><span class="line"># Entries in this file show the compile time defaults.</span><br><span class="line"># You can change settings by editing this file.</span><br><span class="line"># Defaults can be restored by simply deleting this file.</span><br><span class="line">#</span><br><span class="line"># See journald.conf(5) for details.</span><br><span class="line"></span><br><span class="line">[Journal]</span><br><span class="line">#Storage=auto  //默认如果有 /var/log/journal 目录就会持久化到这里</span><br><span class="line">Compress=no</span><br><span class="line">#Seal=yes</span><br><span class="line">#SplitMode=uid</span><br><span class="line">#SyncIntervalSec=5m</span><br><span class="line">#RateLimitInterval=30s</span><br><span class="line">#RateLimitBurst=1000</span><br><span class="line">SystemMaxUse=500M   //最多保留500M日志文件，免得撑爆磁盘</span><br><span class="line">#SystemKeepFree=</span><br><span class="line">#SystemMaxFileSize=</span><br><span class="line">#RuntimeMaxUse=</span><br><span class="line">#RuntimeKeepFree=</span><br><span class="line">#RuntimeMaxFileSize=</span><br><span class="line">#MaxRetentionSec=</span><br><span class="line">#MaxFileSec=1month</span><br><span class="line">#ForwardToSyslog=yes</span><br><span class="line">#ForwardToKMsg=no</span><br><span class="line">#ForwardToConsole=no</span><br><span class="line">#ForwardToWall=yes</span><br><span class="line">#TTYPath=/dev/console</span><br><span class="line">#MaxLevelStore=debug</span><br><span class="line">#MaxLevelSyslog=debug</span><br><span class="line">#MaxLevelKMsg=notice</span><br><span class="line">#MaxLevelConsole=info</span><br><span class="line">#MaxLevelWall=emerg</span><br><span class="line">#LineMax=48K</span><br></pre></td></tr></table></figure>
+
+<p>清理日志保留1M：journalctl –vacuum-size&#x3D;1M </p>
+<p>设置最大保留500M日志： journalctl –vacuum-size&#x3D;500</p>
+<h3 id="rsyslogd"><a href="#rsyslogd" class="headerlink" title="rsyslogd"></a>rsyslogd</h3><p>以下内容来自鸟哥的书：</p>
+<p>CentOS 7 除了保有既有的 rsyslog.service 之外，其实最上游还使用了 systemd 自己的登录文件日志管理功能喔！他使用的是 systemd-journald.service 这个服务来支持的。基本上，系统由 systemd 所管理，那所有经由 systemd 启动的服务，如果再启动或结束的过程中发生一些问题或者是正常的讯息， 就会将该讯息由 systemd-journald.service 以二进制的方式记录下来，之后再将这个讯息发送给 rsyslog.service 作进一步的记载。</p>
+<p>基本上， rsyslogd 针对各种服务与讯息记录在某些文件的配置文件就是 &#x2F;etc&#x2F;rsyslog.conf， 这个文件规定了“（1）什么服务 （2）的什么等级讯息 （3）需要被记录在哪里（设备或文件）” 这三个咚咚，所以设置的语法会是这样：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$cat /etc/rsyslog.conf</span><br><span class="line">服务名称[.=!]讯息等级        讯息记录的文件名或设备或主机</span><br><span class="line"># 下面以 mail 这个服务产生的 info 等级为例：</span><br><span class="line">mail.info            /var/log/maillog_info</span><br><span class="line"># 这一行说明：mail 服务产生的大于等于 info 等级的讯息，都记录到</span><br><span class="line"># /var/log/maillog_info 文件中的意思。</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/oss/1cce7612a84cf1a1addceeff6032cb5c.png" alt="syslog 所制订的服务名称与软件调用的方式"></p>
+<p> CentOS 7.x 默认的 rsyslogd 本身就已经具有远程日志服务器的功能了， 只是默认并没有启动该功能而已。你可以通过 man rsyslogd 去查询一下相关的选项就能够知道啦！ 既然是远程日志服务器，那么我们的 Linux 主机当然会启动一个端口来监听了，那个默认的端口就是 UDP 或 TCP 的 port 514 </p>
+<p><img src="/images/oss/40740cd5cfc8896c07c15b959420646f.png" alt="image.png"></p>
+<p>Server配置如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">$ cat /etc/rsyslog.conf</span><br><span class="line"># 找到下面这几行：</span><br><span class="line"># Provides UDP syslog reception</span><br><span class="line">#$ModLoad imudp</span><br><span class="line">#$UDPServerRun 514</span><br><span class="line"></span><br><span class="line"># Provides TCP syslog reception</span><br><span class="line">#$ModLoad imtcp</span><br><span class="line">#$InputTCPServerRun 514</span><br><span class="line"># 上面的是 UDP 端口，下面的是 TCP 端口！如果你的网络状态很稳定，就用 UDP 即可。</span><br><span class="line"># 不过，如果你想要让数据比较稳定传输，那么建议使用 TCP 啰！所以修改下面两行即可！</span><br><span class="line">$ModLoad imtcp</span><br><span class="line">$InputTCPServerRun 514</span><br><span class="line"></span><br><span class="line"># 2\. 重新启动与观察 rsyslogd 喔！</span><br><span class="line">[root@study ~]# systemctl restart rsyslog.service</span><br><span class="line">[root@study ~]# netstat -ltnp &amp;#124; grep syslog</span><br><span class="line">Proto Recv-Q Send-Q Local Address  Foreign Address   State    PID/Program name</span><br><span class="line">tcp        0      0 0.0.0.0:514    0.0.0.0:*         LISTEN   2145/rsyslogd</span><br><span class="line">tcp6       0      0 :::514         :::*              LISTEN   2145/rsyslogd</span><br><span class="line"># 嘿嘿！你的登录文件主机已经设置妥当啰！很简单吧！</span><br></pre></td></tr></table></figure>
+
+<p>client配置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ cat /etc/rsyslog.conf</span><br><span class="line">*.*       @@192.168.1.100</span><br><span class="line">#*.*       @192.168.1.100  # 若用 UDP 传输，设置要变这样！</span><br></pre></td></tr></table></figure>
+
+<p>常见的几个系统日志有哪些呢？一般而言，有下面几个：</p>
+<ul>
+<li>&#x2F;var&#x2F;log&#x2F;boot.log： 开机的时候系统核心会去侦测与启动硬件，接下来开始各种核心支持的功能启动等。这些流程都会记录在 &#x2F;var&#x2F;log&#x2F;boot.log 里面哩！ 不过这个文件只会存在这次开机启动的信息，前次开机的信息并不会被保留下来！</li>
+<li>&#x2F;var&#x2F;log&#x2F;cron： 还记得<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html">第十五章例行性工作调度</a>吧？你的 crontab 调度有没有实际被进行？ 进行过程有没有发生错误？你的 &#x2F;etc&#x2F;crontab 是否撰写正确？在这个登录文件内查询看看。</li>
+<li>&#x2F;var&#x2F;log&#x2F;dmesg： 记录系统在开机的时候核心侦测过程所产生的各项信息。由于 CentOS 默认将开机时核心的硬件侦测过程取消显示， 因此额外将数据记录一份在这个文件中；</li>
+<li>&#x2F;var&#x2F;log&#x2F;lastlog： 可以记录系统上面所有的帐号最近一次登陆系统时的相关信息。<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#uselinux_find">第十三章讲到的 lastlog</a> 指令就是利用这个文件的记录信息来显示的。</li>
+<li>&#x2F;var&#x2F;log&#x2F;maillog 或 &#x2F;var&#x2F;log&#x2F;mail&#x2F;*： 记录邮件的往来信息，其实主要是记录 postfix （SMTP 协定提供者） 与 dovecot （POP3 协定提供者） 所产生的讯息啦。 SMTP 是发信所使用的通讯协定， POP3 则是收信使用的通讯协定。 postfix 与 dovecot 则分别是两套达成通讯协定的软件。</li>
+<li>&#x2F;var&#x2F;log&#x2F;messages： 这个文件相当的重要，几乎系统发生的错误讯息 （或者是重要的信息） 都会记录在这个文件中； 如果系统发生莫名的错误时，这个文件是一定要查阅的登录文件之一。</li>
+<li>&#x2F;var&#x2F;log&#x2F;secure： 基本上，只要牵涉到“需要输入帐号密码”的软件，那么当登陆时 （不管登陆正确或错误） 都会被记录在此文件中。 包括系统的 login 程序、图形接口登陆所使用的 gdm 程序、 su, sudo 等程序、还有网络连线的 ssh, telnet 等程序， 登陆信息都会被记载在这里；</li>
+<li>&#x2F;var&#x2F;log&#x2F;wtmp, &#x2F;var&#x2F;log&#x2F;faillog： 这两个文件可以记录正确登陆系统者的帐号信息 （wtmp） 与错误登陆时所使用的帐号信息 （faillog） ！ 我们在<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/Text/index.html#last">第十章谈到的 last</a> 就是读取 wtmp 来显示的， 这对于追踪一般帐号者的使用行为很有帮助！</li>
+<li>&#x2F;var&#x2F;log&#x2F;httpd&#x2F;<em>, &#x2F;var&#x2F;log&#x2F;samba&#x2F;</em>： 不同的网络服务会使用它们自己的登录文件来记载它们自己产生的各项讯息！上述的目录内则是个别服务所制订的登录文件。</li>
+</ul>
+<h2 id="journalctl-常用参数"><a href="#journalctl-常用参数" class="headerlink" title="journalctl 常用参数"></a><a target="_blank" rel="noopener" href="https://linuxhint.com/journalctl-tail-and-cheatsheet/">journalctl 常用参数</a></h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">-n or –lines= Show the most recent **n** number of log lines</span><br><span class="line"></span><br><span class="line">-f or –follow Like a tail operation for viewing live updates</span><br><span class="line"></span><br><span class="line">-S, –since=, -U, –until= Search based on a date. “2019-07-04 13:19:17”, “00:00:00”, “yesterday”, “today”, “tomorrow”, “now” are valid formats. For complete time and date specification, see systemd.time(7)</span><br><span class="line"></span><br><span class="line">-u service unit</span><br></pre></td></tr></table></figure>
+
+<p>清理journald日志</p>
+<blockquote>
+<p> journalctl –vacuum-size&#x3D;1M &amp;&amp; journalctl –vacuum-size&#x3D;500</p>
+</blockquote>
+<h2 id="logrotate"><a href="#logrotate" class="headerlink" title="logrotate"></a>logrotate</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">/var/log/cron</span><br><span class="line">&#123;</span><br><span class="line">    sharedscripts</span><br><span class="line">    postrotate</span><br><span class="line">        /bin/kill -HUP `cat /var/run/syslogd.pid 2&gt; /dev/null` 2&gt; /dev/null || true</span><br><span class="line">    endscript</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h3 id="kill-HUP"><a href="#kill-HUP" class="headerlink" title="kill -HUP"></a><a target="_blank" rel="noopener" href="https://unix.stackexchange.com/questions/440004/why-is-kill-hup-used-in-logrotate-in-rhel-is-it-necessary-in-all-cases">kill -HUP</a></h3><p>Generally services keep the log files opened while they are running. This mean that they do not care if the log files are renamed&#x2F;moved or deleted they will continue to write to the open file handled.</p>
+<p>When logrotate move the files, the services keep writing to the same file.</p>
+<p>Example: syslogd will write to &#x2F;var&#x2F;log&#x2F;cron.log. Then logrotate will rename the file to &#x2F;var&#x2F;log&#x2F;cron.log.1, so syslogd will keep writing to the open file &#x2F;var&#x2F;log&#x2F;cron.log.1.</p>
+<p>Sending the HUP signal to syslogd will force him to close existing file handle and open new file handle to the original path &#x2F;var&#x2F;log&#x2F;cron.log which will create a new file.</p>
+<p>The use of the HUP signal instead of another one is at the discretion of the program. Some services like php-fpm will listen to the USR1 signal to reopen it’s file handle without terminating itself.</p>
+<p>不过还得看应用是否屏蔽了 HUP 信号</p>
+<h2 id="systemd"><a href="#systemd" class="headerlink" title="systemd"></a>systemd</h2><p>sudo systemctl list-unit-files –type&#x3D;service | grep enabled &#x2F;&#x2F;列出启动项</p>
+<p> journalctl -b -1 &#x2F;&#x2F;复审前一次启动， -2 复审倒数第 2 次启动. 重演你的系统启动的所有消息</p>
+<p>sudo systemd-analyze blame   <strong>sudo systemd-analyze critical-chain</strong></p>
+<p>systemd-analyze critical-chain –fuzz 1h</p>
+<p>sudo systemd-analyze blame networkd</p>
+<p>systemd-analyze critical-chain network.target local-fs.target</p>
+<p><img src="/images/oss/bb21293e-9b52-40f9-9ab2-7c5aeb7beca1.png" alt="img"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>一模一样的症状，但是根因找错了：<a target="_blank" rel="noopener" href="https://blog.csdn.net/fanren224/article/details/103991748">rsyslog占用内存高</a> </p>
+<p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/3705051">https://access.redhat.com/solutions/3705051</a></p>
+<p><a target="_blank" rel="noopener" href="https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html">https://sunsea.im/rsyslogd-systemd-journald-high-memory-solution.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/vbird-linux-basic-4e/content/160.html">鸟哥 journald 介绍</a></p>
+<p><a target="_blank" rel="noopener" href="https://linuxhint.com/journalctl-tail-and-cheatsheet/">journalctl tail and cheatsheet</a></p>
+<p><a target="_blank" rel="noopener" href="https://lp007819.wordpress.com/2015/01/17/systemd-journal-%E4%BB%8B%E7%BB%8D/">Journal的由来</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/log/" rel="tag"># log</a>
+              <a href="/tags/journald/" rel="tag"># journald</a>
+              <a href="/tags/rsyslogd/" rel="tag"># rsyslogd</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/" rel="prev" title="TCP传输速度案例分析">
+                  <i class="fa fa-angle-left"></i> TCP传输速度案例分析
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021/02/10/%E4%B8%80%E4%B8%AA%E9%BB%91%E7%9B%92%E7%A8%8B%E5%BA%8F%E5%A5%87%E6%80%AA%E7%9A%84%E8%A1%8C%E4%B8%BA%E5%88%86%E6%9E%90/" rel="next" title="一个黑盒程序奇怪行为的分析">
+                  一个黑盒程序奇怪行为的分析 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

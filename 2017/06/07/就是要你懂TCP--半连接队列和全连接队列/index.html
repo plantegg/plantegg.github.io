@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:  这两个队列是干什么用的；  2）怎么设置和观察他们的最大值； 3）怎么查看这两个队列当前使用到了多少； 4）一旦溢出">
+<meta property="og:type" content="article">
+<meta property="og:title" content="就是要你懂TCP--半连接队列和全连接队列">
+<meta property="og:url" content="https://plantegg.github.io/2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:  这两个队列是干什么用的；  2）怎么设置和观察他们的最大值； 3）怎么查看这两个队列当前使用到了多少； 4）一旦溢出">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bcf463efeb677d5749d8d7571274ee79.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/image-20240807112156872.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/image-20240807112356787.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/c0849615ae52531887ce6b0313d7d2d1.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/01dc036aca4b445ed86e3e295bf245b8.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/9179e08ac24ce3d53e74b92dbd044906.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/a5616904df3a505572d99d557b534db2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240506134119413.png">
+<meta property="article:published_time" content="2017-06-07T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.559Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="TCP queue">
+<meta property="article:tag" content="accept queue">
+<meta property="article:tag" content="dropped">
+<meta property="article:tag" content="netstat">
+<meta property="article:tag" content="overflows">
+<meta property="article:tag" content="ss">
+<meta property="article:tag" content="syn flood">
+<meta property="article:tag" content="syn queue">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/","path":"2017/06/07/就是要你懂TCP--半连接队列和全连接队列/","title":"就是要你懂TCP--半连接队列和全连接队列"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>就是要你懂TCP--半连接队列和全连接队列 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%85%B3%E4%BA%8ETCP-%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97"><span class="nav-number">1.</span> <span class="nav-text">关于TCP 半连接队列和全连接队列</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E9%97%AE%E9%A2%98"><span class="nav-number">1.2.</span> <span class="nav-text">分析问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%AD%A3%E5%B8%B8TCP%E5%BB%BA%E8%BF%9E%E6%8E%A5%E4%B8%89%E6%AC%A1%E6%8F%A1%E6%89%8B%E8%BF%87%E7%A8%8B%EF%BC%9A"><span class="nav-number">1.2.1.</span> <span class="nav-text">正常TCP建连接三次握手过程：</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3TCP%E6%8F%A1%E6%89%8B%E8%BF%87%E7%A8%8B%E4%B8%AD%E5%BB%BA%E8%BF%9E%E6%8E%A5%E7%9A%84%E6%B5%81%E7%A8%8B%E5%92%8C%E9%98%9F%E5%88%97"><span class="nav-number">1.3.</span> <span class="nav-text">深入理解TCP握手过程中建连接的流程和队列</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A6%82%E6%9E%9CTCP%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E6%BA%A2%E5%87%BA%EF%BC%8C%E6%9C%89%E5%93%AA%E4%BA%9B%E6%8C%87%E6%A0%87%E5%8F%AF%E4%BB%A5%E7%9C%8B%E5%91%A2%EF%BC%9F"><span class="nav-number">1.4.</span> <span class="nav-text">如果TCP连接队列溢出，有哪些指标可以看呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#netstat-s"><span class="nav-number">1.4.1.</span> <span class="nav-text">netstat -s</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ss-%E5%91%BD%E4%BB%A4"><span class="nav-number">1.4.2.</span> <span class="nav-text">ss 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat-%E5%91%BD%E4%BB%A4"><span class="nav-number">1.4.2.1.</span> <span class="nav-text">netstat 命令</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat%E7%9C%8B%E5%88%B0%E7%9A%84listen%E7%8A%B6%E6%80%81%E7%9A%84Recv-Q-Send-Q"><span class="nav-number">1.4.2.2.</span> <span class="nav-text">netstat看到的listen状态的Recv-Q&#x2F;Send-Q</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%A1%88%E5%88%97%EF%BC%9A%E5%A6%82%E6%9E%9CTCP%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E6%BA%A2%E5%87%BA%EF%BC%8C%E6%8A%93%E5%8C%85%E6%98%AF%E4%BB%80%E4%B9%88%E7%8E%B0%E8%B1%A1%E5%91%A2%EF%BC%9F"><span class="nav-number">1.5.</span> <span class="nav-text">案列：如果TCP连接队列溢出，抓包是什么现象呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%9A%E8%BF%87ss%E5%92%8Cnetstat%E6%89%80%E8%A7%82%E5%AF%9F%E5%88%B0%E7%9A%84%E7%8A%B6%E6%80%81"><span class="nav-number">1.5.1.</span> <span class="nav-text">通过ss和netstat所观察到的状态</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%9E%E8%B7%B5%E9%AA%8C%E8%AF%81%E4%B8%80%E4%B8%8B%E4%B8%8A%E9%9D%A2%E7%9A%84%E7%90%86%E8%A7%A3"><span class="nav-number">1.6.</span> <span class="nav-text">实践验证一下上面的理解</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Tomcat%E5%92%8CNginx%E4%B8%AD%E7%9A%84Accept%E9%98%9F%E5%88%97%E5%8F%82%E6%95%B0"><span class="nav-number">1.6.1.</span> <span class="nav-text">Tomcat和Nginx中的Accept队列参数</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BF%9B%E4%B8%80%E6%AD%A5%E6%80%9D%E8%80%83-client-fooling-%E9%97%AE%E9%A2%98"><span class="nav-number">1.7.</span> <span class="nav-text">进一步思考 client fooling 问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BF%87%E7%A8%8B%E4%B8%AD%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AA%E5%A5%87%E6%80%AA%E9%97%AE%E9%A2%98"><span class="nav-number">1.8.</span> <span class="nav-text">过程中发现的一个奇怪问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%82%A3%E4%B9%88%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E6%BB%A1%E4%BA%86%E4%BC%9A%E5%BD%B1%E5%93%8D%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%90%97%EF%BC%9F"><span class="nav-number">1.9.</span> <span class="nav-text">那么全连接队列满了会影响半连接队列吗？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E7%9A%84%E9%95%BF%E5%BA%A6"><span class="nav-number">1.10.</span> <span class="nav-text">半连接队列的长度</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.11.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88-netstat-%E7%9C%8B%E5%88%B0%E7%9A%84-listen-%E7%8A%B6%E6%80%81%E7%9A%84-SEND-Q-%E6%80%BB%E6%98%AF0"><span class="nav-number">1.12.</span> <span class="nav-text">为什么 netstat 看到的 listen 状态的 SEND-Q 总是0</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E6%96%87%E7%AB%A0"><span class="nav-number">1.13.</span> <span class="nav-text">参考文章</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="就是要你懂TCP--半连接队列和全连接队列 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          就是要你懂TCP--半连接队列和全连接队列
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2017-06-07 17:30:03" itemprop="dateCreated datePublished" datetime="2017-06-07T17:30:03+08:00">2017-06-07</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+<p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
+<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
+<ol>
+<li>这两个队列是干什么用的；</li>
+</ol>
+<p>2）怎么设置和观察他们的最大值；</p>
+<p>3）怎么查看这两个队列当前使用到了多少；</p>
+<p>4）一旦溢出的后果和现象是什么</p>
+</blockquote>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
+
+1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
+2.出问题的时间点，会同时有很多连接出现这个问题。
+3.selector没有销毁重建，一直用的都是一个。
+4.程序刚启动的时候必会出现一些，之后会间歇性出现。
+</code></pre>
+<h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><h3 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h3><p><img src="/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
+</ul>
+<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
+<pre><code>667399 times the listen queue of a socket overflowed
+</code></pre>
+<p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
+<p>接着查看溢出后，OS怎么处理：</p>
+<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
+0
+</code></pre>
+<p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么 server 扔掉 client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
+<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
+<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
+<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
+<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
+<blockquote>
+<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
+</blockquote>
+<h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
+<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
+<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
+</code></pre>
+<p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
+<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
+<pre><code>net.ipv4.tcp_synack_retries = 2
+</code></pre>
+<h2 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h2><p>上述解决过程有点绕，听起来蒙，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
+<p>（<em>通过具体的、可见的东西来强化我们对知识点的理解和吸收</em>）</p>
+<h3 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h3><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
+667399 times the listen queue of a socket overflowed  //全连接队列溢出
+//以下两行是一个意思， netstat 版本不同导致显示不同，新版本显示为 dropped
+667399 SYNs to LISTEN sockets ignored                 //含全连接/半连接队列溢出+PAWSPassive 等
+905080 SYNs to LISTEN sockets dropped                 //含全连接/半连接队列溢出+PAWSPassive 等
+ 
+//和本文无关的一些其它指标 
+919614 passive connections rejected because of time stamp //tcp_recycle 丢 syn 包，对应/proc/net/netstat 中 PAWSPassive
+TCPTimeWaitOverflow: 65000                                //tcp_max_tw_buckets 溢出
+</code></pre>
+<p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了</p>
+<p>ignored 和 dropped：</p>
+<p><img src="/Users/ren/case/951413iMgBlog/image-20240807112156872.png" alt="image-20240807112156872"></p>
+<p>这些指标都是从 &#x2F;proc&#x2F;net&#x2F;netstat 中采集，含义可以参考 <a target="_blank" rel="noopener" href="https://github.com/ecki/net-tools.git">net-tool 工具(netstat 命令来源)中的源码</a>：</p>
+<p><img src="/Users/ren/case/951413iMgBlog/image-20240807112356787.png" alt="image-20240807112356787"></p>
+<h3 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h3><pre><code>[root@server ~]# ss -lnt
+Recv-Q Send-Q Local Address:Port  Peer Address:Port 
+0        50               *:3306             *:* 
+</code></pre>
+<p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
+<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
+<p>《Unix Network Programming》中关于backlog的描述</p>
+<blockquote>
+<p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
+<p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it “defines the maximum length the queue of pending connections may grow to.” Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
+</blockquote>
+<p>关于 <a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4">somaxconn 终于在2019年将默认值从128调整到了2048</a>, 这个调整合并到了kernel 5.17中</p>
+<blockquote>
+<p>SOMAXCONN is &#x2F;proc&#x2F;sys&#x2F;net&#x2F;core&#x2F;somaxconn default value.</p>
+<p>It has been defined as 128 more than 20 years ago.</p>
+<p>Since it caps the listen() backlog values, the very small value has<br>caused numerous problems over the years, and many people had<br>to raise it on their hosts after beeing hit by problems.</p>
+<p>Google has been using 1024 for at least 15 years, and we increased<br>this to 4096 after TCP listener rework has been completed, more than<br>4 years ago. We got no complain of this change breaking any<br>legacy application.</p>
+<p>Many applications indeed setup a TCP listener with listen(fd, -1);<br>meaning they let the system select the backlog.</p>
+<p>Raising SOMAXCONN lowers chance of the port being unavailable under<br>even small SYNFLOOD attack, and reduces possibilities of side channel<br>vulnerabilities.</p>
+</blockquote>
+<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
+<pre><code>ServerSocket()
+	Creates an unbound server socket.
+ServerSocket(int port)
+	Creates a server socket, bound to the specified port.
+ServerSocket(int port, int backlog)
+	Creates a server socket and binds it to the specified local port number, with the specified backlog.
+ServerSocket(int port, int backlog, InetAddress bindAddr)
+	Create a server with the specified port, listen backlog, and local IP address to bind to.
+</code></pre>
+<p>（来自JDK帮助文档：<a target="_blank" rel="noopener" href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html%EF%BC%89">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
+<p><strong>半连接队列的大小取决于：max(64,  &#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;tcp_max_syn_backlog)。 <a target="_blank" rel="noopener" href="https://developer.aliyun.com/article/804896">不同版本的os会有些差异</a></strong></p>
+<blockquote>
+<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
+</blockquote>
+<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp    0  0 server:8182  client-1:15260 SYN_RECV   
+tcp    0 28 server:22    client-1:51708  ESTABLISHED
+tcp    0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p><strong>netstat -tn 看到的 Recv-Q 跟全连接半连接中的Queue没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆</strong>  </p>
+<p>所以ss看到的 Send-Q、Recv-Q是目前全连接队列使用情况和最大设置<br>netstat看到的 Send-Q、Recv-Q，如果这个连接是Established状态的话就是发出的bytes并且没有ack的包、和os接收到的bytes还没交给应用</p>
+<p>我们看到的 Recv-Q、Send-Q获取源代码如下（ net&#x2F;ipv4&#x2F;tcp_diag.c ）：   </p>
+<pre><code>static void tcp_diag_get_info(struct sock *sk, struct inet_diag_msg *r,
+  void *_info)
+{
+    const struct tcp_sock *tp = tcp_sk(sk);
+    struct tcp_info *info = _info;
+    
+    if (sk-&gt;sk_state == TCP_LISTEN) {  //LISTEN状态下的 Recv-Q、Send-Q
+	    r-&gt;idiag_rqueue = sk-&gt;sk_ack_backlog;
+	    r-&gt;idiag_wqueue = sk-&gt;sk_max_ack_backlog; //Send-Q 最大backlog
+    } else {						   //其它状态下的 Recv-Q、Send-Q
+	    r-&gt;idiag_rqueue = max_t(int, tp-&gt;rcv_nxt - tp-&gt;copied_seq, 0);
+	    r-&gt;idiag_wqueue = tp-&gt;write_seq - tp-&gt;snd_una;
+    }
+    if (info != NULL)
+    	tcp_get_info(sk, info);
+}
+</code></pre>
+<p>比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
+<p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="netstat看到的listen状态的Recv-Q-Send-Q"><a href="#netstat看到的listen状态的Recv-Q-Send-Q" class="headerlink" title="netstat看到的listen状态的Recv-Q&#x2F;Send-Q"></a>netstat看到的listen状态的Recv-Q&#x2F;Send-Q</h4><p>netstat 看到的listen状态下的Recv-Q&#x2F;Send-Q意义跟 ss -lnt看到的完全不一样。上面的 netstat 对非listen的描述没问题，但是listen状态似乎Send-Q这个值总是0，这要去看netstat的代码了，实际上Listen状态它不是一个连接，所以肯定统计不到流量，netstat似乎只是针对连接的统计</p>
+<p>从网上找了两个Case，server的8765端口故意不去读取对方发过来的2000字节，所看到的是：</p>
+<pre><code>$ netstat -ano | grep 8765  
+tcp0  0 0.0.0.0:87650.0.0.0:*   LISTEN  off (0.00/0/0)  
+tcp 2000  0 10.100.70.140:8765  10.100.70.139:43634 ESTABLISHED off (0.00/0/0)
+</code></pre>
+<p>第二个Case，8000端口的半连接满了（129），但是这个时候Send-Q还是看到的0</p>
+<pre><code>$ netstat -ntap | grep 8000 
+tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- 
+tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    - 
+tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    - 
+tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -  
+</code></pre>
+<h2 id="案列：如果TCP连接队列溢出，抓包是什么现象呢？"><a href="#案列：如果TCP连接队列溢出，抓包是什么现象呢？" class="headerlink" title="案列：如果TCP连接队列溢出，抓包是什么现象呢？"></a>案列：如果TCP连接队列溢出，抓包是什么现象呢？</h2><p><img src="/images/oss/c0849615ae52531887ce6b0313d7d2d1.png" alt="image.png"></p>
+<p>如上图server端8989端口的服务全连接队列已经满了（设置最大5，已经6了，通过后面步骤的ss -lnt可以验证）， 所以 server尝试过一会假装继续三次握手的第二步，跟client说我们继续谈恋爱吧。可是这个时候client比较性急，忙着分手了，server觉得都没恋上那什么分手啊。所以接下来两边自说自话也就是都不停滴重传</p>
+<h3 id="通过ss和netstat所观察到的状态"><a href="#通过ss和netstat所观察到的状态" class="headerlink" title="通过ss和netstat所观察到的状态"></a>通过ss和netstat所观察到的状态</h3><p><img src="/images/oss/ec25ccb6cce8f554b7ef6927f05bd530.png" alt="image.png"></p>
+<p><img src="/images/oss/2fbdd05162e9fd51e803682b8a18cc51.png" alt="image.png"></p>
+<p><a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">另外一个案例，虽然最终的锅不是TCP全连接队列太小，但是也能从重传、队列溢出找到根因</a></p>
+<h2 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h2><p>上面是通过一些具体的工具、指标来认识全连接队列，接下来结合文章开始的问题来具体验证一下 </p>
+<p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
+<pre><code>Fri May  5 13:50:23 CST 2017
+Recv-Q Send-QLocal Address:Port  Peer Address:Port
+11         10         *:3306               *:*
+</code></pre>
+<p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
+<p><strong>能够进入全连接队列的 Socket 最大数量始终比配置的全连接队列最大长度 + 1</strong>，结合内核代码，发现<strong>内核在判断全连接队列是否满的情况下，使用的是 &gt; 而非 &gt;&#x3D;</strong> </p>
+<blockquote>
+<p>Linux下发SIGSTOP信号发给用户态进程，就可以让进程stop不再accept，模拟accept溢出的效果</p>
+<p>kill -19 pid 即可； kill -18 pid 恢复暂停进程</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#define SIGKILL     9    /* Kill, unblockable (POSIX). */</span><br><span class="line">#define SIGCONT     18   /* Continue (POSIX).  */</span><br><span class="line">#define SIGSTOP     19   /* Stop, unblockable (POSIX). */</span><br></pre></td></tr></table></figure></blockquote>
+<p>tsar监控accept队列的溢出</p>
+<blockquote>
+<p>tsar –tcpx -s&#x3D;lisove -li 1</p>
+</blockquote>
+<h3 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h3><p>Tomcat 默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
+<pre><code>#ss -lnt
+Recv-Q Send-Q   Local Address:Port Peer Address:Port
+0       100                 *:8080            *:*
+</code></pre>
+<p>Nginx默认是511</p>
+<pre><code>$sudo ss -lnt
+State  Recv-Q Send-Q Local Address:PortPeer Address:Port
+LISTEN    0     511              *:8085           *:*
+LISTEN    0     511              *:8085           *:*
+</code></pre>
+<p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
+<p><img src="/images/oss/01dc036aca4b445ed86e3e295bf245b8.png" alt="image.png"></p>
+<h2 id="进一步思考-client-fooling-问题"><a href="#进一步思考-client-fooling-问题" class="headerlink" title="进一步思考 client fooling 问题"></a>进一步思考 client fooling 问题</h2><p>如果client走完第三步在client看来连接已经建立好了，但是server上的对应的连接有可能因为accept queue满了而仍然是syn_recv状态，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，还是实践看看）</p>
+<p>先来看一个例子：</p>
+<p><img src="/images/oss/9179e08ac24ce3d53e74b92dbd044906.png" alt="image.png"></p>
+<p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
+<p><img src="/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png" alt="image.png"></p>
+<p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071">https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</a> ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
+<p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
+<p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
+<h2 id="过程中发现的一个奇怪问题"><a href="#过程中发现的一个奇怪问题" class="headerlink" title="过程中发现的一个奇怪问题"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:58 CST 2017
+1641685 times the listen queue of a socket overflowed  # 全连接队列溢出
+1641685 SYNs to LISTEN sockets ignored                 # 半连接队列溢出
+
+[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
+Fri May  5 15:39:59 CST 2017
+1641906 times the listen queue of a socket overflowed
+1641906 SYNs to LISTEN sockets ignored
+</code></pre>
+<p>如上所示：<br>overflowed 和 ignored 总是一样多，并且都是同步增加，overflowed 表示全连接队列溢出次数，SYNs to LISTEN socket ignored 表示半连接队列溢出等等指标的次数，没这么巧吧。</p>
+<p>翻看内核源代码（<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/blob/v6.13-rc6/net/ipv4/tcp_ipv4.c#L1849">https://github.com/torvalds/linux/blob/v6.13-rc6/net/ipv4/tcp_ipv4.c#L1849</a> ）：</p>
+<p><img src="/images/oss/a5616904df3a505572d99d557b534db2.png" alt="image.png"></p>
+<p>可以看到overflow的时候一定会drop++（socket ignored），也就是drop一定大于等于overflow。</p>
+<p>同时我也查看了另外几台server的这两个值来证明drop一定大于等于overflow：</p>
+<pre><code>server1
+150 SYNs to LISTEN sockets dropped
+
+server2
+193 SYNs to LISTEN sockets dropped
+
+server3
+16329 times the listen queue of a socket overflowed
+16422 SYNs to LISTEN sockets dropped
+
+server4
+20 times the listen queue of a socket overflowed
+51 SYNs to LISTEN sockets dropped
+
+server5
+984932 times the listen queue of a socket overflowed
+988003 SYNs to LISTEN sockets dropped
+</code></pre>
+<p>总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接&#x2F;半连接队列溢出<strong>以及PAWSPassive</strong> 等造成的 SYN 丢包</p>
+<blockquote>
+<p>ListenDrops 表示： SYNs to LISTEN sockets dropped</p>
+</blockquote>
+<h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a target="_blank" rel="noopener" href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249%EF%BC%89%EF%BC%9A">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
+<p><img src="/images/oss/0c6bbb5d4a10f40c8b3c4ba6cab82292.png" alt="image.png"></p>
+<p>TCP 三次握手第一步的时候如果全连接队列满了会影响第一步drop 半连接的发生，流程的如下：</p>
+<pre><code>tcp_v4_do_rcv-&gt;tcp_rcv_state_process-&gt;tcp_v4_conn_request
+//如果accept backlog队列已满，且未超时的request socket的数量大于1，则丢弃当前请求  
+  if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
+      goto drop;
+</code></pre>
+<h2 id="半连接队列的长度"><a href="#半连接队列的长度" class="headerlink" title="半连接队列的长度"></a>半连接队列的长度</h2><p><strong>半连接队列的长度由三个参数指定：</strong></p>
+<ul>
+<li><strong>调用</strong> <strong>listen</strong> <strong>时，传入的 backlog</strong></li>
+<li><strong>&#x2F;proc&#x2F;sys&#x2F;net&#x2F;core&#x2F;somaxconn</strong> <strong>默认值为 128</strong></li>
+<li><em>&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;tcp_max_syn_backlog</em>* <strong>默认值为 1024</strong></li>
+</ul>
+<p>假设 listen 传入的 backlog &#x3D; 128，其他配置采用默认值，来计算下半连接队列的最大长度</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">backlog = min(somaxconn, backlog) = min(128, 128) = 128</span><br><span class="line">nr_table_entries = backlog = 128</span><br><span class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog) = min(128, 1024) = 128</span><br><span class="line">nr_table_entries = max(nr_table_entries, 8) = max(128, 8) = 128</span><br><span class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1) = 256</span><br><span class="line">max_qlen_log = max(3, log2(nr_table_entries)) = max(3, 8) = 8</span><br><span class="line">max_queue_length = 2^max_qlen_log = 2^8 = 256</span><br></pre></td></tr></table></figure>
+
+<p>可以得到半队列大小是 256，以上计算方法：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">backlog = min(somaxconn, backlog)</span><br><span class="line">nr_table_entries = backlog</span><br><span class="line">nr_table_entries = min(backlog, sysctl_max_syn_backlog)</span><br><span class="line">nr_table_entries = max(nr_table_entries, 8)</span><br><span class="line">// roundup_pow_of_two: 将参数向上取整到最小的 2^n，注意这里存在一个 +1</span><br><span class="line">nr_table_entries = roundup_pow_of_two(nr_table_entries + 1)</span><br><span class="line">max_qlen_log = max(3, log2(nr_table_entries))</span><br><span class="line">max_queue_length = 2^max_qlen_log</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/5f63b8e0-952c-47a2-8179-48793034f86b.png"></p>
+<p>没开启tcp_syncookies的话，到tcp_max_syn_backlog 75%水位就开始drop syn包了</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Linux内核就引入半连接队列（用于存放收到SYN，但还没收到ACK的连接）和全连接队列（用于存放已经完成3次握手，但是<strong>应用层代码还没有完成 accept() 的连接</strong>）两个概念，用于存放在握手中的连接。</p>
+<p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt&#x3D;网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<p>另外就是jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如 @毕玄 碰到的这个 <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/12919">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
+<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题。</p>
+<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚。</p>
+<h2 id="为什么-netstat-看到的-listen-状态的-SEND-Q-总是0"><a href="#为什么-netstat-看到的-listen-状态的-SEND-Q-总是0" class="headerlink" title="为什么 netstat 看到的 listen 状态的 SEND-Q 总是0"></a>为什么 netstat 看到的 listen 状态的 SEND-Q 总是0</h2><p><a target="_blank" rel="noopener" href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e7073830cc8b52ef3df7dd150e4dac7706e0e104">https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=e7073830cc8b52ef3df7dd150e4dac7706e0e104</a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#netstat -ntap | grep 8000</span><br><span class="line">Proto Recv-Q Send-Q Local Address           Foreign Address         State</span><br><span class="line">tcp      129      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1526/XXXXX- //第三列总是0</span><br><span class="line">tcp        0      0 9.11.6.36:8000          9.11.6.37:48306         SYN_RECV    -</span><br><span class="line">tcp        0      0 9.11.6.36:8000          9.11.6.34:44936         SYN_RECV    -</span><br><span class="line">tcp      365      0 9.11.6.36:8000          9.11.6.37:58446         CLOSE_WAIT  -</span><br></pre></td></tr></table></figure>
+
+<p>如下图代码，最开始 2 边一起支持了 LISTEN socket 显示 accept 队列当前长度，后来右边支持显示最大长度时，左边没有加。netstat 是读取的 &#x2F;proc&#x2F;net&#x2F;tcp，然后 ss 走了 diag 接口去拿的：</p>
+<p><img src="/images/951413iMgBlog/image-20240506134119413.png" alt="image-20240506134119413"></p>
+<hr>
+<p>也就是改了 tcp_diag_get_info ，但是忘了改 get_tcp4_sock，但是写 man netstat 自己也没验证过就以讹传讹</p>
+<p>d31d2480d9840f0d88739941bed0654d5b581dcb ?</p>
+<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p>星球同学最详细的实践(代码、抓包等等，共13篇，含<a target="_blank" rel="noopener" href="https://github.com/xiaodongQ/prog-playground/tree/main/network">演示代码</a>) <a target="_blank" rel="noopener" href="https://xiaodongq.github.io/2024/05/30/tcp_syn_queue/">https://xiaodongq.github.io/2024/05/30/tcp_syn_queue/</a>  <a target="_blank" rel="noopener" href="https://xiaodongq.github.io/2024/06/26/libbpf-trace-tcp_connect/">https://xiaodongq.github.io/2024/06/26/libbpf-trace-tcp_connect/</a></p>
+<p>X推友实验：<a target="_blank" rel="noopener" href="https://wgzhao.github.io/notes/troubleshooting/deep-in-tcp-connect/">https://wgzhao.github.io/notes/troubleshooting/deep-in-tcp-connect/</a></p>
+<p>张师傅：<a target="_blank" rel="noopener" href="https://juejin.cn/post/6844904071367753736">https://juejin.cn/post/6844904071367753736</a></p>
+<p>详细的实验以及分析，附Go 实验代码：<a target="_blank" rel="noopener" href="https://www.51cto.com/article/687595.html">https://www.51cto.com/article/687595.html</a> </p>
+<p><a target="_blank" rel="noopener" href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<p><a target="_blank" rel="noopener" href="http://www.cnblogs.com/zengkefu/p/5606696.html">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
+<p><a target="_blank" rel="noopener" href="http://www.cnxct.com/something-about-phpfpm-s-backlog/">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
+<p><a target="_blank" rel="noopener" href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
+<p><a target="_blank" rel="noopener" href="http://jin-yang.github.io/blog/network-synack-queue.html#">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
+<p><a target="_blank" rel="noopener" href="http://blog.chinaunix.net/uid-20662820-id-4154399.html">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/12919">https://www.atatech.org/articles/12919</a></p>
+<p><a target="_blank" rel="noopener" href="https://blog.cloudflare.com/syn-packet-handling-in-the-wild/">https://blog.cloudflare.com/syn-packet-handling-in-the-wild/</a></p>
+<p><a target="_blank" rel="noopener" href="https://ops.tips/blog/how-linux-tcp-introspection/">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/12995358.html">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://developer.aliyun.com/article/804896">从一次线上问题说起，详解 TCP 半连接队列、全连接队列–详细的实验验证各种溢出</a></p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ">案例三：诡异的幽灵连接，全连接队列满后4.10内核不再回复syn+ack, 但是3.10会回syn+ack</a></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">commit <span class="number">5</span>ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</span><br><span class="line">Author: Eric Dumazet &lt;edumazet@google.com&gt;</span><br><span class="line">Date:   Thu Oct <span class="number">27</span> <span class="number">00</span>:<span class="number">27</span>:<span class="number">57</span> <span class="number">2016</span></span><br><span class="line"></span><br><span class="line"> tcp/dccp: drop SYN packets <span class="keyword">if</span> accept <span class="built_in">queue</span> is full</span><br><span class="line"></span><br><span class="line"> Per <span class="title function_">listen</span><span class="params">(fd, backlog)</span> rules, there is really no point accepting a SYN,</span><br><span class="line"> sending a SYNACK, and dropping the following ACK packet <span class="keyword">if</span> accept <span class="built_in">queue</span></span><br><span class="line"> is full, because application is not draining accept <span class="built_in">queue</span> fast enough.</span><br><span class="line"></span><br><span class="line"> This behavior is fooling TCP clients that believe they established a</span><br><span class="line"> flow, <span class="keyword">while</span> there is nothing at server side. They might then send about</span><br><span class="line"> 10 <span class="title function_">MSS</span> <span class="params">(<span class="keyword">if</span> using IW10)</span> that will be dropped anyway <span class="keyword">while</span> server is under</span><br><span class="line"> stress.</span><br><span class="line"></span><br><span class="line">   -       <span class="comment">/* Accept backlog is full. If we have already queued enough</span></span><br><span class="line"><span class="comment">   -        * of warm entries in syn queue, drop request. It is better than</span></span><br><span class="line"><span class="comment">   -        * clogging syn queue with openreqs with exponentially increasing</span></span><br><span class="line"><span class="comment">   -        * timeout.</span></span><br><span class="line"><span class="comment">   -        */</span></span><br><span class="line">   -       <span class="title function_">if</span> <span class="params">(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; <span class="number">1</span>)</span> &#123;</span><br><span class="line">   +       <span class="keyword">if</span> (sk_acceptq_is_full(sk)) &#123;</span><br><span class="line">                   NET_INC_STATS(sock_net(sk), LINUX_MIB_LISTENOVERFLOWS);</span><br><span class="line">                   <span class="keyword">goto</span> drop;</span><br><span class="line">           &#125;</span><br></pre></td></tr></table></figure>
+
+<p>Client 不断地 connect 建新连接：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;stdio.h&gt;</span><br><span class="line">#include&lt;stdlib.h&gt;</span><br><span class="line">#include&lt;string.h&gt;</span><br><span class="line">#include&lt;errno.h&gt;</span><br><span class="line">#include&lt;sys/types.h&gt;</span><br><span class="line">#include&lt;sys/socket.h&gt;</span><br><span class="line">#include&lt;netinet/in.h&gt;</span><br><span class="line">#include&lt;arpa/inet.h&gt;</span><br><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">#define MAXLINE 4096</span><br><span class="line"></span><br><span class="line">int main(int argc, char** argv)</span><br><span class="line">&#123;</span><br><span class="line">    int sockfd, n;</span><br><span class="line">    char recvline[4096], sendline[4096];</span><br><span class="line">    struct sockaddr_in servaddr;</span><br><span class="line"></span><br><span class="line">    memset(&amp;servaddr, 0, sizeof(servaddr));</span><br><span class="line">    servaddr.sin_family = AF_INET;</span><br><span class="line">    servaddr.sin_port = htons(6666);</span><br><span class="line">    inet_pton(AF_INET, &quot;127.0.0.1&quot;, &amp;servaddr.sin_addr);</span><br><span class="line"></span><br><span class="line">    for (n = 0; n &lt; 100; n++)</span><br><span class="line">    &#123;</span><br><span class="line">        if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) &lt; 0)&#123;</span><br><span class="line">            printf(&quot;create socket error: %s(errno: %d)\n&quot;, strerror(errno),errno);</span><br><span class="line">            return 0;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        //客户端不停的向服务端发起新连接，成功之后继续发，没成功会阻塞在这里        //--------------</span><br><span class="line">        if(connect(sockfd, (struct sockaddr*)&amp;servaddr, sizeof(servaddr)) &lt; 0)</span><br><span class="line">        &#123;</span><br><span class="line">            printf(&quot;connect error: %s(errno: %d)\n&quot;,strerror(errno),errno);</span><br><span class="line">            return 0;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        printf(&quot;connected to server: %d\n&quot;, n);</span><br><span class="line">        close(sockfd);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>server 故意不accept：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;stdio.h&gt;</span><br><span class="line">#include&lt;stdlib.h&gt;</span><br><span class="line">#include&lt;string.h&gt;</span><br><span class="line">#include&lt;errno.h&gt;</span><br><span class="line">#include&lt;sys/types.h&gt;</span><br><span class="line">#include&lt;sys/socket.h&gt;</span><br><span class="line">#include&lt;netinet/in.h&gt;</span><br><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line"></span><br><span class="line">#define MAXLINE 4096</span><br><span class="line"></span><br><span class="line">int main(int argc, char* argv[])</span><br><span class="line">&#123;</span><br><span class="line">    int listenfd, connfd;</span><br><span class="line">    struct sockaddr_in servaddr;</span><br><span class="line">    char buff[4096];</span><br><span class="line">    int  n;</span><br><span class="line"></span><br><span class="line">    if( (listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1 )</span><br><span class="line">    &#123;</span><br><span class="line">        printf(&quot;create socket error: %s(errno: %d)\n&quot;, strerror(errno), errno);</span><br><span class="line">        return 0;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    memset(&amp;servaddr, 0, sizeof(servaddr));</span><br><span class="line">    servaddr.sin_family = AF_INET;</span><br><span class="line">    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);</span><br><span class="line">    servaddr.sin_port = htons(6666);</span><br><span class="line"></span><br><span class="line">    if(bind(listenfd, (struct sockaddr*)&amp;servaddr, sizeof(servaddr)) == -1)</span><br><span class="line">    &#123;</span><br><span class="line">        printf(&quot;bind socket error: %s(errno: %d)\n&quot;, strerror(errno), errno);</span><br><span class="line">        return 1;</span><br><span class="line">    &#125;</span><br><span class="line">    //全连接队列设置为10    //--------------</span><br><span class="line">    if(listen(listenfd, 10) == -1)</span><br><span class="line">    &#123;</span><br><span class="line">        printf(&quot;listen socket error: %s(errno: %d)\n&quot;, strerror(errno), errno);</span><br><span class="line">        return 2;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    if( (connfd = accept(listenfd, (struct sockaddr*)NULL, NULL)) == -1)</span><br><span class="line">    &#123;</span><br><span class="line">        printf(&quot;accept socket error: %s(errno: %d)&quot;, strerror(errno), errno);</span><br><span class="line">        return 3;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    printf(&quot;accepet a socket\n&quot;);</span><br><span class="line">    </span><br><span class="line">    //服务端仅accept一次，之后就不再accept，此时全连接队列会被堆满    //----------------------------------</span><br><span class="line">    sleep(1000);</span><br><span class="line">        </span><br><span class="line">    close(connfd);</span><br><span class="line">    close(listenfd);</span><br><span class="line">    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/netstat/" rel="tag"># netstat</a>
+              <a href="/tags/ss/" rel="tag"># ss</a>
+              <a href="/tags/TCP-queue/" rel="tag"># TCP queue</a>
+              <a href="/tags/accept-queue/" rel="tag"># accept queue</a>
+              <a href="/tags/syn-queue/" rel="tag"># syn queue</a>
+              <a href="/tags/syn-flood/" rel="tag"># syn flood</a>
+              <a href="/tags/overflows/" rel="tag"># overflows</a>
+              <a href="/tags/dropped/" rel="tag"># dropped</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2017/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E8%BF%9E%E6%8E%A5%E5%92%8C%E6%8F%A1%E6%89%8B/" rel="prev" title="就是要你懂TCP--握手和挥手">
+                  <i class="fa fa-angle-left"></i> 就是要你懂TCP--握手和挥手
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2017/08/28/netstat%20%E7%AD%89%E7%BD%91%E7%BB%9C%E5%B7%A5%E5%85%B7/" rel="next" title="netstat timer keepalive RTO explain">
+                  netstat timer keepalive RTO explain <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

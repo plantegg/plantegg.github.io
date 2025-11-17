@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="kubernetes service 和 kube-proxy详解 service 是Kubernetes里面非常重要的一个功能，用以解决负载均衡、弹性伸缩、升级灰度等等  本文先从概念介绍到实际负载均衡运转过程中追踪每个环节都做哪些处理，同时这些包会相应地怎么流转最终到达目标POD，以阐明service工作原理以及kube-proxy又在这个过程中充当了什么角色。  service 模式根据创建">
+<meta property="og:type" content="article">
+<meta property="og:title" content="kubernetes service 和 kube-proxy详解">
+<meta property="og:url" content="https://plantegg.github.io/2020/09/22/kubernetes%20service%20%E5%92%8C%20kube-proxy%E8%AF%A6%E8%A7%A3/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="kubernetes service 和 kube-proxy详解 service 是Kubernetes里面非常重要的一个功能，用以解决负载均衡、弹性伸缩、升级灰度等等  本文先从概念介绍到实际负载均衡运转过程中追踪每个环节都做哪些处理，同时这些包会相应地怎么流转最终到达目标POD，以阐明service工作原理以及kube-proxy又在这个过程中充当了什么角色。  service 模式根据创建">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/dc0aa14d0eedf9f8f6f8bca1eee34cf8.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/51695ebb1c6b30d95f8ac8d5dcb8dd7f.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/84bbd3f10de9e7ec2266a82520876c8c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1f5539eb4c5fa16b2f66f44056d80d7a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1caea5b0eb23a47241191d1b5d8c5001.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/075e2955c5fbd08986bd34afaa5034ba.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/c44c8b3fbb1b2e0910872a6aecef790c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/0e100056910df8cfc45403a05838dd34.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/67851ecb88fca18b9745dae4948947a5.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1b69dfd206a91dc4007781163fd55f41.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/sock-redir.png">
+<meta property="article:published_time" content="2020-09-22T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.536Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="docker">
+<meta property="article:tag" content="kubernetes">
+<meta property="article:tag" content="service">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/09/22/kubernetes%20service%20%E5%92%8C%20kube-proxy%E8%AF%A6%E8%A7%A3/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/09/22/kubernetes%20service%20%E5%92%8C%20kube-proxy%E8%AF%A6%E8%A7%A3/","path":"2020/09/22/kubernetes service 和 kube-proxy详解/","title":"kubernetes service 和 kube-proxy详解"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>kubernetes service 和 kube-proxy详解 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#kubernetes-service-%E5%92%8C-kube-proxy%E8%AF%A6%E8%A7%A3"><span class="nav-number">1.</span> <span class="nav-text">kubernetes service 和 kube-proxy详解</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#service-%E6%A8%A1%E5%BC%8F"><span class="nav-number">1.1.</span> <span class="nav-text">service 模式</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Service%E5%92%8Ckube-proxy%E7%9A%84%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="nav-number">1.2.</span> <span class="nav-text">Service和kube-proxy的工作原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#iptables-%E5%AE%9E%E7%8E%B0%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E7%9A%84%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%A8%8B"><span class="nav-number">1.2.1.</span> <span class="nav-text">iptables 实现负载均衡的工作流程</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%A6%82%E4%B8%8B%E6%98%AF%E4%B8%80%E4%B8%AAiptables%E6%9D%A5%E5%AE%9E%E7%8E%B0service%E7%9A%84%E6%A1%88%E4%BE%8B%E4%B8%AD%E7%9A%84iptables%E6%B5%81%E9%87%8F%E5%88%86%E9%85%8D%E8%A7%84%E5%88%99%EF%BC%9A"><span class="nav-number">1.2.1.1.</span> <span class="nav-text">如下是一个iptables来实现service的案例中的iptables流量分配规则：</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ipvs-%E5%AE%9E%E7%8E%B0%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E7%9A%84%E5%8E%9F%E7%90%86"><span class="nav-number">1.2.2.</span> <span class="nav-text">ipvs 实现负载均衡的原理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#ipvs%E5%AE%9E%E9%99%85%E6%A1%88%E4%BE%8B"><span class="nav-number">1.2.2.1.</span> <span class="nav-text">ipvs实际案例</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#ipvs%E7%9A%84%E4%B8%80%E4%BA%9B%E5%88%86%E6%9E%90"><span class="nav-number">1.2.2.2.</span> <span class="nav-text">ipvs的一些分析</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88clusterIP%E4%B8%8D%E8%83%BDping%E9%80%9A"><span class="nav-number">1.3.</span> <span class="nav-text">为什么clusterIP不能ping通</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#NodePort-Service"><span class="nav-number">1.4.</span> <span class="nav-text">NodePort Service</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#NodePort-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98"><span class="nav-number">1.4.1.</span> <span class="nav-text">NodePort 的一些问题</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#kube-proxy"><span class="nav-number">1.5.</span> <span class="nav-text">kube-proxy</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#port-forward"><span class="nav-number">1.6.</span> <span class="nav-text">port-forward</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Service-%E5%92%8C-DNS-%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="nav-number">1.7.</span> <span class="nav-text">Service 和 DNS 的关系</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Ingress"><span class="nav-number">1.8.</span> <span class="nav-text">Ingress</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#eBPF%EF%BC%88extended-Berkeley-Packet-Filter%EF%BC%89%E5%92%8C%E7%BD%91%E7%BB%9C"><span class="nav-number">1.9.</span> <span class="nav-text">eBPF（extended Berkeley Packet Filter）和网络</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Cilium-%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86POD%E4%B9%8B%E9%97%B4%E7%9A%84%E6%B5%81%E9%87%8F%EF%BC%88%E4%B8%9C%E8%A5%BF%E5%90%91%E6%B5%81%E9%87%8F%EF%BC%89"><span class="nav-number">1.9.1.</span> <span class="nav-text">Cilium 如何处理POD之间的流量（东西向流量）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Cilium%E5%A4%84%E7%90%86%E5%A4%96%E9%83%A8%E6%B5%81%E9%87%8F%EF%BC%88%E5%8D%97%E5%8C%97%E5%90%91%E6%B5%81%E9%87%8F%EF%BC%89"><span class="nav-number">1.9.2.</span> <span class="nav-text">Cilium处理外部流量（南北向流量）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83"><span class="nav-number">1.9.3.</span> <span class="nav-text">性能比较</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%A9%E7%94%A8-ebpf-sockmap-redirection-%E6%8F%90%E5%8D%87-socket-%E6%80%A7%E8%83%BD"><span class="nav-number">1.10.</span> <span class="nav-text">利用 ebpf sockmap&#x2F;redirection 提升 socket 性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.11.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/09/22/kubernetes%20service%20%E5%92%8C%20kube-proxy%E8%AF%A6%E8%A7%A3/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="kubernetes service 和 kube-proxy详解 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          kubernetes service 和 kube-proxy详解
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-09-22 17:30:03" itemprop="dateCreated datePublished" datetime="2020-09-22T17:30:03+08:00">2020-09-22</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/docker/" itemprop="url" rel="index"><span itemprop="name">docker</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="kubernetes-service-和-kube-proxy详解"><a href="#kubernetes-service-和-kube-proxy详解" class="headerlink" title="kubernetes service 和 kube-proxy详解"></a>kubernetes service 和 kube-proxy详解</h1><blockquote>
+<p>service 是Kubernetes里面非常重要的一个功能，用以解决负载均衡、弹性伸缩、升级灰度等等 </p>
+<p>本文先从概念介绍到实际负载均衡运转过程中追踪每个环节都做哪些处理，同时这些包会相应地怎么流转最终到达目标POD，以阐明service工作原理以及kube-proxy又在这个过程中充当了什么角色。</p>
+</blockquote>
+<h2 id="service-模式"><a href="#service-模式" class="headerlink" title="service 模式"></a>service 模式</h2><p>根据创建Service的<code>type</code>类型不同，可分成4种模式：</p>
+<ul>
+<li>ClusterIP： <strong>默认方式</strong>。根据是否生成ClusterIP又可分为普通Service和Headless Service两类：<ul>
+<li><code>普通Service</code>：通过为Kubernetes的Service分配一个集群内部可访问的固定虚拟IP（Cluster IP），实现集群内的访问。为最常见的方式。</li>
+<li><code>Headless Service</code>：该服务不会分配Cluster IP，也不通过kube-proxy做反向代理和负载均衡。而是通过DNS提供稳定的网络ID来访问，DNS会将headless service的后端直接解析为podIP列表。主要供StatefulSet中对应POD的序列用。</li>
+</ul>
+</li>
+<li><code>NodePort</code>：除了使用Cluster IP之外，还通过将service的port映射到集群内每个节点的相同一个端口，实现通过nodeIP:nodePort从集群外访问服务。NodePort会RR转发给后端的任意一个POD，跟ClusterIP类似</li>
+<li><code>LoadBalancer</code>：和nodePort类似，不过除了使用一个Cluster IP和nodePort之外，还会向所使用的公有云申请一个负载均衡器，实现从集群外通过LB访问服务。在公有云提供的 Kubernetes 服务里，都使用了一个叫作 CloudProvider 的转接层，来跟公有云本身的 API 进行对接。所以，在上述 LoadBalancer 类型的 Service 被提交后，Kubernetes 就会调用 CloudProvider 在公有云上为你创建一个负载均衡服务，并且把被代理的 Pod 的 IP 地址配置给负载均衡服务做后端。</li>
+<li><code>ExternalName</code>：是 Service 的特例。此模式主要面向运行在集群外部的服务，通过它可以将外部服务映射进k8s集群，且具备k8s内服务的一些特征（如具备namespace等属性），来为集群内部提供服务。此模式要求kube-dns的版本为1.7或以上。这种模式和前三种模式（除headless service）最大的不同是重定向依赖的是dns层次，而不是通过kube-proxy。</li>
+</ul>
+<p>service yaml案例：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">apiVersion: v1</span><br><span class="line">kind: Service</span><br><span class="line">metadata:</span><br><span class="line">  name: nginx-ren</span><br><span class="line">  labels:</span><br><span class="line">    app: web</span><br><span class="line">spec:</span><br><span class="line">  type: NodePort</span><br><span class="line"># clusterIP: None  </span><br><span class="line">  ports:</span><br><span class="line">  - port: 8080</span><br><span class="line">    targetPort: 80</span><br><span class="line">    nodePort: 30080</span><br><span class="line">  selector:</span><br><span class="line">    app: ren</span><br></pre></td></tr></table></figure>
+
+<p><code>ports</code> 字段指定服务的端口信息：</p>
+<ul>
+<li><code>port</code>：虚拟 ip 要绑定的 port，每个 service 会创建出来一个虚拟 ip，通过访问 <code>vip:port</code> 就能获取服务的内容。这个 port 可以用户随机选取，因为每个服务都有自己的 vip，也不用担心冲突的情况</li>
+<li><code>targetPort</code>：pod 中暴露出来的 port，这是运行的容器中具体暴露出来的端口，一定不能写错–一般用name来代替具体的port</li>
+<li><code>protocol</code>：提供服务的协议类型，可以是 <code>TCP</code> 或者 <code>UDP</code></li>
+<li><code>nodePort</code>： 仅在type为nodePort模式下有用，宿主机暴露端口</li>
+</ul>
+<p>nodePort和loadbalancer可以被外部访问，loadbalancer需要一个外部ip，流量走外部ip进出</p>
+<p>NodePort向外部暴露了多个宿主机的端口，外部可以部署负载均衡将这些地址配置进去。</p>
+<p>默认情况下，服务会rr转发到可用的后端。如果希望保持会话（同一个 client 永远都转发到相同的 pod），可以把 <code>service.spec.sessionAffinity</code> 设置为 <code>ClientIP</code>。</p>
+<h2 id="Service和kube-proxy的工作原理"><a href="#Service和kube-proxy的工作原理" class="headerlink" title="Service和kube-proxy的工作原理"></a>Service和kube-proxy的工作原理</h2><p>kube-proxy有两种主要的实现（userspace基本没有使用了）：</p>
+<ul>
+<li>iptables来做NAT以及负载均衡（默认方案）</li>
+<li>ipvs来做NAT以及负载均衡</li>
+</ul>
+<p>Service 是由 kube-proxy 组件通过监听 Pod 的变化事件，在宿主机上维护iptables规则或者ipvs规则。</p>
+<p>Kube-proxy 主要监听两个对象，一个是 Service，一个是 Endpoint，监听他们启停。以及通过selector将他们绑定。</p>
+<p>IPVS 是专门为LB设计的。它用hash table管理service，对service的增删查找都是*O(1)*的时间复杂度。不过IPVS内核模块没有SNAT功能，因此借用了iptables的SNAT功能。IPVS 针对报文做DNAT后，将连接信息保存在nf_conntrack中，iptables据此接力做SNAT。该模式是目前Kubernetes网络性能最好的选择。但是由于nf_conntrack的复杂性，带来了很大的性能损耗。</p>
+<h3 id="iptables-实现负载均衡的工作流程"><a href="#iptables-实现负载均衡的工作流程" class="headerlink" title="iptables 实现负载均衡的工作流程"></a>iptables 实现负载均衡的工作流程</h3><p>如果kube-proxy不是用的ipvs模式，那么主要靠iptables来做DNAT和SNAT以及负载均衡</p>
+<p>iptables+clusterIP工作流程：</p>
+<ol>
+<li>集群内访问svc 10.10.35.224:3306 命中 kube-services iptables（两条规则，宿主机、以及pod内）</li>
+<li>iptables 规则：KUBE-SEP-F4QDAAVSZYZMFXZQ 对应到  KUBE-SEP-F4QDAAVSZYZMFXZQ</li>
+<li>KUBE-SEP-F4QDAAVSZYZMFXZQ 指示 DNAT到 宿主机：192.168.0.83:10379（在内核中将包改写了ip port）</li>
+<li>从svc description中可以看到这个endpoint的地址 192.168.0.83:10379（pod使用Host network）</li>
+</ol>
+<p><img src="/images/oss/52e050ebb7841d70b7e3ea62e18d5b30.png" alt="image.png"></p>
+<p>iptables规则解析如下（case不一样，所以看到的端口、ip都不一样）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">-t nat -A &#123;PREROUTING, OUTPUT&#125; -m conntrack --ctstate NEW -j KUBE-SERVICES</span><br><span class="line"></span><br><span class="line"># 宿主机访问 nginx Service 的流量，同时满足 4 个条件：</span><br><span class="line"># 1. src_ip 不是 Pod 网段</span><br><span class="line"># 2. dst_ip=3.3.3.3/32 (ClusterIP)</span><br><span class="line"># 3. proto=TCP</span><br><span class="line"># 4. dport=80</span><br><span class="line"># 如果匹配成功，直接跳转到 KUBE-MARK-MASQ；否则，继续匹配下面一条（iptables 是链式规则，高优先级在前）</span><br><span class="line"># 跳转到 KUBE-MARK-MASQ 是为了保证这些包出宿主机时，src_ip 用的是宿主机 IP。</span><br><span class="line">-A KUBE-SERVICES ! -s 1.1.0.0/16 -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-MARK-MASQ</span><br><span class="line"># Pod 访问 nginx Service 的流量：同时满足 4 个条件：</span><br><span class="line"># 1. 没有匹配到前一条的，（说明 src_ip 是 Pod 网段）</span><br><span class="line"># 2. dst_ip=3.3.3.3/32 (ClusterIP)</span><br><span class="line"># 3. proto=TCP</span><br><span class="line"># 4. dport=80</span><br><span class="line">-A KUBE-SERVICES -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-SVC-NGINX</span><br><span class="line"></span><br><span class="line"># 以 50% 的概率跳转到 KUBE-SEP-NGINX1</span><br><span class="line">-A KUBE-SVC-NGINX -m statistic --mode random --probability 0.50 -j KUBE-SEP-NGINX1</span><br><span class="line"># 如果没有命中上面一条，则以 100% 的概率跳转到 KUBE-SEP-NGINX2</span><br><span class="line">-A KUBE-SVC-NGINX -j KUBE-SEP-NGINX2</span><br><span class="line"></span><br><span class="line"># 如果 src_ip=1.1.1.1/32，说明是 Service-&gt;client 流量，则</span><br><span class="line"># 需要做 SNAT（MASQ 是动态版的 SNAT），替换 src_ip -&gt; svc_ip，这样客户端收到包时，</span><br><span class="line"># 看到就是从 svc_ip 回的包，跟它期望的是一致的。</span><br><span class="line">-A KUBE-SEP-NGINX1 -s 1.1.1.1/32 -j KUBE-MARK-MASQ</span><br><span class="line"># 如果没有命令上面一条，说明 src_ip != 1.1.1.1/32，则说明是 client-&gt; Service 流量，</span><br><span class="line"># 需要做 DNAT，将 svc_ip -&gt; pod1_ip，</span><br><span class="line">-A KUBE-SEP-NGINX1 -p tcp -m tcp -j DNAT --to-destination 1.1.1.1:80</span><br><span class="line"># 同理，见上面两条的注释</span><br><span class="line">-A KUBE-SEP-NGINX2 -s 1.1.1.2/32 -j KUBE-MARK-MASQ</span><br><span class="line">-A KUBE-SEP-NGINX2 -p tcp -m tcp -j DNAT --to-destination 1.1.1.2:80</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/dc0aa14d0eedf9f8f6f8bca1eee34cf8.png" alt="image.png"></p>
+<p>在对应的宿主机上可以清楚地看到容器中的mysqld进程正好监听着 10379端口</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@az1-drds-83 ~]# ss -lntp |grep 10379</span><br><span class="line">LISTEN     0      128         :::10379                   :::*                   users:((&quot;mysqld&quot;,pid=17707,fd=18))</span><br><span class="line">[root@az1-drds-83 ~]# ps auxff | grep 17707 -B2</span><br><span class="line">root     13606  0.0  0.0  10720  3764 ?        Sl   17:09   0:00  \_ containerd-shim -namespace moby -workdir /var/lib/containerd/io.containerd.runtime.v1.linux/moby/ead57b52b11902b9b5004db0b72abb060b56a1af7ee7ad7066bd09c946abcb97 -address /run/containerd/containerd.sock -containerd-binary /usr/bin/containerd -runtime-root /var/run/docker/runtime-runc</span><br><span class="line"></span><br><span class="line">root     13624  0.0  0.0 103044 10424 ?        Ss   17:09   0:00  |   \_ python /entrypoint.py</span><br><span class="line">root     14835  0.0  0.0  11768  1636 ?        S    17:10   0:00  |   \_ /bin/sh /u01/xcluster/bin/mysqld_safe --defaults-file=/home/mysql/my10379.cnf</span><br><span class="line">alidb    17707  0.6  0.0 1269128 67452 ?       Sl   17:10   0:25  |       \_ /u01/xcluster_20200303/bin/mysqld --defaults-file=/home/mysql/my10379.cnf --basedir=/u01/xcluster_20200303 --datadir=/home/mysql/data10379/dbs10379 --plugin-dir=/u01/xcluster_20200303/lib/plugin --user=mysql --log-error=/home/mysql/data10379/mysql/master-error.log --open-files-limit=8192 --pid-file=/home/mysql/data10379/dbs10379/az1-drds-83.pid --socket=/home/mysql/data10379/tmp/mysql.sock --port=10379</span><br></pre></td></tr></table></figure>
+
+<p>对应的这个pod的description：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br></pre></td><td class="code"><pre><span class="line">#kubectl describe pod apsaradbcluster010-cv6w</span><br><span class="line">Name:         apsaradbcluster010-cv6w</span><br><span class="line">Namespace:    default</span><br><span class="line">Priority:     0</span><br><span class="line">Node:         az1-drds-83/192.168.0.83</span><br><span class="line">Start Time:   Thu, 10 Sep 2020 17:09:33 +0800</span><br><span class="line">Labels:       alisql.clusterName=apsaradbcluster010</span><br><span class="line">              alisql.pod_name=apsaradbcluster010-cv6w</span><br><span class="line">              alisql.pod_role=leader</span><br><span class="line">Annotations:  apsara.metric.pod_name: apsaradbcluster010-cv6w</span><br><span class="line">Status:       Running</span><br><span class="line">IP:           192.168.0.83</span><br><span class="line">IPs:</span><br><span class="line">  IP:           192.168.0.83</span><br><span class="line">Controlled By:  ApsaradbCluster/apsaradbcluster010</span><br><span class="line">Containers:</span><br><span class="line">  engine:</span><br><span class="line">    Container ID:   docker://ead57b52b11902b9b5004db0b72abb060b56a1af7ee7ad7066bd09c946abcb97</span><br><span class="line">    Image:          reg.docker.alibaba-inc.com/apsaradb/alisqlcluster-engine:develop-20200910140415</span><br><span class="line">    Image ID:       docker://sha256:7ad5cc53c87b34806eefec829d70f5f0192f4127c7ee4e867cb3da3bb6c2d709</span><br><span class="line">    Ports:          10379/TCP, 20383/TCP, 46846/TCP</span><br><span class="line">    Host Ports:     10379/TCP, 20383/TCP, 46846/TCP</span><br><span class="line">    State:          Running</span><br><span class="line">      Started:      Thu, 10 Sep 2020 17:09:35 +0800</span><br><span class="line">    Ready:          True</span><br><span class="line">    Restart Count:  0</span><br><span class="line">    Environment:</span><br><span class="line">      ALISQL_POD_NAME:  apsaradbcluster010-cv6w (v1:metadata.name)</span><br><span class="line">      ALISQL_POD_PORT:  10379</span><br><span class="line">    Mounts:</span><br><span class="line">      /dev/shm from devshm (rw)</span><br><span class="line">      /etc/localtime from etclocaltime (rw)</span><br><span class="line">      /home/mysql/data from data-dir (rw)</span><br><span class="line">      /var/run/secrets/kubernetes.io/serviceaccount from default-token-n2bmn (ro)</span><br><span class="line">  exporter:</span><br><span class="line">    Container ID:  docker://b49865b7798f9036b431203d54994ac8fdfcadacb01a2ab4494b13b2681c482d</span><br><span class="line">    Image:         reg.docker.alibaba-inc.com/apsaradb/alisqlcluster-exporter:latest</span><br><span class="line">    Image ID:      docker://sha256:432cdd0a0e7c74c6eb66551b6f6af9e4013f60fb07a871445755f6577b44da19</span><br><span class="line">    Port:          47272/TCP</span><br><span class="line">    Host Port:     47272/TCP</span><br><span class="line">    Args:</span><br><span class="line">      --web.listen-address=:47272</span><br><span class="line">      --collect.binlog_size</span><br><span class="line">      --collect.engine_innodb_status</span><br><span class="line">      --collect.info_schema.innodb_metrics</span><br><span class="line">      --collect.info_schema.processlist</span><br><span class="line">      --collect.info_schema.tables</span><br><span class="line">      --collect.info_schema.tablestats</span><br><span class="line">      --collect.slave_hosts</span><br><span class="line">    State:          Running</span><br><span class="line">      Started:      Thu, 10 Sep 2020 17:09:35 +0800</span><br><span class="line">    Ready:          True</span><br><span class="line">    Restart Count:  0</span><br><span class="line">    Environment:</span><br><span class="line">      ALISQL_POD_NAME:   apsaradbcluster010-cv6w (v1:metadata.name)</span><br><span class="line">      DATA_SOURCE_NAME:  root:@(127.0.0.1:10379)/</span><br><span class="line">    Mounts:</span><br><span class="line">      /dev/shm from devshm (rw)</span><br><span class="line">      /etc/localtime from etclocaltime (rw)</span><br><span class="line">      /home/mysql/data from data-dir (rw)</span><br><span class="line">      /var/run/secrets/kubernetes.io/serviceaccount from default-token-n2bmn (ro)</span><br></pre></td></tr></table></figure>
+
+<p>DNAT 规则的作用，就是<strong>在 PREROUTING 检查点之前，也就是在路由之前，将流入 IP 包的目的地址和端口，改成–to-destination 所指定的新的目的地址和端口</strong>。可以看到，这个目的地址和端口，正是被代理 Pod 的 IP 地址和端口。</p>
+<h4 id="如下是一个iptables来实现service的案例中的iptables流量分配规则："><a href="#如下是一个iptables来实现service的案例中的iptables流量分配规则：" class="headerlink" title="如下是一个iptables来实现service的案例中的iptables流量分配规则："></a>如下是一个iptables来实现service的案例中的iptables流量分配规则：</h4><p>三个pod，每个pod承担三分之一的流量</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">iptables-save | grep 3306</span><br><span class="line"></span><br><span class="line">iptables-save | grep KUBE-SERVICES</span><br><span class="line"></span><br><span class="line">#iptables-save |grep KUBE-SVC-RVEVH2XMONK6VC5O</span><br><span class="line">:KUBE-SVC-RVEVH2XMONK6VC5O - [0:0]</span><br><span class="line">-A KUBE-SERVICES -d 10.10.70.95/32 -p tcp -m comment --comment &quot;drds/mysql-read:mysql cluster IP&quot; -m tcp --dport 3306 -j KUBE-SVC-RVEVH2XMONK6VC5O</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -m statistic --mode random --probability 0.33333333349 -j KUBE-SEP-XC4TZYIZFYB653VI</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-MK4XPBZUIJGFXKED</span><br><span class="line">-A KUBE-SVC-RVEVH2XMONK6VC5O -m comment --comment &quot;drds/mysql-read:mysql&quot; -j KUBE-SEP-AAYXWGQJBDHUJUQ3</span><br></pre></td></tr></table></figure>
+
+<p>到这里我们基本可以看到，利用iptables规则，宿主机内核把发到宿主机上的流量按照iptables规则做dnat后发给service后端的pod，同时iptables规则可以配置每个pod的流量大小。再辅助kube-proxy监听pod的起停和健康状态并相应地更新iptables规则，这样整个service实现逻辑就很清晰了。</p>
+<p>看起来 service 是个完美的方案，可以解决服务访问的所有问题，但是 service 这个方案（iptables 模式）也有自己的缺点。</p>
+<p>首先，<strong>如果转发的 pod 不能正常提供服务，它不会自动尝试另一个 pod</strong>，当然这个可以通过 <code>readiness probes</code> 来解决。每个 pod 都有一个健康检查的机制，当有 pod 健康状况有问题时，kube-proxy 会删除对应的转发规则。</p>
+<p>另外，<code>nodePort</code> 类型的服务也无法添加 TLS 或者更复杂的报文路由机制。因为只做了NAT</p>
+<h3 id="ipvs-实现负载均衡的原理"><a href="#ipvs-实现负载均衡的原理" class="headerlink" title="ipvs 实现负载均衡的原理"></a>ipvs 实现负载均衡的原理</h3><p>ipvs模式下，kube-proxy会先创建虚拟网卡，kube-ipvs0下面的每个ip都对应着svc的一个clusterIP：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># ip addr</span><br><span class="line">  ...</span><br><span class="line">5: kube-ipvs0: &lt;BROADCAST,NOARP&gt; mtu 1500 qdisc noop state DOWN group default </span><br><span class="line">    link/ether de:29:17:2a:8d:79 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 10.68.70.130/32 scope global kube-ipvs0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
+
+<p>kube-ipvs0下面绑的这些ip就是在发包的时候让内核知道如果目标ip是这些地址的话，这些地址是自身的所以包不会发出去，而是给INPUT链，这样ipvs内核模块有机会改写包做完NAT后再发走。</p>
+<p>ipvs会放置DNAT钩子在INPUT链上，因此必须要让内核识别 VIP 是本机的 IP。这样才会过INPUT 链，要不然就通过OUTPUT链出去了。k8s 通过kube-proxy将service cluster ip 绑定到虚拟网卡kube-ipvs0。</p>
+<p>同时在路由表中增加一些ipvs 的路由条目：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"># ip route show table local  //等于ip route list table local</span><br><span class="line">local 10.68.0.1 dev kube-ipvs0 proto kernel scope host src 10.68.0.1 </span><br><span class="line">local 10.68.0.2 dev kube-ipvs0 proto kernel scope host src 10.68.0.2 </span><br><span class="line">local 10.68.70.130 dev kube-ipvs0 proto kernel scope host src 10.68.70.130 -- ipvs</span><br><span class="line">broadcast 127.0.0.0 dev lo proto kernel scope link src 127.0.0.1 </span><br><span class="line">local 127.0.0.0/8 dev lo proto kernel scope host src 127.0.0.1 </span><br><span class="line">local 127.0.0.1 dev lo proto kernel scope host src 127.0.0.1 </span><br><span class="line">broadcast 127.255.255.255 dev lo proto kernel scope link src 127.0.0.1 </span><br><span class="line">broadcast 172.17.0.0 dev docker0 proto kernel scope link src 172.17.0.1 </span><br><span class="line">local 172.17.0.1 dev docker0 proto kernel scope host src 172.17.0.1 </span><br><span class="line">broadcast 172.17.255.255 dev docker0 proto kernel scope link src 172.17.0.1 </span><br><span class="line">local 172.20.185.192 dev tunl0 proto kernel scope host src 172.20.185.192 </span><br><span class="line">broadcast 172.20.185.192 dev tunl0 proto kernel scope link src 172.20.185.192 </span><br><span class="line">broadcast 172.26.128.0 dev eth0 proto kernel scope link src 172.26.137.117 </span><br><span class="line">local 172.26.137.117 dev eth0 proto kernel scope host src 172.26.137.117 </span><br><span class="line">broadcast 172.26.143.255 dev eth0 proto kernel scope link src 172.26.137.117 </span><br><span class="line"></span><br><span class="line">//访问本机IP（不是 127.0.0.1），内核在路由项查找的时候判断类型是 RTN_LOCAL，仍然会使用 net-&gt;loopback_dev。也就是 lo 虚拟网卡。</span><br></pre></td></tr></table></figure>
+
+<p>而接下来，kube-proxy 就会通过 Linux 的 IPVS 模块，为这个 IP 地址设置三个 IPVS 虚拟主机，并设置这三个虚拟主机之间使用轮询模式 (rr) 来作为负载均衡策略。我们可以通过 ipvsadm 查看到这个设置，如下所示：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">ipvsadm -ln |grep 10.68.114.131 -A5</span><br><span class="line">TCP  10.68.114.131:3306 rr</span><br><span class="line">  -&gt; 172.20.120.143:3306          Masq    1      0          0         </span><br><span class="line">  -&gt; 172.20.185.209:3306          Masq    1      0          0         </span><br><span class="line">  -&gt; 172.20.248.143:3306          Masq    1      0          0  </span><br></pre></td></tr></table></figure>
+
+<p>172.20.<em>.</em> 是后端真正pod的ip， 10.68.114.131 是cluster-ip.</p>
+<p>完整的工作流程如下：</p>
+<ol>
+<li>因为service cluster ip 绑定到虚拟网卡kube-ipvs0上，内核可以识别访问的 VIP 是本机的 IP.</li>
+<li>数据包到达INPUT链.</li>
+<li>ipvs监听到达input链的数据包，比对数据包请求的服务是为集群服务，修改数据包的目标IP地址为对应pod的IP，然后将数据包发至POSTROUTING链.</li>
+<li>数据包经过POSTROUTING链选路由后，将数据包通过tunl0网卡(calico网络模型)发送出去。从tunl0虚拟网卡获得源IP.</li>
+<li>经过tunl0后进行ipip封包，丢到物理网络，路由到目标node（目标pod所在的node）</li>
+<li>目标node进行ipip解包后给pod对应的网卡</li>
+<li>pod接收到请求之后，构建响应报文，改变源地址和目的地址，返回给客户端。</li>
+</ol>
+<p><img src="/images/oss/51695ebb1c6b30d95f8ac8d5dcb8dd7f.png" alt="image.png"></p>
+<h4 id="ipvs实际案例"><a href="#ipvs实际案例" class="headerlink" title="ipvs实际案例"></a>ipvs实际案例</h4><p>ipvs负载均衡下一次完整的syn握手抓包。</p>
+<p>宿主机上访问 curl clusterip+port 后因为这个ip绑定在kube-ipvs0上，本来是应该发出去的包（prerouting）但是内核认为这个包是访问自己，于是给INPUT链，接着被ipvs放置在INPUT中的DNAT钩子勾住，将dest ip根据负载均衡逻辑改成pod-ip，然后将数据包再发至POSTROUTING链。这时因为目标ip是POD-IP了，根据ip route 选择到出口网卡是tunl0。</p>
+<p>可以看下内核中的路由规则：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># ip route get 10.68.70.130</span><br><span class="line">local 10.68.70.130 dev lo src 10.68.70.130  //这条规则指示了clusterIP是发给自己的</span><br><span class="line">    cache &lt;local&gt; </span><br><span class="line"># ip route get 172.20.185.217</span><br><span class="line">172.20.185.217 via 172.26.137.117 dev tunl0 src 172.20.22.192  //这条规则指示clusterIP替换成POD IP后发给本地tunl0做ipip封包</span><br></pre></td></tr></table></figure>
+
+<p>于是cip变成了tunl0的IP，这个tunl0是ipip模式，于是将这个包打包成ipip，也就是外层sip、dip都是宿主机ip，再将这个包丢入到物理网络</p>
+<p><img src="/images/oss/84bbd3f10de9e7ec2266a82520876c8c.png"></p>
+<p>网络收包到达内核后的处理流程如下，核心都是查路由表，出包也会查路由表（判断是否本机内部通信，或者外部通信的话需要选用哪个网卡）</p>
+<h4 id="ipvs的一些分析"><a href="#ipvs的一些分析" class="headerlink" title="ipvs的一些分析"></a>ipvs的一些分析</h4><p>ipvs是一个内核态的四层负载均衡，支持NAT以及IPIP隧道模式，但LB和RS不能跨子网，IPIP性能次之，通过ipip隧道解决跨网段传输问题，因此能够支持跨子网。而NAT模式没有限制，这也是唯一一种支持端口映射的模式。</p>
+<p>但是ipvs只有NAT（也就是DNAT），NAT也俗称三角模式，要求RS和LVS 在一个二层网络，并且LVS是RS的网关，这样回包一定会到网关，网关再次做SNAT，这样client看到SNAT后的src ip是LVS ip而不是RS-ip。默认实现不支持ful-NAT，所以像公有云厂商为了适应公有云场景基本都会定制实现ful-NAT模式的lvs。</p>
+<p>我们不难猜想，由于Kubernetes Service需要使用端口映射功能，因此kube-proxy必然只能使用ipvs的NAT模式。</p>
+<p>如下Masq表示MASQUERADE（也就是SNAT），跟iptables里面的 MASQUERADE 是一个意思</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># ipvsadm -L -n  |grep 70.130 -A12</span><br><span class="line">TCP  10.68.70.130:12380 rr</span><br><span class="line">  -&gt; 172.20.185.217:9376          Masq    1      0          0</span><br></pre></td></tr></table></figure>
+
+<h2 id="为什么clusterIP不能ping通"><a href="#为什么clusterIP不能ping通" class="headerlink" title="为什么clusterIP不能ping通"></a>为什么clusterIP不能ping通</h2><p><a target="_blank" rel="noopener" href="https://cizixs.com/2017/03/30/kubernetes-introduction-service-and-kube-proxy/">集群内访问cluster ip（不能ping，只能cluster ip+port）就是在到达网卡之前被内核iptalbes做了dnat&#x2F;snat</a>, cluster IP是一个虚拟ip，可以针对具体的服务固定下来，这样服务后面的pod可以随便变化。</p>
+<p>iptables模式的svc会ping不通clusterIP，可以看如下iptables和route（留意：–reject-with icmp-port-unreachable）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">#ping 10.96.229.40</span><br><span class="line">PING 10.96.229.40 (10.96.229.40) 56(84) bytes of data.</span><br><span class="line">^C</span><br><span class="line">--- 10.96.229.40 ping statistics ---</span><br><span class="line">2 packets transmitted, 0 received, 100% packet loss, time 999ms</span><br><span class="line"></span><br><span class="line">#iptables-save |grep 10.96.229.40</span><br><span class="line">-A KUBE-SERVICES -d 10.96.229.40/32 -p tcp -m comment --comment &quot;***-service:https has no endpoints&quot; -m tcp --dport 8443 -j REJECT --reject-with icmp-port-unreachable</span><br><span class="line"></span><br><span class="line">#ip route get 10.96.229.40</span><br><span class="line">10.96.229.40 via 11.164.219.253 dev eth0  src 11.164.219.119 </span><br><span class="line">    cache </span><br></pre></td></tr></table></figure>
+
+<p>如果用ipvs实现的clusterIP是可以ping通的：</p>
+<ul>
+<li>如果用iptables 来做转发是ping不通的，因为iptables里面这条规则只处理tcp包，reject了icmp</li>
+<li>ipvs实现的clusterIP都能ping通</li>
+<li>ipvs下的clusterIP ping通了也不是转发到pod，ipvs负载均衡只转发tcp协议的包</li>
+<li>ipvs 的clusterIP在本地配置了route路由到回环网卡，这个包是lo网卡回复的</li>
+</ul>
+<p>ipvs实现的clusterIP，在本地有添加路由到lo网卡</p>
+<p><img src="/images/oss/1f5539eb4c5fa16b2f66f44056d80d7a.png" alt="image.png"></p>
+<p>然后在本机抓包（到ipvs后端的pod上抓不到icmp包）：</p>
+<p><img src="/images/oss/1caea5b0eb23a47241191d1b5d8c5001.png" alt="image.png"></p>
+<p>从上面可以看出显然ipvs只会转发tcp包到后端pod，所以icmp包不会通过ipvs转发到pod上，同时在本地回环网卡lo上抓到了进去的icmp包。因为本地添加了一条路由规则，目标clusterIP被指示发到lo网卡上，lo网卡回复了这个ping包，所以通了。</p>
+<h2 id="NodePort-Service"><a href="#NodePort-Service" class="headerlink" title="NodePort Service"></a>NodePort Service</h2><p>这种类型的 Service 也能被宿主机和 pod 访问，但与 ClusterIP 不同的是，<strong>它还能被 集群外的服务访问</strong>。</p>
+<ul>
+<li>External node IP + port in NodePort range to any endpoint (pod), e.g. 10.0.0.1:31000</li>
+<li>Enables access from outside</li>
+</ul>
+<p>实现上，kube-apiserver 会<strong>从预留的端口范围内分配一个端口给 Service</strong>，然后 <strong>每个宿主机上的 kube-proxy 都会创建以下规则</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">-t nat -A &#123;PREROUTING, OUTPUT&#125; -m conntrack --ctstate NEW -j KUBE-SERVICES</span><br><span class="line"></span><br><span class="line">-A KUBE-SERVICES ! -s 1.1.0.0/16 -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-MARK-MASQ</span><br><span class="line">-A KUBE-SERVICES -d 3.3.3.3/32 -p tcp -m tcp --dport 80 -j KUBE-SVC-NGINX</span><br><span class="line"># 如果前面两条都没匹配到（说明不是 ClusterIP service 流量），并且 dst 是 LOCAL，跳转到 KUBE-NODEPORTS</span><br><span class="line">-A KUBE-SERVICES -m addrtype --dst-type LOCAL -j KUBE-NODEPORTS</span><br><span class="line"></span><br><span class="line">-A KUBE-NODEPORTS -p tcp -m tcp --dport 31000 -j KUBE-MARK-MASQ</span><br><span class="line">-A KUBE-NODEPORTS -p tcp -m tcp --dport 31000 -j KUBE-SVC-NGINX</span><br><span class="line"></span><br><span class="line">-A KUBE-SVC-NGINX -m statistic --mode random --probability 0.50 -j KUBE-SEP-NGINX1</span><br><span class="line">-A KUBE-SVC-NGINX -j KUBE-SEP-NGINX2</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>前面几步和 ClusterIP Service 一样；如果没匹配到 ClusterIP 规则，则跳转到 <code>KUBE-NODEPORTS</code> chain。</li>
+<li><code>KUBE-NODEPORTS</code> chain 里做 Service 匹配，但<strong>这次只匹配协议类型和目的端口号</strong>。</li>
+<li>匹配成功后，转到对应的 <code>KUBE-SVC-</code> chain，后面的过程跟 ClusterIP 是一样的。</li>
+</ol>
+<h3 id="NodePort-的一些问题"><a href="#NodePort-的一些问题" class="headerlink" title="NodePort 的一些问题"></a>NodePort 的一些问题</h3><ul>
+<li>首先endpoint回复不能走node 1给client，因为会被client reset（如果在node1上将src ip替换成node2的ip可能会路由不通）。回复包在 node1上要snat给node2</li>
+<li>经过snat后endpoint没法拿到client ip（slb之类是通过option带过来）</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">          client</span><br><span class="line">            \ ^</span><br><span class="line">             \ \</span><br><span class="line">              v \</span><br><span class="line">  node 1 &lt;--- node 2</span><br><span class="line">   | ^   SNAT</span><br><span class="line">   | |   ---&gt;</span><br><span class="line">   v |</span><br><span class="line">endpoint</span><br></pre></td></tr></table></figure>
+
+<p>可以将 Service 的 spec.externalTrafficPolicy 字段设置为 local，这就保证了所有 Pod 通过 Service 收到请求之后，一定可以看到真正的、外部 client 的源地址。</p>
+<p>而这个机制的实现原理也非常简单：这时候，<strong>一台宿主机上的 iptables 规则，会设置为只将 IP 包转发给运行在这台宿主机上的 Pod</strong>。所以这时候，Pod 就可以直接使用源地址将回复包发出，不需要事先进行 SNAT 了。这个流程，如下所示：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">      client</span><br><span class="line">      ^ /   \</span><br><span class="line">     / /     \</span><br><span class="line">    / v       X</span><br><span class="line">  node 1     node 2</span><br><span class="line">   ^ |</span><br><span class="line">   | |</span><br><span class="line">   | v</span><br><span class="line">endpoint</span><br></pre></td></tr></table></figure>
+
+<p>当然，这也就意味着如果在一台宿主机上，没有任何一个被代理的 Pod 存在，比如上图中的 node 2，那么你使用 node 2 的 IP 地址访问这个 Service，就是无效的。此时，你的请求会直接被 DROP 掉。</p>
+<h2 id="kube-proxy"><a href="#kube-proxy" class="headerlink" title="kube-proxy"></a>kube-proxy</h2><p>在 Kubernetes v1.0 版本，代理完全在 userspace 实现。Kubernetes v1.1 版本新增了 <a target="_blank" rel="noopener" href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#iptables-%E4%BB%A3%E7%90%86%E6%A8%A1%E5%BC%8F">iptables 代理模式</a>，但并不是默认的运行模式。从 Kubernetes v1.2 起，默认使用 iptables 代理。在 Kubernetes v1.8.0-beta.0 中，添加了 <a target="_blank" rel="noopener" href="https://jimmysong.io/kubernetes-handbook/concepts/service.html#ipvs-%E4%BB%A3%E7%90%86%E6%A8%A1%E5%BC%8F">ipvs 代理模式</a></p>
+<p>kube-proxy相当于service的管理方，业务流量不会走到kube-proxy，业务流量的负载均衡都是由内核层面的iptables或者ipvs来分发。</p>
+<p>kube-proxy的三种模式：</p>
+<p><img src="/images/oss/075e2955c5fbd08986bd34afaa5034ba.png" alt="image.png"></p>
+<p><strong>一直以来，基于 iptables 的 Service 实现，都是制约 Kubernetes 项目承载更多量级的 Pod 的主要障碍。</strong></p>
+<p>ipvs 就是用于解决在大量 Service 时，iptables 规则同步变得不可用的性能问题。与 iptables 比较像的是，ipvs 的实现虽然也基于 netfilter 的钩子函数，但是它却使用哈希表作为底层的数据结构并且工作在内核态，这也就是说 ipvs 在重定向流量和同步代理规则有着更好的性能。</p>
+<p>除了能够提升性能之外，ipvs 也提供了多种类型的负载均衡算法，除了最常见的 Round-Robin 之外，还支持最小连接、目标哈希、最小延迟等算法，能够很好地提升负载均衡的效率。</p>
+<p>而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。但是，IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价。这也正印证了我在前面提到过的，“将重要操作放入内核态”是提高性能的重要手段。</p>
+<p><strong>IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。</strong></p>
+<p>ipvs 和 iptables 都是基于 Netfilter 实现的。</p>
+<p>Kubernetes 中已经使用 ipvs 作为 kube-proxy 的默认代理模式。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/opt/kube/bin/kube-proxy --bind-address=172.26.137.117 --cluster-cidr=172.20.0.0/16 --hostname-override=172.26.137.117 --kubeconfig=/etc/kubernetes/kube-proxy.kubeconfig --logtostderr=true --proxy-mode=ipvs</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/oss/c44c8b3fbb1b2e0910872a6aecef790c.png" alt="image.png"></p>
+<h2 id="port-forward"><a href="#port-forward" class="headerlink" title="port-forward"></a>port-forward</h2><p>port-forward后外部也能够像nodePort一样访问到，但是port-forward不适合大流量，一般用于管理端口，启动的时候port-forward会固定转发到一个具体的Pod上，也没有负载均衡的能力。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#在本机监听1080端口，并转发给后端的svc/nginx-ren(总是给发给svc中的一个pod)</span><br><span class="line">kubectl port-forward --address 0.0.0.0 svc/nginx-ren 1080:80</span><br></pre></td></tr></table></figure>
+
+<p><code>kubectl</code> looks up a Pod from the service information provided on the command line and forwards directly to a Pod rather than forwarding to the ClusterIP&#x2F;Service port and allowing the cluster to load balance the service like regular service traffic.</p>
+<p>The <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L225">portforward.go <code>Complete</code> function</a> is where <code>kubectl portforward</code> does the first look up for a pod from options via <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L254"><code>AttachablePodForObjectFn</code></a>:</p>
+<p>The <code>AttachablePodForObjectFn</code> is defined as <code>attachablePodForObject</code> in <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/interface.go#L39-L40">this interface</a>, then here is the <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/attachablepodforobject.go"><code>attachablePodForObject</code> function</a>.</p>
+<p>To my (inexperienced) Go eyes, it appears the <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/6d12ae1ac20bee2d3b5fb7a664de76d7fc134a63/pkg/polymorphichelpers/attachablepodforobject.go"><code>attachablePodForObject</code></a> is the thing <code>kubectl</code> uses to look up a Pod to from a Service defined on the command line.</p>
+<p>Then from there on everything deals with filling in the Pod specific <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubectl/blob/c53c16a548eb34f54f673efee2b9b09c52ec15b5/pkg/cmd/portforward/portforward.go#L46-L58"><code>PortForwardOptions</code></a> (which doesn’t include a service) and is passed to the kubernetes API.</p>
+<h2 id="Service-和-DNS-的关系"><a href="#Service-和-DNS-的关系" class="headerlink" title="Service 和 DNS 的关系"></a>Service 和 DNS 的关系</h2><p>Service 和 Pod 都会被分配对应的 DNS A 记录（从域名解析 IP 的记录）。</p>
+<p>对于 ClusterIP 模式的 Service 来说（比如我们上面的例子），它的 A 记录的格式是：..svc.cluster.local。当你访问这条 A 记录的时候，它解析到的就是该 Service 的 VIP 地址。</p>
+<p>而对于指定了 clusterIP&#x3D;None 的 Headless Service 来说，它的 A 记录的格式也是：..svc.cluster.local。但是，当你访问这条 A 记录的时候，它返回的是所有被代理的 Pod 的 IP 地址的集合。当然，如果你的客户端没办法解析这个集合的话，它可能会只会拿到第一个 Pod 的 IP 地址。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">#kubectl get pod -l app=mysql-r -o wide</span><br><span class="line">NAME        READY   STATUS    RESTARTS IP               NODE          </span><br><span class="line">mysql-r-0   2/2     Running   0        172.20.120.143   172.26.137.118</span><br><span class="line">mysql-r-1   2/2     Running   4        172.20.248.143   172.26.137.116</span><br><span class="line">mysql-r-2   2/2     Running   0        172.20.185.209   172.26.137.117</span><br><span class="line"></span><br><span class="line">/ # nslookup mysql-r-1.mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r-1.mysql-r</span><br><span class="line">Address 1: 172.20.248.143 mysql-r-1.mysql-r.default.svc.cluster.local</span><br><span class="line">/ # </span><br><span class="line">/ # nslookup mysql-r-2.mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r-2.mysql-r</span><br><span class="line">Address 1: 172.20.185.209 mysql-r-2.mysql-r.default.svc.cluster.local</span><br><span class="line"></span><br><span class="line">#如果service是headless(也就是明确指定了 clusterIP: None)</span><br><span class="line">/ # nslookup mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r</span><br><span class="line">Address 1: 172.20.185.209 mysql-r-2.mysql-r.default.svc.cluster.local</span><br><span class="line">Address 2: 172.20.248.143 mysql-r-1.mysql-r.default.svc.cluster.local</span><br><span class="line">Address 3: 172.20.120.143 mysql-r-0.mysql-r.default.svc.cluster.local</span><br><span class="line"></span><br><span class="line">#如果service 没有指定 clusterIP: None，也就是会分配一个clusterIP给集群</span><br><span class="line">/ # nslookup mysql-r</span><br><span class="line">Server:    10.68.0.2</span><br><span class="line">Address 1: 10.68.0.2 kube-dns.kube-system.svc.cluster.local</span><br><span class="line"></span><br><span class="line">Name:      mysql-r</span><br><span class="line">Address 1: 10.68.90.172 mysql-r.default.svc.cluster.local</span><br></pre></td></tr></table></figure>
+
+<p>不是每个pod都会向DNS注册，只有：</p>
+<ul>
+<li>StatefulSet中的POD会向dns注册，因为他们要保证顺序行</li>
+<li>POD显式指定了hostname和subdomain，说明要靠hostname&#x2F;subdomain来解析</li>
+<li>Headless Service代理的POD也会注册</li>
+</ul>
+<h2 id="Ingress"><a href="#Ingress" class="headerlink" title="Ingress"></a>Ingress</h2><p> <code>kube-proxy</code> 只能路由 Kubernetes 集群内部的流量，而我们知道 Kubernetes 集群的 Pod 位于 <a target="_blank" rel="noopener" href="https://jimmysong.io/kubernetes-handbook/concepts/cni.html">CNI</a> 创建的外网络中，集群外部是无法直接与其通信的，因此 Kubernetes 中创建了 <a target="_blank" rel="noopener" href="https://jimmysong.io/kubernetes-handbook/concepts/ingress.html">ingress</a> 这个资源对象，它由位于 Kubernetes <a target="_blank" rel="noopener" href="https://jimmysong.io/kubernetes-handbook/practice/edge-node-configuration.html">边缘节点</a>（这样的节点可以是很多个也可以是一组）的 Ingress controller 驱动，负责管理<strong>南北向流量</strong>，Ingress 必须对接各种 Ingress Controller 才能使用，比如 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/ingress-nginx">nginx ingress controller</a>、<a target="_blank" rel="noopener" href="https://traefik.io/">traefik</a>。Ingress 只适用于 HTTP 流量，使用方式也很简单，只能对 service、port、HTTP 路径等有限字段匹配来路由流量，这导致它无法路由如 MySQL、Redis 和各种私有 RPC 等 TCP 流量。要想直接路由南北向的流量，只能使用 Service 的 LoadBalancer 或 NodePort，前者需要云厂商支持，后者需要进行额外的端口管理。有些 Ingress controller 支持暴露 TCP 和 UDP 服务，但是只能使用 Service 来暴露，Ingress 本身是不支持的，例如 <a target="_blank" rel="noopener" href="https://kubernetes.github.io/ingress-nginx/user-guide/exposing-tcp-udp-services/">nginx ingress controller</a>，服务暴露的端口是通过创建 ConfigMap 的方式来配置的。</p>
+<p>Ingress是授权入站连接到达集群服务的规则集合。 你可以给Ingress配置提供外部可访问的URL、负载均衡、SSL、基于名称的虚拟主机等。 用户通过POST Ingress资源到API server的方式来请求ingress。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"> internet</span><br><span class="line">     |</span><br><span class="line">[ Ingress ]</span><br><span class="line">--|-----|--</span><br><span class="line">[ Services ]</span><br></pre></td></tr></table></figure>
+
+<p>可以将 Ingress 配置为服务提供外部可访问的 URL、负载均衡流量、终止 SSL&#x2F;TLS，以及提供基于名称的虚拟主机等能力。 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/services-networking/ingress-controllers">Ingress 控制器</a> 通常负责通过负载均衡器来实现 Ingress，尽管它也可以配置边缘路由器或其他前端来帮助处理流量。</p>
+<p>Ingress 不会公开任意端口或协议。 将 HTTP 和 HTTPS 以外的服务公开到 Internet 时，通常使用 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#nodeport">Service.Type&#x3D;NodePort</a> 或 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#loadbalancer">Service.Type&#x3D;LoadBalancer</a> 类型的服务。</p>
+<p>Ingress 其实不是Service的一个类型，但是它可以作用于多个Service，作为集群内部服务的入口。Ingress 能做许多不同的事，比如根据不同的路由，将请求转发到不同的Service上等等。</p>
+<p><img src="/images/oss/0e100056910df8cfc45403a05838dd34.png" alt="image.png"></p>
+<p> Ingress 对象，其实就是 Kubernetes 项目对“反向代理”的一种抽象。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">apiVersion: extensions/v1beta1</span><br><span class="line">kind: Ingress</span><br><span class="line">metadata:</span><br><span class="line">  name: cafe-ingress</span><br><span class="line">spec:</span><br><span class="line">  tls:</span><br><span class="line">  - hosts:</span><br><span class="line">    - cafe.example.com</span><br><span class="line">    secretName: cafe-secret</span><br><span class="line">  rules:</span><br><span class="line">  - host: cafe.example.com</span><br><span class="line">    http:</span><br><span class="line">      paths:</span><br><span class="line">      - path: /tea              --入口url路径</span><br><span class="line">        backend:</span><br><span class="line">          serviceName: tea-svc  --对应的service</span><br><span class="line">          servicePort: 80</span><br><span class="line">      - path: /coffee</span><br><span class="line">        backend:</span><br><span class="line">          serviceName: coffee-svc</span><br><span class="line">          servicePort: 80</span><br></pre></td></tr></table></figure>
+
+<p>在实际的使用中，你只需要从社区里选择一个具体的 Ingress Controller，把它部署在 Kubernetes 集群里即可。然后，这个 Ingress Controller 会根据你定义的 Ingress 对象，提供对应的代理能力。</p>
+<p>目前，业界常用的各种反向代理项目，比如 Nginx、HAProxy、Envoy、Traefik 等，都已经为 Kubernetes 专门维护了对应的 Ingress Controller。</p>
+<p>一个 Ingress Controller 可以根据 Ingress 对象和被代理后端 Service 的变化，来自动进行更新的 Nginx 负载均衡器。</p>
+<h2 id="eBPF（extended-Berkeley-Packet-Filter）和网络"><a href="#eBPF（extended-Berkeley-Packet-Filter）和网络" class="headerlink" title="eBPF（extended Berkeley Packet Filter）和网络"></a>eBPF（extended Berkeley Packet Filter）和网络</h2><p>eBPF允许程序<strong>对内核本身进行编程</strong>（即 通过程序动态修改内核的行为。传统方式要么是<strong>给内核打补丁</strong>，要么是<strong>修改内核源码 重新编译</strong>）。一句话来概括：<strong>编写代码监听内核事件，当事件发生时，BPF 代码就会在内核执行</strong>。</p>
+<p>eBPF 最早出现在 3.18 内核中，此后原来的 BPF 就被称为 <strong>“经典” BPF</strong>（classic BPF, cBPF），cBPF 现在基本已经废弃了。很多人知道 cBPF 是因为它是 <code>tcpdump</code> 的包过滤语言。<strong>现在，Linux 内核只运行 eBPF，内核会将加载的 cBPF 字节码 透明地转换成 eBPF 再执行</strong>。如无特殊说明，本文中所说的 BPF 都是泛指 BPF 技术。</p>
+<p>2015年<strong>eBPF 添加了一个新 fast path：XDP</strong>，XDP 是 eXpress DataPath 的缩写，支持在网卡驱动中运行 eBPF 代码（在软件中最早可以处理包的位置），而无需将包送 到复杂的协议栈进行处理，因此处理代价很小，速度极快。</p>
+<p>BPF 当时用于 tcpdump，在内核中尽量前面的位置抓包，它不会 crash 内核；</p>
+<p>bcc 是 tracing frontend for eBPF。</p>
+<p>内核添加了一个新 socket 类型 AF_XDP。它提供的能力是：在零拷贝（ zero-copy）的前提下将包从网卡驱动送到用户空间。</p>
+<p>AF_XDP 提供的能力与 DPDK 有点类似，不过：</p>
+<ul>
+<li>DPDK 需要重写网卡驱动，需要额外维护用户空间的驱动代码。</li>
+<li>AF_XDP 在复用内核网卡驱动的情况下，能达到与 DPDK 一样的性能。</li>
+</ul>
+<p>而且由于复用了内核基础设施，所有的网络管理工具还都是可以用的，因此非常方便， 而 DPDK 这种 bypass 内核的方案导致绝大大部分现有工具都用不了了。</p>
+<p>由于所有这些操作都是发生在 XDP 层的，因此它称为 AF_XDP。插入到这里的 BPF 代码 能直接将包送到 socket。</p>
+<p>Facebook 公布了生产环境 XDP+eBPF 使用案例（DDoS &amp; LB）</p>
+<ul>
+<li>用 XDP&#x2F;eBPF 重写了原来基于 IPVS 的 L4LB，性能 10x。</li>
+<li>eBPF 经受住了严苛的考验：从 2017 开始，每个进入 facebook.com 的包，都是经过了 XDP &amp; eBPF 处理的。</li>
+</ul>
+<p><strong>Cilium 1.6 发布</strong> 第一次支持完全干掉基于 iptables 的 kube-proxy，全部功能基于 eBPF。Cilium 1.8 支持基于 XDP 的 Service 负载均衡和 host network policies。</p>
+<p>传统的 kube-proxy 处理 Kubernetes Service 时，包在内核中的 转发路径是怎样的？如下图所示：</p>
+<p><img src="/images/oss/67851ecb88fca18b9745dae4948947a5.png" alt="image.png"></p>
+<p>步骤：</p>
+<ol>
+<li>网卡收到一个包（通过 DMA 放到 ring-buffer）。</li>
+<li>包经过 XDP hook 点。</li>
+<li>内核给包分配内存，此时才有了大家熟悉的 skb（包的内核结构体表示），然后 送到内核协议栈。</li>
+<li>包经过 GRO 处理，对分片包进行重组。</li>
+<li>包进入 tc（traffic control）的 ingress hook。接下来，所有橙色的框都是 Netfilter 处理点。</li>
+<li>Netfilter：在 PREROUTING hook 点处理 raw table 里的 iptables 规则。</li>
+<li>包经过内核的连接跟踪（conntrack）模块。</li>
+<li>Netfilter：在 PREROUTING hook 点处理 mangle table 的 iptables 规则。</li>
+<li>Netfilter：在 PREROUTING hook 点处理 nat table 的 iptables 规则。</li>
+<li>进行路由判断（FIB：Forwarding Information Base，路由条目的内核表示，译者注） 。接下来又是四个 Netfilter 处理点。</li>
+<li>Netfilter：在 FORWARD hook 点处理 mangle table 里的iptables 规则。</li>
+<li>Netfilter：在 FORWARD hook 点处理 filter table 里的iptables 规则。</li>
+<li>Netfilter：在 POSTROUTING hook 点处理 mangle table 里的iptables 规则。</li>
+<li>Netfilter：在 POSTROUTING hook 点处理 nat table 里的iptables 规则。</li>
+<li>包到达 TC egress hook 点，会进行出方向（egress）的判断，例如判断这个包是到本 地设备，还是到主机外。</li>
+<li>对大包进行分片。根据 step 15 判断的结果，这个包接下来可能会：发送到一个本机 veth 设备，或者一个本机 service endpoint， 或者，如果目的 IP 是主机外，就通过网卡发出去。</li>
+</ol>
+<h3 id="Cilium-如何处理POD之间的流量（东西向流量）"><a href="#Cilium-如何处理POD之间的流量（东西向流量）" class="headerlink" title="Cilium 如何处理POD之间的流量（东西向流量）"></a>Cilium 如何处理POD之间的流量（东西向流量）</h3><p><img src="/images/oss/f6efb2e51abbd2c88a099ee9dc942d37.png" alt="image.png"></p>
+<p>如上图所示，Socket 层的 BPF 程序主要处理 Cilium 节点的东西向流量（E-W）。</p>
+<ul>
+<li>将 Service 的 IP:Port 映射到具体的 backend pods，并做负载均衡。</li>
+<li>当应用发起 connect、sendmsg、recvmsg 等请求（系统调用）时，拦截这些请求， 并根据请求的IP:Port 映射到后端 pod，直接发送过去。反向进行相反的变换。</li>
+</ul>
+<p>这里实现的好处：性能更高。</p>
+<ul>
+<li>不需要包级别（packet leve）的地址转换（NAT）。在系统调用时，还没有创建包，因此性能更高。</li>
+<li>省去了 kube-proxy 路径中的很多中间节点（intermediate node hops） 可以看出，应用对这种拦截和重定向是无感知的（符合 Kubernetes Service 的设计）。</li>
+</ul>
+<h3 id="Cilium处理外部流量（南北向流量）"><a href="#Cilium处理外部流量（南北向流量）" class="headerlink" title="Cilium处理外部流量（南北向流量）"></a>Cilium处理外部流量（南北向流量）</h3><p><img src="/images/oss/e013d356145d1be6d6a69e2f1b32bdc8.png" alt="image.png"></p>
+<p>集群外来的流量到达 node 时，由 XDP 和 tc 层的 BPF 程序进行处理， 它们做的事情与 socket 层的差不多，将 Service 的 IP:Port 映射到后端的 PodIP:Port，如果 backend pod 不在本 node，就通过网络再发出去。发出去的流程我们 在前面 Cilium eBPF 包转发路径 讲过了。</p>
+<p>这里 BPF 做的事情：执行 DNAT。这个功能可以在 XDP 层做，也可以在 TC 层做，但 在XDP 层代价更小，性能也更高。</p>
+<p>总结起来，Cilium的核心理念就是：</p>
+<ul>
+<li>将东西向流量放在离 socket 层尽量近的地方做。</li>
+<li>将南北向流量放在离驱动（XDP 和 tc）层尽量近的地方做。</li>
+</ul>
+<h3 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h3><p>测试环境：两台物理节点，一个发包，一个收包，收到的包做 Service loadbalancing 转发给后端 Pods。</p>
+<p><img src="/images/oss/1b69dfd206a91dc4007781163fd55f41.png" alt="image.png"></p>
+<p>可以看出：</p>
+<ul>
+<li>Cilium XDP eBPF 模式能处理接收到的全部 10Mpps（packets per second）。</li>
+<li>Cilium tc eBPF 模式能处理 3.5Mpps。</li>
+<li>kube-proxy iptables 只能处理 2.3Mpps，因为它的 hook 点在收发包路径上更后面的位置。</li>
+<li>kube-proxy ipvs 模式这里表现更差，它相比 iptables 的优势要在 backend 数量很多的时候才能体现出来。</li>
+</ul>
+<p>cpu：</p>
+<ul>
+<li>XDP 性能最好，是因为 XDP BPF 在驱动层执行，不需要将包 push 到内核协议栈。</li>
+<li>kube-proxy 不管是 iptables 还是 ipvs 模式，都在处理软中断（softirq）上消耗了大量 CPU。</li>
+</ul>
+<h2 id="利用-ebpf-sockmap-redirection-提升-socket-性能"><a href="#利用-ebpf-sockmap-redirection-提升-socket-性能" class="headerlink" title="利用 ebpf sockmap&#x2F;redirection 提升 socket 性能"></a><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/socket-acceleration-with-ebpf-zh/?hmsr=toutiao.io&utm_medium=toutiao.io&utm_source=toutiao.io#11-bpf-%E5%9F%BA%E7%A1%80">利用 ebpf sockmap&#x2F;redirection 提升 socket 性能</a></h2><p>通过bpf监听socket来拦截所有sendmsg事件，如果是发送到本地另一个socket那么bpf就绕过TCP&#x2F;IP协议栈，直接将msg送给对方socket。依赖用cgroups来指定监听的sockets事件</p>
+<p><img src="/images/951413iMgBlog/sock-redir.png" alt="img"></p>
+<p>实现这个功能依赖两个东西：</p>
+<ol>
+<li><p>sockmap：这是一个存储 socket 信息的映射表。作用：</p>
+<ul>
+<li>一段 BPF 程序<strong>监听所有的内核 socket 事件</strong>，并将新建的 socket 记录到这个 map；</li>
+<li>另一段 BPF 程序<strong>拦截所有 <code>sendmsg</code> 系统调用</strong>，然后去 map 里查找 socket 对端，之后 调用 BPF 函数绕过 TCP&#x2F;IP 协议栈，直接将数据发送到对端的 socket queue。</li>
+</ul>
+</li>
+<li><p>cgroups：绑定cgroup下的进程，从而将这些进程下的所有 socket 加入到sockmap。</p>
+</li>
+</ol>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://imroc.cc/blog/2019/08/12/troubleshooting-with-kubernetes-network">https://imroc.cc/blog/2019/08/12/troubleshooting-with-kubernetes-network</a> Kubernetes 网络疑难杂症排查方法</p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/qq_36183935/article/details/90734936">https://blog.csdn.net/qq_36183935/article/details/90734936</a>  kube-proxy ipvs模式详解</p>
+<p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/ebpf-and-k8s-zh/">http://arthurchiao.art/blog/ebpf-and-k8s-zh/</a>  大规模微服务利器：eBPF 与 Kubernetes</p>
+<p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service-zh/">http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service-zh/</a>  Life of a Packet in Cilium：实地探索 Pod-to-Service 转发路径及 BPF 处理逻辑</p>
+<p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/understanding-ebpf-datapath-in-cilium-zh/">http://arthurchiao.art/blog/understanding-ebpf-datapath-in-cilium-zh/</a>  深入理解 Cilium 的 eBPF 收发包路径（datapath）（KubeCon, 2019）</p>
+<p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/socket-acceleration-with-ebpf-zh/?hmsr=toutiao.io&utm_medium=toutiao.io&utm_source=toutiao.io#11-bpf-%E5%9F%BA%E7%A1%80">利用 ebpf sockmap&#x2F;redirection 提升 socket 性能</a> </p>
+<p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/cilium-scale-k8s-service-with-bpf-zh/">利用 eBPF 支撑大规模 K8s Service (LPC, 2019)</a></p>
+<p><a target="_blank" rel="noopener" href="https://jiayu0x.com/2014/12/02/iptables-essential-summary/">https://jiayu0x.com/2014/12/02/iptables-essential-summary/</a></p>
+<p><a target="_blank" rel="noopener" href="https://k8s.imroc.io/">imroc 电子书</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/docker/" rel="tag"># docker</a>
+              <a href="/tags/kubernetes/" rel="tag"># kubernetes</a>
+              <a href="/tags/service/" rel="tag"># service</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/09/16/RT%E9%83%BD%E5%8E%BB%E5%93%AA%E4%BA%86/" rel="prev" title="delay ack拉高实际rt的case">
+                  <i class="fa fa-angle-left"></i> delay ack拉高实际rt的case
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/11/02/%E4%B8%BE%E4%B8%89%E5%8F%8D%E4%B8%80--%E4%BB%8E%E7%90%86%E8%AE%BA%E7%9F%A5%E8%AF%86%E5%88%B0%E5%AE%9E%E9%99%85%E9%97%AE%E9%A2%98%E7%9A%84%E6%8E%A8%E5%AF%BC/" rel="next" title="举三反一--从理论知识到实际问题的推导">
+                  举三反一--从理论知识到实际问题的推导 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

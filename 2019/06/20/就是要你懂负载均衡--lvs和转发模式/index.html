@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="基础知识的力量–lvs和转发模式 本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。  大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。 如果我们能从网络包">
+<meta property="og:type" content="article">
+<meta property="og:title" content="就是要你懂负载均衡--lvs和转发模式">
+<meta property="og:url" content="https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="基础知识的力量–lvs和转发模式 本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。  大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。 如果我们能从网络包">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/739447baddd120ca23c68ac85c0ea36d.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bb209bc08a21a28e99703e700acc82e4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/b806e1615d99f6a018c537a18addc464.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/bd311051c55f08c8d0add3cb329b87bf.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/51b694409882318d5acd6a1422afce03.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/94d55b926b5bb1573c4cab8353428712.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/5b498ed88c3233977a592f924affc43a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png">
+<meta property="article:published_time" content="2019-06-20T07:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.568Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="LVS">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="LoadBalance">
+<meta property="article:tag" content="network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/","path":"2019/06/20/就是要你懂负载均衡--lvs和转发模式/","title":"就是要你懂负载均衡--lvs和转发模式"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>就是要你懂负载均衡--lvs和转发模式 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86%E7%9A%84%E5%8A%9B%E9%87%8F%E2%80%93lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F"><span class="nav-number">1.</span> <span class="nav-text">基础知识的力量–lvs和转发模式</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%87%A0%E4%B8%AA%E6%9C%AF%E8%AF%AD%E5%92%8C%E7%BC%A9%E5%86%99"><span class="nav-number">1.1.</span> <span class="nav-text">几个术语和缩写</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#LVS%E7%9A%84%E5%87%A0%E7%A7%8D%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F"><span class="nav-number">1.2.</span> <span class="nav-text">LVS的几种转发模式</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#DR%E6%A8%A1%E5%9E%8B-Director-Routing%E2%80%93%E7%9B%B4%E6%8E%A5%E8%B7%AF%E7%94%B1"><span class="nav-number">1.3.</span> <span class="nav-text">DR模型(Director Routing–直接路由)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E6%B1%82LVS%E5%92%8CRS%E5%9C%A8%E5%90%8C%E4%B8%80%E4%B8%AAvlan-%E6%88%96%E8%80%85%E8%AF%B4%E5%90%8C%E4%B8%80%E4%B8%AA%E4%BA%8C%E5%B1%82%E7%BD%91%E7%BB%9C%E9%87%8C"><span class="nav-number">1.3.1.</span> <span class="nav-text">为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#DR-%E6%A8%A1%E5%BC%8F%E4%B8%BA%E4%BB%80%E4%B9%88%E6%80%A7%E8%83%BD%E6%9C%80%E5%A5%BD"><span class="nav-number">1.3.2.</span> <span class="nav-text">DR 模式为什么性能最好</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#DR-%E6%A8%A1%E5%BC%8F%E4%B8%BA%E4%BB%80%E4%B9%88%E5%9B%9E%E5%8C%85%E4%B8%8D%E9%9C%80%E8%A6%81%E8%B5%B0LVS%E4%BA%86"><span class="nav-number">1.3.3.</span> <span class="nav-text">DR 模式为什么回包不需要走LVS了</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E4%B8%8B-DR%E7%9A%84%E7%BB%93%E6%9E%84"><span class="nav-number">1.3.4.</span> <span class="nav-text">总结下 DR的结构</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#NAT%E6%A8%A1%E5%9E%8B-NetWork-Address-Translation-%E7%BD%91%E7%BB%9C%E5%9C%B0%E5%9D%80%E8%BD%AC%E6%8D%A2"><span class="nav-number">1.4.</span> <span class="nav-text">NAT模型(NetWork Address Translation - 网络地址转换)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88NAT%E8%A6%81%E6%B1%82lvs%E5%92%8CRS%E5%9C%A8%E5%90%8C%E4%B8%80%E4%B8%AAvlan"><span class="nav-number">1.4.1.</span> <span class="nav-text">为什么NAT要求lvs和RS在同一个vlan</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E4%B8%8BNAT%E7%BB%93%E6%9E%84"><span class="nav-number">1.4.2.</span> <span class="nav-text">总结下NAT结构</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#full-NAT%E6%A8%A1%E5%9E%8B-full-NetWork-Address-Translation-%E5%85%A8%E9%83%A8%E7%BD%91%E7%BB%9C%E5%9C%B0%E5%9D%80%E8%BD%AC%E6%8D%A2"><span class="nav-number">1.5.</span> <span class="nav-text">full NAT模型(full NetWork Address Translation-全部网络地址转换)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88full-NAT%E8%A7%A3%E5%86%B3%E4%BA%86NAT%E4%B8%AD%E8%A6%81%E6%B1%82%E7%9A%84LVS%E5%92%8CRS%E5%BF%85%E9%A1%BB%E5%9C%A8%E5%90%8C%E4%B8%80%E4%B8%AAvlan%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">1.5.1.</span> <span class="nav-text">为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88full-NAT%E5%90%8ERS%E7%9C%8B%E4%B8%8D%E8%A7%81cip%E4%BA%86"><span class="nav-number">1.5.2.</span> <span class="nav-text">为什么full NAT后RS看不见cip了</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E4%B8%8Bfull-NAT%E7%9A%84%E7%BB%93%E6%9E%84"><span class="nav-number">1.5.3.</span> <span class="nav-text">总结下full NAT的结构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%AF%94%E8%BE%83%E4%B8%8BNAT%E5%92%8CFull-NAT"><span class="nav-number">1.5.4.</span> <span class="nav-text">比较下NAT和Full NAT</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%AF%94%E8%BE%83%E4%B8%8BDR%E3%80%81NAT%E5%92%8CFull-NAT"><span class="nav-number">1.5.5.</span> <span class="nav-text">比较下DR、NAT和Full NAT</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%BF%E9%87%8C%E4%BA%91%E7%9A%84ENAT%E6%A8%A1%E5%BC%8F-enhence-NAT-%E6%88%96%E8%80%85%E5%8F%AB-%E4%B8%89%E8%A7%92%E6%A8%A1%E5%BC%8F"><span class="nav-number">1.6.</span> <span class="nav-text">阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88ENAT%E7%9A%84%E5%9B%9E%E5%A4%8D%E5%8C%85%E4%B8%8D%E9%9C%80%E8%A6%81%E8%B5%B0%E5%9B%9ELVS%E4%BA%86"><span class="nav-number">1.6.1.</span> <span class="nav-text">为什么ENAT的回复包不需要走回LVS了</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88ENAT%E7%9A%84LVS%E5%92%8CRS%E5%8F%AF%E4%BB%A5%E5%9C%A8%E4%B8%8D%E5%90%8C%E7%9A%84vlan"><span class="nav-number">1.6.2.</span> <span class="nav-text">为什么ENAT的LVS和RS可以在不同的vlan</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E4%B8%8B-ENAT%E7%9A%84%E7%BB%93%E6%9E%84"><span class="nav-number">1.6.3.</span> <span class="nav-text">总结下 ENAT的结构</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IP-TUN%E6%A8%A1%E5%9E%8B-IP-Tunneling-IP%E9%9A%A7%E9%81%93"><span class="nav-number">1.7.</span> <span class="nav-text">IP TUN模型(IP Tunneling - IP隧道)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88IP-TUN%E4%B8%8D%E8%A6%81%E6%B1%82%E5%90%8C%E4%B8%80%E4%B8%AAvlan"><span class="nav-number">1.7.1.</span> <span class="nav-text">为什么IP TUN不要求同一个vlan</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IP-TUN%E6%80%A7%E8%83%BD"><span class="nav-number">1.7.2.</span> <span class="nav-text">IP TUN性能</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93%E4%B8%8B-IP-TUN%E7%9A%84%E7%BB%93%E6%9E%84"><span class="nav-number">1.7.3.</span> <span class="nav-text">总结下 IP TUN的结构</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%BF%E9%87%8C%E4%BA%91-SLB-%E7%9A%84-FNAT"><span class="nav-number">1.8.</span> <span class="nav-text">阿里云 SLB 的 FNAT</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%BF%E9%87%8C%E4%BA%91%E7%9A%84NGLB"><span class="nav-number">1.9.</span> <span class="nav-text">阿里云的NGLB</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SLB%E6%A8%A1%E5%9D%97%E7%AE%80%E4%BB%8B"><span class="nav-number">1.9.1.</span> <span class="nav-text">SLB模块简介</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%BF%E9%87%8C%E4%BA%91-SLB-%E7%9A%84%E5%8F%8C%E6%9C%BA%E6%88%BF%E9%AB%98%E5%8F%AF%E7%94%A8"><span class="nav-number">1.10.</span> <span class="nav-text">阿里云 SLB 的双机房高可用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%A1%88%E4%BE%8B"><span class="nav-number">1.10.1.</span> <span class="nav-text">案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#LVS%E8%8A%82%E7%82%B9%E4%B9%8B%E9%97%B4%E7%9A%84%E5%9D%87%E8%A1%A1"><span class="nav-number">1.10.2.</span> <span class="nav-text">LVS节点之间的均衡</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#LVS%E8%8A%82%E7%82%B9%E5%8D%95%E6%9C%BA%E9%AB%98%E5%8F%AF%E7%94%A8"><span class="nav-number">1.10.2.1.</span> <span class="nav-text">LVS节点单机高可用</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#LVS-Group"><span class="nav-number">1.10.2.2.</span> <span class="nav-text">LVS Group</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E4%BA%9B%E6%95%B0%E6%8D%AE"><span class="nav-number">1.11.</span> <span class="nav-text">一些数据</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96"><span class="nav-number">1.11.1.</span> <span class="nav-text">性能优化</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%99%90%E6%B5%81%E5%AF%B9%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D"><span class="nav-number">1.11.1.1.</span> <span class="nav-text">限流对性能的影响</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8D%95%E6%B5%81%E7%93%B6%E9%A2%88"><span class="nav-number">1.11.1.2.</span> <span class="nav-text">单流瓶颈</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.12.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="就是要你懂负载均衡--lvs和转发模式 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          就是要你懂负载均衡--lvs和转发模式
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-06-20 15:30:03" itemprop="dateCreated datePublished" datetime="2019-06-20T15:30:03+08:00">2019-06-20</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/LVS/" itemprop="url" rel="index"><span itemprop="name">LVS</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="基础知识的力量–lvs和转发模式"><a href="#基础知识的力量–lvs和转发模式" class="headerlink" title="基础知识的力量–lvs和转发模式"></a>基础知识的力量–lvs和转发模式</h1><blockquote>
+<p>本文希望阐述清楚LVS的各种转发模式，以及他们的工作流程和优缺点，同时从网络包的流转原理上解释清楚优缺点的来由，并结合阿里云的slb来说明优缺点。</p>
+</blockquote>
+<p>大家都背过LVS的几种转发模式，DR模式性能最好但是部署不灵活；NAT性能差部署灵活多了…… 实际都是没理解好这几个模式背后代表的网络连通性的原理和网络包路由原理，导致大多时候都是死背那几个概念。</p>
+<p>如果我们能从网络包背后流转的流程和原理来看LVS的转发模式，那么那些优缺点简直就太直白了，这就是基础知识的力量。</p>
+<p>如果对网络包是怎么流转的不太清楚，推荐先看这篇基础：<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">程序员的网络知识 – 一个网络包的旅程</a> ，对后面理解LVS的各个转发模式非常有帮助。</p>
+<h2 id="几个术语和缩写"><a href="#几个术语和缩写" class="headerlink" title="几个术语和缩写"></a>几个术语和缩写</h2><pre><code>cip：Client IP，客户端地址
+vip：Virtual IP，LVS实例IP
+rip：Real IP，后端RS地址
+RS: Real Server 后端真正提供服务的机器
+LB： Load Balance 负载均衡器
+LVS： Linux Virtual Server
+sip： source ip
+dip： destination
+</code></pre>
+<h2 id="LVS的几种转发模式"><a href="#LVS的几种转发模式" class="headerlink" title="LVS的几种转发模式"></a>LVS的几种转发模式</h2><ul>
+<li>DR模型 – (Director Routing-直接路由)</li>
+<li>NAT模型 – (NetWork Address Translation-网络地址转换)</li>
+<li>fullNAT – (full NAT)</li>
+<li>ENAT – (enhence NAT 或者叫三角模式&#x2F;DNAT，阿里云提供)</li>
+<li>IP TUN模型 – (IP Tunneling - IP隧道)</li>
+</ul>
+<h2 id="DR模型-Director-Routing–直接路由"><a href="#DR模型-Director-Routing–直接路由" class="headerlink" title="DR模型(Director Routing–直接路由)"></a>DR模型(Director Routing–直接路由)</h2><p><img src="/images/oss/574a12e18ebbf0bafcfc97b1984305b5.png" alt="image.png"></p>
+<p>如上图所示基本流程(假设 cip 是200.200.200.2， vip是200.200.200.1)：</p>
+<ol>
+<li>请求流量(sip 200.200.200.2, dip 200.200.200.1) 先到达 LVS(图中Director)</li>
+<li>然后LVS，根据负载策略挑选众多 RS中的一个，然后将这个网络包的MAC地址修改成这个选中的RS的MAC</li>
+<li>然后丢给Director，Director将这个包丢给选中的RS</li>
+<li>选中的RS看到MAC地址是自己的、dip也是自己的，愉快地收下并处理、回复</li>
+<li>回复包(sip 200.200.200.1， dip 200.200.200.2)</li>
+<li>经过交换机直接回复给client了(不再走LVS)</li>
+</ol>
+<p>我们看到上面流程，请求包到达LVS后，LVS只对包的目的MAC地址作了修改，回复包直接回给了client。</p>
+<p>同时<strong>要求多个RS和LVS(Director)都配置的是同一个IP地址，但是用的不同的MA</strong>C。这就要求所有RS和LVS在同一个子网，在二层路由不需要IP，他们又在同一个子网，所以这里联通性没问题。</p>
+<p>RS上会将vip配置在lo回环网卡上，同时route中添加相应的规则，这样在第四步收到的包能被os正常处理。</p>
+<p><img src="/images/oss/739447baddd120ca23c68ac85c0ea36d.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>DR模式是性能最好的一种模式，入站请求走LVS，回复报文绕过LVS直接发给Client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>要求LVS和rs在同一个子网，扩展性不够好；</li>
+<li>RS需要配置vip同时特殊处理arp；</li>
+<li>配置比较复杂；</li>
+<li>不支持端口映射。</li>
+</ul>
+<h3 id="为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里"><a href="#为什么要求LVS和RS在同一个vlan-或者说同一个二层网络里" class="headerlink" title="为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)"></a>为什么要求LVS和RS在同一个vlan(或者说同一个二层网络里)</h3><p>因为DR模式依赖多个RS和LVS共用同一个VIP，然后依据MAC地址来在LVS和多个RS之间路由，所以LVS和RS必须在一个vlan或者说同一个二层网络里</p>
+<h3 id="DR-模式为什么性能最好"><a href="#DR-模式为什么性能最好" class="headerlink" title="DR 模式为什么性能最好"></a>DR 模式为什么性能最好</h3><p>因为回复包不走LVS了，大部分情况下都是请求包小，回复包大，LVS很容易成为流量瓶颈，同时LVS只需要修改进来的包的MAC地址。</p>
+<h3 id="DR-模式为什么回包不需要走LVS了"><a href="#DR-模式为什么回包不需要走LVS了" class="headerlink" title="DR 模式为什么回包不需要走LVS了"></a>DR 模式为什么回包不需要走LVS了</h3><p>因为RS和LVS共享同一个vip，回复的时候RS能正确地填好sip为vip，不再需要LVS来多修改一次(后面讲的NAT、Full NAT都需要)</p>
+<h3 id="总结下-DR的结构"><a href="#总结下-DR的结构" class="headerlink" title="总结下 DR的结构"></a>总结下 DR的结构</h3><p><img src="/images/oss/bb209bc08a21a28e99703e700acc82e4.png" alt="image.png"></p>
+<p>绿色是请求包进来，红色是修改过MAC的请求包，SW是一个交换机。</p>
+<h2 id="NAT模型-NetWork-Address-Translation-网络地址转换"><a href="#NAT模型-NetWork-Address-Translation-网络地址转换" class="headerlink" title="NAT模型(NetWork Address Translation - 网络地址转换)"></a>NAT模型(NetWork Address Translation - 网络地址转换)</h2><p>nat模式的结构图如下：</p>
+<p><img src="/images/oss/b806e1615d99f6a018c537a18addc464.png" alt="image.png"></p>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2，dip 200.200.200.1)</li>
+<li>请求包到达LVS(图中Director)，LVS修改请求包为(sip 200.200.200.2， dip rip)</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.2)</li>
+<li>这个回复包不能直接给client，因为rip不是VIP会被reset掉(client看到的连接是vip，突然来一个rip就reset)</li>
+<li>但是因为lvs是网关，所以这个回复包先走到网关，网关有机会修改sip</li>
+<li>网关修改sip为VIP，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p><img src="/images/oss/bd311051c55f08c8d0add3cb329b87bf.png" alt="image.png"></p>
+<p>优点：</p>
+<ul>
+<li>配置简单</li>
+<li>支持端口映射(看名字就知道)</li>
+<li>RIP一般是私有地址，主要用户LVS和RS之间通信</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>LVS和所有RS必须在同一个vlan</li>
+<li>进出流量都要走LVS转发</li>
+<li>LVS容易成为瓶颈</li>
+<li>一般而言需要将VIP配置成RS的网关</li>
+</ul>
+<h3 id="为什么NAT要求lvs和RS在同一个vlan"><a href="#为什么NAT要求lvs和RS在同一个vlan" class="headerlink" title="为什么NAT要求lvs和RS在同一个vlan"></a>为什么NAT要求lvs和RS在同一个vlan</h3><p>因为<strong>回复包必须经过lvs再次修改sip为vip，client才认</strong>，如果回复包的sip不是client包请求的dip(也就是vip)，那么这个连接会被reset掉。如果LVS不是网关，因为回复包的dip是cip，那么可能从其它路由就走了，LVS没有机会修改回复包的sip</p>
+<h3 id="总结下NAT结构"><a href="#总结下NAT结构" class="headerlink" title="总结下NAT结构"></a>总结下NAT结构</h3><p><img src="/images/oss/51b694409882318d5acd6a1422afce03.png" alt="image.png"></p>
+<p>注意这里LVS修改进出包的(sip, dip)的时候只改了其中一个，所以才有接下来的full NAT。当然NAT最大的缺点是要求LVS和RS必须在同一个vlan，这样限制了LVS集群和RS集群的部署灵活性，尤其是在阿里云这种对外售卖的公有云环境下，NAT基本不实用。</p>
+<h2 id="full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换"><a href="#full-NAT模型-full-NetWork-Address-Translation-全部网络地址转换" class="headerlink" title="full NAT模型(full NetWork Address Translation-全部网络地址转换)"></a>full NAT模型(full NetWork Address Translation-全部网络地址转换)</h2><p>基本流程(类似NAT)：</p>
+<ol>
+<li>client发出请求(sip 200.200.200.2 dip 200.200.200.1)</li>
+<li>请求包到达lvs，lvs修改请求包为**(sip 200.200.200.1， dip rip)** 注意这里sip&#x2F;dip都被修改了</li>
+<li>请求包到达rs， rs回复(sip rip，dip 200.200.200.1)</li>
+<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
+<li>lvs修改sip为vip， dip为cip，修改后的回复包(sip 200.200.200.1，dip 200.200.200.2)发给client</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>解决了NAT对LVS和RS要求在同一个vlan的问题，适用更复杂的部署形式</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS看不到cip(NAT模式下可以看到)</li>
+<li>进出流量还是都走的lvs，容易成为瓶颈(跟NAT一样都有这个问题)</li>
+</ul>
+<h3 id="为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"><a href="#为什么full-NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题" class="headerlink" title="为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题"></a>为什么full NAT解决了NAT中要求的LVS和RS必须在同一个vlan的问题</h3><p>因为LVS修改进来的包的时候把(sip, dip)都修改了(这也是full的主要含义吧)，RS的回复包目的地址是vip(NAT中是cip)，所以只要vip和rs之间三层可通就行，这样LVS和RS可以在不同的vlan了，也就是LVS不再要求是网关，从而LVS和RS可以在更复杂的网络环境下部署。</p>
+<h3 id="为什么full-NAT后RS看不见cip了"><a href="#为什么full-NAT后RS看不见cip了" class="headerlink" title="为什么full NAT后RS看不见cip了"></a>为什么full NAT后RS看不见cip了</h3><p>因为cip被修改掉了，RS只能看到LVS的vip，在阿里内部会将cip放入TCP包的Option中传递给RS，RS上一般部署自己写的 toa(Tcp Option as Address)模块来从Options中读取的cip，这样RS能看到cip了, 当然这不是一个开源的通用方案。</p>
+<h3 id="总结下full-NAT的结构"><a href="#总结下full-NAT的结构" class="headerlink" title="总结下full NAT的结构"></a>总结下full NAT的结构</h3><p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"> </p>
+<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
+<p>那么到现在full NAT解决了NAT的同vlan的要求，<strong>基本上可以用于公有云了</strong>，但是还是没解决进出流量都走LVS的问题(LVS要修改进出的包)。</p>
+<h3 id="比较下NAT和Full-NAT"><a href="#比较下NAT和Full-NAT" class="headerlink" title="比较下NAT和Full NAT"></a>比较下NAT和Full NAT</h3><p>两者进出都要走LVS，NAT必须要求vip是RS的网关，这个限制在公有云这种应用场景下不能忍，于是Full NAT通过修改请求包的source ip，将原来的source ip从cip改成vip，这样RS回复的时候回复包的目标IP也是vip，所以LVS和RS之间不再要求是同一vlan的关系了。当然带来了新的问题，RS看不见cip了(这个可以通过自定义的vtoa模块来复原)</p>
+<p>那么有没有一个方案能够像full NAT一样不限制lvs和RS之间的网络关系，同时出去的流量跟DR模式一样也不走LVS呢？</p>
+<h3 id="比较下DR、NAT和Full-NAT"><a href="#比较下DR、NAT和Full-NAT" class="headerlink" title="比较下DR、NAT和Full NAT"></a>比较下DR、NAT和Full NAT</h3><p>DR只修改目标Mac地址；<br>NAT只修改目标IP，LVS做网关得到修改回包的机会，RS能看到client ip；<br>Full-NAT同时修改 源ip和 目标ip， LVS通过三层路由和RS相通，RS看到的源ip是LVS IP。</p>
+<h2 id="阿里云的ENAT模式-enhence-NAT-或者叫-三角模式"><a href="#阿里云的ENAT模式-enhence-NAT-或者叫-三角模式" class="headerlink" title="阿里云的ENAT模式(enhence NAT) 或者叫 三角模式"></a>阿里云的ENAT模式(enhence NAT) 或者叫 三角模式</h2><p>前后端都是经典类型，属于NAT模式的特例，LVS转发给RS报文的源地址是客户端的源地址。</p>
+<p>与NAT模式的差异在于 RS响应客户端的报文不再经过LVS机器，而是直接发送给客户端(源地址是VIP的地址, 后端RS需要加载一个ctk模块， lsmod | grep ctk 确认 ，主要是数据库产品使用)</p>
+<p>优点：</p>
+<ul>
+<li>不要求LVS和RS在同一个vlan</li>
+<li>出去的流量不需要走LVS，性能好</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>阿里集团内部实现的自定义方案，需要在所有RS上安装ctk组件(类似full NAT中的vtoa)</li>
+</ul>
+<p>基本流程：</p>
+<ol>
+<li>client发出请求(cip，vip)</li>
+<li>请求包到达lvs，lvs修改请求包为(vip，rip)，并将cip放入TCP Option中</li>
+<li>请求包根据ip路由到达rs， ctk模块读取TCP Option中的cip</li>
+<li>回复包(RIP, vip)被ctk模块截获，并将回复包改写为(vip, cip)</li>
+<li>因为回复包的目的地址是cip所以不需要经过lvs，可以直接发给client</li>
+</ol>
+<p>ENAT模式在内部也会被称为 三角模式或者DNAT&#x2F;SNAT模式</p>
+<h3 id="为什么ENAT的回复包不需要走回LVS了"><a href="#为什么ENAT的回复包不需要走回LVS了" class="headerlink" title="为什么ENAT的回复包不需要走回LVS了"></a>为什么ENAT的回复包不需要走回LVS了</h3><p>因为之前full NAT模式下要走回去是需要LVS 再次改写回复包的IP，而ENAT模式下，这件事情在RS上被ctk模块提前做掉了</p>
+<h3 id="为什么ENAT的LVS和RS可以在不同的vlan"><a href="#为什么ENAT的LVS和RS可以在不同的vlan" class="headerlink" title="为什么ENAT的LVS和RS可以在不同的vlan"></a>为什么ENAT的LVS和RS可以在不同的vlan</h3><p>跟full NAT一样</p>
+<h3 id="总结下-ENAT的结构"><a href="#总结下-ENAT的结构" class="headerlink" title="总结下 ENAT的结构"></a>总结下 ENAT的结构</h3><p><img src="/images/oss/5b498ed88c3233977a592f924affc43a.png" alt="image.png"></p>
+<p>最后说一下不太常用的 TUN模型</p>
+<h2 id="IP-TUN模型-IP-Tunneling-IP隧道"><a href="#IP-TUN模型-IP-Tunneling-IP隧道" class="headerlink" title="IP TUN模型(IP Tunneling - IP隧道)"></a>IP TUN模型(IP Tunneling - IP隧道)</h2><p>基本流程：</p>
+<ol>
+<li>请求包到达LVS后，LVS将请求包封装成一个新的IP报文</li>
+<li>新的IP包的目的IP是某一RS的IP，然后转发给RS</li>
+<li>RS收到报文后IPIP内核模块解封装，取出用户的请求报文</li>
+<li>发现目的IP是VIP，而自己的tunl0网卡上配置了这个IP，从而愉快地处理请求并将结果直接发送给客户</li>
+</ol>
+<p>优点：</p>
+<ul>
+<li>集群节点可以跨vlan</li>
+<li>跟DR一样，响应报文直接发给client</li>
+</ul>
+<p>缺点：</p>
+<ul>
+<li>RS上必须安装运行IPIP模块</li>
+<li>多增加了一个IP头</li>
+<li>LVS和RS上的tunl0虚拟网卡上配置同一个VIP(类似DR)</li>
+</ul>
+<p><strong>DR模式中LVS修改的是目的MAC</strong></p>
+<h3 id="为什么IP-TUN不要求同一个vlan"><a href="#为什么IP-TUN不要求同一个vlan" class="headerlink" title="为什么IP TUN不要求同一个vlan"></a>为什么IP TUN不要求同一个vlan</h3><p>因为IP TUN中不是修改MAC来路由，所以不要求同一个vlan，只要求lvs和rs之间ip能通就行。DR模式要求的是lvs和RS之间广播能通</p>
+<h3 id="IP-TUN性能"><a href="#IP-TUN性能" class="headerlink" title="IP TUN性能"></a>IP TUN性能</h3><p>回包不走LVS，但是多做了一次封包解包，不如DR好</p>
+<h3 id="总结下-IP-TUN的结构"><a href="#总结下-IP-TUN的结构" class="headerlink" title="总结下 IP TUN的结构"></a>总结下 IP TUN的结构</h3><p><img src="/images/oss/218e93e6fa37b6f04dae9669de0e3fe3.png" alt="image.png"></p>
+<p>图中红线是再次封装过的包，ipip是操作系统的一个内核模块。</p>
+<p>DR可能在小公司用的比较多，IP TUN用的少一些，相对而言NAT、FullNAT、ENAT这三种在集团内部比较类似，用的也比较多，他们之间的可比较性很强，所以放在一块了。</p>
+<h2 id="阿里云-SLB-的-FNAT"><a href="#阿里云-SLB-的-FNAT" class="headerlink" title="阿里云 SLB 的 FNAT"></a>阿里云 SLB 的 FNAT</h2><p>本质就是前面所讲的 fullnat模式，为了解决RS看不到真正的client ip问题，在阿里云公网上的物理机&#x2F;宿主机默认都会帮你将source-ip(本来是lvs ip)替换成真正的client ip，这样当包进到ecs的时候source ip已经是client ip了，所以slb默认的fnat模式会让你直接能拿到client ip。回包依然会经过lvs(虽然理论上可以不需要了，但是要考虑rs和client不能直接通，以及管理方便等)</p>
+<p>这个进出的替换过程在物理机&#x2F;宿主机上是avs来做，如果没有avs就得安装slb的toa模块来做了。</p>
+<p>这就是为什么slb比直接用lvs要方便些，也就是云服务商提供这种云产品的价值所在。</p>
+<p>但是进出流量都走lvs，导致lvs流量过大，大象流容易打挂单core（目前限制单流不超过5GB），时延有所增加</p>
+<p>所以推出NGLB来解决这个问题</p>
+<h2 id="阿里云的NGLB"><a href="#阿里云的NGLB" class="headerlink" title="阿里云的NGLB"></a>阿里云的NGLB</h2><p>下一代负载均衡，只有首包经过slb节点，后续client和RS直接通信，只支持RS是物理机的场景。这个模块slb基本没有负载，性能最好。</p>
+<p><img src="/images/951413iMgBlog/9726056d2a630cbe0f7ff67b23596452.png" alt="NGLB_pic.png"></p>
+<h3 id="SLB模块简介"><a href="#SLB模块简介" class="headerlink" title="SLB模块简介"></a>SLB模块简介</h3><ol>
+<li>toa模块主要用在Classic网络SLB&#x2F;ALB的FNAT场景下后端RS（NC）获取实际Client端的真实地址和端口（FNAT模式下SLB&#x2F;ALB发送给后端RS的报文中源IP已经被替换为SLB&#x2F;ALB的localIP，将ClientIP[后续简写为cip]通过tcp option携带到RS），用户通过特定getpeername接口获取cip。toa模块已经内置到ali内核版本中，无需再单独安装（见&#x2F;lib&#x2F;modules&#x2F;<code>uname -r</code>&#x2F;kernel&#x2F;net&#x2F;toa&#x2F;toa.ko）。</li>
+<li>vtoa模块属于增强版toa，同时支持VPC网络和Classic网络SLB&#x2F;ALB的FNAT场景下后端RS获取实际客户端的真实地址和端口（FNAT模式下SLB&#x2F;ALB发送给后端RS的报文中源IP已经被替换为SLB&#x2F;ALB的localIP，将cip通过tcp option携带到RS），用户通过特定getsockopt接口获取vid:vip:vport和cip:cport，兼容toa接口。</li>
+<li>ctk: 包括ALB_ctk_debugfs.ko，ALB_ctk_session.ko，ALB_ctk_proxy.ko模块。ctk是一个NAT模块，对于ENAT场景，从ALB过来的带tcp option的tcp流量（cip:cport&lt;-&gt;rip:rport带vip:vport opt）做了DNAT和反向DNAT转换，使得到上层应用层时看到的流被恢复为原始形态（cip:cport&lt;-&gt;vip:vport）</li>
+<li>vctk:VPC NGLB模式下，只有建立TCP连接的首包（SYN包）经过ALB转发,后端vctk做Local的SNAT（避免VPC间地址冲突）和DNAT, 返回包做反向SNAT和DNAT转换，再做VXLAN封装，直接返回Source NC。</li>
+</ol>
+<p>!！注意：一般来说，ctk与toa&#x2F;vtoa模块不同时使用，toa和vtoa不同时使用:</p>
+<blockquote>
+<p>vtoa模块的功能是toa模块的超集，也就是说toa提供的功能在vtoa模块中都是提供的，并且接口，功能都是保持不变的。所以加载了vtoa之后，就不需要加载toa模块，如果加载了vtoa后再加载toa，获取vpcid以及cip&#x2F;vip可能失败。</p>
+<p>当toa&#x2F;vtoa单独工作时，toa&#x2F;vtoa模块工作在tcp层，通过修改内核把tcp opt中的cip，rip保存在sock结构中，并通过getpeername&#x2F;getsockname系统接口给用户提供服务。</p>
+<p>如果同时加载ctk和toa&#x2F;vtoa模块，FNAT场景下ctk不起作用；ENAT场景下, 因ctk工作在IP层(NAT)，tcp opt先被ctk处理并去除并保存在session中，vtoa接口依赖ctk的session获取toa&#x2F;vtoa信息。</p>
+</blockquote>
+<h2 id="阿里云-SLB-的双机房高可用"><a href="#阿里云-SLB-的双机房高可用" class="headerlink" title="阿里云 SLB 的双机房高可用"></a>阿里云 SLB 的双机房高可用</h2><p>主备模式，备用机房没有流量。</p>
+<p>SLB 的双机房容灾主要通过lvs机器和网络设备lsw之间通过动态路由协议（OSPF、ECMP、BGP）发布大小段路由实现主备机房容灾。10G集群采用ospf协议，40G集群采用bgp协议。</p>
+<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h3><p>主机房通过bgp协议发送 &#x2F;27 的路由到lsw，csr，备机房发布 &#x2F;26 路由到lsw, csr。</p>
+<p>正常情况下，如果应用访问192.168.0.2的话，路由器会选择掩码最长的路由为最佳路由，获选进入路由表，也就是会选择192.168.0.1&#x2F;27这条路由。从而实现流量主要在主机房，备机房冷备的效果。<br>当主机房发生故障，仅当主机房所有lvs机器都不能提供服务，即ABTN中无法收到主机房的&#x2F;27明细路由时，流量才会发生主备切换，切换到备机房，实现主备机房容灾。</p>
+<p><img src="/images/951413iMgBlog/6021c1f2dafa0e47d437d486f13c243a.png" alt="image.png"></p>
+<h3 id="LVS节点之间的均衡"><a href="#LVS节点之间的均衡" class="headerlink" title="LVS节点之间的均衡"></a>LVS节点之间的均衡</h3><p>内核版的lvs 最开始就采用集群化的部署，每个group 4台lvs 机器，支持group 级别横向扩展。使用ospf 作为引流方式。每台lvs机器有两块10G 网卡T1、T2口，分别上联lsw1 和 lsw2，通过ospf 动态路由协议与lsw 之间建立邻居关系，四台lvs机器发布相同的network 给lsw，实现流量转发的ecmp。lsw 打开multicast 以支持4台lvs机器之间的session 同步。通过session 同步保证当单台lvs机器宕机或者下线时，长连接 rehash 到其他lvs 机器时能够继续转发而不产生中断。</p>
+<h4 id="LVS节点单机高可用"><a href="#LVS节点单机高可用" class="headerlink" title="LVS节点单机高可用"></a>LVS节点单机高可用</h4><p>每台lvs机器有两块10G网卡，每块网卡上联一台lsw，单机双上联容灾；</p>
+<h4 id="LVS-Group"><a href="#LVS-Group" class="headerlink" title="LVS Group"></a>LVS Group</h4><p>每个lvs_group 4台lvs 机器，同group机器提供对等服务，同时4台lvs机器之间有实时的session 同步，发生单机宕机的场景，流量会均摊到同组其他lvs机器上，长连接可以保持不断；</p>
+<h2 id="一些数据"><a href="#一些数据" class="headerlink" title="一些数据"></a>一些数据</h2><p>内核版的lvs只支持10G带宽，采用dpdk后能支持25、40G带宽。</p>
+<p>dpdk基于内核的<a target="_blank" rel="noopener" href="https://lwn.net/Articles/232575/">uio机制</a>，提供了<a target="_blank" rel="noopener" href="http://doc.dpdk.org/guides/prog_guide/poll_mode_drv.html">PMD</a>（Poll Mode Driver）的收包模式，uio旁路了内核，主动轮询去掉硬中断，DPDK从而可以在用户态做收发包处理。带来Zero Copy、无系统调用的好处，同步处理减少上下文切换带来的Cache Miss。</p>
+<p>另外dpdk也采用了<a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/90383">hugepage</a>，LVS使用单页内存1G，基本上避免了TLB MISS，对于LVS这种内存大户来说，对性能提升非常有利。并且dpdk提供了一系列高质量的基础库比如内存池（Mempool）、MBuf、无锁环（Ring），便于开发者迅速构建自己的包转发平台。</p>
+<h3 id="性能优化"><a href="#性能优化" class="headerlink" title="性能优化"></a>性能优化</h3><p>LVS侧针对内存的访问所做的优化如下：</p>
+<p>1.session&#x2F;svc 数据结构调整 热点字段聚集到同个cache line</p>
+<p>2.结合性能测试数据，调整session的prefecth</p>
+<p>3.消除false sharing。</p>
+<p>目前LVS 40G机型，单机4块 40G网卡。</p>
+<p>平均包长1k的情况下能跑满4个网口(160G)</p>
+<p>64bytes小包的转发pps为4200W，kernel版本为1000W。</p>
+<h4 id="限流对性能的影响"><a href="#限流对性能的影响" class="headerlink" title="限流对性能的影响"></a>限流对性能的影响</h4><p>通过令牌桶限流的话令牌桶加锁就是瓶颈</p>
+<p>lvs的优化方案为大小桶算法：</p>
+<p>per core维护一个小的令牌桶，当小桶中的令牌取完之后，才会加锁从大桶中获取，如果大桶中也拿不到令牌，本周期(令牌更新间隔)内也不会再次访问大桶。</p>
+<p>从而去除每包必须加锁访问令牌桶，降低中心化限速对性能的影响。</p>
+<h4 id="单流瓶颈"><a href="#单流瓶颈" class="headerlink" title="单流瓶颈"></a>单流瓶颈</h4><p>四层负载均衡lvs作为阿里云的核心产品已经走过了10个年头，在这期间lvs不断的进行技术的革新和演进，从最初的单机10g内核版本、10g用户态到现在主流的线上40g的版本，机器的带宽越来越大，cpu核数越来越多处理能力也越来越强，但存在一个问题一直没有解，对于同一条流会hash分到同一个cpu上，如果是单流的流量比较大超过lvs单核的处理能力，就会导致lvs的单cpu使用率飙高从而导致丢包。mellnex cx5 100g网卡平台提供了流offload的能力，lvs基于该硬件的特性开发了offload的功能，可以将大象流offload到网卡中防止单流消耗cpu的性能。</p>
+<p>经测试offload后最高性能单卡单流可以达到2800wpps，具备应对大象流的能力。</p>
+<p>经过十年来的不断演进，目前SLB四层监听的单LVS集群，已经可以达到PPS 4亿，网卡单向带宽1.6T，单集群新建连接8000w，并发13.4亿以及Offload单流2800万PPS的处理能力。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
+<p><a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/52752">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
+<p><a target="_blank" rel="noopener" href="https://yizhi.ren/2019/05/03/lvs/">https://yizhi.ren/2019/05/03/lvs/</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/LVS/" rel="tag"># LVS</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+              <a href="/tags/LoadBalance/" rel="tag"># LoadBalance</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/" rel="prev" title="就是要你懂DNS--一文搞懂域名解析相关问题">
+                  <i class="fa fa-angle-left"></i> 就是要你懂DNS--一文搞懂域名解析相关问题
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%A4%A7%E5%85%A8/" rel="next" title="就是要你懂TCP--性能优化大全">
+                  就是要你懂TCP--性能优化大全 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

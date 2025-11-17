@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题 在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：   再来看CPU消耗的火焰图： 图中CPU的消耗占21%，不太正常。  可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到@Reques">
+<meta property="og:type" content="article">
+<meta property="og:title" content="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题">
+<meta property="og:url" content="https://plantegg.github.io/2018/07/26/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87Perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AASpringMVC%20%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题 在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：   再来看CPU消耗的火焰图： 图中CPU的消耗占21%，不太正常。  可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到@Reques">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/b5610fa7e994b1e4578d38347a1478a7">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d228b47200f56fbbf5aadf0da56cbf15">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/a97e6f1da93173055b1385eebba8e327.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8">
+<meta property="article:published_time" content="2018-07-26T08:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.550Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="SpringMVC">
+<meta property="article:tag" content="perf">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="troubleshooting">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/b5610fa7e994b1e4578d38347a1478a7">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2018/07/26/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87Perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AASpringMVC%20%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2018/07/26/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87Perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AASpringMVC%20%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/","path":"2018/07/26/优酷双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题/","title":"双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87Perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AASpringMVC-%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98"><span class="nav-number">1.</span> <span class="nav-text">双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%86%8D%E6%9D%A5%E7%9C%8BCPU%E6%B6%88%E8%80%97%E7%9A%84%E7%81%AB%E7%84%B0%E5%9B%BE%EF%BC%9A"><span class="nav-number">1.1.</span> <span class="nav-text">再来看CPU消耗的火焰图：</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%9A%E5%8A%A1%E6%96%B9%E4%BF%AE%E6%94%B9%E4%BB%A3%E7%A0%81%E5%8E%BB%E6%8E%89spring%E4%B8%AD%E7%9A%84methodMapping%E8%A7%A3%E6%9E%90%E5%90%8E%E7%9A%84%E7%BB%93%E6%9E%9C%EF%BC%88%E6%80%A7%E8%83%BD%E6%8F%90%E5%8D%87%E4%BA%8640-%EF%BC%89%EF%BC%9A"><span class="nav-number">1.2.</span> <span class="nav-text">业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Spring%E6%94%B6%E5%88%B0%E8%AF%B7%E6%B1%82URL%E5%90%8E%E8%A6%81%E5%8F%96%E5%87%BA%E8%AF%B7%E6%B1%82%E5%8F%98%E9%87%8F%E5%92%8C%E5%81%9A%E4%B8%9A%E5%8A%A1%E8%BF%90%E7%AE%97%EF%BC%8C%E5%85%B7%E4%BD%93%E4%BB%A3%E7%A0%81-%E5%AF%B9%E7%85%A7%E7%AC%AC%E4%B8%80%E4%B8%AA%E5%9B%BE%E7%9A%84%E8%B0%83%E7%94%A8%E5%A0%86%E6%A0%88%EF%BC%89%EF%BC%9A"><span class="nav-number">1.2.1.</span> <span class="nav-text">Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#doMatch-%E4%BB%A3%E7%A0%81%EF%BC%9A"><span class="nav-number">1.2.2.</span> <span class="nav-text">doMatch 代码：</span></a></li></ol></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/07/26/%E4%BC%98%E9%85%B7%E5%8F%8C11%E5%85%A8%E9%93%BE%E8%B7%AF%E5%8E%8B%E6%B5%8B%E4%B8%AD%E9%80%9A%E8%BF%87Perf%E5%8F%91%E7%8E%B0%E7%9A%84%E4%B8%80%E4%B8%AASpringMVC%20%E7%9A%84%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2018-07-26 16:30:03" itemprop="dateCreated datePublished" datetime="2018-07-26T16:30:03+08:00">2018-07-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/troubleshooting/" itemprop="url" rel="index"><span itemprop="name">troubleshooting</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题"><a href="#双11全链路压测中通过Perf发现的一个SpringMVC-的性能问题" class="headerlink" title="双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题"></a>双11全链路压测中通过Perf发现的一个SpringMVC 的性能问题</h1><blockquote>
+<p>在最近的全链路压测中TPS不够理想，然后通过perf 工具（perf record 采样， perf report 展示）看到(可以点击看大图)：</p>
+</blockquote>
+<p><img src="/images/oss/b5610fa7e994b1e4578d38347a1478a7" alt="screenshot"></p>
+<h2 id="再来看CPU消耗的火焰图："><a href="#再来看CPU消耗的火焰图：" class="headerlink" title="再来看CPU消耗的火焰图："></a>再来看CPU消耗的火焰图：</h2><p><img src="/images/oss/d228b47200f56fbbf5aadf0da56cbf15" alt="screenshot"></p>
+<p>图中CPU的消耗占21%，不太正常。</p>
+<blockquote>
+<p>可以看到Spring框架消耗了比较多的CPU，具体原因就是在Spring MVC中会大量使用到<br>@RequestMapping<br>@PathVariable<br>带来使用上的便利</p>
+</blockquote>
+<h2 id="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）："><a href="#业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40-）：" class="headerlink" title="业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）："></a>业务方修改代码去掉spring中的methodMapping解析后的结果（性能提升了40%）：</h2><p><img src="/images/oss/a97e6f1da93173055b1385eebba8e327.png" alt="screenshot.png"></p>
+<p>图中核心业务逻辑能抢到的cpu是21%（之前是15%）。spring methodMapping相关的也在火焰图中找不到了</p>
+<h3 id="Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）："><a href="#Spring收到请求URL后要取出请求变量和做业务运算，具体代码-对照第一个图的调用堆栈）：" class="headerlink" title="Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）："></a>Spring收到请求URL后要取出请求变量和做业务运算，具体代码(对照第一个图的调用堆栈）：</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">170	public RequestMappingInfo More ...getMatchingCondition(HttpServletRequest request) &#123;</span><br><span class="line">171		RequestMethodsRequestCondition methods = methodsCondition.getMatchingCondition(request);</span><br><span class="line">172		ParamsRequestCondition params = paramsCondition.getMatchingCondition(request);</span><br><span class="line">173		HeadersRequestCondition headers = headersCondition.getMatchingCondition(request);</span><br><span class="line">174		ConsumesRequestCondition consumes = consumesCondition.getMatchingCondition(request);</span><br><span class="line">175		ProducesRequestCondition produces = producesCondition.getMatchingCondition(request);</span><br><span class="line">176</span><br><span class="line">177		if (methods == null || params == null || headers == null || consumes == null || produces == null) &#123;</span><br><span class="line">178			return null;</span><br><span class="line">179		&#125;</span><br><span class="line">180</span><br><span class="line">181		PatternsRequestCondition patterns = patternsCondition.getMatchingCondition(request);</span><br><span class="line">182		if (patterns == null) &#123;</span><br><span class="line">183			return null;</span><br><span class="line">184		&#125;</span><br><span class="line">185</span><br><span class="line">186		RequestConditionHolder custom = customConditionHolder.getMatchingCondition(request);</span><br><span class="line">187		if (custom == null) &#123;</span><br><span class="line">188			return null;</span><br><span class="line">189		&#125;</span><br><span class="line">190</span><br><span class="line">191		return new RequestMappingInfo(patterns, methods, params, headers, consumes, produces, custom.getCondition());</span><br><span class="line">192	&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="doMatch-代码："><a href="#doMatch-代码：" class="headerlink" title="doMatch 代码："></a>doMatch 代码：</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br></pre></td><td class="code"><pre><span class="line">96 </span><br><span class="line">97 	protected boolean More ...doMatch(String pattern, String path, boolean fullMatch,</span><br><span class="line">98 			Map&lt;String, String&gt; uriTemplateVariables) &#123;</span><br><span class="line">99 </span><br><span class="line">100		if (path.startsWith(this.pathSeparator) != pattern.startsWith(this.pathSeparator)) &#123;</span><br><span class="line">101			return false;</span><br><span class="line">102		&#125;</span><br><span class="line">103</span><br><span class="line">104		String[] pattDirs = StringUtils.tokenizeToStringArray(pattern, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">105		String[] pathDirs = StringUtils.tokenizeToStringArray(path, this.pathSeparator, this.trimTokens, true);</span><br><span class="line">106</span><br><span class="line">107		int pattIdxStart = 0;</span><br><span class="line">108		int pattIdxEnd = pattDirs.length - 1;</span><br><span class="line">109		int pathIdxStart = 0;</span><br><span class="line">110		int pathIdxEnd = pathDirs.length - 1;</span><br><span class="line">111</span><br><span class="line">112		// Match all elements up to the first **</span><br><span class="line">113		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">114			String patDir = pattDirs[pattIdxStart];</span><br><span class="line">115			if (&quot;**&quot;.equals(patDir)) &#123;</span><br><span class="line">116				break;</span><br><span class="line">117			&#125;</span><br><span class="line">118			if (!matchStrings(patDir, pathDirs[pathIdxStart], uriTemplateVariables)) &#123;</span><br><span class="line">119				return false;</span><br><span class="line">120			&#125;</span><br><span class="line">121			pattIdxStart++;</span><br><span class="line">122			pathIdxStart++;</span><br><span class="line">123		&#125;</span><br><span class="line">124</span><br><span class="line">125		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">126			// Path is exhausted, only match if rest of pattern is * or **&#x27;s</span><br><span class="line">127			if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">128				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :</span><br><span class="line">129						!path.endsWith(this.pathSeparator));</span><br><span class="line">130			&#125;</span><br><span class="line">131			if (!fullMatch) &#123;</span><br><span class="line">132				return true;</span><br><span class="line">133			&#125;</span><br><span class="line">134			if (pattIdxStart == pattIdxEnd &amp;&amp; pattDirs[pattIdxStart].equals(&quot;*&quot;) &amp;&amp; path.endsWith(this.pathSeparator)) &#123;</span><br><span class="line">135				return true;</span><br><span class="line">136			&#125;</span><br><span class="line">137			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">138				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">139					return false;</span><br><span class="line">140				&#125;</span><br><span class="line">141			&#125;</span><br><span class="line">142			return true;</span><br><span class="line">143		&#125;</span><br><span class="line">144		else if (pattIdxStart &gt; pattIdxEnd) &#123;</span><br><span class="line">145			// String not exhausted, but pattern is. Failure.</span><br><span class="line">146			return false;</span><br><span class="line">147		&#125;</span><br><span class="line">148		else if (!fullMatch &amp;&amp; &quot;**&quot;.equals(pattDirs[pattIdxStart])) &#123;</span><br><span class="line">149			// Path start definitely matches due to &quot;**&quot; part in pattern.</span><br><span class="line">150			return true;</span><br><span class="line">151		&#125;</span><br><span class="line">152</span><br><span class="line">153		// up to last &#x27;**&#x27;</span><br><span class="line">154		while (pattIdxStart &lt;= pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">155			String patDir = pattDirs[pattIdxEnd];</span><br><span class="line">156			if (patDir.equals(&quot;**&quot;)) &#123;</span><br><span class="line">157				break;</span><br><span class="line">158			&#125;</span><br><span class="line">159			if (!matchStrings(patDir, pathDirs[pathIdxEnd], uriTemplateVariables)) &#123;</span><br><span class="line">160				return false;</span><br><span class="line">161			&#125;</span><br><span class="line">162			pattIdxEnd--;</span><br><span class="line">163			pathIdxEnd--;</span><br><span class="line">164		&#125;</span><br><span class="line">165		if (pathIdxStart &gt; pathIdxEnd) &#123;</span><br><span class="line">166			// String is exhausted</span><br><span class="line">167			for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">168				if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">169					return false;</span><br><span class="line">170				&#125;</span><br><span class="line">171			&#125;</span><br><span class="line">172			return true;</span><br><span class="line">173		&#125;</span><br><span class="line">174</span><br><span class="line">175		while (pattIdxStart != pattIdxEnd &amp;&amp; pathIdxStart &lt;= pathIdxEnd) &#123;</span><br><span class="line">176			int patIdxTmp = -1;</span><br><span class="line">177			for (int i = pattIdxStart + 1; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">178				if (pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">179					patIdxTmp = i;</span><br><span class="line">180					break;</span><br><span class="line">181				&#125;</span><br><span class="line">182			&#125;</span><br><span class="line">183			if (patIdxTmp == pattIdxStart + 1) &#123;</span><br><span class="line">184				// &#x27;**/**&#x27; situation, so skip one</span><br><span class="line">185				pattIdxStart++;</span><br><span class="line">186				continue;</span><br><span class="line">187			&#125;</span><br><span class="line">188			// Find the pattern between padIdxStart &amp; padIdxTmp in str between</span><br><span class="line">189			// strIdxStart &amp; strIdxEnd</span><br><span class="line">190			int patLength = (patIdxTmp - pattIdxStart - 1);</span><br><span class="line">191			int strLength = (pathIdxEnd - pathIdxStart + 1);</span><br><span class="line">192			int foundIdx = -1;</span><br><span class="line">193</span><br><span class="line">194			strLoop:</span><br><span class="line">195			for (int i = 0; i &lt;= strLength - patLength; i++) &#123;</span><br><span class="line">196				for (int j = 0; j &lt; patLength; j++) &#123;</span><br><span class="line">197					String subPat = pattDirs[pattIdxStart + j + 1];</span><br><span class="line">198					String subStr = pathDirs[pathIdxStart + i + j];</span><br><span class="line">199					if (!matchStrings(subPat, subStr, uriTemplateVariables)) &#123;</span><br><span class="line">200						continue strLoop;</span><br><span class="line">201					&#125;</span><br><span class="line">202				&#125;</span><br><span class="line">203				foundIdx = pathIdxStart + i;</span><br><span class="line">204				break;</span><br><span class="line">205			&#125;</span><br><span class="line">206</span><br><span class="line">207			if (foundIdx == -1) &#123;</span><br><span class="line">208				return false;</span><br><span class="line">209			&#125;</span><br><span class="line">210</span><br><span class="line">211			pattIdxStart = patIdxTmp;</span><br><span class="line">212			pathIdxStart = foundIdx + patLength;</span><br><span class="line">213		&#125;</span><br><span class="line">214</span><br><span class="line">215		for (int i = pattIdxStart; i &lt;= pattIdxEnd; i++) &#123;</span><br><span class="line">216			if (!pattDirs[i].equals(&quot;**&quot;)) &#123;</span><br><span class="line">217				return false;</span><br><span class="line">218			&#125;</span><br><span class="line">219		&#125;</span><br><span class="line">220</span><br><span class="line">221		return true;</span><br><span class="line">222	&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最后补一个找到瓶颈点后 Google到类似问题的文章，并给出了具体数据和解决方法：<a target="_blank" rel="noopener" href="http://www.cnblogs.com/ucos/articles/5542012.html">http://www.cnblogs.com/ucos/articles/5542012.html</a></p>
+<p>以及这篇文章中给出的优化前后对比图：<br><img src="/images/oss/3c61ad759ae5f44bbb2a24e4714c2ee8" alt="screenshot"></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/perf/" rel="tag"># perf</a>
+              <a href="/tags/troubleshooting/" rel="tag"># troubleshooting</a>
+              <a href="/tags/SpringMVC/" rel="tag"># SpringMVC</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/" rel="prev" title="就是要你懂TCP--TCP性能问题">
+                  <i class="fa fa-angle-left"></i> 就是要你懂TCP--TCP性能问题
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2018/08/21/vxlan%E7%BD%91%E7%BB%9C%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/" rel="next" title="vxlan网络性能测试">
+                  vxlan网络性能测试 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

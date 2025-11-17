@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Perf IPC以及CPU性能">
+<meta property="og:url" content="https://plantegg.github.io/2021/05/16/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Perf IPC以及CPU性能为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。 这次让我们从最底层的沙子开始用8篇文章来回">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161455950.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210511154816751.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210511154859711.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210511155530477.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/58c7dc9084fa648f204a6468209ca788.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/e6d5e70e0cbdc4ba662d79f2306758b6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210511155708234.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/zh-cn_image_0000001237942853.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/f4.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221102161222519.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/5edebc74-f8ac-483c-8bcd-24e09abfd06b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/f96e50b5f3d0825b68be5b654624f839.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210513123233344.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210513130252565.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108095422200.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108094802841.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108095753861.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221108175100638.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/864427c491497acb02d37c02cb35eeb2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/40945b005eb9f716e429fd30be55b6d1.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/a120388ff72d712a4fd176e7cea005cf.png">
+<meta property="article:published_time" content="2021-05-16T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.527Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="IPC">
+<meta property="article:tag" content="perf">
+<meta property="article:tag" content="pipeline">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210802161455950.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/05/16/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/05/16/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/","path":"2021/05/16/Perf_IPC以及CPU利用率/","title":"Perf IPC以及CPU性能"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Perf IPC以及CPU性能 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Perf-IPC%E4%BB%A5%E5%8F%8ACPU%E6%80%A7%E8%83%BD"><span class="nav-number">1.</span> <span class="nav-text">Perf IPC以及CPU性能</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="nav-number">1.1.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%A8%8B%E5%BA%8F%E6%80%A7%E8%83%BD"><span class="nav-number">1.2.</span> <span class="nav-text">程序性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#CPU-%E6%B5%81%E6%B0%B4%E7%BA%BF%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86"><span class="nav-number">1.3.</span> <span class="nav-text">CPU 流水线工作原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pipeline%E6%95%88%E7%8E%87%E5%92%8CIPC"><span class="nav-number">1.3.1.</span> <span class="nav-text">pipeline效率和IPC</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B5%81%E6%B0%B4%E7%BA%BF%E6%A1%88%E4%BE%8B"><span class="nav-number">1.3.2.</span> <span class="nav-text">流水线案例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B5%81%E6%B0%B4%E7%BA%BF%E7%9A%84%E5%AE%9E%E9%99%85%E6%95%88%E6%9E%9C"><span class="nav-number">1.3.3.</span> <span class="nav-text">流水线的实际效果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Deeper-Pipelines%E6%B7%B1%E5%BA%A6%E6%B5%81%E6%B0%B4%E7%BA%BF"><span class="nav-number">1.3.4.</span> <span class="nav-text">Deeper Pipelines深度流水线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%87%E4%BB%A4%E5%BB%B6%E6%97%B6"><span class="nav-number">1.3.5.</span> <span class="nav-text">指令延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AF%B9%E6%AF%94%E6%B5%81%E6%B0%B4%E7%BA%BF%E5%BB%B6%E6%97%B6"><span class="nav-number">1.3.6.</span> <span class="nav-text">对比流水线延时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BF%9D%E7%95%99%E7%AB%99%E5%92%8C%E4%B9%B1%E5%BA%8F%E6%89%A7%E8%A1%8C"><span class="nav-number">1.3.7.</span> <span class="nav-text">保留站和乱序执行</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E6%B5%81%E6%B0%B4%E7%BA%BF%E8%8E%B7%E5%BE%97%E5%8A%A0%E9%80%9F"><span class="nav-number">1.3.8.</span> <span class="nav-text">从流水线获得加速</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8C%87%E4%BB%A4%E7%BC%93%E5%AD%98%EF%BC%88Instruction-Cache%EF%BC%89%E5%92%8C%E6%95%B0%E6%8D%AE%E7%BC%93%E5%AD%98%EF%BC%88Data-Cache%EF%BC%89"><span class="nav-number">1.3.9.</span> <span class="nav-text">指令缓存（Instruction Cache）和数据缓存（Data Cache）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel-X86%E6%AF%8F%E4%B8%AA%E6%8C%87%E4%BB%A4%E9%9C%80%E8%A6%81%E7%9A%84cycle"><span class="nav-number">1.3.10.</span> <span class="nav-text">Intel X86每个指令需要的cycle</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-%E4%BD%BF%E7%94%A8"><span class="nav-number">1.4.</span> <span class="nav-text">perf 使用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC%E6%B5%8B%E8%AF%95"><span class="nav-number">1.5.</span> <span class="nav-text">IPC测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#IPC%E5%92%8C%E8%B6%85%E7%BA%BF%E7%A8%8B"><span class="nav-number">1.6.</span> <span class="nav-text">IPC和超线程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B6%85%E7%BA%BF%E7%A8%8B-Hyper-Threading-%E5%8E%9F%E7%90%86"><span class="nav-number">1.6.1.</span> <span class="nav-text">超线程(Hyper-Threading)原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B6%85%E7%BA%BF%E7%A8%8B%E5%A6%82%E4%BD%95%E6%9F%A5%E7%9C%8B"><span class="nav-number">1.6.2.</span> <span class="nav-text">超线程如何查看</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#IPC%E5%92%8C%E8%B6%85%E7%BA%BF%E7%A8%8B%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="nav-number">1.6.3.</span> <span class="nav-text">IPC和超线程的关系</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Intel%E5%92%8CAMD%E5%8D%95%E6%A0%B8%E4%BB%A5%E5%8F%8AHT%E6%80%A7%E8%83%BD%E6%AF%94%E8%BE%83"><span class="nav-number">1.6.4.</span> <span class="nav-text">Intel和AMD单核以及HT性能比较</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BB%E9%A2%91%E5%92%8C%E6%80%A7%E4%BB%B7%E6%AF%94"><span class="nav-number">1.7.</span> <span class="nav-text">主频和性价比</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-top-%E5%92%8C-pause-%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.8.</span> <span class="nav-text">perf top 和 pause 的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#perf-%E5%92%8C%E7%81%AB%E7%84%B0%E5%9B%BE"><span class="nav-number">1.9.</span> <span class="nav-text">perf 和火焰图</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ECS%E5%92%8Cperf"><span class="nav-number">1.10.</span> <span class="nav-text">ECS和perf</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Perf-%E5%92%8C-false-share-cache-line"><span class="nav-number">1.11.</span> <span class="nav-text">Perf 和 false share cache_line</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0-1"><span class="nav-number">1.12.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.13.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/05/16/Perf_IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Perf IPC以及CPU性能 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Perf IPC以及CPU性能
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-05-16 12:30:03" itemprop="dateCreated datePublished" datetime="2021-05-16T12:30:03+08:00">2021-05-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Perf-IPC以及CPU性能"><a href="#Perf-IPC以及CPU性能" class="headerlink" title="Perf IPC以及CPU性能"></a>Perf IPC以及CPU性能</h1><p>为了让程序能快点，特意了解了CPU的各种原理，比如多核、超线程、NUMA、睿频、功耗、GPU、大小核再到分支预测、cache_line失效、加锁代价、IPC等各种指标（都有对应的代码和测试数据）都会在这系列文章中得到答案。当然一定会有程序员最关心的分支预测案例、Disruptor无锁案例、cache_line伪共享案例等等。</p>
+<p>这次让我们从最底层的沙子开始用8篇文章来回答各种疑问以及大量的实验对比案例和测试数据。</p>
+<p>大的方面主要是从这几个疑问来写这些文章：</p>
+<ul>
+<li>同样程序为什么CPU跑到800%还不如CPU跑到200%快？</li>
+<li>IPC背后的原理和和程序效率的关系？</li>
+<li>为什么数据库领域都爱把NUMA关了，这对吗？</li>
+<li>几个国产芯片的性能到底怎么样？</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><img src="/images/951413iMgBlog/image-20210802161455950.png" alt="image-20210802161455950"></p>
+<h2 id="程序性能"><a href="#程序性能" class="headerlink" title="程序性能"></a>程序性能</h2><blockquote>
+<p> 程序的 CPU 执行时间 &#x3D; 指令数&#x2F;(主频*IPC)</p>
+</blockquote>
+<p>IPC: insns per cycle  insn&#x2F;cycles</p>
+<h2 id="CPU-流水线工作原理"><a href="#CPU-流水线工作原理" class="headerlink" title="CPU 流水线工作原理"></a>CPU 流水线工作原理</h2><p>cycles：CPU时钟周期。CPU从它的指令集(instruction set)中选择指令执行。</p>
+<p>一个指令包含以下的步骤，每个步骤由CPU的一个叫做功能单元(functional unit)的组件来进行处理，每个步骤的执行都至少需要花费一个时钟周期。</p>
+<ul>
+<li><pre><code>指令读取(instruction fetch， IF)
+</code></pre>
+</li>
+<li><pre><code>指令解码(instruction decode， ID)
+</code></pre>
+</li>
+<li><pre><code>执行(execute， EXE)
+</code></pre>
+</li>
+<li><pre><code>内存访问(memory access，MEM)
+</code></pre>
+</li>
+<li><pre><code>寄存器回写(register write-back， WB)
+</code></pre>
+</li>
+</ul>
+<p><img src="/images/951413iMgBlog/950px-skylake_server_block_diagram.svg.png" alt="skylake server block diagram.svg"></p>
+<p>以上结构简化成流水线就是：</p>
+<p><img src="/images/951413iMgBlog/image-20210511154816751.png" alt="image-20210511154816751"></p>
+<p>IF&#x2F;ID 就是我们常说的前端，他负责不停地取指和译指，然后为后端提供译指之后的指令，最核心的优化就是要做好<strong>分支预测</strong>，终归取指是要比执行慢，只有提前做好预测才能尽量匹配上后端。后端核心优化是要做好执行单元的并发量，以及乱序执行能力，最终要将乱序执行结果正确组合并输出。</p>
+<p>在流水线指令之前是单周期处理器：也就是一个周期完成一条指令。每个时钟周期必须完成取指、译码、读寄存器、 执行、访存等很多组合逻辑工作，为了保证在下一个时钟上升沿到来之前准备好寄存器堆的写数 据，需要将每个时钟周期的间隔拉长，导致处理器的主频无法提高。</p>
+<p>使用流水线技术可以提高处 理器的主频。五个步骤只能串行，<strong>但是可以做成pipeline提升效率</strong>，也就是第一个指令做第二步的时候，指令读取单元可以去读取下一个指令了，如果有一个指令慢就会造成stall，也就是pipeline有地方卡壳了。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">$sudo perf stat -a -- sleep 10</span><br><span class="line"></span><br><span class="line">Performance counter stats for &#x27;system wide&#x27;:</span><br><span class="line"></span><br><span class="line"> 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)</span><br><span class="line">        45,709      context-switches          #    0.191 K/sec                    (100.00%)</span><br><span class="line">         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)</span><br><span class="line">        79,586      page-faults               #    0.332 K/sec</span><br><span class="line"> 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)</span><br><span class="line"> 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)</span><br><span class="line"> 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)</span><br><span class="line"> 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles</span><br><span class="line">                                              #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)</span><br><span class="line">   447,584,805      branches                  #    1.866 M/sec                    (83.33%)</span><br><span class="line">     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)</span><br></pre></td></tr></table></figure>
+
+<p>stalled-cycles，则是指令管道未能按理想状态发挥并行作用，发生停滞的时钟周期。stalled-cycles-frontend指指令读取或解码的指令步骤，而stalled-cycles-backend则是指令执行步骤。第二列中的cycles idle其实意思跟stalled是一样的，由于指令执行停滞了，所以指令管道也就空闲了，千万不要误解为CPU的空闲率。这个数值是由stalled-cycles-frontend或stalled-cycles-backend除以上面的cycles得出的。</p>
+<p>另外cpu可以同时有多条pipeline，这就是理论上最大的IPC.</p>
+<h3 id="pipeline效率和IPC"><a href="#pipeline效率和IPC" class="headerlink" title="pipeline效率和IPC"></a><a target="_blank" rel="noopener" href="https://www.hikunpeng.com/document/detail/zh/kunpenggrf/progtuneg/kunpengprogramming_05_0009.html">pipeline效率和IPC</a></h3><p>虽然一个指令需要5个步骤，也就是完全执行完需要5个cycles，这样一个时钟周期最多能执行0.2条指令，IPC就是0.2，显然太低了。</p>
+<ul>
+<li>非流水线：</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20210511154859711.png" alt="image-20210511154859711"></p>
+<p>如果把多个指令的五个步骤用pipeline流水线跑起来，在理想情况下一个时钟周期就能跑完一条指令了，这样IPC就能达到1了。</p>
+<p>这种非流水线的方式将一个指令分解成多个步骤后，能提升主频，但是一个指令执行需要的时间基本没变</p>
+<ul>
+<li>标量流水线, 标量（Scalar）流水计算机是<strong>只有一条指令流水线</strong>的计算机:</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20210511155530477.png" alt="image-20210511155530477"></p>
+<p>进一步优化，如果我们加大流水线的条数，让多个指令并行执行，就能得到更高的IPC了，但是这种并行必然会有指令之间的依赖，比如第二个指令依赖第一个的结果，所以多个指令并行更容易出现互相等待(stall).</p>
+<p><img src="/images/951413iMgBlog/58c7dc9084fa648f204a6468209ca788.png" alt="img"></p>
+<p>在每个时钟周期的开始，指令的部分数据和控制信息都保存在流水线锁存器中，并且该信息形成了下一个流水线的逻辑电路输入。在时钟周期内，信号通过组合逻辑传播，从而在时钟周期结束时及时产生输出，以供下一个pipeline锁存器捕获。</p>
+<p>早期的RISC处理器，例如IBM的801原型，MIPS R2000（基于斯坦福MIPS机器）和原始的SPARC（来自Berkeley RISC项目），都实现了一个简单的5阶段流水线，与上面所示的流水线不同（ 额外的阶段是内存访问，在执行后存放结果）。在那个时代，主流的CISC架构80386、68030和VAX处理器使用微码顺序工作（通过RISC进行流水作业比较容易，因为指令都是简单的寄存器到寄存器操作，与x86、68k或VAX不同）。导致的结果，以20 MHz运行的SPARC比以33 MHz运行的386快得多。从那以后，每个处理器都至少在某种程度上进行了流水线处理。</p>
+<p><img src="/images/951413iMgBlog/e6d5e70e0cbdc4ba662d79f2306758b6.png" alt="img"></p>
+<ul>
+<li>超标量流水线：所谓超标量（Superscalar）流 水计算机，是指它<strong>具有两条以上的指令流水线</strong>, 超标流水线数量也就是ALU执行单元的并行度</li>
+</ul>
+<p><img src="/images/951413iMgBlog/image-20210511155708234.png" alt="image-20210511155708234"></p>
+<p>一般而言流水线的超标量不能超过单条流水线的深度</p>
+<p>每个功能单元都有独立的管道，甚至可以具有不同的长度。 这使更简单的指令可以更快地完成，从而减少了等待时间。 在各个管道内部之间也有许多旁路，但是为简单起见，这些旁路已被省略。</p>
+<p>下图中，处理器可能每个周期执行3条不同的指令，例如，一个整数，一个浮点和一个存储器操作。 甚至可以添加更多的功能单元，以便处理器能够在每个周期执行两个整数指令，或两个浮点指令，或使用任何其他方式。</p>
+<p>鲲鹏的流水线结构：</p>
+<p><img src="/images/951413iMgBlog/zh-cn_image_0000001237942853.png" alt="zh-cn_image_0000001237942853.png"></p>
+<p>三级流水线的执行容易被打断，导致指令执行效率低，后面发展起来的五级指令流水线技术被认为是经典的处理器设置方式，已经在多种RISC处理器中广泛使用，它在三级流水线（取指、译码、执行）的基础上，增加了两级处理，将“执行”动作进一步分解为执行、访存、回写，解决了三级流水线中存储器访问指令在指令执行阶段的延迟问题，但是容易出现寄存器互锁等问题导致流水线中断。鲲鹏920处理器采用八级流水线结构，首先是提取指令，然后通过解码、寄存器重命名和调度阶段。一旦完成调度，指令将无序发射到八个执行管道中的一个，每个执行管道每个周期都可以接受并完成一条指令，最后就是访存和回写操作。</p>
+<p><img src="/images/951413iMgBlog/b0f6c495a6794d0a1e9a8ea93d87795b.png" alt="img"></p>
+<p>流水线的设计可以实现不间断取指、解码、执行、写回，也可以同时做几条流水线一起取指、解码、执行、写回，也就引出了超标量设计。</p>
+<p> 超标量处理器可以在一个时钟周期内执行多个指令。需要注意的是，每个执行单元不是单独的处理器，而是单个CPU内(也可以理解成单core)的执行资源，在上面图中也由体现。</p>
+<p>三路超标量四工位流水线的指令&#x2F;周期，将CPI从1变成0.33，即每周期执行3.33条指令，这样的改进幅度实在是令人着迷的，因此在初期的时候超标量甚至被人们赞美为标量程序的向量式处理。</p>
+<p>理想是丰满的，现实却是骨感的，现实中的CPI是不可能都这样的，因为现在的处理器执行不同指令时候的“执行”段的工位并不完全一样，例如整数可能短一些，浮点或者向量和 Load&#x2F;Store 指令需要长一些(这也是为什么AVX512指令下，CPU会降频的原因，因为一个工位太费时间了，不得不降速,频率快了也没啥用)，加上一些别的因素，实际大部分程序的实际 CPI 都是 1.x 甚至更高。</p>
+<p>多发射分发逻辑的复杂性随着发射数量呈现平方和指数的变化。也就是说，5发射处理器的调度逻辑几乎是4发射设计的两倍，其中6发射是4倍，而7发射是8倍，依此类推。</p>
+<h3 id="流水线案例"><a href="#流水线案例" class="headerlink" title="流水线案例"></a>流水线案例</h3><p>在Linux Kernel中有大量的 likely&#x2F;unlikely</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//ip 层收到消息后，如果是tcp就调用tcp_v4_rcv作为tcp协议的入口</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">tcp_v4_rcv</span><span class="params">(<span class="keyword">struct</span> sk_buff *skb)</span></span><br><span class="line">&#123;</span><br><span class="line">  ...</span><br><span class="line">	<span class="keyword">if</span> (unlikely(th-&gt;doff &lt; <span class="keyword">sizeof</span>(<span class="keyword">struct</span> tcphdr) / <span class="number">4</span>))</span><br><span class="line">		<span class="keyword">goto</span> bad_packet; <span class="comment">//概率很小</span></span><br><span class="line">	<span class="keyword">if</span> (!pskb_may_pull(skb, th-&gt;doff * <span class="number">4</span>))</span><br><span class="line">		<span class="keyword">goto</span> discard_it;</span><br><span class="line">  </span><br><span class="line"><span class="comment">//file: net/ipv4/tcp_input.c</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">tcp_rcv_established</span><span class="params">(<span class="keyword">struct</span> sock *sk, ...)</span></span><br><span class="line">&#123;</span><br><span class="line"> <span class="keyword">if</span> (unlikely(sk-&gt;sk_rx_dst == <span class="literal">NULL</span>))</span><br><span class="line">  ......</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: include/linux/compiler.h</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> likely(x)   __builtin_expect(!!(x),1)</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> unlikely(x) __builtin_expect(!!(x),0)</span></span><br></pre></td></tr></table></figure>
+
+<p>__builtin_expect 这个指令是 gcc 引入的。该函数作用是允许程序员将最有可能执行的分支告诉编译器，来辅助系统进行分支预测。(参见 <a target="_blank" rel="noopener" href="https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html">https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html</a>)</p>
+<p>它的用法为：__builtin_expect(EXP, N)。意思是：EXP &#x3D;&#x3D; N的概率很大。那么上面 likely 和 unlikely 这两句的具体含义就是：</p>
+<ul>
+<li>__builtin_expect(!!(x),1) x 为真的可能性更大  &#x2F;&#x2F;0两次取反还是0，非0两次取反都是1，这样可以适配__builtin_expect(EXP, N)的N，要不N的参数没法传</li>
+<li>__builtin_expect(!!(x),0) x 为假的可能性更大</li>
+</ul>
+<p>当正确地使用了__builtin_expect后，编译器在编译过程中会根据程序员的指令，将可能性更大的代码紧跟着前面的代码，从而减少指令跳转带来的性能上的下降。让L1i中加载的代码尽量有效紧凑</p>
+<p>这样可以让 CPU流水线分支预测的时候默认走可能性更大的分支。如果分支预测错误所有流水线都要取消重新计算。</p>
+<h3 id="流水线的实际效果"><a href="#流水线的实际效果" class="headerlink" title="流水线的实际效果"></a>流水线的实际效果</h3><p>假如一个15级的流水线，如果处理器要将做无用功的时间限制在 10%，那么它必须在正确预测每个分支的准确率达到 99.3%（因为错误一次，15级流水线都要重置，所以错误会放大15倍，0.7*15&#x3D;10） 。很少有通用程序能够如此准确地预测分支。</p>
+<p>下图是不同场景在英特尔酷睿 i7 基准测试，可以看到有19% 的指令都被浪费了，但能耗的浪费情况更加严重，因为处理器必须利用额外的能量才能在推测失误时恢复原来的状态。这样的度量导致许多人得出结论，架构师需要一种不同的方法来实现性能改进。于是多级流水线不能疯狂增加，这样只能往多核发展。</p>
+<p><img src="/images/951413iMgBlog/f4.jpg" alt="f4.jpg"></p>
+<h3 id="Deeper-Pipelines深度流水线"><a href="#Deeper-Pipelines深度流水线" class="headerlink" title="Deeper Pipelines深度流水线"></a>Deeper Pipelines深度流水线</h3><p>由于时钟速度受流水线中最长阶段的长度的限制，因此每个级的逻辑门可以再细分，尤其是较长的逻辑门，从而将流水线转换为更深的深度流水线,各阶段的数量长度变小而阶段总数量变多，如下图。</p>
+<p><img src="/images/951413iMgBlog/ffdf76ae7c34c3445594657466b1a8fe.png" alt="img"></p>
+<p>​    这样整个处理器可以更高的时钟速度运行。当然，每个指令将需要更多的周期来完成（等待时间），但是处理器仍将在每个周期中完成1条指令，这样每秒将有更多的周期，处理器每秒将完成更多的指令。</p>
+<p>​    Alpha架构师尤其喜欢这个深度流水线，这也是为什么早期的Alpha拥有非常深的流水线，并且在那个时代以很高的时钟速度运行。 当然还有Intel的NetBurst架构，唯主频论。</p>
+<p>​    如今，现代处理器努力将每个流水线阶段的门延迟数量降低到很少（大约12-25个）。</p>
+<p>​    在PowerPC G4e中为7-12，在ARM11和Cortex-A9中为8+，在Athlon中为10-15，在Pentium-Pro&#x2F;II&#x2F;III&#x2F;M中为12+，在Athlon64&#x2F;Phenom&#x2F;Fusion-A中为12-17，在Cortex-A8中为13+，在UltraSPARC-III&#x2F;IV中为14，在Core 2中为14+，在Core i*2中为14-18+，在Core i中为16+，在PowerPC G5中为16-25，在Pentium-4中为20+， 在奔腾4E中为31+。 与RISC相比，x86处理器通常具有更深的流水线，因为它们需要做更多的工作来解码复杂的x86指令。UltraSPARC-T1&#x2F;T2&#x2F;T3是深度流水线趋势的例外（UltraSPARC-T1仅6个，T2&#x2F;T3是8-12，因为其倾向让单核简化的方式来堆叠核数量）。</p>
+<p>​	不同架构的CPU流水线的级数（长度）存在很大差异，从几级到几十级不等，流水线级数越多，CPU结构就越复杂，功能也就越强大，同时功耗也会越大。相反地，流水线级数少，CPU结构简单，功耗就会降低很多。下表是一些典型的ARM流水线级别。</p>
+<p>例如 Cortex-A15、Sandy Bridge 都分别具备 15 级、14 级流水线，而 Intel NetBurst（Pentium 4）、AMD Bulldozer 都是 20 级流水线，它们的工位数都远超出基本的四（或者五）工位流水线设计。更长的流水线虽然能提高频率，但是代价是耗电更高而且可能会有各种性能惩罚。</p>
+<p>ARM指令集以及对应的流水线</p>
+<table>
+<thead>
+<tr>
+<th>型号</th>
+<th>指令集</th>
+<th>流水线</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ARM7</td>
+<td>ARMv4</td>
+<td>3级</td>
+</tr>
+<tr>
+<td>ARM9</td>
+<td>ARMv5</td>
+<td>5级</td>
+</tr>
+<tr>
+<td>ARM11</td>
+<td>ARMv6</td>
+<td>8级</td>
+</tr>
+<tr>
+<td>Cortex-A8</td>
+<td>ARMv7-A</td>
+<td>13级</td>
+</tr>
+<tr>
+<td>鲲鹏920&#x2F;Cortex-A55</td>
+<td>ARMv8</td>
+<td>8级</td>
+</tr>
+</tbody></table>
+<p>流水线越长带来的问题：</p>
+<ul>
+<li>每一级流水线之间需要流水线寄存器暂存数据，存取需要额外的负担</li>
+<li>功耗高</li>
+<li>对分支预测不友好</li>
+</ul>
+<h3 id="指令延时"><a href="#指令延时" class="headerlink" title="指令延时"></a>指令延时</h3><p>​    考虑一个非流水线机器，具有6个执行阶段，长度分别为50 ns，50 ns，60 ns，60 ns，50 ns和50 ns。</p>
+<p>​    -这台机器上的指令等待时间是多少？</p>
+<p>​    -执行100条指令需要多少时间？</p>
+<p>​    指令等待时间 &#x3D; 50+50+60+60+50+50&#x3D; 320 ns<br>​    执行100条指令需 &#x3D; 100*320 &#x3D; 32000 ns</p>
+<h3 id="对比流水线延时"><a href="#对比流水线延时" class="headerlink" title="对比流水线延时"></a>对比流水线延时</h3><p>​    假设在上面这台机器上引入了流水线技术，但引入流水线技术时，时钟偏移会给每个执行阶段增加5ns的开销。</p>
+<p>​    -流水线机器上的指令等待时间是多少？</p>
+<p>​    -执行100条指令需要多少时间？</p>
+<p>​    这里需要注意的是，在流水线实现中，流水线级的长度必须全部相同，即最慢级的速度加上开销，开销为5ns。</p>
+<p>​    流水线级的长度&#x3D; MAX（非流水线级的长度）+开销&#x3D; 60 + 5 &#x3D; 65 ns</p>
+<p>​    指令等待时间&#x3D; 65 ns</p>
+<p>​    执行100条指令的时间&#x3D; 65 * 6 * 1 + 65 * 1 * 99 &#x3D; 390 + 6435 &#x3D; 6825 ns</p>
+<h3 id="保留站和乱序执行"><a href="#保留站和乱序执行" class="headerlink" title="保留站和乱序执行"></a>保留站和乱序执行</h3><p>指令在做完取码、译码后一般先交由一个指令保留站，统一交给后面的多个执行单元（多发射），执行完后再次将结果排序就行，有依赖关系的需要等待。</p>
+<p>保留站后面就是乱序执行技术，就好像在指令的执行阶段提供一个“线程池”。指令不再是顺序执行的，而是根据池里所拥有的资源，以及各个任务是否可以进行执行，进行动态调度。在执行完成之后，又重新把结果在一个队列里面，按照指令的分发顺序重新排序。即使内部是“乱序”的，但是在外部看起来，仍然是井井有条地顺序执行。</p>
+<p><img src="/images/951413iMgBlog/image-20221102161222519.png" alt="image-20221102161222519"></p>
+<h3 id="从流水线获得加速"><a href="#从流水线获得加速" class="headerlink" title="从流水线获得加速"></a>从流水线获得加速</h3><p>加速是没有流水线的平均指令时间与有流水线的平均指令时间之比。（这里不考虑由不同类型的危害引起的任何失速）</p>
+<p>假设：</p>
+<p>​    未流水线的平均指令时间&#x3D; 320 ns</p>
+<p>​    流水线的平均指令时间&#x3D; 65 ns</p>
+<p>​    那么，100条指令的加速&#x3D; 32000&#x2F;6825 &#x3D; 4.69，这种理想情况下效率提升了4.69倍。</p>
+<p>每一个功能单元的流水线的长度是不同的。事实上，不同的功能单元的流水线长度本来就不一样。我们平时所说的 14 级流水线，指的通常是进行整数计算指令的流水线长度。如果是浮点数运算，实际的流水线长度则会更长一些。</p>
+<p><img src="/images/951413iMgBlog/85f15ec667d09fd2d368822904029b32.jpeg" alt="img"></p>
+<h3 id="指令缓存（Instruction-Cache）和数据缓存（Data-Cache）"><a href="#指令缓存（Instruction-Cache）和数据缓存（Data-Cache）" class="headerlink" title="指令缓存（Instruction Cache）和数据缓存（Data Cache）"></a>指令缓存（Instruction Cache）和数据缓存（Data Cache）</h3><p>在第 1 条指令执行到访存（MEM）阶段的时候，流水线里的第 4 条指令，在执行取指令（Fetch）的操作。访存和取指令，都要进行内存数据的读取。我们的内存，只有一个地址译码器的作为地址输入，那就只能在一个时钟周期里面读取一条数据，没办法同时执行第 1 条指令的读取内存数据和第 4 条指令的读取指令代码。</p>
+<p><img src="/images/951413iMgBlog/c2a4c0340cb835350ea954cdc520704e.jpeg" alt="img"></p>
+<p>把内存拆成两部分的解决方案，在计算机体系结构里叫作哈佛架构（Harvard Architecture），来自哈佛大学设计Mark I 型计算机时候的设计。我们今天使用的 CPU，仍然是冯·诺依曼体系结构的，并没有把内存拆成程序内存和数据内存这两部分。因为如果那样拆的话，对程序指令和数据需要的内存空间，我们就没有办法根据实际的应用去动态分配了。虽然解决了资源冲突的问题，但是也失去了灵活性。</p>
+<p><img src="/images/951413iMgBlog/e7508cb409d398380753b292b6df8391.jpeg" alt="img"></p>
+<p>在流水线产生依赖的时候必须pipeline stall，也就是让依赖的指令执行NOP。</p>
+<h3 id="Intel-X86每个指令需要的cycle"><a href="#Intel-X86每个指令需要的cycle" class="headerlink" title="Intel X86每个指令需要的cycle"></a>Intel X86每个指令需要的cycle</h3><p>Intel xeon</p>
+<p><img src="/images/951413iMgBlog/v2-73a5cce599828b6c28f6f29bb310687a_1440w.jpg" alt="img"></p>
+<p>不同架构带来IPC变化：</p>
+<p><img src="/images/951413iMgBlog/intel-ice-lake-ipc-over-time.jpg" alt="img"></p>
+<p>Intel 最新的CPU Ice Lake和其上一代的性能对比数据：</p>
+<p><img src="/images/951413iMgBlog/intel-ice-lake-sunny-cove-core-table.jpg" alt="img"></p>
+<p>上图最终结果导致了IPC提升了20%，以及整体效率的提升：</p>
+<p><img src="/images/951413iMgBlog/Intel-Ice-Lake-improved-perf-per-core-April-2021.png" alt="img"></p>
+<h2 id="perf-使用"><a href="#perf-使用" class="headerlink" title="perf 使用"></a>perf 使用</h2><p>主要是通过采集 PMU（Performance Monitoring Unit – CPU内部提供）数据来做性能监控</p>
+<p><img src="/images/951413iMgBlog/5edebc74-f8ac-483c-8bcd-24e09abfd06b.png" alt="img"></p>
+<p>Perf 是一个包含 22 种子工具的工具集，每个工具分别作为一个子命令。</p>
+<p>annotate 命令读取 perf.data 并显示注释过的代码;diff 命令读取两个 perf.data 文件并显示两份剖析信息之间的差异; </p>
+<p>evlist 命令列出一个 perf.data 文件的事件名称;</p>
+<p>inject 命令过滤以加强事件流，在其中加入额外的信 息;</p>
+<p>kmem 命令为跟踪和测量内核中 slab 子系统属性的工具;</p>
+<p>kvm 命令为跟踪和测量 kvm 客户机操 作系统的工具;</p>
+<p>list 命令列出所有符号事件类型;</p>
+<p>lock 命令分析锁事件;</p>
+<p>probe 命令定义新的动态跟 踪点;</p>
+<p>record 命令运行一个程序，并把剖析信息记录在 perf.data 中;</p>
+<p>report 命令读取 perf.data 并显 示剖析信息;</p>
+<p>sched 命令为跟踪和测量内核调度器属性的工具;</p>
+<p>script 命令读取 perf.data 并显示跟踪 输出;</p>
+<p>stat 命令运行一个程序并收集性能计数器统计信息;</p>
+<p>timechart 命令为可视化某个负载在某时 间段的系统总体性能的工具;</p>
+<p>top 命令为系统剖析工具。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line">sudo perf record -g -a -e skb:kfree_skb //perf 记录丢包调用栈 然后sudo perf script 查看 （网络报文被丢弃时会调用该函数kfree_skb）</span><br><span class="line">perf record -e &#x27;skb:consume_skb&#x27; -ag  //记录网络消耗</span><br><span class="line">perf probe --add tcp_sendmsg //增加监听probe  perf record -e probe:tcp_sendmsg -aR sleep 1</span><br><span class="line">sudo perf sched record -- sleep 1 //记录cpu调度的延时</span><br><span class="line">sudo perf sched latency //查看</span><br><span class="line"></span><br><span class="line">perf sched latency --sort max //查看上一步记录的结果，以调度延迟排序。</span><br><span class="line"></span><br><span class="line">perf record --call-graph dwarf</span><br><span class="line">perf report </span><br><span class="line">perf report --call-graph -G //反转调用关系</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">展开汇编结果</span><br><span class="line"></span><br><span class="line">  占比   行号  指令</span><br><span class="line">       │      mov    %r13,%rax</span><br><span class="line">       │      mov    %r8,%rbx</span><br><span class="line">  0.56 │      mov    %r9,%rcx</span><br><span class="line">  0.19 │      lock   cmpxchg16b 0x10(%rsi) //加锁占89.53，下一行</span><br><span class="line"> 89.53 │      sete   %al</span><br><span class="line">  1.50 │      mov    %al,%r13b</span><br><span class="line">  0.19 │      mov    $0x1,%al</span><br><span class="line">       │      test   %r13b,%r13b</span><br><span class="line">       │    ↓ je     eb</span><br><span class="line">       │    ↓ jmpq   ef</span><br><span class="line">       │47:   mov    %r9,(%rsp)</span><br><span class="line">       </span><br><span class="line"></span><br><span class="line">//如下代码的汇编</span><br><span class="line">void main() &#123;</span><br><span class="line"></span><br><span class="line">	while(1) &#123;</span><br><span class="line">		 __asm__ (&quot;pause\n\t&quot;</span><br><span class="line">				 &quot;pause\n\t&quot;</span><br><span class="line">				 &quot;pause\n\t&quot;</span><br><span class="line">				 &quot;pause\n\t&quot;</span><br><span class="line">				 &quot;pause&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;       </span><br><span class="line"></span><br><span class="line">//每行pause占20%</span><br><span class="line">       │</span><br><span class="line">       │    Disassembly of section .text:</span><br><span class="line">       │</span><br><span class="line">       │    00000000004004ed &lt;main&gt;:</span><br><span class="line">       │    main():</span><br><span class="line">       │      push   %rbp</span><br><span class="line">       │      mov    %rsp,%rbp</span><br><span class="line">  0.71 │ 4:   pause</span><br><span class="line"> 19.35 │      pause</span><br><span class="line"> 20.20 │      pause</span><br><span class="line"> 19.81 │      pause</span><br><span class="line"> 19.88 │      pause</span><br><span class="line"> 20.04 │    ↑ jmp    4</span><br><span class="line"> </span><br></pre></td></tr></table></figure>
+
+<p>网络收包软中断</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">_raw_spin_lock_irqsave  /proc/kcore</span><br><span class="line">       │    Disassembly of section load2:</span><br><span class="line">       │</span><br><span class="line">       │    ffffffff81662b00 &lt;load2+0x662b00&gt;:</span><br><span class="line">  0.30 │      nop</span><br><span class="line">       │      push   %rbp</span><br><span class="line">  0.21 │      mov    %rsp,%rbp</span><br><span class="line">  0.15 │      push   %rbx</span><br><span class="line">  0.12 │      pushfq</span><br><span class="line">  0.57 │      pop    %rax</span><br><span class="line">  0.45 │      nop</span><br><span class="line">  0.15 │      mov    %rax,%rbx</span><br><span class="line">  0.21 │      cli</span><br><span class="line">  1.20 │      nop</span><br><span class="line">       │      mov    $0x20000,%edx</span><br><span class="line">       │      lock   xadd   %edx,(%rdi) //加锁耗时83%</span><br><span class="line"> 83.42 │      mov    %edx,%ecx</span><br><span class="line">       │      shr    $0x10,%ecx</span><br><span class="line">  0.66 │      cmp    %dx,%cx</span><br><span class="line">       │    ↓ jne    34</span><br><span class="line">  0.06 │2e:   mov    %rbx,%rax</span><br><span class="line">       │      pop    %rbx</span><br><span class="line">       │      pop    %rbp</span><br><span class="line">  0.57 │    ← retq</span><br><span class="line">  0.12 │34:   mov    %ecx,%r8d</span><br><span class="line">  0.03 │      movzwl %cx,%esi</span><br><span class="line">       │3a:   mov    $0x8000,%eax</span><br><span class="line">       │    ↓ jmp    4f</span><br><span class="line">       │      nop</span><br><span class="line">  0.06 │48:   pause</span><br><span class="line">  4.67 │      sub    $0x1,%eax</span><br><span class="line">       │    ↓ je     69</span><br><span class="line">  0.12 │4f:   movzwl (%rdi),%edx  //慢操作</span><br><span class="line">  6.73 │      mov    %edx,%ecx</span><br><span class="line">       │      xor    %r8d,%ecx</span><br><span class="line">       │      and    $0xfffe,%ecx</span><br><span class="line">       │    ↑ jne    48</span><br><span class="line">  0.12 │      movzwl %dx,%esi</span><br><span class="line">  0.09 │      callq  0xffffffff8165501c</span><br><span class="line">       │    ↑ jmp    2e</span><br><span class="line">       │69:   nop</span><br><span class="line">       │    ↑ jmp    3a</span><br></pre></td></tr></table></figure>
+
+<p>可以通过perf看到cpu的使用情况：</p>
+<pre><code>$sudo perf stat -a -- sleep 10
+
+Performance counter stats for &#39;system wide&#39;:
+
+ 239866.330098      task-clock (msec)         #   23.985 CPUs utilized    /10*1000        (100.00%)
+        45,709      context-switches          #    0.191 K/sec                    (100.00%)
+         1,715      cpu-migrations            #    0.007 K/sec                    (100.00%)
+        79,586      page-faults               #    0.332 K/sec
+ 3,488,525,170      cycles                    #    0.015 GHz                      (83.34%)
+ 9,708,140,897      stalled-cycles-frontend   #  278.29% /cycles frontend cycles idle     (83.34%)
+ 9,314,891,615      stalled-cycles-backend    #  267.02% /cycles backend  cycles idle     (66.68%)
+ 2,292,955,367      instructions              #    0.66  insns per cycle  insn/cycles
+                                             #    4.23  stalled cycles per insn stalled-cycles-frontend/insn (83.34%)
+   447,584,805      branches                  #    1.866 M/sec                    (83.33%)
+     8,470,791      branch-misses             #    1.89% of all branches          (83.33%)
+</code></pre>
+<p><img src="/images/oss/f96e50b5f3d0825b68be5b654624f839.png" alt="image.png"></p>
+<h2 id="IPC测试"><a href="#IPC测试" class="headerlink" title="IPC测试"></a>IPC测试</h2><p>实际运行的时候增加如下nop到100个以上</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">void main() &#123;</span><br><span class="line">    while(1) &#123;</span><br><span class="line">         __asm__ (&quot;nop\n\t&quot;</span><br><span class="line">                 &quot;nop\n\t&quot;</span><br><span class="line">                 &quot;nop&quot;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果同时运行两个如上测试程序，鲲鹏920运行，每个程序的IPC都是3.99</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">#perf stat -- ./nop.out</span><br><span class="line">failed to read counter branches</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &#x27;./nop.out&#x27;:</span><br><span class="line"></span><br><span class="line">       8826.948260      task-clock (msec)         #    1.000 CPUs utilized</span><br><span class="line">                 8      context-switches          #    0.001 K/sec</span><br><span class="line">                 0      cpu-migrations            #    0.000 K/sec</span><br><span class="line">                37      page-faults               #    0.004 K/sec</span><br><span class="line">    22,949,862,030      cycles                    #    2.600 GHz</span><br><span class="line">         2,099,719      stalled-cycles-frontend   #    0.01% frontend cycles idle</span><br><span class="line">        18,859,839      stalled-cycles-backend    #    0.08% backend  cycles idle</span><br><span class="line">    91,465,043,922      instructions              #    3.99  insns per cycle</span><br><span class="line">                                                  #    0.00  stalled cycles per insn</span><br><span class="line">   &lt;not supported&gt;      branches</span><br><span class="line">            33,262      branch-misses             #    0.00% of all branches</span><br><span class="line"></span><br><span class="line">       8.827886000 seconds time elapsed</span><br></pre></td></tr></table></figure>
+
+<p>intel X86 8260</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">#perf stat -- ./nop.out</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &#x27;./nop.out&#x27;:</span><br><span class="line"></span><br><span class="line">      65061.160345      task-clock (msec)         #    1.001 CPUs utilized</span><br><span class="line">                46      context-switches          #    0.001 K/sec</span><br><span class="line">                92      cpu-migrations            #    0.001 K/sec</span><br><span class="line">               108      page-faults               #    0.002 K/sec</span><br><span class="line">   155,659,827,263      cycles                    #    2.393 GHz</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">   603,247,401,995      instructions              #    3.88  insns per cycle</span><br><span class="line">     4,742,051,659      branches                  #   72.886 M/sec</span><br><span class="line">         1,799,428      branch-misses             #    0.04% of all branches</span><br><span class="line"></span><br><span class="line">      65.012821629 seconds time elapsed</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>这两块CPU理论IPC最大值都是4，实际x86离理论值更远一些. 增加while循环中的nop数量（从132增加到432个）IPC能提升到3.92</p>
+<h2 id="IPC和超线程"><a href="#IPC和超线程" class="headerlink" title="IPC和超线程"></a>IPC和超线程</h2><p>ipc是指每个core的IPC</p>
+<h3 id="超线程-Hyper-Threading-原理"><a href="#超线程-Hyper-Threading-原理" class="headerlink" title="超线程(Hyper-Threading)原理"></a><a target="_blank" rel="noopener" href="https://www.intel.com/content/www/us/en/gaming/resources/hyper-threading.html">超线程(Hyper-Threading)原理</a></h3><p><strong>概念</strong>：一个核还可以进一步分成几个逻辑核，来执行多个控制流程，这样可以进一步提高并行程度，这一技术就叫超线程，intel体系下也叫做 simultaneous multi-threading（<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Simultaneous_multithreading">SMT–wiki用的是simultaneous</a>，<a target="_blank" rel="noopener" href="https://akkadia.org/drepper/cpumemory.pdf">也有人用 symmetric</a>（29页），我觉得symmetric也比较能表达超线程的意思）。</p>
+<blockquote>
+<p>Two logical cores can work through tasks more efficiently than a traditional single-threaded core. By taking advantage of idle time when the core would formerly be waiting for other tasks to complete, Intel® Hyper-Threading Technology improves CPU throughput (by up to 30% in server applications).</p>
+</blockquote>
+<p>超线程技术主要的出发点是，当处理器在运行一个线程，执行指令代码时，很多时候处理器并不会使用到全部的计算能力，部分计算能力就会处于空闲状态。而超线程技术就是通过多线程来进一步“压榨”处理器。<strong>pipeline进入stalled状态就可以切到其它超线程上</strong></p>
+<p>举个例子，如果一个线程运行过程中，必须要等到一些数据加载到缓存中以后才能继续执行，此时 CPU 就可以切换到另一个线程，去执行其他指令，而不用去处于空闲状态，等待当前线程的数据加载完毕。<strong>通常，一个传统的处理器在线程之间切换，可能需要几万个时钟周期。而一个具有 HT 超线程技术的处理器只需要 1 个时钟周期。因此就大大减小了线程之间切换的成本，从而最大限度地让处理器满负荷运转。</strong></p>
+<blockquote>
+<p>ARM芯片基本不做超线程，另外请思考为什么有了应用层的多线程切换还需要CPU层面的超线程？</p>
+</blockquote>
+<p><strong>超线程(Hyper-Threading)物理实现</strong>: 在CPU内部增加寄存器等硬件设施，但是ALU、译码器等关键单元还是共享。在一个物理 CPU 核心内部，会有双份的 PC 寄存器、指令寄存器乃至条件码寄存器。超线程的目的，是在一个线程 A 的指令，在流水线里停顿的时候，让另外一个线程去执行指令。因为这个时候，CPU 的译码器和 ALU 就空出来了，那么另外一个线程 B，就可以拿来干自己需要的事情。这个线程 B 可没有对于线程 A 里面指令的关联和依赖。</p>
+<p>CPU超线程设计过程中会引入5%的硬件，但是有30%的提升（经验值，场景不一样效果不一样，阿里的OB&#x2F;MySQL&#x2F;ODPS业务经验是提升35%），这是引入超线程的理论基础。如果是一个core 4个HT的话提升会是 50%</p>
+<h3 id="超线程如何查看"><a href="#超线程如何查看" class="headerlink" title="超线程如何查看"></a>超线程如何查看</h3><p>如果physical id和core id都一样的话，说明这两个core实际是一个物理core，其中一个是HT。</p>
+<p><img src="/images/951413iMgBlog/191276e2a1a1731969da748f1690bc9b.png" alt="image.png"></p>
+<p>physical id对应socket，也就是物理上购买到的一块CPU； core id对应着每个物理CPU里面的一个物理core，同一个phyiscal id下core id一样说明开了HT</p>
+<h3 id="IPC和超线程的关系"><a href="#IPC和超线程的关系" class="headerlink" title="IPC和超线程的关系"></a>IPC和超线程的关系</h3><p>IPC 和一个core上运行多少个进程没有关系。实际测试将两个运行nop指令的进程绑定到一个core上，IPC不变, 因为IPC就是该进程分到的circle里执行了多少个指令，只和进程业务逻辑相关。但是如果是这两个进程绑定到一个物理core以及对应的超线程core上那么IPC就会减半。如果程序是IO bound（比如需要频繁读写内存）首先IPC远远低于理论值4的，这个时候超线程同时工作的话IPC基本能翻倍</p>
+<p><img src="/images/951413iMgBlog/image-20210513123233344.png" alt="image-20210513123233344"></p>
+<p>对应的CPU使用率, 两个进程的CPU使用率是200%，实际产出IPC是2.1+1.64&#x3D;3.75，比单个进程的IPC为3.92小多了。而单个进程CPU使用率才100%</p>
+<p><img src="/images/951413iMgBlog/image-20210513130252565.png" alt="image-20210513130252565"></p>
+<p>以上测试CPU为Intel(R) Xeon(R) Platinum 8260 CPU @ 2.40GHz (Thread(s) per core:    2)</p>
+<p>再来看如下CPU上，0和64核是一对HT，单独跑nop、Pause指令的IPC分别是5&#x2F;0.17(nop是一条完全不会卡顿的指令)，可以得到这款CPU的最高IPC是5，一条 Pause 指令需要28-30个时钟周期。</p>
+<p>如果在0&#x2F;64上同时跑两个nop指令，虽然是两个超线程得到的IPC只有5的一半，也就是超线程在这种完全不卡顿的 nop 指令上完全没用；另外对比在0&#x2F;64上同时跑两个Pause 指令，IPC 都还是0.17，也就是 Pause 指令完全可以将一个物理核发挥出两倍的运算能力</p>
+<p><img src="/images/951413iMgBlog/image-20221108095422200.png" alt="image-20221108095422200"></p>
+<p>Pause指令和nop指令同时跑在一对HT上，nop基本不受影响，Pause降得非常低</p>
+<p><img src="/images/951413iMgBlog/image-20221108094802841.png" alt="image-20221108094802841"></p>
+<p>Pause指令和nop指令同时跑在一个核上，IPC 倒是各自保持不变，但是抢到的 CPU 配额相当于各自 50%(在自己的50%范围内独占，IPC也不受影响)</p>
+<p><img src="/images/951413iMgBlog/image-20221108095753861.png" alt="image-20221108095753861"></p>
+<p>关掉如上CPU的超线程，从测试结果看海光如果开了超线程 Pause 是28个时钟周期，关掉超线程 Pause 是14个时钟周期</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line">//关掉超线程后 Pause 的IPC 从0.17提升到了0.34</span><br><span class="line">#perf stat taskset -c 0 ./pause</span><br><span class="line">^Ctaskset: Interrupt</span><br><span class="line"></span><br><span class="line"> Performance counter stats for &#x27;taskset -c 0 ./pause&#x27;:</span><br><span class="line"></span><br><span class="line">          3,190.28 msec task-clock                #    0.999 CPUs utilized</span><br><span class="line">               302      context-switches          #    0.095 K/sec</span><br><span class="line">                 1      cpu-migrations            #    0.000 K/sec</span><br><span class="line">                99      page-faults               #    0.031 K/sec</span><br><span class="line">     7,951,451,789      cycles                    #    2.492 GHz</span><br><span class="line">         1,337,801      stalled-cycles-frontend   #    0.02% frontend cycles idle</span><br><span class="line">     7,842,812,091      stalled-cycles-backend    #   98.63% backend cycles idle</span><br><span class="line">     2,671,280,445      instructions              #    0.34  insn per cycle</span><br><span class="line">                                                  #    2.94  stalled cycles per insn</span><br><span class="line">        21,917,856      branches                  #    6.870 M/sec</span><br><span class="line">            29,607      branch-misses             #    0.14% of all branches</span><br><span class="line"></span><br><span class="line">       3.192937987 seconds time elapsed</span><br><span class="line"></span><br><span class="line">       3.190322000 seconds user</span><br><span class="line">       0.000000000 seconds sys</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">#lscpu</span><br><span class="line">Architecture:        x86_64</span><br><span class="line">CPU op-mode(s):      32-bit, 64-bit</span><br><span class="line">Byte Order:          Little Endian</span><br><span class="line">Address sizes:       43 bits physical, 48 bits virtual</span><br><span class="line">CPU(s):              48</span><br><span class="line">On-line CPU(s) list: 0-47</span><br><span class="line">Thread(s) per core:  1</span><br><span class="line">Core(s) per socket:  24</span><br><span class="line">Socket(s):           2</span><br><span class="line">NUMA node(s):        8</span><br><span class="line">Vendor ID:           HygonGenuine</span><br><span class="line">CPU family:          24</span><br><span class="line">Model:               1</span><br><span class="line">Model name:          Hygon C86 7260 24-core Processor</span><br><span class="line">Stepping:            1</span><br><span class="line">Frequency boost:     enabled</span><br><span class="line">CPU MHz:             1070.009</span><br><span class="line">CPU max MHz:         2200.0000</span><br><span class="line">CPU min MHz:         1200.0000</span><br><span class="line">BogoMIPS:            4399.40</span><br><span class="line">Virtualization:      AMD-V</span><br><span class="line">L1d cache:           1.5 MiB</span><br><span class="line">L1i cache:           3 MiB</span><br><span class="line">L2 cache:            24 MiB</span><br><span class="line">L3 cache:            128 MiB</span><br><span class="line">NUMA node0 CPU(s):   0-5</span><br><span class="line">NUMA node1 CPU(s):   6-11</span><br><span class="line">NUMA node2 CPU(s):   12-17</span><br><span class="line">NUMA node3 CPU(s):   18-23</span><br><span class="line">NUMA node4 CPU(s):   24-29</span><br><span class="line">NUMA node5 CPU(s):   30-35</span><br><span class="line">NUMA node6 CPU(s):   36-41</span><br><span class="line">NUMA node7 CPU(s):   42-47</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/image-20221108175100638.png" alt="image-20221108175100638"></p>
+<h3 id="Intel和AMD单核以及HT性能比较"><a href="#Intel和AMD单核以及HT性能比较" class="headerlink" title="Intel和AMD单核以及HT性能比较"></a>Intel和AMD单核以及HT性能比较</h3><p>测试命令，这个测试命令无论在哪个CPU下，用2个物理核用时都是一个物理核的一半，所以这个计算是可以完全并行的</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">taskset -c 1,53 /usr/bin/sysbench --num-threads=2 --test=cpu --cpu-max-prime=50000 run //单核用一个threads，绑核， HT用2个threads，绑一对HT</span><br></pre></td></tr></table></figure>
+
+<p>测试结果为耗时，单位秒，Hygon 7280 就是Zen2架构</p>
+<table>
+<thead>
+<tr>
+<th align="left">Family Name</th>
+<th align="left">Intel 8269CY CPU @ 2.50GHz</th>
+<th align="left">Intel E5-2682 v4 @ 2.50GHz</th>
+<th align="left">Hygon 7280 2.1G</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">单核  prime 50000</td>
+<td align="left">83</td>
+<td align="left">109</td>
+<td align="left">89</td>
+</tr>
+<tr>
+<td align="left">HT  prime 50000</td>
+<td align="left">48</td>
+<td align="left">74</td>
+<td align="left">87</td>
+</tr>
+</tbody></table>
+<h2 id="主频和性价比"><a href="#主频和性价比" class="headerlink" title="主频和性价比"></a>主频和性价比</h2><p>拿Intel 在数据中心计算的大核CPU IvyBridge与当时用于 存储系列的小核CPU Avoton（ATOM）, 分别测试阿里巴巴(Oceanbase ，MySQL, ODPS)的workload，得到性能吞吐如下：</p>
+<p>Intel 大小CPU 核心                   阿里 Workload Output(QPS)</p>
+<p>Avoton(8 cores) 2.4GHZ                 10K on single core</p>
+<p>Ivy Bridge(2650 v2 disable HT) 2.6GHZ      20K on single core</p>
+<p>Ivy Bridge(2650 v2 enable HT) 2.4GHZ       25K on single core</p>
+<p>Ivy Bridge(2650 v2 enable HT) 2.6GHZ       27K on single core</p>
+<ol>
+<li>超线程等于将一个大核CPU 分拆成两个小核，Ivy Bridge的数据显示超线程给 Ivy Bridge <strong>1.35倍</strong>(27K&#x2F;20K) 的提升</li>
+<li>现在我们分别评判 两种CPU对应的性能密度 (performance&#x2F;core die size) ，该数据越大越好，根据我们的计算和测量发现：Avoton(包含L1D, L1I, and L2 per core)大约是 3<del>4平方毫米，Ivy Bridge (包含L1D, L1I, L2 )大约是12</del>13平方毫米, L3&#x2F;core是 6~7平方毫米, 所以 Ivy Bridge 单核心的芯片面积需要18 ~ 20平方毫米。基于上面的数据我们得到的 Avoton core的性能密度为 2.5 (10K&#x2F;4sqmm)，而Ivy Bridge的性能密度是1.35 (27K&#x2F;20sqmm)，因此相同的芯片面积下 Avoton 的性能是 Ivy Bridge的 <strong>1.85倍</strong>(2.5&#x2F;1.35).</li>
+<li>从功耗的角度看性能的提升的对比数据，E5-2650v2(Ivy Bridge) 8core TDP 90w， Avoton 8 core TDP 20瓦， 性能&#x2F;功耗 Avoton 是 10K QPS&#x2F;20瓦， Ivy Bridge是 27KQPS&#x2F;90瓦， 因此 相同的功耗下 Avoton是 Ivy Bridge的 <strong>1.75倍</strong>（10K QPS&#x2F;20）&#x2F; （27KQPS&#x2F;95）</li>
+<li>从价格方面再进行比较，E5-2650v2(Ivy Bridge) 8core 官方价格是1107美元， Avoton 8 core官方价格是171美元。性能&#x2F;价格 Avoton是 10KQPS&#x2F;171美元，Ivy Bridge 是 27KQPS&#x2F;1107美元， 因此相同的美元 Avoton的性能是 Ivy Bridge 的**2.3倍（**1 10KQPS&#x2F;171美元）&#x2F; （27KQPS&#x2F;1107美元）</li>
+</ol>
+<p>从以上结论可以看到在数据中心的场景下，由于指令数据相关性较高，同时由于内存访问的延迟更多，因此复杂的CPU体系结构并不能获得相应性能提升，该原因导致我们需要的是更多的小核CPU，以此达到高吞吐量的能力，因此2014年我们向Intel提出需要将物理CPU的超线程由 2个升级到4个&#x2F;8个， 或者直接将用更多的小核CPU增加服务器的吞吐能力，最新数据表明Intel 会在大核CPU中引入4个超线程，和在相同的芯片面积下引入更多的小核CPU。</p>
+<p>预测：为了减少数据中心的功耗，我们需要提升单位面积下的计算密度，因此将来会引入Rack Computing的计算模式，每台服务器将会有4～5百个CPU core，如果使用4个CPU socket，每台机器将会达到～1000个CPU core，结合Compute Express Link (CXL), 一个机架内允许16台服务器情况下，可以引入共享内存，那么一个进程可以运行在上万个CPU core中，这样复杂环境下，我们需要对于这样的软件环境做出更多的布局和优化。</p>
+<h2 id="perf-top-和-pause-的案例"><a href="#perf-top-和-pause-的案例" class="headerlink" title="perf top 和 pause 的案例"></a><a target="_blank" rel="noopener" href="https://topic.atatech.org/articles/85549">perf top 和 pause 的案例</a></h2><p>在Skylake的架构中，将pause由10个时钟周期增加到了140个时钟周期。主要用在spin lock当中因为spin loop 多线程竞争差生的内存乱序而引起的性能下降。pause的时钟周期高过了绝大多数的指令cpu cycles，那么当我们利用perf top统计cpu 性能的时候，pause会有什么影响呢？我们可以利用一段小程序来测试一下.</p>
+<p>测试机器：<br>CPU: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz * 2, 共96个超线程</p>
+<p>案例：</p>
+<p><img src="/images/oss/864427c491497acb02d37c02cb35eeb2.png" alt="image.png"></p>
+<p>对如上两个pause指令以及一个 count++（addq），进行perf top：</p>
+<p><img src="/images/oss/40945b005eb9f716e429fd30be55b6d1.png" alt="image.png"></p>
+<p>可以看到第一个pasue在perf top中cycles为0，第二个为46.85%，另外一个addq也有48.83%，基本可以猜测perf top在这里数据都往后挪了一个。</p>
+<p><strong>问题总结：</strong><br> 我们知道perf top是通过读取PMU的PC寄存器来获取当前执行的指令进而根据汇编的symbol信息获得是执行的哪条指令。所以看起来CPU在执行pause指令的时候，从PMU中看到的PC值指向到了下一条指令，进而导致我们看到的这个现象。通过查阅《Intel® 64 and IA-32 Architectures Optimization Reference Manual》目前还无法得知这是CPU的一个设计缺陷还是PMU的一个bug(需要对pause指令做特殊处理)。<strong>不管怎样，这个实验证明了我们统计spin lock的CPU占比还是准确的，不会因为pause指令导致PMU采样出错导致统计信息的整体失真。只是对于指令级的CPU统计，我们能确定的就是它把pause的执行cycles 数统计到了下一条指令。</strong></p>
+<p><strong>补充说明：</strong> <strong>经过测试，非skylake CPU也同样存在perf top会把pause(执行数cycles是10)的执行cycles数统计到下一条指令的问题，看来这是X86架构都存在的问题。</strong></p>
+<h2 id="perf-和火焰图"><a href="#perf-和火焰图" class="headerlink" title="perf 和火焰图"></a>perf 和火焰图</h2><p>调用 perf record 采样几秒钟，一般需要加 -g 参数，也就是 call-graph，还需要抓取函数的调用关系。在多核的机器上，还要记得加上 -a 参数，保证获取所有 CPU Core 上的函数运行情况。至于采样数据的多少，在讲解 perf 概念的时候说过，我们可以用 -c 或者 -F 参数来控制。</p>
+<pre><code>   83  07/08/19 13:56:26 sudo perf record -ag -p 4759
+   84  07/08/19 13:56:50 ls /tmp/
+   85  07/08/19 13:57:06 history |tail -16
+   86  07/08/19 13:57:20 sudo chmod 777 perf.data
+   87  07/08/19 13:57:33 perf script &gt;out.perf
+   88  07/08/19 13:59:24 ~/tools/FlameGraph-master/./stackcollapse-perf.pl ~/out.perf &gt;out.folded
+   89  07/08/19 14:01:01 ~/tools/FlameGraph-master/flamegraph.pl out.folded &gt; kernel-perf.svg
+   90  07/08/19 14:01:07 ls -lh
+   91  07/08/19 14:03:33 history
+
+
+$ sudo perf record -F 99 -a -g -- sleep 60 //-F 99 指采样每秒钟做 99 次
+</code></pre>
+<p>　　执行这个命令将生成一个 perf.data 文件：</p>
+<p>执行sudo perf report -n可以生成报告的预览。<br>执行sudo perf report -n –stdio可以生成一个详细的报告。<br>执行sudo perf script可以 dump 出 perf.data 的内容。</p>
+<pre><code># 折叠调用栈
+$ FlameGraph/stackcollapse-perf.pl out.perf &gt; out.folded
+# 生成火焰图
+$ FlameGraph/flamegraph.pl out.folded &gt; out.svg
+</code></pre>
+<h2 id="ECS和perf"><a href="#ECS和perf" class="headerlink" title="ECS和perf"></a>ECS和perf</h2><p>在ECS会采集不到 cycles等，cpu-clock、page-faults都是内核中的软事件，cycles&#x2F;instructions得采集cpu的PMU数据，ECS采集不到这些PMU数据。</p>
+<p><img src="/images/oss/a120388ff72d712a4fd176e7cea005cf.png" alt="image.png"></p>
+<h2 id="Perf-和-false-share-cache-line"><a href="#Perf-和-false-share-cache-line" class="headerlink" title="Perf 和 false share cache_line"></a>Perf 和 false share cache_line</h2><p><a target="_blank" rel="noopener" href="https://joemario.github.io/blog/2016/09/01/c2c-blog/">从4.2kernel开始，perf支持perf c2c (cache 2 cahce) 来监控cache_line的伪共享</a></p>
+<h2 id="系列文章-1"><a href="#系列文章-1" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://zhengheng.me/2015/11/12/perf-stat/">perf详解</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/109158">CPU体系结构</a></p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/KaDJ1EF5Y-ndjRv2iUO3cA">震惊，用了这么多年的 CPU 利用率，其实是错的</a>cpu占用不代表在做事情，可能是stalled，也就是流水线卡顿，但是cpu占用了，实际没事情做。</p>
+<p><a target="_blank" rel="noopener" href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html">CPU Utilization is Wrong</a></p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzUxNjE3MTcwMg==&mid=2247483755&idx=1&sn=5324f7e46c91739b566dfc1d0847fc4a&chksm=f9aa33b2ceddbaa478729383cac89967cc515bafa472001adc4ad42fb37e3ce473eddc3b591a&mpshare=1&scene=1&srcid=0127mp3WJ6Kd1UOQISFg3SIC#rd">震惊，用了这么多年的 CPU 利用率，其实是错的</a></p>
+<p><a target="_blank" rel="noopener" href="https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/">https://kernel.taobao.org/2019/03/Top-down-Microarchitecture-Analysis-Method/</a></p>
+<p> <a target="_blank" rel="noopener" href="http://www.akkadia.org/drepper/cpumemory.pdf">What Every Programmer Should Know About Main Memory</a> by Ulrich Drepper </p>
+<p><a target="_blank" rel="noopener" href="https://mazzo.li/posts/fast-pipes.html">How fast are Linux pipes anyway?</a> 优化 pipes 的读写带宽，perf、hugepage、splice使用</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/perf/" rel="tag"># perf</a>
+              <a href="/tags/IPC/" rel="tag"># IPC</a>
+              <a href="/tags/pipeline/" rel="tag"># pipeline</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/" rel="prev" title="飞腾ARM芯片-FT2500的性能测试">
+                  <i class="fa fa-angle-left"></i> 飞腾ARM芯片-FT2500的性能测试
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021/05/16/Perf%20IPC%E4%BB%A5%E5%8F%8ACPU%E5%88%A9%E7%94%A8%E7%8E%87/" rel="next" title="Perf IPC以及CPU性能">
+                  Perf IPC以及CPU性能 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

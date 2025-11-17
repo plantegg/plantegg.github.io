@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 写这篇文章的起因是这个 记一次 Netty PR 的提交，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是6">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Netty和Disruptor的cache_line对齐实践">
+<meta property="og:url" content="https://plantegg.github.io/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Netty和Disruptor的cache_line对齐实践原理先看这篇：CPU 性能和Cache Line 写这篇文章的起因是这个 记一次 Netty PR 的提交，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题 什么是 cache_lineCPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是6">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689-1744256.png">
+<meta property="article:published_time" content="2022-05-05T10:20:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.526Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="cache_line">
+<meta property="article:tag" content="performance">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/","path":"2022/05/05/Netty和Disruptor的cache_line对齐实践/","title":"Netty和Disruptor的cache_line对齐实践"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Netty和Disruptor的cache_line对齐实践 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Netty%E5%92%8CDisruptor%E7%9A%84cache-line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5"><span class="nav-number">1.</span> <span class="nav-text">Netty和Disruptor的cache_line对齐实践</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BB%80%E4%B9%88%E6%98%AF-cache-line"><span class="nav-number">1.1.</span> <span class="nav-text">什么是 cache_line</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#cache-%E5%A4%B1%E6%95%88"><span class="nav-number">1.1.1.</span> <span class="nav-text">cache 失效</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Disruptor%E4%B8%AD%E5%AF%B9cache-line%E7%9A%84%E4%BD%BF%E7%94%A8"><span class="nav-number">1.2.</span> <span class="nav-text">Disruptor中对cache_line的使用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Netty%E4%B8%ADcache-line%E7%9A%84%E5%AF%B9%E9%BD%90"><span class="nav-number">1.3.</span> <span class="nav-text">Netty中cache line的对齐</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="nav-number">1.5.</span> <span class="nav-text">系列文章</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Netty和Disruptor的cache_line对齐实践 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Netty和Disruptor的cache_line对齐实践
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-05-05 18:20:03" itemprop="dateCreated datePublished" datetime="2022-05-05T18:20:03+08:00">2022-05-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Netty和Disruptor的cache-line对齐实践"><a href="#Netty和Disruptor的cache-line对齐实践" class="headerlink" title="Netty和Disruptor的cache_line对齐实践"></a>Netty和Disruptor的cache_line对齐实践</h1><p>原理先看这篇：<a href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/">CPU 性能和Cache Line</a></p>
+<p>写这篇文章的起因是这个 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/vkCskOVSpzxt3Umzc_GYrQ">记一次 Netty PR 的提交</a>，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题</p>
+<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。</p>
+<h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设CPU的两个核 A 和 B, 都在各自本地 Cache Line 里有同一个变量1的拷贝时，此时该 Cache Line 处于 Shared 状态。当 核A 在本地修改了变量2，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个 核B 读另一个变量2前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
+<p>上面这个过程也叫false-share, 即伪共享，因为变量1、2不是真的关联共享，本来变量1失效不应该导致变量2失效，但是因为cache line机制的存在导致 变量2也失效了，所以这里变量1、2叫false-share</p>
+<h2 id="Disruptor中对cache-line的使用"><a href="#Disruptor中对cache-line的使用" class="headerlink" title="Disruptor中对cache_line的使用"></a>Disruptor中对cache_line的使用</h2><p>Disruptor中为了保护下面的那几个final 成员变量，前后都加了 p1-p7就是为了避免这4个final成员不要和别的变量放到同一个cache line中。</p>
+<p>重点留意下面代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">abstract class RingBufferPad</span><br><span class="line">&#123;</span><br><span class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</span><br><span class="line">&#125;</span><br><span class="line">  </span><br><span class="line">abstract class RingBufferFields&lt;E&gt; extends RingBufferPad</span><br><span class="line">&#123;</span><br><span class="line">    ......    </span><br><span class="line">    private final long indexMask;</span><br><span class="line">    private final Object[] entries;</span><br><span class="line">    protected final int bufferSize;</span><br><span class="line">    protected final Sequencer sequencer;</span><br><span class="line">    ......    </span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">public final class RingBuffer&lt;E&gt; extends RingBufferFields&lt;E&gt; implements Cursored, EventSequencer&lt;E&gt;, EventSink&lt;E&gt;</span><br><span class="line">&#123;</span><br><span class="line">    ......    </span><br><span class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</span><br><span class="line">    ......</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果如下图所示绿色部分很好地被保护起来一定是独占一个cache line，本来绿色部分都是final，也就是你理解成只读的，不会更改了，这样不会因为共享cache line的变量被修改导致他们所在的cache失效（完全没必要）</p>
+<p><img src="/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png" alt="image.png"></p>
+<p>队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中</p>
+<p><img src="/images/951413iMgBlog/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689-1744256.png" alt="image"></p>
+<p>数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache</p>
+<h2 id="Netty中cache-line的对齐"><a href="#Netty中cache-line的对齐" class="headerlink" title="Netty中cache line的对齐"></a>Netty中cache line的对齐</h2><p><a target="_blank" rel="noopener" href="https://github.com/arthur-zhang/netty/blob/e8250372cafe4cf5435a1dbc4c8e400072fb9791/common/src/main/java/io/netty/util/internal/InternalThreadLocalMap.java">注意下图12行</a>的代码，重点也请注意下11行的注释</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">// String-related thread-locals</span><br><span class="line">private StringBuilder stringBuilder;</span><br><span class="line">private Map&lt;Charset, CharsetEncoder&gt; charsetEncoderCache;</span><br><span class="line">private Map&lt;Charset, CharsetDecoder&gt; charsetDecoderCache;</span><br><span class="line"></span><br><span class="line">// ArrayList-related thread-locals</span><br><span class="line">private ArrayList&lt;Object&gt; arrayList;</span><br><span class="line"></span><br><span class="line">private BitSet cleanerFlags;</span><br><span class="line"></span><br><span class="line">/** @deprecated These padding fields will be removed in the future. */</span><br><span class="line">public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8;</span><br><span class="line"></span><br><span class="line">static &#123;</span><br><span class="line">    STRING_BUILDER_INITIAL_SIZE =</span><br><span class="line">            SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.initialSize&quot;, 1024);</span><br><span class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.initialSize: &#123;&#125;&quot;, STRING_BUILDER_INITIAL_SIZE);</span><br><span class="line"></span><br><span class="line">    STRING_BUILDER_MAX_SIZE = SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.maxSize&quot;, 1024 * 4);</span><br><span class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.maxSize: &#123;&#125;&quot;, STRING_BUILDER_MAX_SIZE);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>一看这里也和Disruptor一样想保护某个变量尽量少失效，可是这个实现我看不出来想要保护哪个变量，因为这种保护办法只对齐了一边，还有一边是和别的变量共享cache line。</p>
+<p>另外这个代码之前是9个long rp来对齐，这个<a target="_blank" rel="noopener" href="https://github.com/netty/netty/pull/12309">PR</a>改成了8个，9个就实在是迷惑了（9个long占72bytes了）对齐也是64bytes就好了</p>
+<p>还是按照11行注释所说去掉这个对齐的rp吧，要不明确要保护哪些变量，前后夹击真正保护起来，并且做好对比测试</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Netty的这段代码纸上谈兵更多一点，Donald E. Knuth 告诉我们不要提前优化</p>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/cache-line/" rel="tag"># cache_line</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022/03/15/%E8%AE%B0%E4%B8%80%E6%AC%A1%E5%90%AC%E9%A3%8E%E6%89%87%E5%A3%B0%E9%9F%B3%E6%9D%A5%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD/" rel="prev" title="听风扇声音来定位性能瓶颈">
+                  <i class="fa fa-angle-left"></i> 听风扇声音来定位性能瓶颈
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022/06/05/%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%E5%BC%80%E9%94%80/" rel="next" title="上下文切换的代价">
+                  上下文切换的代价 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

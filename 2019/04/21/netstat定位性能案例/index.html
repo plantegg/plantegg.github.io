@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="netstat定位性能案例netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。ss用法见这里 下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了） netstat 命令netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是Listen状态的话，Recv-Q">
+<meta property="og:type" content="article">
+<meta property="og:title" content="netstat定位性能案例">
+<meta property="og:url" content="https://plantegg.github.io/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="netstat定位性能案例netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。ss用法见这里 下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了） netstat 命令netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是Listen状态的话，Recv-Q">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png">
+<meta property="article:published_time" content="2019-04-21T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.541Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="netstat">
+<meta property="article:tag" content="recv-q">
+<meta property="article:tag" content="send-q">
+<meta property="article:tag" content="timer(keepalive)">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/","path":"2019/04/21/netstat定位性能案例/","title":"netstat定位性能案例"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>netstat定位性能案例 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B"><span class="nav-number">1.</span> <span class="nav-text">netstat定位性能案例</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#netstat-%E5%91%BD%E4%BB%A4"><span class="nav-number">1.1.</span> <span class="nav-text">netstat 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Recv-Q-%E5%92%8C-Send-Q-%E7%9A%84%E8%AF%B4%E6%98%8E"><span class="nav-number">1.1.1.</span> <span class="nav-text">Recv-Q 和 Send-Q 的说明</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%80%9A%E8%BF%87-netstat-%E5%8F%91%E7%8E%B0%E9%97%AE%E9%A2%98%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.2.</span> <span class="nav-text">通过 netstat 发现问题的案例</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E8%87%AA%E8%BA%AB%E5%A4%AA%E6%85%A2%EF%BC%8C%E6%AF%94%E5%A6%82%E5%A6%82%E4%B8%8Bnetstat-t-%E7%9C%8B%E5%88%B0%E7%9A%84Recv-Q%E6%9C%89%E5%A4%A7%E9%87%8F%E6%95%B0%E6%8D%AE%E5%A0%86%E7%A7%AF%EF%BC%8C%E9%82%A3%E4%B9%88%E4%B8%80%E8%88%AC%E6%98%AFCPU%E5%A4%84%E7%90%86%E4%B8%8D%E8%BF%87%E6%9D%A5%E5%AF%BC%E8%87%B4%E7%9A%84%EF%BC%9A"><span class="nav-number">1.2.1.</span> <span class="nav-text">自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B8%8B%E9%9D%A2%E7%9A%84case%E6%98%AF%E6%8E%A5%E6%94%B6%E6%96%B9%E5%A4%AA%E6%85%A2%EF%BC%8C%E4%BB%8E%E5%BA%94%E7%94%A8%E6%9C%BA%E5%99%A8%E7%9A%84netstat%E7%BB%9F%E8%AE%A1%E6%9D%A5%E7%9C%8B%EF%BC%8C%E4%B9%9F%E6%98%AFclient%E7%AB%AF%E5%9B%9E%E5%A4%8D%E5%A4%AA%E6%85%A2%EF%BC%88%E6%9C%AC%E6%9C%BAlisten-9108%E7%AB%AF%E5%8F%A3"><span class="nav-number">1.2.2.</span> <span class="nav-text">下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netstat-s-%E7%BB%9F%E8%AE%A1%E6%95%B0%E6%8D%AE"><span class="nav-number">1.3.</span> <span class="nav-text">netstat -s 统计数据</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="netstat定位性能案例 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          netstat定位性能案例
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-04-21 17:30:03" itemprop="dateCreated datePublished" datetime="2019-04-21T17:30:03+08:00">2019-04-21</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="netstat定位性能案例"><a href="#netstat定位性能案例" class="headerlink" title="netstat定位性能案例"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/">ss用法见这里</a></p>
+<p>下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了）</p>
+<h2 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p> netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><blockquote>
+<p>Recv-Q<br>Established: The count of bytes not copied by the user program connected to this socket.<br>Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</p>
+<p>Send-Q<br>Established: The count of bytes not acknowledged by the remote host.<br>Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. </p>
+</blockquote>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat-s-统计数据"><a href="#netstat-s-统计数据" class="headerlink" title="netstat -s 统计数据"></a>netstat -s 统计数据</h2><p>所有统计信息基本都有</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/netstat/" rel="tag"># netstat</a>
+              <a href="/tags/recv-q/" rel="tag"># recv-q</a>
+              <a href="/tags/send-q/" rel="tag"># send-q</a>
+              <a href="/tags/timer-keepalive/" rel="tag"># timer(keepalive)</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2019/01/24/Linux%20Module/" rel="prev" title="Linux Module and make debug">
+                  <i class="fa fa-angle-left"></i> Linux Module and make debug
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/" rel="next" title="就是要你懂网络--一个网络包的旅程">
+                  就是要你懂网络--一个网络包的旅程 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

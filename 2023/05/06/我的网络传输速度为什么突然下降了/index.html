@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="我的网络传输速度为什么突然下降了前言这个问题是我星球成员做星球里面的必做实验时碰到的一个问题 最后的分析用到了我们的抓包大法+ping一ping真牛逼的证明方案，所以特意放出来供大家试试，同时也检验大家对知识的掌握和运用。 这个问题很好，在EC2上稳定重现，假如你们的业务碰到了这个问题你怎么解决？ 或者换个场景描述：你有一个SQL单独执行很快，2个SQL并行一起查速度就降到了原来的10%，是DB还">
+<meta property="og:type" content="article">
+<meta property="og:title" content="我的网络传输速度为什么突然下降了">
+<meta property="og:url" content="https://plantegg.github.io/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="我的网络传输速度为什么突然下降了前言这个问题是我星球成员做星球里面的必做实验时碰到的一个问题 最后的分析用到了我们的抓包大法+ping一ping真牛逼的证明方案，所以特意放出来供大家试试，同时也检验大家对知识的掌握和运用。 这个问题很好，在EC2上稳定重现，假如你们的业务碰到了这个问题你怎么解决？ 或者换个场景描述：你有一个SQL单独执行很快，2个SQL并行一起查速度就降到了原来的10%，是DB还">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/FryRnESX2vOUCICndaLZ3MuaqSmH.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Fnl-CGFUBMjLwQWa2i6kPo7MuJFc.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230506132001274.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230506131422140.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230506131709216.png">
+<meta property="article:published_time" content="2023-05-06T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.576Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="BDP">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="RTT">
+<meta property="article:tag" content="TCP">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/FryRnESX2vOUCICndaLZ3MuaqSmH.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/","path":"2023/05/06/我的网络传输速度为什么突然下降了/","title":"我的网络传输速度为什么突然下降了"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>我的网络传输速度为什么突然下降了 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86"><span class="nav-number">1.</span> <span class="nav-text">我的网络传输速度为什么突然下降了</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.2.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">1.3.</span> <span class="nav-text">分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%AF%81%E6%98%8E"><span class="nav-number">1.3.1.</span> <span class="nav-text">证明</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="我的网络传输速度为什么突然下降了 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          我的网络传输速度为什么突然下降了
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2023-05-06 12:30:03" itemprop="dateCreated datePublished" datetime="2023-05-06T12:30:03+08:00">2023-05-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="我的网络传输速度为什么突然下降了"><a href="#我的网络传输速度为什么突然下降了" class="headerlink" title="我的网络传输速度为什么突然下降了"></a>我的网络传输速度为什么突然下降了</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>这个问题是我星球成员做星球里面的必做实验时碰到的一个问题</p>
+<p>最后的分析用到了我们的抓包大法+ping一ping真牛逼的证明方案，所以特意放出来供大家试试，同时也检验大家对知识的掌握和运用。</p>
+<p>这个问题很好，在EC2上稳定重现，假如你们的业务碰到了这个问题你怎么解决？</p>
+<p>或者换个场景描述：你有一个SQL单独执行很快，2个SQL并行一起查速度就降到了原来的10%，是DB还是谁的锅？</p>
+<p>推特上大佬们的讨论，看看别人都是怎么思考和推理的：<a target="_blank" rel="noopener" href="https://treeverse.app/view/RDzsOXjO">https://treeverse.app/view/RDzsOXjO</a></p>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>一个降速问题，在AWS的 <a href="t2.micro">t2.micro</a>机器上几乎100％复现，操作: </p>
+<ol>
+<li>开三台aws <a href="t2.micro">t2.micro</a>机器，一台做server两台做client, 已知正常情况rtt是0.5ms，bandwidth 60mbps，文件大小2g</li>
+<li>client1 去curl get server 文件，等一段时间速度稳定在 60mbps</li>
+<li>然后用 client2 去curl get server 文件</li>
+<li>可以观察到两个client都降速到3.5mbps，这种情况就是算把server跑坏了。</li>
+<li>关掉client2, 观察到client1恢复到7-8mbps，但是远低于60mbps的带宽上限，也就是速度被限制到了标称的10%</li>
+<li>server搞坏之后，client重新下载就会出现一开始还行，但过10s就会掉到7-8mbps的情况，需要重启server才能恢复到60mbps</li>
+</ol>
+<p>星球不能发多图，和pcap文件，重现的详细抓包、截图等都放在 google driver上了: <a target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a">https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a</a> （<strong>建议大家去下载client2.pcap抓包看看</strong>）</p>
+<p>抓包发现大量dup ack, 且bytes in flight很大，server send buffer很大。</p>
+<p><img src="/images/951413iMgBlog/FryRnESX2vOUCICndaLZ3MuaqSmH.png" alt="img"></p>
+<p><strong>&#x3D;&#x3D;强烈建议你先别往下看，去下载上面链接中的抓包文件分析看看，然后和下面的分析对比一下&#x3D;&#x3D;</strong></p>
+<hr>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>有网络大牛陈硕老师 <a target="_blank" rel="noopener" href="https://twitter.com/bnu_chenshuo/status/1654288717673291776">在EC2上重现了这个问题</a> 以及他的分析，速度由300Mbps下降到了60Mbps：</p>
+<p><img src="/images/951413iMgBlog/Fnl-CGFUBMjLwQWa2i6kPo7MuJFc.png" alt="img"></p>
+<p>以及 左耳朵耗子 老师也做了实验以及分析：<a target="_blank" rel="noopener" href="https://twitter.com/haoel/status/1654655067365179393">https://twitter.com/haoel/status/1654655067365179393</a></p>
+<p>我的分析：<a target="_blank" rel="noopener" href="https://articles.zsxq.com/id_iq5a872u8sux.html">https://articles.zsxq.com/id_iq5a872u8sux.html</a></p>
+<p><img src="/images/951413iMgBlog/image-20230506132001274.png" alt="image-20230506132001274"></p>
+<h3 id="证明"><a href="#证明" class="headerlink" title="证明"></a>证明</h3><p>证明原理如这个图</p>
+<p><img src="/images/951413iMgBlog/image-20230506131422140.png" alt="image-20230506131422140"></p>
+<p><img src="/images/951413iMgBlog/image-20230506131709216.png" alt="image-20230506131709216"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>99%的人不会弄脏双手去实验，哪怕是只需要下载一个抓包就能分析出来都不会去下载。但是为什么刚好是两位陈老师会去测试重现一下呢(原谅你没有AWS机器，但是不接受你不去google driver下载抓包文件 :) )，大概率他们的时间、经验、知识都比你要丰富一些，但是他们不忌惮弄脏手而你只想做个过客看看就懂，但最后你真的啥都没看懂！</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/TCP/" rel="tag"># TCP</a>
+              <a href="/tags/BDP/" rel="tag"># BDP</a>
+              <a href="/tags/RTT/" rel="tag"># RTT</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2023/04/20/scapy%E4%BD%BF%E7%94%A8/" rel="prev" title="从一个fin 卡顿问题到 scapy 的使用">
+                  <i class="fa fa-angle-left"></i> 从一个fin 卡顿问题到 scapy 的使用
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2023/05/10/%E7%A8%8B%E5%BA%8F%E5%91%98%E6%A1%88%E4%BE%8B%E6%98%9F%E7%90%83%E4%BB%8B%E7%BB%8D/" rel="next" title="程序员案例星球介绍">
+                  程序员案例星球介绍 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

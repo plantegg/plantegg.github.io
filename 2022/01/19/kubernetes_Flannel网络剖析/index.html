@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="kubernetes Flannel网络剖析cni（Container Network Interface）CNI 全称为 Container Network Interface，是用来定义容器网络的一个 规范。containernetworking&#x2F;cni 是一个 CNCF 的 CNI 实现项目，包括基本的 bridge,macvlan等基本网络插件。 一般将cni各种网络插件的可执行">
+<meta property="og:type" content="article">
+<meta property="og:title" content="kubernetes Flannel网络剖析">
+<meta property="og:url" content="https://plantegg.github.io/2022/01/19/kubernetes_Flannel%E7%BD%91%E7%BB%9C%E5%89%96%E6%9E%90/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="kubernetes Flannel网络剖析cni（Container Network Interface）CNI 全称为 Container Network Interface，是用来定义容器网络的一个 规范。containernetworking&#x2F;cni 是一个 CNCF 的 CNI 实现项目，包括基本的 bridge,macvlan等基本网络插件。 一般将cni各种网络插件的可执行">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220115124747936.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/Flannel.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220915113511706.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/flannel-network-flow.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220119114929034.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20211228203650921.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/640-5304524.">
+<meta property="article:published_time" content="2022-01-19T03:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.539Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="docker">
+<meta property="article:tag" content="flannel">
+<meta property="article:tag" content="kubernetes">
+<meta property="article:tag" content="network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220115124747936.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2022/01/19/kubernetes_Flannel%E7%BD%91%E7%BB%9C%E5%89%96%E6%9E%90/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2022/01/19/kubernetes_Flannel%E7%BD%91%E7%BB%9C%E5%89%96%E6%9E%90/","path":"2022/01/19/kubernetes_Flannel网络剖析/","title":"kubernetes Flannel网络剖析"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>kubernetes Flannel网络剖析 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#kubernetes-Flannel%E7%BD%91%E7%BB%9C%E5%89%96%E6%9E%90"><span class="nav-number">1.</span> <span class="nav-text">kubernetes Flannel网络剖析</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#cni%EF%BC%88Container-Network-Interface%EF%BC%89"><span class="nav-number">1.1.</span> <span class="nav-text">cni（Container Network Interface）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B7%A8%E4%B8%BB%E6%9C%BA%E9%80%9A%E4%BF%A1%E6%B5%81%E7%A8%8B"><span class="nav-number">1.2.</span> <span class="nav-text">跨主机通信流程</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#flannel-vxlan%E7%BD%91%E7%BB%9C"><span class="nav-number">1.3.</span> <span class="nav-text">flannel vxlan网络</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8A%93%E5%8C%85%E6%BC%94%E7%A4%BApacket%E6%B5%81%E8%BD%AC%E4%BB%A5%E5%8F%8A%E5%B0%81%E5%8C%85%E8%A7%A3%E5%8C%85"><span class="nav-number">1.3.1.</span> <span class="nav-text">抓包演示packet流转以及封包解包</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#flannel%E7%BD%91%E7%BB%9C%E4%B8%8D%E9%80%9A%E6%8E%92%E6%9F%A5%E6%A1%88%E4%BE%8B"><span class="nav-number">1.4.</span> <span class="nav-text">flannel网络不通排查案例</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#firewalld"><span class="nav-number">1.4.1.</span> <span class="nav-text">firewalld</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#flannel%E7%BD%91%E7%BB%9C%E4%B8%8D%E9%80%9A"><span class="nav-number">1.4.2.</span> <span class="nav-text">flannel网络不通</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%BF%E4%B8%BB%E6%9C%BA%E5%A4%9A-ip-%E4%B8%8B-flannel-%E7%BD%91%E7%BB%9C%E4%B8%8D%E9%80%9A"><span class="nav-number">1.5.</span> <span class="nav-text">宿主机多 ip 下 flannel 网络不通</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%B9%E5%99%A8%E8%B0%83%E8%AF%95"><span class="nav-number">1.6.</span> <span class="nav-text">容器调试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%8A%93%E5%8C%85%E5%92%8C%E8%B0%83%E8%AF%95-%E2%80%93-nsenter"><span class="nav-number">1.7.</span> <span class="nav-text">抓包和调试 – nsenter</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B8%85%E7%90%86"><span class="nav-number">1.8.</span> <span class="nav-text">清理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B8%85%E7%90%86%E5%92%8C%E5%88%9B%E5%BB%BAflannel%E7%BD%91%E7%BB%9C"><span class="nav-number">1.8.1.</span> <span class="nav-text">清理和创建flannel网络</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#flannel-ip%E5%9C%A8%E5%A4%9A%E4%B8%AAnode%E4%B9%8B%E9%97%B4%E5%88%86%E9%85%8D%E9%94%99%E4%B9%B1"><span class="nav-number">1.8.2.</span> <span class="nav-text">flannel ip在多个node之间分配错乱</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#host-gw"><span class="nav-number">1.9.</span> <span class="nav-text">host-gw</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netns-%E6%93%8D%E4%BD%9C"><span class="nav-number">1.10.</span> <span class="nav-text">netns 操作</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#etcd-%E4%B8%AD%E5%AD%98%E5%82%A8%E7%9A%84-flannel-%E9%85%8D%E7%BD%AE"><span class="nav-number">1.11.</span> <span class="nav-text">etcd 中存储的 flannel 配置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.12.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.13.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/01/19/kubernetes_Flannel%E7%BD%91%E7%BB%9C%E5%89%96%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="kubernetes Flannel网络剖析 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          kubernetes Flannel网络剖析
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-01-19 11:30:03" itemprop="dateCreated datePublished" datetime="2022-01-19T11:30:03+08:00">2022-01-19</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/docker/" itemprop="url" rel="index"><span itemprop="name">docker</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="kubernetes-Flannel网络剖析"><a href="#kubernetes-Flannel网络剖析" class="headerlink" title="kubernetes Flannel网络剖析"></a>kubernetes Flannel网络剖析</h1><h2 id="cni（Container-Network-Interface）"><a href="#cni（Container-Network-Interface）" class="headerlink" title="cni（Container Network Interface）"></a>cni（Container Network Interface）</h2><p>CNI 全称为 Container Network Interface，是用来定义容器网络的一个 <a target="_blank" rel="noopener" href="https://github.com/containernetworking/cni/blob/master/SPEC.md">规范</a>。<a target="_blank" rel="noopener" href="https://github.com/containernetworking/cni">containernetworking&#x2F;cni</a> 是一个 CNCF 的 CNI 实现项目，包括基本的 bridge,macvlan等基本网络插件。</p>
+<p>一般将cni各种网络插件的可执行文件二进制放到 <code>/usr/libexec/cni/</code> ，在 <code>/etc/cni/net.d/</code> 下创建配置文件，剩下的就交给 K8s 或者 containerd 了，我们不关心也不了解其实现。</p>
+<p>比如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"># ls -lh /usr/libexec/cni/</span><br><span class="line">总用量 133M</span><br><span class="line">-rwxr-xr-x 1 root root 4.4M  8月 18 11:51 bandwidth</span><br><span class="line">-rwxr-xr-x 1 root root 4.3M  3月  6  2021 bridge</span><br><span class="line">-rwxr-x--- 1 root root  31M  8月 18 11:51 calico</span><br><span class="line">-rwxr-x--- 1 root root  30M  8月 18 11:51 calico-ipam</span><br><span class="line">-rwxr-xr-x 1 root root  12M  3月  6  2021 dhcp</span><br><span class="line">-rwxr-xr-x 1 root root 5.6M  3月  6  2021 firewall</span><br><span class="line">-rwxr-xr-x 1 root root 3.1M  8月 18 11:51 flannel</span><br><span class="line">-rwxr-xr-x 1 root root 3.8M  3月  6  2021 host-device</span><br><span class="line">-rwxr-xr-x 1 root root 3.9M  8月 18 11:51 host-local</span><br><span class="line">-rwxr-xr-x 1 root root 4.0M  3月  6  2021 ipvlan</span><br><span class="line">-rwxr-xr-x 1 root root 3.6M  8月 18 11:51 loopback</span><br><span class="line">-rwxr-xr-x 1 root root 4.0M  3月  6  2021 macvlan</span><br><span class="line">-rwxr-xr-x 1 root root 4.2M  8月 18 11:51 portmap</span><br><span class="line">-rwxr-xr-x 1 root root 4.2M  3月  6  2021 ptp</span><br><span class="line">-rwxr-xr-x 1 root root 2.7M  3月  6  2021 sample</span><br><span class="line">-rwxr-xr-x 1 root root 3.2M  3月  6  2021 sbr</span><br><span class="line">-rwxr-xr-x 1 root root 2.8M  3月  6  2021 static</span><br><span class="line">-rwxr-xr-x 1 root root 3.7M  8月 18 11:51 tuning</span><br><span class="line">-rwxr-xr-x 1 root root 4.0M  3月  6  2021 vlan</span><br><span class="line"></span><br><span class="line">#ls -lh /etc/cni/net.d/</span><br><span class="line">总用量 12K</span><br><span class="line">-rw-r--r-- 1 root root  607 12月 23 09:39 10-calico.conflist</span><br><span class="line">-rw-r----- 1 root root  292 12月 23 09:47 10-flannel.conflist</span><br><span class="line">-rw------- 1 root root 2.6K 12月 23 09:39 calico-kubeconfig</span><br></pre></td></tr></table></figure>
+
+<p>CNI 插件都是直接通过 exec 的方式调用，而不是通过 socket 这样 C&#x2F;S 方式，所有参数都是通过环境变量、标准输入输出来实现的。</p>
+<h2 id="跨主机通信流程"><a href="#跨主机通信流程" class="headerlink" title="跨主机通信流程"></a>跨主机通信流程</h2><p>Step-by-step communication from <strong>Pod 1</strong> to <strong>Pod 6</strong>:</p>
+<ol>
+<li><em>Package leaves</em> *<strong>Pod 1 netns*</strong> <em>through the</em> *<strong>eth1*</strong> <em>interface and reaches the</em> <em><strong>root netns*</strong> <em>through the virtual interface</em> <em><strong>veth1*</strong></em>;</em></li>
+<li><em>Package leaves</em> <em><strong>veth1*</strong> <em>and reaches</em> <em><strong>cni0*</strong></em>, looking for</em> <em><strong>Pod 6*</strong></em>’s* <em>address;</em></li>
+<li><em>Package leaves</em> <em><strong>cni0*</strong> <em>and is redirected to</em> <em><strong>eth0*</strong></em>;</em></li>
+<li><em>Package leaves</em> *<strong>eth0*</strong> <em>from</em> <em><strong>Master 1*</strong> <em>and reaches the</em> <em><strong>gateway*</strong></em>;</em></li>
+<li><em>Package leaves the</em> *<strong>gateway*</strong> <em>and reaches the</em> *<strong>root netns*</strong> <em>through the</em> <em><strong>eth0*</strong> <em>interface on</em> <em><strong>Worker 1*</strong></em>;</em></li>
+<li><em>Package leaves</em> <em><strong>eth0*</strong> <em>and reaches</em> <em><strong>cni0*</strong></em>, looking for</em> <em><strong>Pod 6*</strong></em>’s* <em>address;</em></li>
+<li><em>Package leaves</em> *<strong>cni0*</strong> <em>and is redirected to the</em> *<strong>veth6*</strong> <em>virtual interface;</em></li>
+<li><em>Package leaves the</em> *<strong>root netns*</strong> <em>through</em> *<strong>veth6*</strong> <em>and reaches the</em> *<strong>Pod 6 netns*</strong> <em>though the</em> *<strong>eth6*</strong> <em>interface;</em></li>
+</ol>
+<p><img src="/images/951413iMgBlog/image-20220115124747936.png" alt="image-20220115124747936"></p>
+<blockquote>
+<p><strong>cni0</strong> is a Linux network bridge device, all <strong>veth</strong> devices will connect to this bridge, so all Pods on the same node can communicate with each other, as explained in <strong>Kubernetes Network Model</strong> and the hotel analogy above.</p>
+</blockquote>
+<p>默认cni 网络是没法跨宿主机的，跨宿主机需要走overlay（比如flannel的vxlan）或者仅限宿主机全在一个二层网络可达（比如用flannel的host-gw模式）</p>
+<h2 id="flannel-vxlan网络"><a href="#flannel-vxlan网络" class="headerlink" title="flannel vxlan网络"></a><a target="_blank" rel="noopener" href="https://msazure.club/flannel-networking-demystify/">flannel vxlan网络</a></h2><p>什么是 flannel</p>
+<blockquote>
+<p><em>Flannel is a simple and easy way to configure a layer 3 network fabric designed for Kubernetes.</em></p>
+</blockquote>
+<p>Flannel 工作原理</p>
+<blockquote>
+<p><em>Flannel runs a small, single binary agent called</em> <code>flanneld</code> on each host, and is responsible for allocating a subnet lease to each host out of a larger, preconfigured address space. Flannel uses either the Kubernetes API or etcd directly to store the network configuration, the allocated subnets, and any auxiliary data (such as the host’s public IP). Packets are forwarded using one of several backend mechanisms including VXLAN and various cloud integrations.</p>
+</blockquote>
+<p>核心原理就是将pod网络包通过vxlan协议封装成一个udp包，udp包的ip是数据ip，内层是pod原始网络通信包。</p>
+<p>假如POD1访问POD4：</p>
+<ol>
+<li>从POD1中出来的包先到Bridge cni0上（因为POD1对应的veth挂在了cni0上），目标mac地址是cni0的Mac</li>
+<li>然后进入到宿主机网络，宿主机有路由 10.244.2.0&#x2F;24 via 10.244.2.0 dev flannel.1 onlink ，也就是目标ip 10.244.2.3的包交由 flannel.1 来处理，目标mac地址是POD4所在机器的flannel.1的Mac</li>
+<li>flanneld 进程将包封装成vxlan 丢到eth0从宿主机1离开（封装后的目标ip是192.168.2.91，现在都是由内核来完成flanneld这个封包过程，性能好）</li>
+<li>这个封装后的vxlan udp包正确路由到宿主机2</li>
+<li>然后经由 flanneld 解包成 10.244.2.3 ，命中宿主机2上的路由：10.244.2.0&#x2F;24 dev cni0 proto kernel scope link src 10.244.2.1 ，交给cni0（<strong>这里会过宿主机iptables</strong>）</li>
+<li>cni0将包送给POD4</li>
+</ol>
+<p><img src="/images/951413iMgBlog/Flannel.jpg" alt="img"></p>
+<p>flannel容器启动的时候会给自己所在的node注入一些信息：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#kubectl describe node hygon4  |grep -i flannel</span><br><span class="line">Annotations:        flannel.alpha.coreos.com/backend-data: &#123;&quot;VNI&quot;:1,&quot;VtepMAC&quot;:&quot;66:c6:ba:a2:8f:a1&quot;&#125;</span><br><span class="line">                    flannel.alpha.coreos.com/backend-type: vxlan</span><br><span class="line">                    flannel.alpha.coreos.com/kube-subnet-manager: true</span><br><span class="line">                    flannel.alpha.coreos.com/public-ip: 10.176.4.245  ---宿主机ip，vxlan封包所用</span><br><span class="line">                    </span><br><span class="line"> &quot;VtepMAC&quot;:&quot;66:c6:ba:a2:8f:a1&quot;----宿主机网卡 flannel.1的mac   </span><br></pre></td></tr></table></figure>
+
+<p>flannel.1 知道如何通过物理网卡打包网络包到目标地址，flanneld 会在每个host 添加 arp，以及将本机的 vxlan fdb 添加到新的 host上</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">//这个 flannel 集群有四个 host，这是其中一个host </span><br><span class="line">//4e:95:a9:e2:ed:28是对方 host 上 flannel.1 的 mac</span><br><span class="line">#ip neigh show dev flannel.1 </span><br><span class="line">172.19.2.0 lladdr 4e:95:a9:e2:ed:28 PERMANENT</span><br><span class="line">172.19.3.0 lladdr 2e:8b:65:d7:54:3e PERMANENT</span><br><span class="line">172.19.1.0 lladdr 6a:78:f3:db:b1:9e PERMANENT</span><br><span class="line"></span><br><span class="line">#bridge fdb show flannel.1</span><br><span class="line">01:00:5e:00:00:01 dev enp125s0f0 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev enp125s0f1 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev enp125s0f2 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev enp125s0f3 self permanent</span><br><span class="line">33:33:00:00:00:01 dev enp125s0f3 self permanent</span><br><span class="line">33:33:ff:8e:d6:ac dev enp125s0f3 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev enp2s0f0 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev enp2s0f1 self permanent</span><br><span class="line">33:33:00:00:00:01 dev cni0 self permanent</span><br><span class="line">01:00:5e:00:00:01 dev cni0 self permanent</span><br><span class="line">f2:64:e3:49:4c:c8 dev cni0 vlan 1 master cni0 permanent</span><br><span class="line">f2:64:e3:49:4c:c8 dev cni0 master cni0 permanent</span><br><span class="line">72:d6:f3:54:7d:d6 dev vethe54b12b5 master cni0</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"># ip neigh show dev flannel.1 //另一个host</span><br><span class="line">172.19.2.0 lladdr 4e:95:a9:e2:ed:28 PERMANENT</span><br><span class="line">172.19.3.0 lladdr 2e:8b:65:d7:54:3e PERMANENT</span><br><span class="line">172.19.0.0 lladdr 92:5c:b2:af:37:62 PERMANENT</span><br></pre></td></tr></table></figure>
+
+<p>包流程：</p>
+<p><img src="/images/951413iMgBlog/image-20220915113511706.png" alt="image-20220915113511706"></p>
+<p><a target="_blank" rel="noopener" href="https://blog.michaelfmcnamara.com/2008/02/what-are-the-arp-and-fdb-tables/">ARP 和 FDB:</a></p>
+<p>ARP (<a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Address_Resolution_Protocol">Address Resolution Protocol</a>) table is used by a <a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Layer_3">Layer 3</a> device (router, switch, server, desktop) to store the IP address to MAC address entries for a specific network device. </p>
+<p>The FDB (<a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Forwarding_table">forwarding database</a>) table is used by a Layer 2 device (switch&#x2F;bridge) to store the MAC addresses that have been learned and which ports that MAC address was learned on. The MAC addresses are learned through <a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Transparent_bridge">transparent bridging</a> on switches and dedicated bridges.</p>
+<h3 id="抓包演示packet流转以及封包解包"><a href="#抓包演示packet流转以及封包解包" class="headerlink" title="抓包演示packet流转以及封包解包"></a>抓包演示packet流转以及封包解包</h3><p>一次完整的抓包过程演示包的流转，从hygon3上的pod 192.168.0.4（22:d8:63:6c:e8:96） 访问 hygon4上的pod 192.168.2.56（52:e6:8e:02:80:35）</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br></pre></td><td class="code"><pre><span class="line">//hygon3上的pod 192.168.0.4（22:d8:63:6c:e8:96） 访问 hygon4上的pod 192.168.2.56（52:e6:8e:02:80:35），在cni0（a2:99:4f:dc:9d:5c）上抓包，跨机不走peer veth</span><br><span class="line">[root@hygon3 11:08 /root]</span><br><span class="line">#tcpdump -i cni0 host 192.168.2.56 -nnetvv</span><br><span class="line">dropped privs to tcpdump</span><br><span class="line">tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">22:d8:63:6c:e8:96 &gt; a2:99:4f:dc:9d:5c, ethertype IPv4 (0x0800), length 614: (tos 0x0, ttl 64, id 53303, offset 0, flags [DF], proto TCP (6), length 600)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x85d7 (incorrect -&gt; 0x801a), seq 150533649:150534197, ack 3441674662, win 507, options [nop,nop,TS val 1239838869 ecr 2297983667], length 548</span><br><span class="line"></span><br><span class="line">//hygon3上的pod 192.168.0.4 访问 hygon4上的pod 192.168.2.56，在本机flannel.1（a2:06:5e:83:44:78）上抓包</span><br><span class="line">[root@hygon3 10:53 /root]</span><br><span class="line">#tcpdump -i flannel.1 host 192.168.0.4 -nnetvv </span><br><span class="line">dropped privs to tcpdump</span><br><span class="line">tcpdump: listening on flannel.1, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">a2:06:5e:83:44:78 &gt; 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 729: (tos 0x0, ttl 63, id 52997, offset 0, flags [DF], proto TCP (6), length 715)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x864a (incorrect -&gt; 0x02ae), seq 150429115:150429778, ack 3441664870, win 507, options [nop,nop,TS val 1239381169 ecr 2297525566], length 663</span><br><span class="line">       </span><br><span class="line"> [root@hygon3 11:13 /root] //通过arp 可以看到对端 flannel.1 的mac地址被缓存到了本地</span><br><span class="line">#arp -n |grep 66:c6:ba:a2:8f:a1</span><br><span class="line">192.168.2.0              ether   66:c6:ba:a2:8f:a1   CM                    flannel.1</span><br><span class="line">#ip route</span><br><span class="line">default via 10.176.3.247 dev p1p1</span><br><span class="line">172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1</span><br><span class="line">192.168.0.0/24 dev cni0 proto kernel scope link src 192.168.0.1</span><br><span class="line">192.168.1.0/24 via 192.168.1.0 dev flannel.1 onlink</span><br><span class="line">192.168.2.0/24 via 192.168.2.0 dev flannel.1 onlink</span><br><span class="line">192.168.3.0/24 via 192.168.3.0 dev flannel.1 onlink</span><br><span class="line">#ip a</span><br><span class="line">18: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN group default</span><br><span class="line">    link/ether a2:06:5e:83:44:78 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.0.0/32 brd 192.168.0.0 scope global flannel.1</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">19: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether a2:99:4f:dc:9d:5c brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.0.1/24 brd 192.168.0.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line"></span><br><span class="line">//宿主机物理网卡抓包，被封成了udp的vxlan包    </span><br><span class="line">[root@hygon3 11:12 /root]</span><br><span class="line">#tcpdump -i p1p1 udp and port 8472 -nnetvv</span><br><span class="line">0c:42:a1:db:b1:a8 &gt; 88:66:39:89:9b:cc, ethertype IPv4 (0x0800), length 967: (tos 0x0, ttl 64, id 33722, offset 0, flags [none], proto UDP (17), length 953)</span><br><span class="line">    10.176.3.245.45173 &gt; 10.176.4.245.8472: [bad udp cksum 0x88c6 -&gt; 0xe4db!] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">a2:06:5e:83:44:78 &gt; 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 917: (tos 0x0, ttl 63, id 53539, offset 0, flags [DF], proto TCP (6), length 903)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x8706 (incorrect -&gt; 0xe31b), seq 150613328:150614179, ack 3441682214, win 507, options [nop,nop,TS val 1240166469 ecr 2298311268], length 851</span><br><span class="line"></span><br><span class="line">---------跨机分割线--------</span><br><span class="line"></span><br><span class="line">[root@hygon4 11:15 /root] //udp ttl为61，经过了3跳(icmp ttl为63)，不过这些都和vxlan内容无关了</span><br><span class="line">#tcpdump -i p1p1 udp and port 8472 -nnetvv</span><br><span class="line">88:66:39:2b:3f:ec &gt; 0c:42:a1:e9:77:2c, ethertype IPv4 (0x0800), length 736: (tos 0x0, ttl 61, id 49748, offset 0, flags [none], proto UDP (17), length 722)</span><br><span class="line">    10.176.3.245.45173 &gt; 10.176.4.245.8472: [udp sum ok] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">a2:06:5e:83:44:78 &gt; 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 686: (tos 0x0, ttl 63, id 53631, offset 0, flags [DF], proto TCP (6), length 672)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x7f0c (correct), seq 150646020:150646640, ack 3441685158, win 507, options [nop,nop,TS val 1240301769 ecr 2298444568], length 620</span><br><span class="line">0c:42:a1:e9:77:2c &gt; 88:66:39:2b:3f:ec, ethertype IPv4 (0x0800), length 180: (tos 0x0, ttl 64, id 57062, offset 0, flags [none], proto UDP (17), length 166)</span><br><span class="line">    10.176.4.245.41515 &gt; 10.176.3.245.8472: [bad udp cksum 0x9a23 -&gt; 0x8e11!] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">66:c6:ba:a2:8f:a1 &gt; a2:06:5e:83:44:78, ethertype IPv4 (0x0800), length 130: (tos 0x0, ttl 63, id 12391, offset 0, flags [DF], proto TCP (6), length 116)</span><br><span class="line">    192.168.2.56.3100 &gt; 192.168.0.4.40712: Flags [P.], cksum 0x83f3 (incorrect -&gt; 0x77e1), seq 1:65, ack 620, win 501, options [nop,nop,TS val 2298447868 ecr 1240301769], length 64</span><br><span class="line">    </span><br><span class="line">//到对端hygon4上抓包, 因为途中都是vxlan，所以ttl、mac地址都不变</span><br><span class="line">[root@hygon4 10:55 /root]</span><br><span class="line">#tcpdump -i flannel.1 host 192.168.2.56 -nnetvv</span><br><span class="line">dropped privs to tcpdump</span><br><span class="line">tcpdump: listening on flannel.1, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">a2:06:5e:83:44:78 &gt; 66:c6:ba:a2:8f:a1, ethertype IPv4 (0x0800), length 933: (tos 0x0, ttl 63, id 52807, offset 0, flags [DF], proto TCP (6), length 919)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x8d0d (correct), seq 150361706:150362573, ack 3441658790, win 507, options [nop,nop,TS val 1239073069 ecr 2297216169], length 867</span><br><span class="line">    </span><br><span class="line">#ip a //only for flannel.1 and cni0</span><br><span class="line">10: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN group default</span><br><span class="line">    link/ether 66:c6:ba:a2:8f:a1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.2.0/32 brd 192.168.2.0 scope global flannel.1</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">11: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 16:97:3a:7b:53:00 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.2.1/24 brd 192.168.2.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever       </span><br><span class="line"></span><br><span class="line">[root@hygon4 11:24 /root]</span><br><span class="line">#arp -n | grep 44:78</span><br><span class="line">192.168.0.0              ether   a2:06:5e:83:44:78   CM                    flannel.1   </span><br><span class="line"> </span><br><span class="line"> //mac地址替换，ttl减1</span><br><span class="line"> [root@hygon4 10:55 /root]</span><br><span class="line">#tcpdump -i cni0 host 192.168.2.56 -nnetvv</span><br><span class="line">dropped privs to tcpdump</span><br><span class="line">tcpdump: listening on cni0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">16:97:3a:7b:53:00 &gt; 52:e6:8e:02:80:35, ethertype IPv4 (0x0800), length 935: (tos 0x0, ttl 62, id 52829, offset 0, flags [DF], proto TCP (6), length 921)</span><br><span class="line">    192.168.0.4.40712 &gt; 192.168.2.56.3100: Flags [P.], cksum 0x7aa8 (correct), seq 150369440:150370309, ack 3441659494, win 507, options [nop,nop,TS val 1239115869 ecr 2297259166], length 869   </span><br></pre></td></tr></table></figure>
+
+<p>这个流转流程如下图：</p>
+<p><img src="/images/951413iMgBlog/flannel-network-flow.jpg" alt="flannel-network-flow"></p>
+<p>对应宿主机查询到的ip、路由信息（和上图不是对应的）</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#ip -d -4 addr show cni0</span><br><span class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer  161.46 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line"></span><br><span class="line">#ip -d -4 addr show flannel.1 //vxlan id 1 local 10.133.2.252 dev bond0 --指定了物理网卡</span><br><span class="line">474: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN group default</span><br><span class="line">    link/ether fe:49:64:ae:36:af brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    vxlan id 1 local 10.133.2.252 dev bond0 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.0/32 brd 192.168.3.0 scope global flannel.1</span><br><span class="line">       valid_lft forever preferred_lft forever    </span><br></pre></td></tr></table></figure>
+
+<p>包流转<a target="_blank" rel="noopener" href="https://blog.laputa.io/kubernetes-flannel-networking-6a1cb1f8ec7c">示意图</a></p>
+<p><img src="/images/951413iMgBlog/image-20220119114929034.png" alt="image-20220119114929034"></p>
+<h2 id="flannel网络不通排查案例"><a href="#flannel网络不通排查案例" class="headerlink" title="flannel网络不通排查案例"></a>flannel网络不通排查案例</h2><p>当网络不通时，可以根据以上演示的包流转路径在不同的网络设备上抓包来定位哪个环节不通</p>
+<h3 id="firewalld"><a href="#firewalld" class="headerlink" title="firewalld"></a>firewalld</h3><p>在麒麟系统的物理机上通过kubeadm setup集群，发现有的环境flannel网络不通，在宿主机上ping 其它物理机flannel.0网卡的ip，通过在对端宿主机抓包发现icmp收到后被防火墙扔掉了，抓包中可以看到错误信息：icmp unreachable - admin prohibited</p>
+<p>下图中正常的icmp是直接ping 物理机ip</p>
+<p><img src="/images/951413iMgBlog/image-20211228203650921.png" alt="image-20211228203650921"></p>
+<blockquote>
+<p>The “admin prohibited filter” seen in the tcpdump output means there is a firewall blocking a connection. It does it by sending back an ICMP packet meaning precisely that: the admin of that firewall doesn’t want those packets to get through. It could be a firewall at the destination site. It could be a firewall in between. It could be iptables on the Linux system.</p>
+</blockquote>
+<p>发现有问题的环境中宿主机的防火墙设置报错了：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &#x27;/usr/sbin/iptables -w10 -t filter -X DOCKER-ISOLATION-STAGE-1&#x27; failed: iptables: No chain/target/match by that name.</span><br><span class="line">12月 28 23:35:08 hygon253 firewalld[10493]: WARNING: COMMAND_FAILED: &#x27;/usr/sbin/iptables -w10 -t filter -F DOCKER-ISOLATION-STAGE-2&#x27; failed: iptables: No chain/target/match by that name.</span><br></pre></td></tr></table></figure>
+
+<p>应该是因为启动docker的时候 firewalld 是运行着的</p>
+<blockquote>
+<p>Do you have firewalld enabled, and was it (re)started after docker was started? If so, then it’s likely that firewalld wiped docker’s IPTables rules. Restarting the docker daemon should re-create those rules.</p>
+</blockquote>
+<p><strong>停掉 firewalld 服务可以解决这个问题</strong>，k8s集群</p>
+<h3 id="flannel网络不通"><a href="#flannel网络不通" class="headerlink" title="flannel网络不通"></a><a target="_blank" rel="noopener" href="https://github.com/flannel-io/flannel/issues/799">flannel网络不通</a></h3><blockquote>
+<p>Starting from Docker 1.13 default iptables policy for FORWARDING is DROP</p>
+</blockquote>
+<p>flannel能收到包，但是cni0收不到包，说明包进到了目标宿主机，但是从flannel解开udp转送到cni的时候出了问题，大概率是iptables 拦截了包</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">It seems docker version &gt;=1.13 will add iptables rule like below,and it make this issue happen:</span><br><span class="line">iptables -P FORWARD DROP </span><br><span class="line"></span><br><span class="line">All you need to do is add a rule below:</span><br><span class="line">iptables -P FORWARD ACCEPT //将FORWARD 默认规则(没有匹配到其它规则的话）改成ACCEPT</span><br><span class="line"></span><br><span class="line">//flannel 会检查 forward chain并将之改成 accept？以下是flannel 容器日志</span><br><span class="line">I0913 07:52:30.965060       1 main.go:698] Using interface with name enp2s0f0 and address 192.168.0.1</span><br><span class="line">I0913 07:52:30.965128       1 main.go:720] Defaulting external address to interface address (192.168.0.1)</span><br><span class="line">I0913 07:52:30.965134       1 main.go:733] Defaulting external v6 address to interface address (&lt;nil&gt;)</span><br><span class="line">I0913 07:52:30.965243       1 vxlan.go:137] VXLAN config: VNI=1 Port=0 GBP=false Learning=false DirectRouting=false</span><br><span class="line">I0913 07:52:30.966878       1 kube.go:339] Setting NodeNetworkUnavailable</span><br><span class="line">I0913 07:52:30.977942       1 main.go:340] Setting up masking rules</span><br><span class="line">I0913 07:52:31.332105       1 main.go:361] Changing default FORWARD chain policy to ACCEPT</span><br></pre></td></tr></table></figure>
+
+<h2 id="宿主机多-ip-下-flannel-网络不通"><a href="#宿主机多-ip-下-flannel-网络不通" class="headerlink" title="宿主机多 ip 下 flannel 网络不通"></a>宿主机多 ip 下 flannel 网络不通</h2><p>宿主机有两个ip，flannel组网ip是192.168，但是默认路由在1.1.网络下，此时能 ping 通，但是curl不通端口</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">#tcpdump -i enp2s0f0 -nettvv host 192.168.0.3 and udp</span><br><span class="line">tcpdump: listening on enp2s0f0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line"></span><br><span class="line">//握手请求syn包，udp src ip:192.168.0.1</span><br><span class="line">1660897108.334556 0c:42:a1:4f:d1:e2 &gt; 0c:42:a1:4f:d1:ee, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 32118, offset 0, flags [none], proto UDP (17), length 110)</span><br><span class="line">    192.168.0.1.56773 &gt; 192.168.0.3.otv: [bad udp cksum 0x81c0 -&gt; 0x459f!] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">56:fa:69:e3:dc:6b &gt; 4e:95:a9:e2:ed:28, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 41108, offset 0, flags [DF], proto TCP (6), length 60)</span><br><span class="line">    172.19.0.6.35118 &gt; 172.19.2.39.http: Flags [S], cksum 0x10c8 (correct), seq 582983385, win 64860, options [mss 1410,sackOK,TS val 2648241865 ecr 0,nop,wscale 7], length 0</span><br><span class="line"></span><br><span class="line">//对端回复syn包, 注意udp的目标ip:1.1.1.198,应该是 192.168.0.1 才对，mac是192.168.0.1 的，mac和ip不匹配，所以被内核扔掉（但是icmp不会被扔，原因未知）</span><br><span class="line">1660897108.334738 0c:42:a1:4f:d1:ee &gt; 0c:42:a1:4f:d1:e2, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 41433, offset 0, flags [none], proto UDP (17), length 110)</span><br><span class="line">    192.168.0.3.38086 &gt; 1.1.1.198.otv: [bad udp cksum 0x5aff -&gt; 0x1769!] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">4e:95:a9:e2:ed:28 &gt; 56:fa:69:e3:dc:6b, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 0, offset 0, flags [DF], proto TCP (6), length 60)</span><br><span class="line">    172.19.2.39.http &gt; 172.19.0.6.35118: Flags [S.], cksum 0x8027 (correct), seq 3633913151, ack 582983386, win 64308, options [mss 1410,sackOK,TS val 3514485603 ecr 2648241865,nop,wscale 7], length 0</span><br><span class="line"></span><br><span class="line">//没有回复第三次握手，继续发syn，因为收到syn+ack后被扔掉了</span><br><span class="line">1660897109.363382 0c:42:a1:4f:d1:e2 &gt; 0c:42:a1:4f:d1:ee, ethertype IPv4 (0x0800), length 124: (tos 0x0, ttl 64, id 32123, offset 0, flags [none], proto UDP (17), length 110)</span><br><span class="line">    192.168.0.1.60933 &gt; 192.168.0.3.otv: [bad udp cksum 0x81c0 -&gt; 0x355f!] OTV, flags [I] (0x08), overlay 0, instance 1</span><br><span class="line">56:fa:69:e3:dc:6b &gt; 4e:95:a9:e2:ed:28, ethertype IPv4 (0x0800), length 74: (tos 0x0, ttl 63, id 41109, offset 0, flags [DF], proto TCP (6), length 60)</span><br><span class="line">    172.19.0.6.35118 &gt; 172.19.2.39.http: Flags [S], cksum 0x0cc3 (correct), seq 582983385, win 64860, options [mss 1410,sackOK,TS val 2648242894 ecr 0,nop,wscale 7], length 0</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>多ip宿主机的网卡及路由</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">5: enp125s0f3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP group default qlen 1000</span><br><span class="line">    link/ether 64:2c:ac:e9:78:3d brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 1.1.1.198/25 brd 1.1.1.255 scope global dynamic noprefixroute enp125s0f3</span><br><span class="line">       valid_lft 12463sec preferred_lft 12463sec</span><br><span class="line">    inet6 fe80::859a:7861:378e:d6ac/64 scope link noprefixroute</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">6: enp2s0f0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP group default qlen 1000</span><br><span class="line">    link/ether 0c:42:a1:4f:d1:e2 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.0.1/24 brd 192.168.0.255 scope global noprefixroute enp2s0f0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">       </span><br><span class="line">#ip route</span><br><span class="line">default via 1.1.1.254 dev enp125s0f3 proto dhcp metric 101</span><br><span class="line">1.1.1.128/25 dev enp125s0f3 proto kernel scope link src 1.1.1.198 metric 101</span><br><span class="line">172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown</span><br><span class="line">172.19.0.0/24 dev cni0 proto kernel scope link src 172.19.0.1</span><br><span class="line">172.19.2.0/24 via 172.19.2.0 dev flannel.1 onlink</span><br><span class="line">172.19.3.0/24 via 172.19.3.0 dev flannel.1 onlink</span><br><span class="line">192.168.0.0/24 dev enp2s0f0 proto kernel scope link src 192.168.0.1 metric 100       </span><br></pre></td></tr></table></figure>
+
+<p>解决办法：真正生效的是 flannel.1 中的地址</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">//比如 flannel 选用了以下公网ip（默认路由上的ip）导致flannel网络不通，应该选内网ip</span><br><span class="line">#ip -details link show flannel.1</span><br><span class="line">29: flannel.1: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN mode DEFAULT group default</span><br><span class="line">    link/ether 96:ad:e2:29:29:09 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    vxlan id 1 local 30.1.1.1 dev eno1 srcport 0 0 dstport 8472 nolearning ttl auto ageing 300 udpcsum noudp6zerocsumtx noudp6zerocsumrx addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br></pre></td></tr></table></figure>
+
+<p>解决办法得先删掉 flannel 网络，然后在 flannel.yaml 中指定内网网卡：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">kube-flannel</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">registry:5000/quay.io/coreos/flannel:v0.14.0</span></span><br><span class="line">        <span class="attr">command:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="string">/opt/bin/flanneld</span></span><br><span class="line">        <span class="attr">args:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="string">--ip-masq</span></span><br><span class="line">        <span class="bullet">-</span> <span class="string">--kube-subnet-mgr</span></span><br><span class="line">        <span class="comment">#指定网卡, enp33s0f0 为内网网卡，不是默认路由</span></span><br><span class="line">        <span class="comment">#- --iface=enp33s0f0</span></span><br><span class="line">        <span class="comment">#— --iface-regex=[enp0s8|enp0s9]</span></span><br><span class="line"></span><br><span class="line"><span class="string">//然后会看到</span> <span class="string">flannel.1</span> <span class="string">的地址用的是</span> <span class="string">enp33s0f0（192.168.0.1）</span></span><br><span class="line"><span class="comment">#ip -details link show flannel.1</span></span><br><span class="line"><span class="attr">40: flannel.1:</span> <span class="string">&lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt;</span> <span class="string">mtu</span> <span class="number">1450 </span><span class="string">qdisc</span> <span class="string">noqueue</span> <span class="string">state</span> <span class="string">UNKNOWN</span> <span class="string">mode</span> <span class="string">DEFAULT</span> <span class="string">group</span> <span class="string">default</span></span><br><span class="line">    <span class="string">link/ether</span> <span class="number">92</span><span class="string">:5c:b2:af:37:62</span> <span class="string">brd</span> <span class="string">ff:ff:ff:ff:ff:ff</span> <span class="string">promiscuity</span> <span class="number">0</span> <span class="string">minmtu</span> <span class="number">68</span> <span class="string">maxmtu</span> <span class="number">65535</span></span><br><span class="line">    <span class="string">vxlan</span> <span class="string">id</span> <span class="number">1</span> <span class="string">local</span> <span class="number">192.168</span><span class="number">.0</span><span class="number">.1</span> <span class="string">dev</span> <span class="string">enp2s0f0</span> <span class="string">srcport</span> <span class="number">0</span> <span class="number">0</span> <span class="string">dstport</span> <span class="number">8472 </span><span class="string">nolearning</span> <span class="string">ttl</span> <span class="string">auto</span> <span class="string">ageing</span> <span class="number">300</span> <span class="string">udpcsum</span> <span class="string">noudp6zerocsumtx</span> <span class="string">noudp6zerocsumrx</span> <span class="string">addrgenmode</span> <span class="string">eui64</span> <span class="string">numtxqueues</span> <span class="number">1</span> <span class="string">numrxqueues</span> <span class="number">1</span> <span class="string">gso_max_size</span> <span class="number">65536</span> <span class="string">gso_max_segs</span> <span class="number">65535</span>        </span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p> If you happen to have different interfaces to be matched, you can match it on a regex pattern. Let’s say the worker nodes could’ve enp0s8 or enp0s9 configured, then the flannel args would be <code>— --iface-regex=[enp0s8|enp0s9]</code></p>
+</blockquote>
+<p>修改node的annotation中flannel的 public-ip。如果因为 public-ip 不对导致网络不通，在annotation中修改public-ip没用，这个值是 flannel 读取underlay 网络配置后写进来的，同时也写到了 flannel.1 的 config 中</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip-</span><br><span class="line">kubectl annotate node ky1 flannel.alpha.coreos.com/public-ip=192.168.0.1</span><br></pre></td></tr></table></figure>
+
+<h2 id="容器调试"><a href="#容器调试" class="headerlink" title="容器调试"></a>容器调试</h2><p>可以起一个容器，里面带有各种工具，然后attach 到目标容器 ：<a target="_blank" rel="noopener" href="https://github.com/zeromake/docker-debug/blob/master/README-zh-Hans.md">https://github.com/zeromake/docker-debug/blob/master/README-zh-Hans.md</a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./docker-debug-linux-amd64 --image=CentOS8 nginx top -Hp 12 //可以先把工具安装在CentOS8，然后attach 到被调试的 nginx容器</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="抓包和调试-–-nsenter"><a href="#抓包和调试-–-nsenter" class="headerlink" title="抓包和调试 – nsenter"></a>抓包和调试 – nsenter</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">获取pid：docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06</span><br><span class="line"></span><br><span class="line">进入namespace：nsenter --net --pid --target 17277</span><br><span class="line">nsenter --net --pid --target `docker inspect -f &#123;&#123;.State.Pid&#125;&#125; c8f874efea06`</span><br><span class="line"></span><br><span class="line">//只进入network namespace，这样看到的文件还是宿主机的，能直接用tcpdump，但是看到的网卡是容器的</span><br><span class="line">nsenter --target 17277 --net </span><br><span class="line"></span><br><span class="line">// ip netns 获取容器网络信息</span><br><span class="line"> 1022  [2021-04-14 15:53:06] docker inspect -f &#x27;&#123;&#123;.State.Pid&#125;&#125;&#x27; ab4e471edf50   //获取容器进程id</span><br><span class="line"> 1023  [2021-04-14 15:53:30] ls /proc/79828/ns/net</span><br><span class="line"> 1024  [2021-04-14 15:53:57] ln -sfT /proc/79828/ns/net /var/run/netns/ab4e471edf50 //link 以便ip netns List能访问</span><br><span class="line"> </span><br><span class="line">// 宿主机上查看容器ip</span><br><span class="line"> 1026  [2021-04-14 15:54:11] ip netns list</span><br><span class="line"> 1028  [2021-04-14 15:55:19] ip netns exec ab4e471edf50 ifconfig</span><br><span class="line"> </span><br><span class="line"> //nsenter 调试网络</span><br><span class="line"> Get the pause container&#x27;s sandboxkey: </span><br><span class="line">root@worker01:~# docker inspect k8s_POD_ubuntu-5846f86795-bcbqv_default_ea44489d-3dd4-11e8-bb37-02ecc586c8d5_0 | grep SandboxKey</span><br><span class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/82ec9e32d486&quot;,</span><br><span class="line">root@worker01:~#</span><br><span class="line">Now, using nsenter you can see the container&#x27;s information.</span><br><span class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ip addr show</span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">3: eth0@if7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default</span><br><span class="line">   link/ether 0a:58:0a:f4:01:02 brd ff:ff:ff:ff:ff:ff link-netnsid 0</span><br><span class="line">   inet 10.244.1.2/24 scope global eth0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">Identify the peer_ifindex, and finally you can see the veth pair endpoint in root namespace.</span><br><span class="line">root@worker01:~# nsenter --net=/var/run/docker/netns/82ec9e32d486 ethtool -S eth0</span><br><span class="line">NIC statistics:</span><br><span class="line">     peer_ifindex: 7</span><br><span class="line">root@worker01:~#</span><br><span class="line">root@worker01:~# ip -d link show | grep &#x27;7: veth&#x27;</span><br><span class="line">7: veth5e43ca47@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue master cni0 state UP mode DEFAULT group default</span><br><span class="line">root@worker01:~#</span><br></pre></td></tr></table></figure>
+
+<p>nsenter相当于在setns的示例程序之上做了一层封装，使我们无需指定命名空间的文件描述符，而是指定进程号即可，<a target="_blank" rel="noopener" href="https://medium.com/@anilkreddyr/kubernetes-with-flannel-understanding-the-networking-part-2-78b53e5364c7">详细case</a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#docker inspect cb7b05d82153 | grep -i SandboxKey   //根据 pause 容器id找network namespace</span><br><span class="line">            &quot;SandboxKey&quot;: &quot;/var/run/docker/netns/d6b2ef3cf886&quot;,</span><br><span class="line"></span><br><span class="line">[root@hygon252 19:00 /root]</span><br><span class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ip addr show</span><br><span class="line">3: eth0@if496: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default  //496对应宿主机上的veth编号</span><br><span class="line">    link/ether 1e:95:dd:d9:88:bd brd ff:ff:ff:ff:ff:ff link-netnsid 0</span><br><span class="line">    inet 192.168.3.22/24 brd 192.168.3.255 scope global eth0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">#nsenter --net=/var/run/docker/netns/d6b2ef3cf886 ethtool -S eth0</span><br><span class="line">NIC statistics:</span><br><span class="line">     peer_ifindex: 496</span><br><span class="line">     </span><br><span class="line">#ip -d -4 addr show cni0</span><br><span class="line">475: cni0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UP group default qlen 1000</span><br><span class="line">    link/ether 8e:34:ba:e2:a4:c6 brd ff:ff:ff:ff:ff:ff promiscuity 0 minmtu 68 maxmtu 65535</span><br><span class="line">    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 0 priority 32768 vlan_filtering 0 vlan_protocol 802.1Q bridge_id 8000.8e:34:ba:e2:a4:c6 designated_root 8000.8e:34:ba:e2:a4:c6 root_port 0 root_path_cost 0 topology_change 0 topology_change_detected 0 hello_timer    0.00 tcn_timer    0.00 topology_change_timer    0.00 gc_timer   43.31 vlan_default_pvid 1 vlan_stats_enabled 0 group_fwd_mask 0 group_address 01:80:c2:00:00:00 mcast_snooping 1 mcast_router 1 mcast_query_use_ifaddr 0 mcast_querier 0 mcast_hash_elasticity 4 mcast_hash_max 512 mcast_last_member_count 2 mcast_startup_query_count 2 mcast_last_member_interval 100 mcast_membership_interval 26000 mcast_querier_interval 25500 mcast_query_interval 12500 mcast_query_response_interval 1000 mcast_startup_query_interval 3124 mcast_stats_enabled 0 mcast_igmp_version 2 mcast_mld_version 1 nf_call_iptables 0 nf_call_ip6tables 0 nf_call_arptables 0 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535</span><br><span class="line">    inet 192.168.3.1/24 brd 192.168.3.255 scope global cni0</span><br><span class="line">       valid_lft forever preferred_lft forever     </span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="清理"><a href="#清理" class="headerlink" title="清理"></a><a target="_blank" rel="noopener" href="https://serverfault.com/questions/247767/cannot-delete-gre-tunnel">清理</a></h2><p>cni信息</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">/etc/cni/net.d/*</span><br><span class="line">/var/lib/cni/ 下存放有ip分配信息</span><br><span class="line"></span><br><span class="line">#cat /run/flannel/subnet.env</span><br><span class="line">FLANNEL_NETWORK=192.168.0.0/16</span><br><span class="line">FLANNEL_SUBNET=192.168.0.1/24</span><br><span class="line">FLANNEL_MTU=1450</span><br><span class="line">FLANNEL_IPMASQ=true</span><br></pre></td></tr></table></figure>
+
+<p>calico创建的tunl0网卡是个tunnel，可以通过 ip tunnel show来查看，<a target="_blank" rel="noopener" href="https://askubuntu.com/questions/1190684/how-can-i-permanently-delete-tun-interfaces#:~:text=doing%20sudo%20ip%20link%20delete,which%20removes%20all%20tun%20devices">清理不掉</a>（重启可以清理掉tunl0）</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">ip link set dev tunl0 name tunl0_fallback</span><br><span class="line">或者</span><br><span class="line">/sbin/ip link set eth1 down</span><br><span class="line">/sbin/ip link set eth1 name eth123</span><br><span class="line">/sbin/ip link set eth123 up</span><br></pre></td></tr></table></figure>
+
+<h3 id="清理和创建flannel网络"><a href="#清理和创建flannel网络" class="headerlink" title="清理和创建flannel网络"></a>清理和创建flannel网络</h3><p>查看容器网卡和宿主机上的虚拟网卡veth pair:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link //宿主机上执行</span><br><span class="line">cat /sys/class/net/eth0/iflink //容器中执行</span><br></pre></td></tr></table></figure>
+
+<p>清理</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ip link delete cni0</span><br><span class="line">ip link delete flannel.1</span><br></pre></td></tr></table></figure>
+
+<p>创建</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">ip link add cni0 type bridge</span><br><span class="line">ip addr add dev cni0 172.30.0.0/24</span><br><span class="line"></span><br><span class="line">查看A simpler solution:</span><br><span class="line">ip -details link show</span><br><span class="line">ls -l /sys/class/net/ - virtual ones will show all in virtual and lan is on the PCI bus.</span><br><span class="line"></span><br><span class="line">brctl show cni0</span><br><span class="line">brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡</span><br></pre></td></tr></table></figure>
+
+<p>完全可以手工创建cni0、flannel.1等网络设备，然后将 veth添加到cni0网桥上，再在宿主机配置ip route，基本一个纯手工版本打造的flannel vxlan网络就实现了，深入理解到此任何flannel网络问题都可以解决了。</p>
+<h3 id="flannel-ip在多个node之间分配错乱"><a href="#flannel-ip在多个node之间分配错乱" class="headerlink" title="flannel ip在多个node之间分配错乱"></a>flannel ip在多个node之间分配错乱</h3><p>当铲掉重新部署的时候可能cni等网络有残留，导致下一次部署会报ip已存在的错误</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(combined from similar events): Failed create pod sandbox: rpc error: code = Unknown desc = failed to set up sandbox container &quot;f7aa44bf81b27bf0ff6c02339df2d2743cf952c1519fead4c563892d2d41a979&quot; network for pod &quot;nginx-deployment-6c8c86b759-f8fb7&quot;: NetworkPlugin cni failed to set up pod &quot;nginx-deployment-6c8c86b759-f8fb7_default&quot; network: failed to set bridge addr: &quot;cni0&quot; already has an IP address different from 172.19.2.1/24</span><br></pre></td></tr></table></figure>
+
+<p> 可以铲掉网卡重新分配，或者给cni重新分配错误信息提示的ip</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ifconfig cni0 172.19.2.1/24</span><br></pre></td></tr></table></figure>
+
+<p>or</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ip link set cni0 down &amp;&amp; ip link set flannel.1 down </span><br><span class="line">ip link delete cni0 &amp;&amp; ip link delete flannel.1</span><br><span class="line">systemctl restart containerd &amp;&amp; systemctl restart kubelet</span><br></pre></td></tr></table></figure>
+
+<h2 id="host-gw"><a href="#host-gw" class="headerlink" title="host-gw"></a><a target="_blank" rel="noopener" href="https://msazure.club/flannel-networking-demystify/">host-gw</a></h2><p>实现超级简单，就是在宿主机上配置路由规则，把其它宿主机ip当成其上所有pod的下一跳，不用封包解包，所以性能奇好，但是要求所有宿主机在一个2层网络，因为ip路由规则要求是直达其它宿主机。</p>
+<p>手工配置实现就是vxlan的超级精简版，略！</p>
+<h2 id="netns-操作"><a href="#netns-操作" class="headerlink" title="netns 操作"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/lscMpc5BWAEzjgYw6H0wBw">netns 操作</a></h2><p>以下case创建一个名为 ren 的netns，然后在里面增加一对虚拟网卡veth1 veth1_p,  veth1放置在ren里面，veth1_p 放在物理机上，给他们配置上ip并up就能通了。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"> 1004  [2021-10-27 10:49:08] ip netns add ren</span><br><span class="line"> 1005  [2021-10-27 10:49:12] ip netns show</span><br><span class="line"> 1006  [2021-10-27 10:49:22] ip netns exec ren route   //为空</span><br><span class="line"> 1007  [2021-10-27 10:49:29] ip netns exec ren iptables -L</span><br><span class="line"> 1008  [2021-10-27 10:49:55] ip link add veth1 type veth peer name veth1_p //此时宿主机上能看到这两块网卡</span><br><span class="line"> 1009  [2021-10-27 10:50:07] ip link set veth1 netns ren //将veth1从宿主机默认网络空间挪到ren中，宿主机中看不到veth1了</span><br><span class="line"> 1010  [2021-10-27 10:50:18] ip netns exec ren route  </span><br><span class="line"> 1011  [2021-10-27 10:50:25] ip netns exec ren iptables -L</span><br><span class="line"> 1012  [2021-10-27 10:50:39] ifconfig</span><br><span class="line"> 1013  [2021-10-27 10:50:51] ip link list</span><br><span class="line"> 1014  [2021-10-27 10:51:29] ip netns exec ren ip link list</span><br><span class="line"> 1017  [2021-10-27 10:53:27] ip netns exec ren ip addr add 172.19.0.100/24 dev veth1 </span><br><span class="line"> 1018  [2021-10-27 10:53:31] ip netns exec ren ip link list</span><br><span class="line"> 1019  [2021-10-27 10:53:39] ip netns exec ren ifconfig</span><br><span class="line"> 1020  [2021-10-27 10:53:42] ip netns exec ren ifconfig -a</span><br><span class="line"> 1021  [2021-10-27 10:54:13] ip netns exec ren ip link set dev veth1 up</span><br><span class="line"> 1022  [2021-10-27 10:54:16] ip netns exec ren ifconfig</span><br><span class="line"> 1023  [2021-10-27 10:54:22] ping 172.19.0.100</span><br><span class="line"> 1024  [2021-10-27 10:54:35] ifconfig -a</span><br><span class="line"> 1025  [2021-10-27 10:55:03] ip netns exec ren ip addr add 172.19.0.101/24 dev veth1_p</span><br><span class="line"> 1026  [2021-10-27 10:55:10] ip addr add 172.19.0.101/24 dev veth1_p</span><br><span class="line"> 1027  [2021-10-27 10:55:16] ifconfig veth1_p</span><br><span class="line"> 1028  [2021-10-27 10:55:30] ip link set dev veth1_p up</span><br><span class="line"> 1029  [2021-10-27 10:55:32] ifconfig veth1_p</span><br><span class="line"> 1030  [2021-10-27 10:55:38] ping 172.19.0.101</span><br><span class="line"> 1031  [2021-10-27 10:55:43] ping 172.19.0.100</span><br><span class="line"> 1032  [2021-10-27 10:55:53] ip link set dev veth1_p down</span><br><span class="line"> 1033  [2021-10-27 10:55:54] ping 172.19.0.100</span><br><span class="line"> 1034  [2021-10-27 10:55:58] ping 172.19.0.101</span><br><span class="line"> 1035  [2021-10-27 10:56:08] ifconfig veth1_p</span><br><span class="line"> 1036  [2021-10-27 10:56:32] ping 172.19.0.101</span><br><span class="line"> 1037  [2021-10-27 10:57:04] ip netns exec ren route</span><br><span class="line"> 1038  [2021-10-27 10:57:52] ip netns exec ren ping 172.19.0.101</span><br><span class="line"> 1039  [2021-10-27 10:57:58] ip link set dev veth1_p up</span><br><span class="line"> 1040  [2021-10-27 10:57:59] ip netns exec ren ping 172.19.0.101</span><br><span class="line"> 1041  [2021-10-27 10:58:06] ip netns exec ren ping 172.19.0.100</span><br><span class="line"> 1042  [2021-10-27 10:58:14] ip netns exec ren ifconfig</span><br><span class="line"> 1043  [2021-10-27 10:58:19] ip netns exec ren route</span><br><span class="line"> 1044  [2021-10-27 10:58:26] ip netns exec ren ping 172.19.0.100 -I veth1</span><br><span class="line"> 1045  [2021-10-27 10:58:58] ifconfig veth1_p</span><br><span class="line"> 1046  [2021-10-27 10:59:10] ping 172.19.0.100</span><br><span class="line"> 1047  [2021-10-27 10:59:26] ip netns exec ren ping 172.19.0.101 -I veth1</span><br><span class="line"> </span><br><span class="line"> 把网卡加入到docker0的bridge下</span><br><span class="line"> 1160  [2021-10-27 12:17:37] brctl show</span><br><span class="line"> 1161  [2021-10-27 12:18:05] ip link set dev veth3_p master docker0</span><br><span class="line"> 1162  [2021-10-27 12:18:09] ip link set dev veth1_p master docker0</span><br><span class="line"> 1163  [2021-10-27 12:18:13] ip link set dev veth2 master docker0</span><br><span class="line"> 1164  [2021-10-27 12:18:15] brctl show</span><br><span class="line"> </span><br><span class="line">brctl showmacs br0</span><br><span class="line">brctl show cni0</span><br><span class="line">brctl addif cni0 veth1 veth2 veth3  //往cni bridge添加多个容器peer 网卡</span><br></pre></td></tr></table></figure>
+
+<p>Linux 上存在一个默认的网络命名空间，Linux 中的 1 号进程初始使用该默认空间。Linux 上其它所有进程都是由 1 号进程派生出来的，在派生 clone 的时候如果没有额外特别指定，所有的进程都将共享这个默认网络空间。</p>
+<p>所有的网络设备刚创建出来都是在宿主机默认网络空间下的。可以通过 <code>ip link set 设备名 netns 网络空间名</code> 将设备移动到另外一个空间里去，socket也是归属在某一个网络命名空间下的，由创建socket进程所在的netns来决定socket所在的netns</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//file: net/socket.c</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">sock_create</span><span class="params">(<span class="type">int</span> family, <span class="type">int</span> type, <span class="type">int</span> protocol, <span class="keyword">struct</span> socket **res)</span></span><br><span class="line">&#123;</span><br><span class="line"> <span class="keyword">return</span> __sock_create(current-&gt;nsproxy-&gt;net_ns, family, type, protocol, res, <span class="number">0</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: include/net/sock.h</span></span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span></span><br><span class="line"><span class="type">void</span> <span class="title function_">sock_net_set</span><span class="params">(<span class="keyword">struct</span> sock *sk, <span class="keyword">struct</span> net *net)</span></span><br><span class="line">&#123;</span><br><span class="line"> write_pnet(&amp;sk-&gt;sk_net, net);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>内核提供了三种操作命名空间的方式，分别是 clone、setns 和 unshare。ip netns add 使用的是 unshare，原理和 clone 是类似的。</p>
+<p><img src="/images/951413iMgBlog/640-5304524." alt="Image"></p>
+<p>每个 net 下都包含了自己的路由表、iptable 以及内核参数配置等等</p>
+<h2 id="etcd-中存储的-flannel-配置"><a href="#etcd-中存储的-flannel-配置" class="headerlink" title="etcd 中存储的 flannel 配置"></a>etcd 中存储的 flannel 配置</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">kubectl exec -it etcd-uos21 -n=kube-system -- /bin/sh</span><br><span class="line"></span><br><span class="line">然后：</span><br><span class="line">ETCDCTL_API=3 etcdctl --key /etc/kubernetes/pki/etcd/peer.key --cert /etc/kubernetes/pki/etcd/peer.crt --cacert /etc/kubernetes/pki/etcd/ca.crt --endpoints=https://localhost:2379 get /registry/configmaps/kube-system/kube-flannel-cfg</span><br><span class="line"></span><br><span class="line">cni-conf.json�&#123;</span><br><span class="line">  &quot;name&quot;: &quot;cbr0&quot;,</span><br><span class="line">  &quot;cniVersion&quot;: &quot;0.3.1&quot;,</span><br><span class="line">  &quot;plugins&quot;: [</span><br><span class="line">    &#123;</span><br><span class="line">      &quot;type&quot;: &quot;flannel&quot;,</span><br><span class="line">      &quot;delegate&quot;: &#123;</span><br><span class="line">        &quot;hairpinMode&quot;: true,</span><br><span class="line">        &quot;isDefaultGateway&quot;: true</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;,</span><br><span class="line">    &#123;</span><br><span class="line">      &quot;type&quot;: &quot;portmap&quot;,</span><br><span class="line">      &quot;capabilities&quot;: &#123;</span><br><span class="line">        &quot;portMappings&quot;: true</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  ]</span><br><span class="line">&#125;</span><br><span class="line">Z</span><br><span class="line">net-conf.jsonI&#123;</span><br><span class="line">  &quot;Network&quot;: &quot;172.19.0.0/18&quot;,</span><br><span class="line">  &quot;Backend&quot;: &#123;</span><br><span class="line">    &quot;Type&quot;: &quot;vxlan&quot;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">&quot;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>通过无论是对flannel还是calico的学习，不管是使用vxlan还是host-gw发现这些所谓的overlay网络不过是披着一层udp的皮而已，只要我们对ip route&#x2F;mac地址足够了解，这些新技术剖析下来仍然逃不过 <a target="_blank" rel="noopener" href="https://datatracker.ietf.org/doc/html/rfc1180">RFC1180</a> 描述的几个最基础的知识点（基础知识的力量）的使用而已，这一切硬核的基础知识无比简单，只要你多看看我这篇旧文<a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">《就是要你懂网络–一个网络包的旅程》</a></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://morven.life/notes/networking-3-ipip/">https://morven.life/notes/networking-3-ipip/</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/bakari/p/10564347.html">https://www.cnblogs.com/bakari/p/10564347.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/goldsunshine/p/10701242.html">https://www.cnblogs.com/goldsunshine/p/10701242.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://docker-k8s-lab.readthedocs.io/en/latest/docker/docker-flannel.html">手工拉起flannel网络</a></p>
+<p><a href="https://plantegg.github.io/2019/05/15/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E7%BD%91%E7%BB%9C--%E4%B8%80%E4%B8%AA%E7%BD%91%E7%BB%9C%E5%8C%85%E7%9A%84%E6%97%85%E7%A8%8B/">《就是要你懂网络–一个网络包的旅程》</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/docker/" rel="tag"># docker</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+              <a href="/tags/kubernetes/" rel="tag"># kubernetes</a>
+              <a href="/tags/flannel/" rel="tag"># flannel</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022/01/19/kubernetes_calico%E7%BD%91%E7%BB%9C/" rel="prev" title="kubernetes calico网络">
+                  <i class="fa fa-angle-left"></i> kubernetes calico网络
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022/01/19/kubernetes%20calico%E7%BD%91%E7%BB%9C/" rel="next" title="kubernetes calico网络">
+                  kubernetes calico网络 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

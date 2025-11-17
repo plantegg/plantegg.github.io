@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 [Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率">
+<meta property="og:type" content="article">
+<meta property="og:title" content="数据库计算向量化">
+<meta property="og:url" content="https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="数据库计算向量化前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL) CPU的制造和概念 [Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/relation-algebra.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220627165706516.png">
+<meta property="article:published_time" content="2021-11-26T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.567Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="向量化">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/relation-algebra.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/","path":"2021/11/26/数据库计算向量化/","title":"数据库计算向量化"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>数据库计算向量化 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96"><span class="nav-number">1.</span> <span class="nav-text">数据库计算向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#volcano%E7%81%AB%E5%B1%B1%E6%A8%A1%E5%9E%8B"><span class="nav-number">1.1.</span> <span class="nav-text">volcano火山模型</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%90%91%E9%87%8F%E5%8C%96%E5%8A%A0%E9%80%9F%E7%9A%84CPU%E5%8E%9F%E7%90%86"><span class="nav-number">1.2.</span> <span class="nav-text">向量化加速的CPU原理</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%90%91%E9%87%8F%E5%8C%96"><span class="nav-number">1.3.</span> <span class="nav-text">向量化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#SIMD-Single-Instruction-Multiple-Data%EF%BC%8C%E5%8D%95%E6%8C%87%E4%BB%A4%E5%A4%9A%E6%95%B0%E6%8D%AE"><span class="nav-number">1.3.1.</span> <span class="nav-text">SIMD (Single Instruction Multiple Data，单指令多数据)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E7%94%9F%E6%88%90SIMD%E6%8C%87%E4%BB%A4%E5%91%A2%EF%BC%9F"><span class="nav-number">1.3.2.</span> <span class="nav-text">如何生成SIMD指令呢？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%90%91%E9%87%8F%E5%8C%96%E7%9A%84%E4%BB%A3%E7%A0%81%E8%A6%81%E6%B1%82"><span class="nav-number">1.3.3.</span> <span class="nav-text">向量化的代码要求</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%90%91%E9%87%8F%E5%8C%96%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">1.4.</span> <span class="nav-text">向量化的问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="数据库计算向量化 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          数据库计算向量化
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-11-26 17:30:03" itemprop="dateCreated datePublished" datetime="2021-11-26T17:30:03+08:00">2021-11-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="数据库计算向量化"><a href="#数据库计算向量化" class="headerlink" title="数据库计算向量化"></a>数据库计算向量化</h1><p>前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL)</p>
+<p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p>在做向量化之前数据库一直用的是volcano模型来处理SQL</p>
+<h2 id="volcano火山模型"><a href="#volcano火山模型" class="headerlink" title="volcano火山模型"></a>volcano火山模型</h2><p>对于如下一条SQL, 数据库会将它解析成一颗树，这棵树每个节点就是一个operator(简单理解就是一个函数，进行一次计算处理)</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> pv.siteId, user.nickame</span><br><span class="line"><span class="keyword">FROM</span> pv <span class="keyword">JOIN</span> <span class="keyword">user</span></span><br><span class="line"><span class="keyword">ON</span> pv.siteId <span class="operator">=</span> user.siteId <span class="keyword">AND</span> pv.userId <span class="operator">=</span> user.id</span><br><span class="line"><span class="keyword">WHERE</span> pv.siteId <span class="operator">=</span> <span class="number">123</span>;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/relation-algebra.png" alt="Relation Algebra"></p>
+<p>可以看到火山模型实现简单，只需要根据不同的计算提供一堆算子(operator)就可以了，然后根据不同的SQL只需要将operator进行组装（类似搭积木一样），就能得到一个递归调用结构（火山模型），每行数据按照这个调用逻辑经过每个operator进行嵌套处理就得到最终结果。</p>
+<p>火山模型不但实现简单，框架结构性也非常好容易扩展。</p>
+<p>但是火山模型效率不高: </p>
+<ol>
+<li>每个operator拆分必须到最小粒度，导致嵌套调用过多过深；</li>
+<li>嵌套都是虚函数无法内联；</li>
+<li>这个处理逻辑整体对CPU流水线不友好，CPU希望你不停地给我数据我按一个固定的逻辑(流程)来处理，而不是在不同的算子中间跳来跳去。</li>
+</ol>
+<h2 id="向量化加速的CPU原理"><a href="#向量化加速的CPU原理" class="headerlink" title="向量化加速的CPU原理"></a>向量化加速的CPU原理</h2><p>向量化加速的CPU原理:</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://topic.atatech.org/articles/210128">内存访问比CPU计算慢两个数量级</a></li>
+<li><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/214221">cpu按cache_line从内存取数据，取一个数据和取多个数据代价一样</a></li>
+<li>以及数据局部性原理</li>
+</ul>
+<p>如下图，表示的是for循环每次跳K个int，在K小于16的时候虽然循环次数逐渐减少到原来的1&#x2F;16, 但是总时间没变，因为一直是访问的同一个cache里面的数据。 到16个之后就会产生突变（跨了cache_line），再后面32、64、128的时间减少来源于循环次数的减少，因为如论如何每次循环都需要访问内存加载数据到cache_line中. </p>
+<p>Cache_line大小是64，正好16个int，也就是存取1个或者16个int的代价基本是一样的。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">for (int i = 0; i &lt; arr.Length; i += K) arr[i] *= 3;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/image6.png" alt="running times of this loop for different step values (&#x2F;images&#x2F;951413iMgBlog&#x2F;image6.png)"></p>
+<p>另外 一个大家耳熟能详的案例是对一个二维数组<strong>逐行遍历</strong>和<strong>逐列遍历</strong>的时间差异，循环次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好，最终按行访问效率更高:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">const</span> <span class="type">int</span> row = <span class="number">1024</span>;</span><br><span class="line"><span class="type">const</span> <span class="type">int</span> col = <span class="number">512</span></span><br><span class="line"><span class="type">int</span> matrix[row][col];</span><br><span class="line"><span class="comment">//逐行遍历耗时0.081ms</span></span><br><span class="line"><span class="type">int</span> sum_row=<span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span>(<span class="type">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++) &#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++)&#123;</span><br><span class="line">        sum_row += matrix[_r][_c];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">//逐列遍历耗时1.069ms</span></span><br><span class="line"><span class="type">int</span> sum_col=<span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span>(<span class="type">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++) &#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++)&#123;</span><br><span class="line">        sum_col += matrix[_r][_c];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p>了解了以上CPU运算的原理我们再来看向量化就很简单了</p>
+<h2 id="向量化"><a href="#向量化" class="headerlink" title="向量化"></a>向量化</h2><p>向量化执行的思想就是不再像火山模型一样调用一个算子一次处理一行数据，而是一次处理一批数据来均摊开销：这个开销很明显会因为一次处理一个数据没用利用好cache_line以及局部性原理，导致CPU在切换算子的时候要stall在取数据上，表现出来的结果就是IPC很低，cache miss、branch prediction失败都会增加。</p>
+<p>举例来说，对于一个实现两个 int 相加的 expression，在向量化之前，其实现可能是这样的：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">ExpressionIntAdd</span> extends Expression &#123;</span><br><span class="line">        <span class="function">Datum <span class="title">eval</span><span class="params">(Row input)</span> </span>&#123;</span><br><span class="line">                <span class="type">int</span> left = input.<span class="built_in">getInt</span>(leftIndex);</span><br><span class="line">                <span class="type">int</span> right = input.<span class="built_in">getInt</span>(rightIndex);</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">new</span> <span class="built_in">Datum</span>(left+right);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在向量化之后，其实现可能会变为这样：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">VectorExpressionIntAdd</span> extends VectorExpression &#123;</span><br><span class="line">        <span class="type">int</span>[] <span class="built_in">eval</span>(<span class="type">int</span>[] left, <span class="type">int</span>[] right) &#123;</span><br><span class="line">                <span class="type">int</span>[] ret = <span class="keyword">new</span> <span class="type">int</span>[input.length];</span><br><span class="line">                <span class="keyword">for</span>(<span class="type">int</span> i = <span class="number">0</span>; i &lt; input.length; i++) &#123;</span><br><span class="line">                  <span class="comment">//利用cache局部性原理一次取多个数据和取一个代价一样</span></span><br><span class="line">                  ret[i] = <span class="keyword">new</span> <span class="built_in">Datum</span>(left[i] + right[i]);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> ret;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>很明显对比向量化之前的版本，向量化之后的版本不再是每次只处理一条数据，而是每次能处理一批数据，而且这种向量化的计算模式在计算过程中也具有更好的数据局部性。</p>
+<p>向量化–Vector、批量化（一次处理一批数据）。向量化核心是利用数据局部性原理，一次取一个和取一批的时延基本是同样的。volcanno模型每次都是取一个处理一个，跳转到别的算子；而向量化是取一批处理一批后再跳转。整个过程中最耗时是取数据（访问内存比CPU计算慢两个数量级）</p>
+<p><strong>如果把向量化计算改成批量化处理应该就好理解多了，但是low，向量化多玄乎啊</strong></p>
+<p>为了支持这种批量处理数据的需求，CPU设计厂家又搞出了SIMD这种大杀器</p>
+<h3 id="SIMD-Single-Instruction-Multiple-Data，单指令多数据"><a href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据" class="headerlink" title="SIMD (Single Instruction Multiple Data，单指令多数据)"></a><a href="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">SIMD (Single Instruction Multiple Data，单指令多数据)</a></h3><p>SIMD指令的作用是向量化执行(Vectorized Execution)，中文通常翻译成向量化，但是这个词并不是很好，更好的翻译是数组化执行，表示一次指令操作数组中的多个数据，而不是一次处理一个数据；向量则代表有数值和方向，显然在这里的意义用数组更能准确的表达。</p>
+<p>在操作SIMD指令时，一次性把多条数据从内存加载到宽寄存器中，通过一条并行指令同时完成多条数据的计算。例如一个操作32字节(256位)的指令，可以同时操作8个int类型，获得8倍的加速。同时利用SIMD减少循环次数，大大减少了循环跳转指令，也能获得加速。SIMD指令可以有0个参数、1个数组参数、2个数组参数。如果有一个数组参数，指令计算完数组中的每个元素后，分别把结果写入对应位置；如果是有两个参数，则两个参数对应的位置分别完成指定操作，写入到对应位置。</p>
+<p><img src="/images/951413iMgBlog/image-20220627165706516.png" alt="image-20220627165706516"></p>
+<p>如上图所示：SIMD指令同时操作A和B中4对数字，产生4个结果存放到C中</p>
+<p>以如下代码为例，对4个float计算平方：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">squre</span><span class="params">( <span class="type">float</span>* ptr )</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">for</span>( <span class="type">int</span> i = <span class="number">0</span>; i &lt; <span class="number">4</span>; i++ )</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="type">const</span> <span class="type">float</span> f = ptr[ i ];</span><br><span class="line">      ptr[ i ] = f * f;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>上述代码转写成SIMD指令，则可以删除循环，用三条指令即可完成计算，分别是加载到寄存器，计算平方，结果写回内存:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">squre</span><span class="params">(<span class="type">float</span> * ptr)</span></span><br><span class="line">&#123;</span><br><span class="line">    __m128 f = _mm_loadu_ps( ptr ); </span><br><span class="line">    f = _mm_mul_ps( f, f ); </span><br><span class="line">    _mm_storeu_ps( ptr, f );</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>简单理解SIMD就是相对于之前一个指令(一般是一个时钟周期)操作一个数据，但现在有了SIMD就可以在一个时钟周期操作一批数据，这个批如果是64，那么性能就提升了64倍。</p>
+<p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
+<p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
+<p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>
+<p>向量化当然也非常希望利用SIMD(跟GPU为什么挖矿比CPU快是一样的道理)</p>
+<p>这里可以参考为什么这20年CPU主频基本都在2G-3G附近不再提升但是性能仍然遵循摩尔定律在提升。</p>
+<h3 id="如何生成SIMD指令呢？"><a href="#如何生成SIMD指令呢？" class="headerlink" title="如何生成SIMD指令呢？"></a>如何生成SIMD指令呢？</h3><p>有几种方式：</p>
+<ol>
+<li>编译器自动向量化： <ul>
+<li>静态编译（代码满足一定的范；编译选项 -O3 or  -mavx2 -march&#x3D;native -ftree-vectorize）</li>
+<li>即时编译（JIT）</li>
+</ul>
+</li>
+<li>可以手写SIMD指令</li>
+</ol>
+<h3 id="向量化的代码要求"><a href="#向量化的代码要求" class="headerlink" title="向量化的代码要求"></a>向量化的代码要求</h3><ul>
+<li>循环次数可计算</li>
+<li>简单计算，不包含函数调用、switch&#x2F;if&#x2F;return 等</li>
+<li>在循环在内层</li>
+<li>访问连续的内存空间（才可以通过simd指令从内存加载数据到寄存器）</li>
+<li>数据无依赖</li>
+<li>使用数组而不是指针</li>
+</ul>
+<h2 id="向量化的问题"><a href="#向量化的问题" class="headerlink" title="向量化的问题"></a>向量化的问题</h2><p>向量化的前提是L3 cache够用，在L3不够用的时候，向量化的收益是负的，国内大部分文章都是为了PR而讲向量化。并发稍微高点，向量化立马就没足够的加速效果了。L2的一次miss就足够让向量化收益清零了，都轮不到 L3 Miss。</p>
+<p>比如 avx512，向量化基本是用8倍的带宽，换取2-3倍的延迟，还要降频（指令复杂了）。所以 skylake 开始，intel砍了L3，加了L2。</p>
+<p>大部分向量化引擎的收益是来自向量化后被迫做了列存（或者说列存做向量化更加简单，所以大家工程上会选择向量化），这天然带来了数据密度更高，不是向量化导致了性能好。</p>
+<p>SIMD 的代码对流水线要求很高的，如何写出流水线层面不stall的代码很难，主要问题是大部分SIMD都不是编译器生成的，需要开发者自己去做指令的调度，但是大部分开发者并没有微架构的知识，所以这玩意很难写好。</p>
+<p>SIMD 适合解决计算瓶颈的问题，而不是数据库的内存瓶颈。计算瓶颈和内存瓶颈是完全的2个概念，只是大部分时候，我们会把内存瓶颈和计算瓶颈合起来叫做 CPU 瓶颈，但是db 90%以上场景，确实是内存而不是计算瓶颈…尤其是AP领域对同一份数据多次重复运算的， 那才叫做计算瓶颈。</p>
+<p>向量化的本质不是 SIMD，是内存密度，SIMD 从头到尾就是一个骗局，用来PR的。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E5%90%91%E9%87%8F%E5%8C%96/" rel="tag"># 向量化</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/" rel="prev" title="AMD Zen CPU 架构以及不同CPU性能大PK">
+                  <i class="fa fa-angle-left"></i> AMD Zen CPU 架构以及不同CPU性能大PK
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022/01/01/%E4%B8%89%E4%B8%AA%E6%95%85%E4%BA%8B/" rel="next" title="三个故事">
+                  三个故事 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

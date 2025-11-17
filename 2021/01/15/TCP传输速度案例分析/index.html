@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="TCP传输速度案例分析前言TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。 详细的buffer、rt对TCP传输速度的影响请看这篇：  就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带">
+<meta property="og:type" content="article">
+<meta property="og:title" content="TCP传输速度案例分析">
+<meta property="og:url" content="https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="TCP传输速度案例分析前言TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。 详细的buffer、rt对TCP传输速度的影响请看这篇：  就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/2422ae219d3b27cfe8c799642662d5b2.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/2867daa600363af61f8f971479246858.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/0a8c68a58da6f169573b57cde0ffba93.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/004886698ddbaa1cbc8342a9cd667c76.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/70155e021390cb1ee07091c306c375f4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/a08a204ec7ad4bba7867dacea1668322.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/433762.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d5e2e358dd1a24e104f54815c84875c9.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png">
+<meta property="article:published_time" content="2021-01-15T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.529Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="TCP">
+<meta property="article:tag" content="network">
+<meta property="article:tag" content="performance">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/2422ae219d3b27cfe8c799642662d5b2.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/","path":"2021/01/15/TCP传输速度案例分析/","title":"TCP传输速度案例分析"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>TCP传输速度案例分析 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90"><span class="nav-number">1.</span> <span class="nav-text">TCP传输速度案例分析</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E8%A8%80"><span class="nav-number">1.1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E5%90%8E%E7%AB%AFrtt%E5%B7%AE%E5%BC%82%E5%A4%A7-vip%E4%B8%8B%E8%BD%BD%E6%85%A2%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.2.</span> <span class="nav-text">前后端rtt差异大+vip下载慢的案例</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8E%9F%E5%9B%A0TCPLossProbe%EF%BC%9A"><span class="nav-number">1.2.1.</span> <span class="nav-text">原因TCPLossProbe：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%A7%82%E5%AF%9F%EF%BC%9A"><span class="nav-number">1.2.2.</span> <span class="nav-text">观察：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%A7%A3%E5%86%B3%EF%BC%9A"><span class="nav-number">1.2.3.</span> <span class="nav-text">解决：</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B0%8F%E7%BB%93"><span class="nav-number">1.2.4.</span> <span class="nav-text">小结</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%95%BF%E8%82%A5%E7%BD%91%E7%BB%9C%EF%BC%88%E9%AB%98rtt%EF%BC%89%E5%9C%BA%E6%99%AF%E4%B8%8Btcp-metrics%E8%AE%B0%E5%BD%95%E7%9A%84ssthresh%E5%A4%AA%E5%B0%8F%E5%AF%BC%E8%87%B4%E4%BC%A0%E8%BE%93%E6%85%A2%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.3.</span> <span class="nav-text">长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%8E%E7%B3%BB%E7%BB%9Fcache%E4%B8%AD%E6%9F%A5%E7%9C%8B-tcp-metrics-item"><span class="nav-number">1.3.1.</span> <span class="nav-text">从系统cache中查看 tcp_metrics item</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%95%BF%E8%82%A5%E7%BD%91%E7%BB%9C%EF%BC%88rt%E5%BE%88%E9%AB%98%E3%80%81%E5%B8%A6%E5%AE%BD%E4%B9%9F%E9%AB%98%EF%BC%89%E4%B8%8B%E6%8E%A5%E6%94%B6%E7%AA%97%E5%8F%A3%E5%AF%B9%E4%BC%A0%E8%BE%93%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D"><span class="nav-number">1.4.</span> <span class="nav-text">长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Nginx%E4%B8%8A%E6%8A%93%E5%8C%85"><span class="nav-number">1.4.1.</span> <span class="nav-text">Nginx上抓包</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#client%E4%B8%8A%E6%8A%93%E5%8C%85"><span class="nav-number">1.4.2.</span> <span class="nav-text">client上抓包</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B0%86buffer%E6%94%B9%E5%A4%A7"><span class="nav-number">1.4.3.</span> <span class="nav-text">将buffer改大</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BA%94%E7%94%A8%E5%B1%82%E5%8F%91%E5%8C%85%E9%80%BB%E8%BE%91%E5%BD%B1%E5%93%8D%E4%BA%86BDP%E4%B8%8D%E8%83%BD%E8%B7%91%E6%BB%A1"><span class="nav-number">1.5.</span> <span class="nav-text">应用层发包逻辑影响了BDP不能跑满</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#delay-ack%E6%8B%89%E9%AB%98%E5%AE%9E%E9%99%85rt%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.6.</span> <span class="nav-text">delay ack拉高实际rt的案例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.7.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="TCP传输速度案例分析 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          TCP传输速度案例分析
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-01-15 17:30:03" itemprop="dateCreated datePublished" datetime="2021-01-15T17:30:03+08:00">2021-01-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="TCP传输速度案例分析"><a href="#TCP传输速度案例分析" class="headerlink" title="TCP传输速度案例分析"></a>TCP传输速度案例分析</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>TCP传输速度受网络带宽和传输窗口的影响（接收、发送、拥塞窗口），带宽我们没办法改变，以下案例主要是讨论rt、窗口如何影响速度。</p>
+<p>详细的buffer、rt对TCP传输速度的影响请看这篇：</p>
+<p> <a href="/2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p>以及 <a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p>上面两篇以及下面几个案例读完，应该所有TCP传输速度问题都能解决了。</p>
+<h2 id="前后端rtt差异大-vip下载慢的案例"><a href="#前后端rtt差异大-vip下载慢的案例" class="headerlink" title="前后端rtt差异大+vip下载慢的案例"></a>前后端rtt差异大+vip下载慢的案例</h2><p>来源：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng">https://mp.weixin.qq.com/s/er8vTKZUcahA6-Pf8DZBng</a> 文章中的trace-cmd工具也不错</p>
+<p>如下三个链路，有一个不正常了</p>
+<p><img src="/images/oss/2422ae219d3b27cfe8c799642662d5b2.png" alt="image.png"></p>
+<p>首先通过 ss -it dst “ip:port” 来分析cwnd、ssthresh、buffer，到底是什么导致了传输慢</p>
+<h3 id="原因TCPLossProbe："><a href="#原因TCPLossProbe：" class="headerlink" title="原因TCPLossProbe："></a>原因TCPLossProbe：</h3><p>如果尾包发生了丢包，没有新包可发送触发多余的dup ack来实现快速重传，完全依赖RTO超时来重传，代价太大，那如何能优化解决这种尾丢包的情况。也就是在某些情况下一个可以的重传包就能触发ssthresh减半，从而导致传输速度上不来。</p>
+<p>本案例中，因为client到TGW跨了地域，导致rtt增大，但是TGW和STGW之间的rtt很小，导致握手完毕后STGW认为和client的rtt很小，所以很快就触发了丢包重传，实际没有丢包，只是rtt变大了，所以触发了如上的TLP( PTO&#x3D;max(2rtt, 10ms) ， 因为只有一次重传并收到了 dup，还是不应该触发TLP，但是因为老版本kernel bug导致，4.0的kernel修复了这个问题， 函数 is_tlp_dupack)</p>
+<p>握手完毕后第七号包很快重传了</p>
+<p><img src="/images/oss/2867daa600363af61f8f971479246858.png" alt="image.png"></p>
+<h3 id="观察："><a href="#观察：" class="headerlink" title="观察："></a>观察：</h3><p>netstat -s |grep TCPLossProbes</p>
+<h3 id="解决："><a href="#解决：" class="headerlink" title="解决："></a>解决：</h3><p>tcp_early_retrans可用于开启和关闭ER和TLP，默认是3（enable TLP and delayed ER），sysctl -w net.ipv4.tcp_early_retrans&#x3D;2 关掉TLP</p>
+<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>kernel版本小于4.0+TLP开启+VIP代理导致RS认为rtt很小，实际比较大，这两个条件下就会出现如上问题。</p>
+<p>这个问题一看就是跟client和VIP代理之间的rtt扩大有关系，不过不是因为扩大后发送窗口不够之类导致的。</p>
+<h2 id="长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例"><a href="#长肥网络（高rtt）场景下tcp-metrics记录的ssthresh太小导致传输慢的案例" class="headerlink" title="长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例"></a>长肥网络（高rtt）场景下tcp_metrics记录的ssthresh太小导致传输慢的案例</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/109967">https://www.atatech.org/articles/109967</a></p>
+<blockquote>
+<p>tcp_metrics会记录下之前已关闭tcp 连接的状态，包括发送端拥塞窗口和拥塞控制门限，如果之前网络有一段时间比较差或者丢包比较严重，就会导致tcp 的拥塞控制门限ssthresh降低到一个很低的值，这个值在连接结束后会被tcp_metrics cache 住，在新连接建立时，即使网络状况已经恢复，依然会继承 tcp_metrics 中cache 的一个很低的ssthresh 值，在长肥管道情况下，新连接经历短暂的“慢启动”后，随即进入缓慢的拥塞控制阶段, 导致连接速度很难在短时间内上去。而后面的连接，需要很特殊的场景之下才能将ssthresh 再次推到一个比较高的值缓存下来，因此很有很能在接下来的很长一段时间，连接的速度都会处于一个很低的水平</p>
+</blockquote>
+<p>因为 tcp_metrics记录的ssthresh非常小，导致后面新的tcp连接传输数据时很快进入拥塞控制阶段，如果传输的文件不大的话就没有机会将ssthresh撑大。除非传输一个特别大的文件，忍受拥塞控制阶段的慢慢增长，最后tcp_metrics记录下撑大后的ssthresh，整个网络才会恢复正常。</p>
+<p>所以关闭 tcp_metrics其实是个不错的选择： net.ipv4.tcp_no_metrics_save &#x3D; 1 </p>
+<p>或者清除： sudo ip tcp_metrics flush all</p>
+<h3 id="从系统cache中查看-tcp-metrics-item"><a href="#从系统cache中查看-tcp-metrics-item" class="headerlink" title="从系统cache中查看 tcp_metrics item"></a>从系统cache中查看 tcp_metrics item</h3><pre><code>$sudo ip tcp_metrics show | grep  100.118.58.7
+100.118.58.7 age 1457674.290sec tw_ts 3195267888/5752641sec ago rtt 1000us rttvar 1000us ssthresh 361 cwnd 40 ----这两个值对传输性能很重要
+
+192.168.1.100 age 1051050.859sec ssthresh 4 cwnd 2 rtt 4805us rttvar 4805us source 192.168.0.174 ---这条记录有问题，缓存的ssthresh 4 cwnd 2都太小，传输速度一定慢 
+
+清除 tcp_metrics, sudo ip tcp_metrics flush all 
+关闭 tcp_metrics 功能，net.ipv4.tcp_no_metrics_save = 1
+sudo ip tcp_metrics delete 100.118.58.7
+</code></pre>
+<p>每个连接的ssthresh默认是个无穷大的值，但是内核会cache对端ip上次的ssthresh（大部分时候两个ip之间的拥塞窗口大小不会变），这样大概率到达ssthresh之后就基本拥塞了，然后进入cwnd的慢增长阶段。</p>
+<h2 id="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"><a href="#长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响" class="headerlink" title="长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响"></a>长肥网络（rt很高、带宽也高）下接收窗口对传输性能的影响</h2><p>最后通过一个实际碰到的案例，涉及到了接收窗口、发送Buffer以及高延时情况下的性能问题</p>
+<p>案例描述：从中国访问美国的服务器下载图片，只能跑到220K，远远没有达到带宽能力，其中中美之间的网络延时时150ms，这个150ms已经不能再优化了。业务结构是：</p>
+<p>client ——150ms—–&gt;&gt;&gt;LVS—1ms–&gt;&gt;&gt;美国的统一接入server—–1ms—–&gt;&gt;&gt;nginx</p>
+<p>通过下载一个4M的文件大概需要20秒，分别在client和nginx上抓包来分析这个问题（统一接入server没权限上去）</p>
+<h3 id="Nginx上抓包"><a href="#Nginx上抓包" class="headerlink" title="Nginx上抓包"></a>Nginx上抓包</h3><p><img src="/images/oss/259767fb17f7dbffe7f77ab059c47dbd.png" alt="image.png"></p>
+<p>从这里可以看到Nginx大概在60ms内就将4M的数据都发完了</p>
+<h3 id="client上抓包"><a href="#client上抓包" class="headerlink" title="client上抓包"></a>client上抓包</h3><p><img src="/images/oss/466fba92829f6a922ccd2d57a7e3fdac.png" alt="image.png"></p>
+<p>从这个图上可以清楚看到大概每传输大概30K数据就有一个150ms的等待平台，这个150ms基本是client到美国的rt。</p>
+<p>从我们前面的阐述可以清楚了解到因为rt比较高，统一接入server每发送30K数据后要等150ms才能收到client的ack，然后继续发送，猜是因为上面设置的发送buffer大概是30K。</p>
+<p>检查统一接入server的配置，可以看到接入server的配置里面果然有个32K buffer设置</p>
+<h3 id="将buffer改大"><a href="#将buffer改大" class="headerlink" title="将buffer改大"></a>将buffer改大</h3><p>速度可以到420K，但是还没有跑满带宽：</p>
+<p><img src="/images/oss/93e254c5154ce2e065bec9fb34f3db2b.png" alt="image.png"></p>
+<p><img src="/images/oss/0a8c68a58da6f169573b57cde0ffba93.png" alt="image.png"></p>
+<p>接着看一下client上的抓包</p>
+<p><img src="/images/oss/822737a4ed6ffe6b920d4b225a1be5bf.png" alt="image.png"></p>
+<p>可以清楚看到 client的接收窗口是64K， 64K*1000&#x2F;150&#x3D;426K 这个64K很明显是16位的最大值，应该是TCP握手有一方不支持window scaling factor</p>
+<p>那么继续分析一下握手包，syn：</p>
+<p><img src="/images/oss/004886698ddbaa1cbc8342a9cd667c76.png" alt="image.png"></p>
+<p>说明client是支持的，再看 syn+ack：</p>
+<p><img src="/images/oss/70155e021390cb1ee07091c306c375f4.png" alt="image.png"></p>
+<p>可以看到服务端不支持，那就最大只能用到64K。需要修改服务端代理程序，这主要是LVS或者代理的锅。</p>
+<p>如果内网之间rt很小这个锅不会爆发，一旦网络慢一点就把问题恶化了</p>
+<p>比如这是这个应用的开发人员的反馈：</p>
+<p><img src="/images/oss/a08a204ec7ad4bba7867dacea1668322.png" alt="image.png"></p>
+<p><a target="_blank" rel="noopener" href="https://datatracker.ietf.org/doc/html/rfc1072">长肥网络</a>就像是很长很宽的高速公路，上面可以同时跑很多车，而如果发车能力不够，就容易跑不满高速公路。<br>在rt很短的时候可以理解为高速公路很短，所以即使发车慢也还好，因为车很快就到了，到了后就又能发新车了。rt很长的话就要求更大的仓库了。</p>
+<p>整个这个问题，我最初拿到的问题描述结构是这样的（不要笑程序员连自己的业务结构都描述不清）：</p>
+<p>client ——150ms—–&gt;&gt;&gt;nginx</p>
+<p>实际开发人员也不能完全描述清楚结构，从抓包中慢慢分析反推他们的结构，到最后问题的解决。</p>
+<p>这个案例综合了发送窗口（32K）、接收窗口（64K，因为握手LVS不支持window scale）、rt很大将问题暴露出来（跨国网络，rt没法优化）。</p>
+<p>nginx buffer 分析参考案例：<a target="_blank" rel="noopener" href="https://juejin.cn/post/6875223721615818765">https://juejin.cn/post/6875223721615818765</a> nginx上下游收发包速率不一致导致nginx buffer打爆, 关闭nginx proxy_buffering 可解 （作者：挖坑的张师傅）</p>
+<p><img src="/images/951413iMgBlog/433762.png" alt="image.png"></p>
+<h2 id="应用层发包逻辑影响了BDP不能跑满"><a href="#应用层发包逻辑影响了BDP不能跑满" class="headerlink" title="应用层发包逻辑影响了BDP不能跑满"></a>应用层发包逻辑影响了BDP不能跑满</h2><p>来自 dog250: <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/413732839">一行代码解决scp在Internet传输慢的问题（RT高的网络环境）</a> </p>
+<blockquote>
+<p>用scp在长链路上传输文件竟然慢到无法忍受！100～200毫秒往返时延的链路，wget下载文件吞吐可达40MBps，scp却只有9MBps。</p>
+<p>这次不是因为buffer导致BDP跑不满，而是也scp业务层有自己流控的逻辑导致发包慢了</p>
+<p><strong>SSH允许在一个TCP连接上复用多个channel，需要对每一个channel做流控以保证公平，所以每个channel必须自己做而不是使用TCP的流控，OpenSSH的实现有问题。</strong></p>
+</blockquote>
+<h2 id="delay-ack拉高实际rt的案例"><a href="#delay-ack拉高实际rt的案例" class="headerlink" title="delay ack拉高实际rt的案例"></a>delay ack拉高实际rt的案例</h2><p><strong>这个案例跟速度没有关系，只是解析监控图表上的rt为什么不符合逻辑地偏高了。</strong></p>
+<p>如下业务监控图：实际处理时间（逻辑服务时间1ms，rtt2.4ms，加起来3.5ms），但是系统监控到的rt（蓝线）是6ms，如果一个请求分很多响应包串行发给client，这个6ms是正常的（1+2.4*N），但实际上如果send buffer足够的话，按我们前面的理解多个响应包会并发发出去，所以如果整个rt是3.5ms才是正常的。</p>
+<p><img src="/images/oss/d56f87a19a10b0ac9a3b7009641247a0.png" alt="image.png"></p>
+<p>抓包来分析原因：</p>
+<p><img src="/images/oss/d5e2e358dd1a24e104f54815c84875c9.png" alt="image.png"></p>
+<p>实际看到大量的response都是3.5ms左右，符合我们的预期，但是有少量rt被delay ack严重影响了</p>
+<p>从下图也可以看到有很多rtt超过3ms的，这些超长时间的rtt会最终影响到整个服务rt</p>
+<p><img src="/images/oss/48eae3dcd7c78a68b0afd5c66f783f23.png" alt="image.png"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="http://www.allanjude.com/bsd/AsiaBSDCon2017_-_SSH_Performance.pdf">SSH Performance</a></p>
+<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/8849240/why-when-i-transfer-a-file-through-sftp-it-takes-longer-than-ftp">Why when I transfer a file through SFTP, it takes longer than FTP?</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/TCP/" rel="tag"># TCP</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/01/03/mac%E8%B7%AF%E7%94%B1%E5%92%8CDSN%E7%9B%B8%E5%85%B3%E7%9F%A5%E8%AF%86/" rel="prev" title="mac 路由和DSN相关知识">
+                  <i class="fa fa-angle-left"></i> mac 路由和DSN相关知识
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021/01/28/journald%E5%92%8Crsyslog/" rel="next" title="journald和rsyslogd">
+                  journald和rsyslogd <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

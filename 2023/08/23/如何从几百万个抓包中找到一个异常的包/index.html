@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="如何从几百万个抓包中找到一个异常的包这篇算是对抓包定位原因在哪里的落地篇，没什么高深的技术，都是很low但是你一定可以照着操作的，算是星球内必须学会和带走的内容 场景 问题一次业务请求包含160个拖数据的SQL查询，通过160个连接，发给160个Database，但是过几分钟后总有报错。几分钟抓包文件10G左右，网络包几百万个，怎么找到报错的那个？ 几个麻烦的地方  虽然问题每次稳定重现，但是每次">
+<meta property="og:type" content="article">
+<meta property="og:title" content="如何从几百万个抓包中找到一个异常的包">
+<meta property="og:url" content="https://plantegg.github.io/2023/08/23/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="如何从几百万个抓包中找到一个异常的包这篇算是对抓包定位原因在哪里的落地篇，没什么高深的技术，都是很low但是你一定可以照着操作的，算是星球内必须学会和带走的内容 场景 问题一次业务请求包含160个拖数据的SQL查询，通过160个连接，发给160个Database，但是过几分钟后总有报错。几分钟抓包文件10G左右，网络包几百万个，怎么找到报错的那个？ 几个麻烦的地方  虽然问题每次稳定重现，但是每次">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620150119963.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620143248344.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620140921134.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620141017987.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620173111706.png">
+<meta property="article:published_time" content="2023-08-23T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.577Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="RT">
+<meta property="article:tag" content="Wireshark">
+<meta property="article:tag" content="capinfos">
+<meta property="article:tag" content="tcpdump">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230620150119963.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2023/08/23/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2023/08/23/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/","path":"2023/08/23/如何从几百万个抓包中找到一个异常的包/","title":"如何从几百万个抓包中找到一个异常的包"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>如何从几百万个抓包中找到一个异常的包 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85"><span class="nav-number">1.</span> <span class="nav-text">如何从几百万个抓包中找到一个异常的包</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9C%BA%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">场景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98"><span class="nav-number">1.2.</span> <span class="nav-text">问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E5%8F%91%E7%94%9F%E6%9D%A1%E4%BB%B6"><span class="nav-number">1.2.1.</span> <span class="nav-text">问题发生条件</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B"><span class="nav-number">1.3.</span> <span class="nav-text">分析过程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%9B%E4%B8%80%E6%AD%A5%E5%88%86%E6%9E%90%E5%8F%91%E7%94%9F%E9%97%AE%E9%A2%98%E7%9A%84%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.3.1.</span> <span class="nav-text">进一步分析发生问题的连接</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%93%E8%AE%BA"><span class="nav-number">1.4.</span> <span class="nav-text">结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%83%E4%B9%A0"><span class="nav-number">1.5.</span> <span class="nav-text">练习</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%B6%E5%AE%83"><span class="nav-number">1.6.</span> <span class="nav-text">其它</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#net-write-timeout-%E6%8A%A5%E9%94%99"><span class="nav-number">1.7.</span> <span class="nav-text">net_write_timeout 报错</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/08/23/%E5%A6%82%E4%BD%95%E4%BB%8E%E5%87%A0%E7%99%BE%E4%B8%87%E4%B8%AA%E6%8A%93%E5%8C%85%E4%B8%AD%E6%89%BE%E5%88%B0%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E7%9A%84%E5%8C%85/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="如何从几百万个抓包中找到一个异常的包 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          如何从几百万个抓包中找到一个异常的包
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2023-08-23 12:30:03" itemprop="dateCreated datePublished" datetime="2023-08-23T12:30:03+08:00">2023-08-23</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/tcpdump/" itemprop="url" rel="index"><span itemprop="name">tcpdump</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="如何从几百万个抓包中找到一个异常的包"><a href="#如何从几百万个抓包中找到一个异常的包" class="headerlink" title="如何从几百万个抓包中找到一个异常的包"></a>如何从几百万个抓包中找到一个异常的包</h1><p>这篇算是对抓包定位原因在哪里的落地篇，没什么高深的技术，都是很low但是你一定可以照着操作的，算是星球内必须学会和带走的内容</p>
+<h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p><img src="/images/951413iMgBlog/image-20230620150119963.png" alt="image-20230620150119963"></p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>一次业务请求包含160个拖数据的SQL查询，通过160个连接，发给160个Database，但是过几分钟后总有报错。几分钟抓包文件10G左右，网络包几百万个，怎么找到报错的那个？</p>
+<p>几个麻烦的地方</p>
+<ul>
+<li>虽然问题每次稳定重现，但是每次重现的Database不是固定的；</li>
+<li>从开始拖到出现问题需要几分钟不等，抓包量巨大</li>
+<li>有一个连接报错后剩下的其它连接也会断开</li>
+<li>这么多端口怎么解析成MySQL协议，请看：<a target="_blank" rel="noopener" href="https://t.zsxq.com/0f7nMlKax">https://t.zsxq.com/0f7nMlKax</a></li>
+</ul>
+<h3 id="问题发生条件"><a href="#问题发生条件" class="headerlink" title="问题发生条件"></a>问题发生条件</h3><ul>
+<li>一个Client同时开160条连接，发160个类似的SQL去160个MySQL Database上拖数据时必现</li>
+<li>如果将拖数据的SQL拖取数量改小一点就不再出现——拖取少执行更快，没达到触发bug条件</li>
+<li>网络传输得慢一点、JDBC streaming 模式下发生，比如streaming流模式拖数据是几MB每秒，去掉流模式拖数据是几十MB每秒且不报错。这里可以通过设置内核 tcp rmem&#x2F;加大rtt延时来模拟重现——和我们的<a target="_blank" rel="noopener" href="https://wx.zsxq.com/dweb2/index/topic_detail/181428425525182">必做实验callback一下</a>，无时不刻不展示下我们必做实验的用途。</li>
+</ul>
+<h2 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h2><p>分析技巧和步骤：</p>
+<ol>
+<li>抓包，从握手到报错断开全抓下来，时间跨度3分多钟，抓下来10个G左右，怎么分析？</li>
+<li>editcap -c 200000 把抓包切小，每个文件20万个包，保证wireshark打开不太慢（editcap 是安装wireshark附带的小命令，附带的还有tshark、capinfos等）</li>
+<li>wireshark打开切小后的最后一个文件，搜reset&#x2F;fin 找到<strong>第一个</strong>断开的连接(如下图)，找到9913&#x2F;42909这对连接端口</li>
+<li>回到10个G的抓包中，用 tshark -r .&#x2F;big.pcap -Y “tcp.port&#x3D;&#x3D;42909”   -w 42909.pcap 把42909这条连接所有包过滤出来，-r 读，-w 写</li>
+<li>wireshark 打开42909.pcap 傻子也能看到问题在哪里了</li>
+</ol>
+<p>切完后的包，切完后的文件会加时间戳，时间戳可以和报错时间对应：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">-rw-r--r--  1 root  root   329M Jun 16 17:46 big00_00000_20230616170456.pcap</span><br><span class="line">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00001_20230616170524.pcap</span><br><span class="line">-rw-r--r--  1 root  root  1022M Jun 16 17:46 big00_00002_20230616170546.pcap</span><br><span class="line">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00003_20230616170608.pcap</span><br><span class="line">-rw-r--r--  1 root  root  1012M Jun 16 17:46 big00_00004_20230616170630.pcap</span><br><span class="line">-rw-r--r--  1 root  root   982M Jun 16 17:46 big00_00005_20230616170652.pcap</span><br><span class="line">-rw-r--r--  1 root  root   938M Jun 16 17:46 big00_00006_20230616170714.pcap</span><br><span class="line">-rw-r--r--  1 root  root   1.1G Jun 16 17:46 big00_00007_20230616170735.pcap</span><br><span class="line">-rw-r--r--  1 root  root   661M Jun 16 17:46 big00_00008_20230616170759.pcap</span><br></pre></td></tr></table></figure>
+
+<p>搜reset&#x2F;fin 找到第一个断开的连接，第一个断开的连接才是罪魁祸首：</p>
+<p><img src="/images/951413iMgBlog/image-20230620143248344.png" alt="image-20230620143248344"></p>
+<h3 id="进一步分析发生问题的连接"><a href="#进一步分析发生问题的连接" class="headerlink" title="进一步分析发生问题的连接"></a>进一步分析发生问题的连接</h3><p>知识点：</p>
+<blockquote>
+<p>MySQL 协议是一来一回，也就是client发查询然后等查询结果全部返回，然后再发下一个</p>
+<p>按协议在一个SQL查询的数据传输完毕前client不能再发任何请求，MySQL Server负责一直发送查询结果直到发送完毕。</p>
+</blockquote>
+<p>如下两个截图是从42909.pcap文件中过滤到的抓包从握手到断开的全过程，图1过滤条件：tcp.srcport eq 42909 and tcp.len&gt;0  (42909是客户端，9913是MySQL端口)，可以看到客户端 login（连数据库肯定得要user、password认证），然后是client查了MySQL的一堆服务端参数(下图第二行)，再然后是client设置了几个参数(set 那些)。关键的是倒数第二行client发了一个SQL给MySQL需要拉取大量数据(建立连接17.98秒的时候)，然后是数据传数据过程，第190秒的时候client发了 Quit断开连接</p>
+<p><img src="/images/951413iMgBlog/image-20230620140921134.png" alt="image-20230620140921134"></p>
+<p>上图因为加了过滤条件，只看client端并去掉ack后的所有包，没看到全貌，这个过程9913的MySQL 服务端又做了啥呢？因为太长前面漫长的传数据就不截图了，只看最后连接的断开。</p>
+<p>但是下图红框所示的地方可以看到MySQL Server 传着传着居然带了个 fin 包在里面，表示MySQL Server要断开连接了，无奈Client只能也发送quit 断开连接。红框告诉我们一个无比有力的证据MySQL Server 在不应该断开的地方断开了连接，问题在 MySQL Server 端</p>
+<p><img src="/images/951413iMgBlog/image-20230620141017987.png" alt="image-20230620141017987"></p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>就抓包结论来看是 MySQL 在不应该断开的时候发送了 fin 主动断开连接，可能是MySQL的bug</p>
+<p>题外话，这个包证据抓了有一周了，但是MySQL研发同学始终绕来绕去(比如我的代码没记录下这个SQL就是没收到，我的代码没问题——熟悉的味道)跟我打了一周太极(异地)，我一查发现我和他老板认识且在一层楼，赶紧面对面找他老板讲清楚这个问题，且签字画押承认是MySQL的问题，然后继续推进排查，最终结果是为啥我跟你们一起期待吧，有了结果我再来update。</p>
+<h2 id="练习"><a href="#练习" class="headerlink" title="练习"></a>练习</h2><p>找个MySQL，然后开始抓包，用mysql-client连一下MySQL Server随便发几个SQL，然后看看一来一回的响应</p>
+<p>如果哪怕在星球一年你只要好好掌握这一篇用到的技能也能帮助你在日常工作中互相扯皮的时候快速给出精准定位和分析，值回星球票价，加油</p>
+<p>比如这个案例我同时打开了5&#x2F;6个wireshark分析不同的流、整体搜索等</p>
+<h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>这些技巧不只是用在MySQL 上，其它微服务、redis等涉及网络调用场景的扯皮的地方都可以用</p>
+<p><a href="https://plantegg.github.io/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--WireShark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/">wireshark 附带的一些小工具</a></p>
+<blockquote>
+<p>capinfos rsb2.cap</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,ip”   分析流量总况</p>
+</blockquote>
+<blockquote>
+<p>tshark -q -n -r rsb2.cap  -z “conv,tcp”  分析每一个连接的流量、rtt、响应时间、丢包率、重传率等等</p>
+</blockquote>
+<blockquote>
+<p>editcap -c 100000 .&#x2F;rsb2.cap  rsb00.cap  &#x2F;&#x2F;把大文件rsb2.cap按每个文件100000个package切成小文件</p>
+</blockquote>
+<p>存放在这里：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">/usr/sbin/capinfos</span><br><span class="line">/usr/sbin/dftest</span><br><span class="line">/usr/sbin/dumpcap</span><br><span class="line">/usr/sbin/editcap</span><br><span class="line">/usr/sbin/mergecap</span><br><span class="line">/usr/sbin/randpkt</span><br><span class="line">/usr/sbin/rawshark</span><br><span class="line">/usr/sbin/reordercap</span><br><span class="line">/usr/sbin/text2pcap</span><br><span class="line">/usr/sbin/tshark</span><br></pre></td></tr></table></figure>
+
+<h2 id="net-write-timeout-报错"><a href="#net-write-timeout-报错" class="headerlink" title="net_write_timeout 报错"></a>net_write_timeout 报错</h2><p>最后回答一下<a target="_blank" rel="noopener" href="https://t.zsxq.com/0ftY9WNVv">上一篇</a>中提到的流模式下 net_write_timeout 报错</p>
+<p>如下图，JDBC 在 streaming 模式下，不断读取下一行，如果这个过程只要报错抛出的异常就是 StreamingNotifiable 异常</p>
+<p><img src="/images/951413iMgBlog/image-20230620173111706.png" alt="image-20230620173111706"></p>
+<p>错误信息定义如下，这个报错误导太严重，从以上JDBC 代码可以看到只要读取下一行报错了就会报调大 net_write_timeout 错误，但是实际原因却是连接异常断开，和 timeout 没有一点关系，你看久经考验的 JDBC  代码也不是那么完善还得你会 Debug</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CommunicationsException.ClientWasStreaming=Application was streaming results when the connection failed. Consider raising value of &#x27;&#x27;net_write_timeout&#x27;&#x27; on the server.</span><br></pre></td></tr></table></figure>
+
+<p>这个报错误导了排查分析方向，不知道坑了多少人了！当然如果MySQL 因为net_write_timeout 超时断开连接当然应该报如上错误，但是 JDBC 搞不清楚MySQL 为啥断开，就瞎猜是 timeout 了，然后只要是连接异常读数据错误(包含断开)就报这个错误。希望你们不要被坑</p>
+<p>记住这个坑人的报错堆栈：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">Caused by: com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of &#x27;net_write_timeout&#x27; on the server.</span><br><span class="line">    at sun.reflect.GeneratedConstructorAccessor150.newInstance(Unknown Source)</span><br><span class="line">    at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)</span><br><span class="line">    at java.lang.reflect.Constructor.newInstance(Constructor.java:423)</span><br><span class="line">    at com.mysql.jdbc.Util.handleNewInstance(Util.java:425)</span><br><span class="line">    at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:989)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3749)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3649)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:4090)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:972)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.nextRow(MysqlIO.java:2123)</span><br><span class="line">    at com.mysql.jdbc.RowDataDynamic.nextRecord(RowDataDynamic.java:374)</span><br><span class="line">    at com.mysql.jdbc.RowDataDynamic.next(RowDataDynamic.java:354)</span><br><span class="line">    at com.mysql.jdbc.RowDataDynamic.close(RowDataDynamic.java:155)</span><br><span class="line">    at com.mysql.jdbc.ResultSetImpl.realClose(ResultSetImpl.java:6726)</span><br><span class="line">    at com.mysql.jdbc.ResultSetImpl.close(ResultSetImpl.java:865)</span><br><span class="line">    at com.alibaba.druid.pool.DruidPooledResultSet.close(DruidPooledResultSet.java:86)</span><br></pre></td></tr></table></figure>
+
+<p>不过你要仔细看的话，它还是有caused by，如下，但是绝大部分工程师看到这个堆栈会忽视，上面都有 net_write_timeout 我还管个屁 Can not read response from server, 不过要是结合抓包的话就能理解：at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3186) 这个根本的原因是 JDBC 从服务端读取数据的时候报错了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Caused by: java.io.EOFException: Can not read response from server. Expected to read 405 bytes, read 272 bytes before connection was unexpectedly lost.</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:3186)</span><br><span class="line">    at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3709)</span><br><span class="line">    ... 40 common frames omitted</span><br></pre></td></tr></table></figure>
+
+<p>最后希望你没被绕晕，再去看看<a target="_blank" rel="noopener" href="https://t.zsxq.com/0ftY9WNVv">上一篇</a>中推荐的流模式原理，把代码和网络应用层完美地结合起来</p>
+<p>完整堆栈也可以参考网络上别人碰到的：<a target="_blank" rel="noopener" href="https://github.com/brettwooldridge/HikariCP/issues/1771">https://github.com/brettwooldridge/HikariCP/issues/1771</a> </p>
+<p>看 Google 里面对这个问题的分析基本都没入门：<a target="_blank" rel="noopener" href="https://www.google.com/search?q=Caused+by:+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException:+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&hl=en&sxsrf=APwXEddTwJGjFpkKuWHyXjlTvwTo2OUMhA:1687226872136&ei=-AmRZI7gB6-C0PEPmOGbwAE&ved=0ahUKEwiOvPny4dD_AhUvATQIHZjwBhgQ4dUDCBE&uact=5&oq=Caused+by:+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException:+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&gs_lcp=Cgxnd3Mtd2l6LXNlcnAQA0oECEEYAFAAWABgAGgAcAF4AIABAIgBAJIBAJgBAKABAqABAQ&sclient=gws-wiz-serp">https://www.google.com/search?q=Caused+by%3A+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException%3A+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&amp;hl=en&amp;sxsrf=APwXEddTwJGjFpkKuWHyXjlTvwTo2OUMhA%3A1687226872136&amp;ei=-AmRZI7gB6-C0PEPmOGbwAE&amp;ved=0ahUKEwiOvPny4dD_AhUvATQIHZjwBhgQ4dUDCBE&amp;uact=5&amp;oq=Caused+by%3A+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException%3A+Application+was+streaming+results+when+the+connection+failed.+Consider+raising+value+of+%27net_write_timeout%27+on+the+server.&amp;gs_lcp=Cgxnd3Mtd2l6LXNlcnAQA0oECEEYAFAAWABgAGgAcAF4AIABAIgBAJIBAJgBAKABAqABAQ&amp;sclient=gws-wiz-serp</a></p>
+<p>下次在你们的业务代码里如果出现查询结果太大导致JVM OOM的话你可以站出来说把拉取数据改成 流 模式会有奇效 :) , 当然随之而来的是会有 net_write_timeout 报错，嗯，你的机会来了，业务技术上按照你的指引发展，出了问题你能顶得上</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/tcpdump/" rel="tag"># tcpdump</a>
+              <a href="/tags/Wireshark/" rel="tag"># Wireshark</a>
+              <a href="/tags/capinfos/" rel="tag"># capinfos</a>
+              <a href="/tags/RT/" rel="tag"># RT</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2023/07/23/%E6%89%91%E6%9C%94%E8%BF%B7%E7%A6%BB%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90/" rel="prev" title="扑朔迷离的根因分析">
+                  <i class="fa fa-angle-left"></i> 扑朔迷离的根因分析
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2023/08/28/%E8%A7%A3%E5%86%B3%E9%97%AE%E9%A2%98%E6%80%9D%E8%B7%AF/" rel="next" title="解决Java&#x2F;MySQL性能问题的思路">
+                  解决Java/MySQL性能问题的思路 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

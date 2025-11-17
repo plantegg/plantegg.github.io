@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="MySQL针对秒杀场景的优化背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。 过程对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL针对秒杀场景的优化">
+<meta property="og:url" content="https://plantegg.github.io/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="MySQL针对秒杀场景的优化背景对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。 过程对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/TB1yvFqOpXXX.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png">
+<meta property="article:published_time" content="2020-11-17T23:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.525Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="秒杀">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/TB1yvFqOpXXX.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/","path":"2020/11/18/MySQL针对秒杀场景的优化/","title":"MySQL针对秒杀场景的优化"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>MySQL针对秒杀场景的优化 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96"><span class="nav-number">1.</span> <span class="nav-text">MySQL针对秒杀场景的优化</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BF%87%E7%A8%8B"><span class="nav-number">1.2.</span> <span class="nav-text">过程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%8E%92%E9%98%9F%E6%8E%A7%E5%88%B6%E5%B9%B6%E5%8F%91"><span class="nav-number">1.2.1.</span> <span class="nav-text">排队控制并发</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%BC%A9%E7%9F%AD%E9%94%81%E6%97%B6%E9%97%B4"><span class="nav-number">1.2.2.</span> <span class="nav-text">缩短锁时间</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%89%B9%E9%87%8F%E6%8F%90%E4%BA%A4"><span class="nav-number">1.2.3.</span> <span class="nav-text">批量提交</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%9A%E5%8A%A1%E4%BC%98%E5%8C%96"><span class="nav-number">1.2.4.</span> <span class="nav-text">业务优化</span></a></li></ol></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="MySQL针对秒杀场景的优化 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          MySQL针对秒杀场景的优化
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-11-18 07:30:03" itemprop="dateCreated datePublished" datetime="2020-11-18T07:30:03+08:00">2020-11-18</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="MySQL针对秒杀场景的优化"><a href="#MySQL针对秒杀场景的优化" class="headerlink" title="MySQL针对秒杀场景的优化"></a>MySQL针对秒杀场景的优化</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。</p>
+<h2 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h2><p>对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过新语法来消除网络rtt对加锁时间的控制这样达到了 4000 TPS。最后合并多个扣减到一个，累积比如10ms提交，能将TPS 能升到4万以上这个能力。</p>
+<h3 id="排队控制并发"><a href="#排队控制并发" class="headerlink" title="排队控制并发"></a>排队控制并发</h3><p>拍减模式在整个交易过程中只有一次扣减交互，所以是不需要付款减库存那样的判重逻辑，就是说，拍减的减库存sql只有一条update语句就搞定了。而付减有两条，一条insert判重+一条update减库存（双十一拍减接口在高峰的rt约为8ms，而付减接口在高峰的rt约为15ms）；</p>
+<p>其次，当大量请求（线程）落到mysql的同一条记录上进行减库存时，线程之间会存在竞争关系，因为要争夺InnoDB的行锁，当一个线程获得了行锁，其他并发线程就只能等待（InnoDB内部还有死锁检测等机制会严重影响性能），当并发度越高时，等待的线程就越多，此时tps会急剧下降，rt会飙升，性能就不能满足要求了。那如何减少锁竞争？答案是：排队！库存中心从几个层面做了排队策略。</p>
+<p>首先，在应用端进行排队，因为很多商品都是有sku的，当sku库存变化时item的库存也要做相应变化，所以需要根据itemId来进行排队，相同itemId的减库存操作会进入串行化排队处理逻辑，不过应用端的排队只能做到单机内存排队，当应用服务器数量过多时，落到db的并发请求仍然很多，所以最好的办法是在db端也加上排队策略，今年库存中心db部署了两个的排队patch，一个叫“并发控制”，是做在InnoDB层的，另一个叫“queue on pk”，是做在mysql的server层的，两个patch各有优缺点，前者不需要应用修改代码，db自动判断，后者需要应用程序写特殊的sql hint，前者控制的全局的sql，后者是根据hint来控制指定sql，两个patch的本质和应用端的排队逻辑是一致的，具体实现不同。双十一库存中心使用的是“并发控制”的patch。</p>
+<blockquote>
+<p>2013年的单减库存TPS最高记录是1381次每秒。</p>
+</blockquote>
+<p>对于秒杀热点场景，官方版本500tps每秒，问题在于同时涌入的请求太多，每次取锁都要检查其它等锁的线程（防止死锁），这个线程队列太长的话导致这个检查时间太长； 继续在前面增加能够进入到后面的并发数的控制，通过增加线程池、控制并发能到1400（no deadlock list check）；</p>
+<blockquote>
+<p><strong>热点更新下的死锁检测(<strong>no deadlock list check</strong>)</strong></p>
+<p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
+</blockquote>
+<h3 id="缩短锁时间"><a href="#缩短锁时间" class="headerlink" title="缩短锁时间"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
+<p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
+<p>（1）begin;</p>
+<p>（2）insert 交易流水表; – 交易流水对账</p>
+<p>（3）update 库存明细表 where id in (sku_id，item_id);</p>
+<p>（4）select 库存明细表;</p>
+<p>（5）commit</p>
+<p><img src="/images/951413iMgBlog/TB1yvFqOpXXX.png" alt="Snip20161116_88.png"></p>
+<p>SQL case：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">4059550</span> Query   <span class="keyword">SET</span> autocommit<span class="operator">=</span><span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">update</span> ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> trade <span class="keyword">set</span> version <span class="operator">=</span> version<span class="operator">+</span><span class="number">3</span> ,gmt_modified <span class="operator">=</span> now()    ,           optype <span class="operator">=</span> <span class="number">2</span>          ,      feature <span class="operator">=</span> <span class="string">&#x27;;abc;&#x27;</span>  <span class="keyword">where</span> sub_biz_order_id <span class="operator">=</span> <span class="string">&#x27;15&#x27;</span> <span class="keyword">and</span> biz_order_type <span class="operator">=</span> <span class="number">1</span> <span class="keyword">and</span> id <span class="operator">=</span> <span class="number">5</span> <span class="keyword">and</span> ti_id <span class="operator">=</span> <span class="number">1</span> <span class="keyword">and</span>      optype <span class="operator">=</span> <span class="number">3</span>          <span class="keyword">and</span>      root_id <span class="operator">=</span> <span class="number">11</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">select</span>      id,<span class="operator">*</span>     <span class="keyword">from</span>   <span class="keyword">update</span> COMMIT_ON_SUCCESS ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> invetory   <span class="keyword">set</span>                                           withholding_quantity <span class="operator">=</span> withholding_quantity <span class="operator">+</span> <span class="number">-1</span>,  flag<span class="operator">=</span>flag <span class="operator">&amp;</span><span class="operator">~</span> (<span class="number">1</span><span class="operator">&lt;&lt;</span><span class="number">10</span>) <span class="operator">&amp;</span><span class="operator">~</span> (<span class="number">1</span><span class="operator">&lt;&lt;</span><span class="number">11</span>) , version<span class="operator">=</span>version<span class="operator">+</span><span class="number">3</span>,gmt_modified <span class="operator">=</span> now()         <span class="keyword">WHERE</span>  root_id <span class="operator">=</span> <span class="number">11</span> <span class="keyword">and</span> status <span class="operator">=</span> <span class="number">1</span> <span class="keyword">and</span> id <span class="keyword">in</span>    (     <span class="number">1</span>    )  <span class="keyword">and</span> (withholding_quantity <span class="operator">+</span> <span class="number">-1</span>) <span class="operator">&gt;=</span> <span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">commit</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="批量提交"><a href="#批量提交" class="headerlink" title="批量提交"></a>批量提交</h3><p>其主要的核心思想是：针对应用层SQL做轻量化改造，带上”热点行SQL”的hint，当这种SQL进入内核后，在内存中维护一个hash表，将主键或唯一键相同的请求(一般也就是同一商品id)hash到同一个地方做请求的合并，经过一段时间后(默认100us)统一提交，从而实现了将串行处理变成了批处理，让每个热点行更新请求并不需要都去扫描和更新btree。</p>
+<ol>
+<li>热点的自动识别:前面已经讲过了，库存的扣减SQL都会有commit on success标记。mysql内部分为普通通道和热点扣减通道。普通通道里是正常的事务。热点通道里收集带有commit on success标记的事务。在一定的时间区间段内(0.1ms)，将收集到的热点按照主键或者唯一键进行hash; hash到同一个桶中为相同的sku; 分批组提交这0.1ms收集到的热点商品。</li>
+<li>轮询处理: 第一批进行提交时，第二批进行收集； 当第一批完成了提交开始收集时，第二批就可以进行提交了。不断轮询，提高效率</li>
+</ol>
+<p>通过内存合并库存减操作，干到100000（每个减库存操作生成一条独立的update binlog，不影响其他业务2016年双11），实际这里还可以调整批提交时间间隔来进一步提升扣减QPS</p>
+<p><img src="/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png" alt="Snip20161116_87.png"></p>
+<p>超卖：付款减库存会超卖，拍减库存要防止恶意拍不付款。拍减的话可以通过增加SQL新语法来进一步优化DB响应(select update)</p>
+<p>innodb_buffer_pool_instance: 将buffer pool 分成几个（hash），避免高并发修改的时候一个大锁mutex导致性能不高</p>
+<h3 id="业务优化"><a href="#业务优化" class="headerlink" title="业务优化"></a>业务优化</h3><p>延迟扣减item，一般一个item下会有多个sku（比如 iPhone14 不同的颜色、配置就是一个不同的sku），而库存会有总库存（item），也有sku 库存，sku库存加起来就是item库存</p>
+<p>导致扣减的时候 item库存更热</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E7%A7%92%E6%9D%80/" rel="tag"># 秒杀</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" rel="prev" title="MySQL线程池导致的延时卡顿排查">
+                  <i class="fa fa-angle-left"></i> MySQL线程池导致的延时卡顿排查
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/11/18/TCP%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/" rel="next" title="活久见，TCP连接互串了">
+                  活久见，TCP连接互串了 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

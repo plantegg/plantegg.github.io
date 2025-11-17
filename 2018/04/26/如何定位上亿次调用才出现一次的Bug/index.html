@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="如何定位上亿次调用才出现一次的Bug引文对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如这个问题 正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。 问题背景客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到clie">
+<meta property="og:type" content="article">
+<meta property="og:title" content="如何定位上亿次调用才出现一次的Bug">
+<meta property="og:url" content="https://plantegg.github.io/2018/04/26/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="如何定位上亿次调用才出现一次的Bug引文对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如这个问题 正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。 问题背景客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到clie">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/02bcccd66af82c929c4eee8c88875733.png">
+<meta property="article:published_time" content="2018-04-26T08:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.575Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="NIO">
+<meta property="article:tag" content="btrace">
+<meta property="article:tag" content="bug">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="tcpdump">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2018/04/26/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2018/04/26/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug/","path":"2018/04/26/如何定位上亿次调用才出现一次的Bug/","title":"如何定位上亿次调用才出现一次的Bug"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>如何定位上亿次调用才出现一次的Bug | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug"><span class="nav-number">1.</span> <span class="nav-text">如何定位上亿次调用才出现一次的Bug</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BC%95%E6%96%87"><span class="nav-number">1.1.</span> <span class="nav-text">引文</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E8%83%8C%E6%99%AF"><span class="nav-number">1.2.</span> <span class="nav-text">问题背景</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#tcpdump-%E6%8A%93%E5%8C%85%E6%89%80%E7%9C%8B%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98%E8%A1%A8%E7%8E%B0"><span class="nav-number">1.2.1.</span> <span class="nav-text">tcpdump 抓包所看到的问题表现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BC%80%E5%8F%91%E5%A2%9E%E5%8A%A0debug%E6%97%A5%E5%BF%97"><span class="nav-number">1.2.2.</span> <span class="nav-text">开发增加debug日志</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%80%E7%96%91ECS%E7%BD%91%E7%BB%9C%E6%8A%96%E5%8A%A8%EF%BC%88%E6%98%AF%E4%B8%AA%E5%A5%BD%E8%83%8C%E9%94%85%E4%BE%A0%EF%BC%8C%E4%BB%80%E4%B9%88%E9%94%85%E9%83%BD%E5%8F%AF%E4%BB%A5%E8%83%8C%EF%BC%89"><span class="nav-number">1.2.3.</span> <span class="nav-text">怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8E%BB%E5%BA%95%E5%B1%82%E6%8C%96%E6%8E%98tcp%E5%8D%8F%E8%AE%AE%EF%BC%8C%E5%88%B0%E5%BA%95%E4%BB%80%E4%B9%88%E6%9D%A1%E4%BB%B6%E4%B8%8B%E4%BC%9A%E5%87%BA%E7%8E%B0%E4%B8%BB%E5%8A%A8%E6%96%AD%E5%BC%80%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.2.4.</span> <span class="nav-text">去底层挖掘tcp协议，到底什么条件下会出现主动断开连接</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%94%A8strace%E3%80%81pstack%E5%8E%BB%E7%9B%91%E6%8E%A7-socket-close-%E8%BF%99%E4%B8%AA%E4%BA%8B%E4%BB%B6"><span class="nav-number">1.2.5.</span> <span class="nav-text">用strace、pstack去监控 socket.close 这个事件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BA%94%E7%94%A8%E8%A2%AB-OOM-kill"><span class="nav-number">1.2.6.</span> <span class="nav-text">应用被 OOM kill</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%BB%99%E5%8A%9B%E7%9A%84%E5%BC%80%E5%8F%91%E5%90%8C%E5%AD%A6"><span class="nav-number">1.2.7.</span> <span class="nav-text">给力的开发同学</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%8ABtrace-%E7%9B%91%E5%90%AC%E6%89%80%E6%9C%89-socket-close-%E4%BA%8B%E4%BB%B6"><span class="nav-number">1.2.8.</span> <span class="nav-text">上Btrace 监听所有 socket.close 事件</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.3.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/04/26/%E5%A6%82%E4%BD%95%E5%AE%9A%E4%BD%8D%E4%B8%8A%E4%BA%BF%E6%AC%A1%E8%B0%83%E7%94%A8%E6%89%8D%E5%87%BA%E7%8E%B0%E4%B8%80%E6%AC%A1%E7%9A%84Bug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="如何定位上亿次调用才出现一次的Bug | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          如何定位上亿次调用才出现一次的Bug
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2018-04-26 16:30:03" itemprop="dateCreated datePublished" datetime="2018-04-26T16:30:03+08:00">2018-04-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/troubleshooting/" itemprop="url" rel="index"><span itemprop="name">troubleshooting</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="如何定位上亿次调用才出现一次的Bug"><a href="#如何定位上亿次调用才出现一次的Bug" class="headerlink" title="如何定位上亿次调用才出现一次的Bug"></a>如何定位上亿次调用才出现一次的Bug</h1><h2 id="引文"><a href="#引文" class="headerlink" title="引文"></a>引文</h2><p>对于那种出现概率非常低，很难重现的bug有时候总是感觉有力使不上，比如<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/21348220?f3fb8ead20=e041f967b1b416071a11f7702126d7a0&from=singlemessage&isappinstalled=0">这个问题</a></p>
+<p>正好最近也碰到一个极低概率下的异常，我介入前一大帮人花了几个月，OS、ECS、网络等等各个环节都被怀疑一遍但是又都没有实锤，所以把过程记录下。</p>
+<h2 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h2><p>客户会调用我们的一个服务，正常都是client request -&gt; server response 如此反复直到client主动完成，然后断开tcp连接。但是就是在这个过程中，有极低的概率client 端抛出连接非正常断开的异常堆栈，由于这个业务比较特殊，客户无法接受这种异常，所以要求一定要解决这个问题。</p>
+<p>重现麻烦，只能在客户环境，让客户把他们的测试跑起来才能一天重现1-2次，每次跟客户沟通成本很高。出现问题的精确时间点不好确定</p>
+<h3 id="tcpdump-抓包所看到的问题表现"><a href="#tcpdump-抓包所看到的问题表现" class="headerlink" title="tcpdump 抓包所看到的问题表现"></a>tcpdump 抓包所看到的问题表现</h3><p>在client 和 server上一直进行tcpdump 抓包，然后压力测试不停地跑，一旦client抛了连接异常，根据时间点、端口信息在两边的抓包中分析当时的tcp会话</p>
+<p>比如，通过tcpdump分析到的会话是这样的：<br><img src="/images/oss/ed9b5b2d81bdc58b9cf41217763939e5.png" alt="screenshot.png"></p>
+<p>如上图所示，正常都是client发送request，server返回response，但是出问题的时候（截图红框）server收到了client的request，也回复了ack给client说收到请求了，但是很快server又回复了一个fin包（server主动发起四次挥手断开连接），这是不正常的。</p>
+<p>到这里可以有一个明确的结论：<strong>出问题都是因为server主动发起连接断开的fin包，即使刚收到client的request请求还没有返回response</strong></p>
+<h3 id="开发增加debug日志"><a href="#开发增加debug日志" class="headerlink" title="开发增加debug日志"></a>开发增加debug日志</h3><p>在server端的应用中可能会调用 socket.close 的地方都增加了日志，但是实际发生异常的时候没有任何日志输出，所以到此开发认为应用代码没有问题（毕竟没有证据–实际不能排除）</p>
+<h3 id="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"><a href="#怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）" class="headerlink" title="怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）"></a>怀疑ECS网络抖动（是个好背锅侠，什么锅都可以背）</h3><p>申请单独的物理机资源给客户，保证没有其它应用来争抢网络和其它资源，前三天一次异常也没有发生（在ECS上一天发生1-2次），非常高兴以为找到问题了。结果第四天异常再次出现，更换物理机也只是好像偶然性地降低了发生频率而已。</p>
+<h3 id="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"><a href="#去底层挖掘tcp协议，到底什么条件下会出现主动断开连接" class="headerlink" title="去底层挖掘tcp协议，到底什么条件下会出现主动断开连接"></a>去底层挖掘tcp协议，到底什么条件下会出现主动断开连接</h3><p>实际也没有什么进展</p>
+<h3 id="用strace、pstack去监控-socket-close-这个事件"><a href="#用strace、pstack去监控-socket-close-这个事件" class="headerlink" title="用strace、pstack去监控 socket.close 这个事件"></a>用strace、pstack去监控 socket.close 这个事件</h3><p>但实际可能在上亿次正常的 socket.close (查询全部结束，client主动请求断开连接）才会出现一次不正常的 socket.close .量太大，还没发在这么多事件中区分那个是不正常的close</p>
+<h3 id="应用被-OOM-kill"><a href="#应用被-OOM-kill" class="headerlink" title="应用被 OOM kill"></a>应用被 OOM kill</h3><p>调查过程中为了更快地重现异常，将客户端连接都改成长连接，这样应用不再去调 socket.close ，除非超时、异常之类的，这样一旦出现不正常的 socket.close 就更容易定位了。</p>
+<p>实际跑了一段时间后，发现确实 tcpdump 能抓到很多 server在接收到request还没有返回response的时候主动发送 fin包来断开连接的情况，跟前面的症状是一模一样的。但是最终发现这个时候应用被杀掉了，只是说明应用被杀的情况下 server会主动去掉 socket.close关闭连接，但这只是充分条件，而不是必要条件。实际生产线上也没有被 OOM kill过。</p>
+<h3 id="给力的开发同学"><a href="#给力的开发同学" class="headerlink" title="给力的开发同学"></a>给力的开发同学</h3><p>分析了这个异常后，开发简化了整个测试，实现client上跑一行PHP代码反复调用就能够让这个bug触发，这一下把整个测试重现bug的过程简化了，终于不再需要客户配合了，让问题的定位效率快了一个数量级。</p>
+<p>为了快速地定位到异常的具体连接，实现脚本来自动分析tcpdump结果找到异常close的连接</p>
+<p>快速在tcpdump包中找到出问题的那个stream（这个命令行要求tshark的版本为1.12及以上，默认的阿里服务器上的版本都太低，解析不了_ws.col.Info列）：</p>
+<pre><code>tshark -r capture.pcap135 -T fields -e frame.number -e frame.time_epoch -e ip.addr -e tcp.port  -e tcp.stream   -e _ws.col.Info | egrep &quot;FIN|Request Quit&quot; | awk &#39;{ print $5, $6 $7 }&#39; | sort -k1n | awk &#39;{ print $1 }&#39; | uniq -c | grep -v &quot;^      3&quot; | less
+</code></pre>
+<p>在这一系列的工具作用下，稳定跑上一天，异常能发生3、4次，产生的日志和网络包有几百G。</p>
+<p>出现问题的后，通过上面的脚本分析连接异常断开的client ip+port和时间，同时拿这三个信息到下面的异常堆栈中搜索匹配找到调用 socket.close()的堆栈。</p>
+<h3 id="上Btrace-监听所有-socket-close-事件"><a href="#上Btrace-监听所有-socket-close-事件" class="headerlink" title="上Btrace 监听所有 socket.close 事件"></a>上Btrace 监听所有 socket.close 事件</h3><pre><code>	@OnMethod(clazz=&quot;+java.net.Socket&quot;, method=&quot;close&quot;)
+	public static void onSocketClose(@Self Object me) {
+      println(&quot;\n==== java.net.Socket#close ====&quot;);
+      BTraceUtils.println(BTraceUtils.timestamp() );
+      BTraceUtils.println(BTraceUtils.Time.millis() );
+      println(concat(&quot;Socket closing:&quot;, str(me)));
+      println(concat(&quot;thread: &quot;, str(currentThread())));
+      printFields(me);
+      jstack();
+}
+</code></pre>
+<p>终于在出现异常的时候btrace抓到了异常的堆栈，在之前代码review看来不可能的逻辑里server主动关闭了连接</p>
+<p><img src="/images/oss/02bcccd66af82c929c4eee8c88875733.png" alt="screenshot.png"></p>
+<p>图左是应用代码，图右是关闭连接的堆栈，有了这个堆栈就可以去修复问题了</p>
+<p>实际上这里可能有几个问题：</p>
+<ol>
+<li>buffer.position 是不可能为0的；</li>
+<li>即使buffer.position 等于0 也不应该直接 socket.close, 可能发送error信息给客户端更好；</li>
+</ol>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>最终原因是因为NIO过程中buffer有极低的概率被两个socket重用，从而导致出现正在使用的buffer被另外一个socket拿过去并且设置了buffer.position为0，进而导致前一个socket认为数据异常赶紧close了。</li>
+<li>开发简化问题的重现步骤非常关键，同时对异常进行分类分析，加快了定位效率</li>
+<li>能够通过tcpdump去抓包定位到具体问题大概所在点这是比较关键的一步，同时通过btrace再去监控出问题的调用堆栈从而找到具体代码行。</li>
+<li>过程看似简单，实际牵扯了一大波工程师进来，经过几个月才最终定位到出问题的代码行，确实不容易</li>
+</ul>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/NIO/" rel="tag"># NIO</a>
+              <a href="/tags/tcpdump/" rel="tag"># tcpdump</a>
+              <a href="/tags/bug/" rel="tag"># bug</a>
+              <a href="/tags/btrace/" rel="tag"># btrace</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2018/03/25/iptables%E7%9B%91%E6%8E%A7reset%E7%9A%84%E8%BF%9E%E6%8E%A5/" rel="prev" title="iptables监控reset的连接信息">
+                  <i class="fa fa-angle-left"></i> iptables监控reset的连接信息
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/" rel="next" title="通过案例来理解MSS、MTU等相关TCP概念">
+                  通过案例来理解MSS、MTU等相关TCP概念 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

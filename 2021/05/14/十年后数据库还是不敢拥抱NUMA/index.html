@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="十年后数据库还是不敢拥抱NUMA？在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kern">
+<meta property="og:type" content="article">
+<meta property="og:title" content="十年后数据库还是不敢拥抱NUMA？">
+<meta property="og:url" content="https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="十年后数据库还是不敢拥抱NUMA？在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kern">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/uma-architecture.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/numa-architecture.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/39354-figure-3-184398.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210525151537507.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20210525151622425.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/image-20240324161113874-5525714.png">
+<meta property="article:published_time" content="2021-05-14T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.573Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="NUMA">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="zone_reclaim_mode">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/","path":"2021/05/14/十年后数据库还是不敢拥抱NUMA/","title":"十年后数据库还是不敢拥抱NUMA？"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>十年后数据库还是不敢拥抱NUMA？ | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">十年后数据库还是不敢拥抱NUMA？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8E%9F%E5%9B%A0%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">原因分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#CPU%E7%9A%84%E5%AE%9E%E9%99%85%E4%BF%A1%E6%81%AF"><span class="nav-number">1.2.1.</span> <span class="nav-text">CPU的实际信息</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%B3%E4%BA%8ENUMA"><span class="nav-number">1.3.</span> <span class="nav-text">关于NUMA</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#UMA%E5%92%8CNUMA%E5%AF%B9%E6%AF%94"><span class="nav-number">1.3.1.</span> <span class="nav-text">UMA和NUMA对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AF%B9%E6%AF%94%E6%B5%8B%E8%AF%95Intel-NUMA-%E6%80%A7%E8%83%BD"><span class="nav-number">1.4.</span> <span class="nav-text">对比测试Intel NUMA 性能</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9B%86%E5%9B%A2%E5%86%85%E5%A4%96%E6%89%80%E6%9C%89%E7%89%A9%E7%90%86%E6%9C%BA%E9%83%BD%E6%8A%8ANUMA%E5%85%B3%E6%8E%89%E4%BA%86%E5%91%A2%EF%BC%9F"><span class="nav-number">1.5.</span> <span class="nav-text">为什么集团内外所有物理机都把NUMA关掉了呢？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Linux-Kernel%E5%AF%B9NUMA%E5%86%85%E5%AD%98%E7%9A%84%E4%BD%BF%E7%94%A8"><span class="nav-number">1.6.</span> <span class="nav-text">Linux Kernel对NUMA内存的使用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#zone-reclaim-mode"><span class="nav-number">1.6.1.</span> <span class="nav-text">zone_reclaim_mode</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9F%A5%E7%9C%8Bkernel%E6%8F%90%E4%BA%A4%E8%AE%B0%E5%BD%95"><span class="nav-number">1.6.2.</span> <span class="nav-text">查看kernel提交记录</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E4%B8%80%E4%B8%8Bzone-reclaim-mode-0%E6%98%AF%E7%94%9F%E6%95%88%E7%9A%84"><span class="nav-number">1.6.3.</span> <span class="nav-text">验证一下zone_reclaim_mode 0是生效的</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E6%96%B9%E6%B3%95"><span class="nav-number">1.6.3.1.</span> <span class="nav-text">测试方法</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E8%BF%87%E7%A8%8B"><span class="nav-number">1.6.3.2.</span> <span class="nav-text">测试过程</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%B0%86-proc-sys-vm-zone-reclaim-mode-%E6%94%B9%E6%88%90-1-%E7%BB%A7%E7%BB%AD%E5%90%8C%E6%A0%B7%E7%9A%84%E6%B5%8B%E8%AF%95"><span class="nav-number">1.6.4.</span> <span class="nav-text">将 &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;zone_reclaim_mode 改成 1 继续同样的测试</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#innodb-numa-interleave"><span class="nav-number">1.6.5.</span> <span class="nav-text">innodb_numa_interleave</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#AUTOMATIC-NUMA-BALANCING"><span class="nav-number">1.6.6.</span> <span class="nav-text">AUTOMATIC NUMA BALANCING</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%9B%91%E6%8E%A7"><span class="nav-number">1.6.7.</span> <span class="nav-text">监控</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.7.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E6%96%87%E7%AB%A0"><span class="nav-number">1.8.</span> <span class="nav-text">系列文章</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.9.</span> <span class="nav-text">参考资料</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A6%82%E6%9E%9C%E4%BD%A0%E8%A7%89%E5%BE%97%E7%9C%8B%E5%AE%8C%E5%AF%B9%E4%BD%A0%E5%BE%88%E6%9C%89%E5%B8%AE%E5%8A%A9%E5%8F%AF%E4%BB%A5%E9%80%9A%E8%BF%87%E5%A6%82%E4%B8%8B%E6%96%B9%E5%BC%8F%E6%89%BE%E5%88%B0%E6%88%91"><span class="nav-number">1.10.</span> <span class="nav-text">如果你觉得看完对你很有帮助可以通过如下方式找到我</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="十年后数据库还是不敢拥抱NUMA？ | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          十年后数据库还是不敢拥抱NUMA？
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-05-14 17:30:03" itemprop="dateCreated datePublished" datetime="2021-05-14T17:30:03+08:00">2021-05-14</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="十年后数据库还是不敢拥抱NUMA？"><a href="#十年后数据库还是不敢拥抱NUMA？" class="headerlink" title="十年后数据库还是不敢拥抱NUMA？"></a>十年后数据库还是不敢拥抱NUMA？</h1><p>在2010年前后MySQL、PG、Oracle数据库在使用NUMA的时候碰到了性能问题，流传最广的这篇  <a target="_blank" rel="noopener" href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a> 描述了性能问题的原因(文章中把原因找错了)以及解决方案：关闭NUMA。 实际这个原因是kernel实现的一个低级bug，这个Bug在<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82">2014年修复了</a>，但是修复这么多年后仍然以讹传讹，这篇文章希望正本清源、扭转错误的认识。</p>
+<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>最近在做一次性能测试的时候发现MySQL实例有一个奇怪现象，在128core的物理机上运行三个MySQL实例，每个实例分别绑定32个物理core，绑定顺序就是第一个0-31、第二个32-63、第三个64-95，实际运行结果让人大跌眼镜，如下图</p>
+<p><img src="/images/951413iMgBlog/1620953504602-30988926-85d8-4af1-996d-f35aa5fede00.png" alt="undefined"> </p>
+<p>从CPU消耗来看差异巨大，高的实例CPU用到了2500%，低的才488%，差了5倍。但是神奇的是他们的QPS一样，执行的SQL也是一样</p>
+<p><img src="/images/951413iMgBlog/1620953709047-cbe4b59c-aa2b-4845-8b59-9ed6d07e3916.png" alt="undefined"><br>所有MySQL实例流量一样</p>
+<p>那么问题来了为什么在同样的机器上、同样的流量下CPU使用率差了这么多？ 换句话来问就是CPU使用率高就有效率吗？</p>
+<p>这台物理机CPU 信息</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">#lscpu</span><br><span class="line">Architecture:          aarch64</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                128</span><br><span class="line">On-line CPU(s) list:   0-127</span><br><span class="line">Thread(s) per core:    1</span><br><span class="line">Core(s) per socket:    64</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          1</span><br><span class="line">Model:                 3</span><br><span class="line">BogoMIPS:              100.00</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              2048K</span><br><span class="line">L3 cache:              65536K</span><br><span class="line">NUMA node0 CPU(s):     0-127</span><br><span class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</span><br></pre></td></tr></table></figure>
+
+<h2 id="原因分析"><a href="#原因分析" class="headerlink" title="原因分析"></a>原因分析</h2><p>先来看这两个MySQL 进程的Perf数据</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br></pre></td><td class="code"><pre><span class="line">#第二个 MySQL IPC只有第三个的30%多点，这就是为什么CPU高这么多，但是QPS差不多</span><br><span class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 61238</span><br><span class="line">^C</span><br><span class="line"> Performance counter stats for process id &#x27;61238&#x27;:</span><br><span class="line"></span><br><span class="line">        86,491,052      branch-misses                                                 (58.55%)</span><br><span class="line">    98,481,418,793      bus-cycles                                                    (55.64%)</span><br><span class="line">       113,095,618      cache-misses              #    6.169 % of all cache refs      (53.20%)</span><br><span class="line">     1,833,344,484      cache-references                                              (52.00%)</span><br><span class="line">   101,516,165,898      cpu-cycles                                                    (57.09%)</span><br><span class="line">     4,229,190,014      instructions              #    0.04  insns per cycle          (55.91%)</span><br><span class="line">       111,780,025      L1-dcache-load-misses     #    6.34% of all L1-dcache hits    (55.40%)</span><br><span class="line">     1,764,421,570      L1-dcache-loads                                               (52.62%)</span><br><span class="line">       112,261,128      L1-dcache-store-misses                                        (49.34%)</span><br><span class="line">     1,814,998,338      L1-dcache-stores                                              (48.51%)</span><br><span class="line">       219,372,119      L1-icache-load-misses                                         (49.56%)</span><br><span class="line">     2,816,279,627      L1-icache-loads                                               (49.15%)</span><br><span class="line">        85,321,093      branch-load-misses                                            (50.38%)</span><br><span class="line">     1,038,572,653      branch-loads                                                  (50.65%)</span><br><span class="line">        45,166,831      dTLB-load-misses                                              (51.98%)</span><br><span class="line">        29,892,473      iTLB-load-misses                                              (52.56%)</span><br><span class="line"></span><br><span class="line">       1.163750756 seconds time elapsed</span><br><span class="line"></span><br><span class="line">#第三个 MySQL</span><br><span class="line">perf stat -e branch-misses,bus-cycles,cache-misses,cache-references,cpu-cycles,instructions,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-store-misses,L1-dcache-stores,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,iTLB-load-misses  -a -p 53400</span><br><span class="line">^C</span><br><span class="line"> Performance counter stats for process id &#x27;53400&#x27;:</span><br><span class="line"></span><br><span class="line">       295,575,513      branch-misses                                                 (40.51%)</span><br><span class="line">   110,934,600,206      bus-cycles                                                    (39.30%)</span><br><span class="line">       537,938,496      cache-misses              #    8.310 % of all cache refs      (38.99%)</span><br><span class="line">     6,473,688,885      cache-references                                              (39.80%)</span><br><span class="line">   110,540,950,757      cpu-cycles                                                    (46.10%)</span><br><span class="line">    14,766,013,708      instructions              #    0.14  insns per cycle          (46.85%)</span><br><span class="line">       538,521,226      L1-dcache-load-misses     #    8.36% of all L1-dcache hits    (48.00%)</span><br><span class="line">     6,440,728,959      L1-dcache-loads                                               (46.69%)</span><br><span class="line">       533,693,357      L1-dcache-store-misses                                        (45.91%)</span><br><span class="line">     6,413,111,024      L1-dcache-stores                                              (44.92%)</span><br><span class="line">       673,725,952      L1-icache-load-misses                                         (42.76%)</span><br><span class="line">     9,216,663,639      L1-icache-loads                                               (38.27%)</span><br><span class="line">       299,202,001      branch-load-misses                                            (37.62%)</span><br><span class="line">     3,285,957,082      branch-loads                                                  (36.10%)</span><br><span class="line">       149,348,740      dTLB-load-misses                                              (35.20%)</span><br><span class="line">       102,444,469      iTLB-load-misses                                              (34.78%)</span><br><span class="line"></span><br><span class="line">       8.080841166 seconds time elapsed</span><br></pre></td></tr></table></figure>
+<p>从上面可以看到 IPC 差异巨大0.04 VS 0.14 ，也就是第一个MySQL的CPU效率很低，我们看到的CPU running实际是CPU在等待(stall)。</p>
+<h3 id="CPU的实际信息"><a href="#CPU的实际信息" class="headerlink" title="CPU的实际信息"></a>CPU的实际信息</h3><p>找到同一个机型，但是NUMA开着的查了一下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">#lscpu</span><br><span class="line">Architecture:          aarch64</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                128</span><br><span class="line">On-line CPU(s) list:   0-127</span><br><span class="line">Thread(s) per core:    1</span><br><span class="line">Core(s) per socket:    64</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          16</span><br><span class="line">Model:                 3</span><br><span class="line">BogoMIPS:              100.00</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              2048K</span><br><span class="line">L3 cache:              65536K</span><br><span class="line">NUMA node0 CPU(s):     0-7</span><br><span class="line">NUMA node1 CPU(s):     8-15</span><br><span class="line">NUMA node2 CPU(s):     16-23</span><br><span class="line">NUMA node3 CPU(s):     24-31</span><br><span class="line">NUMA node4 CPU(s):     32-39</span><br><span class="line">NUMA node5 CPU(s):     40-47</span><br><span class="line">NUMA node6 CPU(s):     48-55</span><br><span class="line">NUMA node7 CPU(s):     56-63</span><br><span class="line">NUMA node8 CPU(s):     64-71</span><br><span class="line">NUMA node9 CPU(s):     72-79</span><br><span class="line">NUMA node10 CPU(s):    80-87</span><br><span class="line">NUMA node11 CPU(s):    88-95</span><br><span class="line">NUMA node12 CPU(s):    96-103</span><br><span class="line">NUMA node13 CPU(s):    104-111</span><br><span class="line">NUMA node14 CPU(s):    112-119</span><br><span class="line">NUMA node15 CPU(s):    120-127</span><br><span class="line">Flags:                 fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid</span><br></pre></td></tr></table></figure>
+<p>这告诉我们实际上这个机器有16个NUMA，跨NUMA访问内存肯定比访问本NUMA内的要慢几倍。</p>
+<h2 id="关于NUMA"><a href="#关于NUMA" class="headerlink" title="关于NUMA"></a>关于NUMA</h2><p>如下图，是一个Intel Xeon E5 CPU的架构信息，左右两边的大红框分别是两个NUMA，每个NUMA的core访问直接插在自己红环上的内存必然很快，如果访问插在其它NUMA上的内存还要走两个红环之间上下的黑色箭头线路，所以要慢很多。</p>
+<p><img src="/images/951413iMgBlog/1623830161880-c4c74f4d-785e-4274-a579-5d1aa8b5e990.png" alt="img"></p>
+<p>实际测试Intel的E5-2682（对应V42机型）和8269（对应V62机型） 的CPU跨Socket（这两块CPU内部不再是上图的红环Bus,而是改用了Mesh Bus一个Die就是一个NUMA，服务器有两路，也就是一个Socket就是一个NUMA），也就是跨NUMA访问内存的延迟是本Node延迟的将近2倍。<a target="_blank" rel="noopener" href="https://software.intel.com/content/www/us/en/develop/articles/intelr-memory-latency-checker.html">测试工具从这里下载</a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">//E5-2682</span><br><span class="line">Intel(R) Memory Latency Checker - v3.9</span><br><span class="line">Measuring idle latencies (in ns)...</span><br><span class="line">		Numa node</span><br><span class="line">Numa node	     0	     1</span><br><span class="line">       0	  85.0	 136.3</span><br><span class="line">       1	 137.2	  84.2</span><br><span class="line"></span><br><span class="line">//8269</span><br><span class="line">Intel(R) Memory Latency Checker - v3.9  </span><br><span class="line">Measuring idle latencies (in ns)...</span><br><span class="line">    Numa node</span><br><span class="line">Numa node      0       1</span><br><span class="line">       0    78.6   144.1</span><br><span class="line">       1   144.7    78.5 </span><br></pre></td></tr></table></figure>
+
+<p>开启NUMA会优先就近使用内存，在本NUMA上的内存不够的时候可以选择回收本地的PageCache还是到其它NUMA 上分配内存，这是可以通过Linux参数 zone_reclaim_mode 来配置的，默认是到其它NUMA上分配内存，也就是跟关闭NUMA是一样的。</p>
+<p><strong>这个架构距离是物理上就存在的不是你在BIOS里关闭了NUMA差异就消除了，我更愿意认为在BIOS里关掉NUMA只是掩耳盗铃。</strong></p>
+<p>以上理论告诉我们：<strong>也就是在开启NUMA和 zone_reclaim_mode 默认在内存不够的如果去其它NUMA上分配内存，比关闭NUMA要快很多而没有任何害处。</strong></p>
+<h4 id="UMA和NUMA对比"><a href="#UMA和NUMA对比" class="headerlink" title="UMA和NUMA对比"></a>UMA和NUMA对比</h4><p>The SMP&#x2F;UMA architecture</p>
+<p><img src="/images/951413iMgBlog/uma-architecture.png" alt="img"></p>
+<p>The NUMA architecture</p>
+<p><img src="/images/951413iMgBlog/numa-architecture.png" alt="img"></p>
+<p>Modern multiprocessor systems mix these basic architectures as seen in the following diagram:</p>
+<p><img src="/images/951413iMgBlog/39354-figure-3-184398.jpg" alt="img"></p>
+<p>In this complex hierarchical scheme, processors are grouped by their physical location on one or the other multi-core CPU package or “node.” Processors within a node share access to memory modules as per the UMA shared memory architecture. At the same time, they may also access memory from the remote node using a shared interconnect, but with slower performance as per the NUMA shared memory architecture.</p>
+<p><img src="/images/951413iMgBlog/03-05-Broadwell_HCC_Architecture.svg" alt="03-05-Broadwell_HCC_Architecture"></p>
+<h2 id="对比测试Intel-NUMA-性能"><a href="#对比测试Intel-NUMA-性能" class="headerlink" title="对比测试Intel NUMA 性能"></a>对比测试Intel NUMA 性能</h2><p>对如下Intel CPU进行一些测试，在开启NUMA的情况下</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                64</span><br><span class="line">On-line CPU(s) list:   0-63</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    16</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 79</span><br><span class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</span><br><span class="line">Stepping:              1</span><br><span class="line">CPU MHz:               2500.000</span><br><span class="line">CPU max MHz:           3000.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              5000.06</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              256K</span><br><span class="line">L3 cache:              40960K</span><br><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm rdt rdseed adx smap xsaveopt cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3</span><br><span class="line"></span><br><span class="line">#numastat</span><br><span class="line">                           node0           node1</span><br><span class="line">numa_hit               129600200        60501102</span><br><span class="line">numa_miss                      0               0</span><br><span class="line">numa_foreign                   0               0</span><br><span class="line">interleave_hit            108648          108429</span><br><span class="line">local_node             129576548        60395061</span><br><span class="line">other_node                 23652          106041</span><br></pre></td></tr></table></figure>
+<p>我在这个64core的物理机上运行一个MySQL 实例，先将MySQL进程绑定在0-63core，0-31core，以及0-15,32-47上</p>
+<p>用sysbench对一亿条记录跑点查，数据都加载到内存中了：</p>
+<ul>
+<li>绑0-63core qps 不到8万，总cpu跑到5000%，降低并发的话qps能到11万；</li>
+<li>如果绑0-31core qps 12万，总cpu跑到3200%，IPC 0.29；</li>
+<li>如果绑同一个numa下的32core，qps飙到27万，总CPU跑到3200%  IPC: 0.42；</li>
+<li>绑0-15个物理core，qps能到17万，绑32-47也是一样的效果；</li>
+</ul>
+<p><img src="/images/951413iMgBlog/1620954918277-c669bd74-df58-4d69-8185-a93f37046972.png" alt="undefined"> </p>
+<p>从这个数据看起来<strong>即使Intel在只有两个NUMA的情况下跨性能差异也有2倍，可见正确的绑核方法收益巨大，尤其是在刷榜的情况下</strong>， NUMA更多性能差异应该会更大。</p>
+<p>说明前面的理论是正确的。</p>
+<p>来看看不通绑核情况下node之间的带宽利用情况：</p>
+<p><img src="/images/951413iMgBlog/image-20210525151537507.png" alt="image-20210525151537507"></p>
+<p><img src="/images/951413iMgBlog/image-20210525151622425.png" alt="image-20210525151622425"></p>
+<p>实际在不开NUMA的同样CPU上，进行以上各种绑核测试，测试结果也完全一样。</p>
+<p>如果比较读写混合场景的话肯定会因为写锁导致CPU跑起来，最终的性能差异也不会这么大，但是绑在同一个NUMA下的性能肯定要好，IPC也会高一些。具体好多少取决于锁的竞争程度。</p>
+<h2 id="为什么集团内外所有物理机都把NUMA关掉了呢？"><a href="#为什么集团内外所有物理机都把NUMA关掉了呢？" class="headerlink" title="为什么集团内外所有物理机都把NUMA关掉了呢？"></a>为什么集团内外所有物理机都把NUMA关掉了呢？</h2><p>10年前几乎所有的运维都会多多少少被NUMA坑害过，让我们看看究竟有多少种在NUMA上栽的方式：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></li>
+<li><a target="_blank" rel="noopener" href="http://frosty-postgres.blogspot.com/2012/08/postgresql-numa-and-zone-reclaim-mode.html">PostgreSQL – PostgreSQL, NUMA and zone reclaim mode on linux</a></li>
+<li><a target="_blank" rel="noopener" href="http://blog.yannickjaquier.com/hpux/non-uniform-memory-access-numa-architecture-with-oracle-database-by-examples.html">Oracle – Non-Uniform Memory Access (NUMA) architecture with Oracle database by examples</a></li>
+<li><a target="_blank" rel="noopener" href="http://engineering.linkedin.com/performance/optimizing-linux-memory-management-low-latency-high-throughput-databases">Java – Optimizing Linux Memory Management for Low-latency &#x2F; High-throughput Databases</a></li>
+</ul>
+<p>最有名的是这篇  <a target="_blank" rel="noopener" href="http://blog.jcole.us/2010/09/28/mysql-swap-insanity-and-the-numa-architecture/">MySQL – The MySQL “swap insanity” problem and the effects of the NUMA architecture</a></p>
+<p>我总结下这篇2010年的文章说的是啥：</p>
+<ul>
+<li>如果本NUMA内存不够的时候，Linux会优先回收PageCache内存，即使其它NUMA还有内存</li>
+<li>回收PageCache经常会造成系统卡顿，这个卡顿不能接受</li>
+</ul>
+<p>所以文章给出的解决方案就是（三选一）：</p>
+<ul>
+<li>关掉NUMA</li>
+<li>或者启动MySQL的时候指定不分NUMA,比如：&#x2F;usr&#x2F;bin&#x2F;numactl –interleave all $cmd</li>
+<li>或者启动MySQL的时候先回收所有PageCache</li>
+</ul>
+<p>我想这就是这么多人在上面栽了跟头，所以干脆一不做二不休干脆关了NUMA 一了百了。</p>
+<p>但真的NUMA有这么糟糕？或者说Linux Kernel有这么笨，默认优先去回收PageCache吗？</p>
+<h2 id="Linux-Kernel对NUMA内存的使用"><a href="#Linux-Kernel对NUMA内存的使用" class="headerlink" title="Linux Kernel对NUMA内存的使用"></a>Linux Kernel对NUMA内存的使用</h2><p>实际我们使用NUMA的时候期望是：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。</p>
+<h3 id="zone-reclaim-mode"><a href="#zone-reclaim-mode" class="headerlink" title="zone_reclaim_mode"></a>zone_reclaim_mode</h3><p>事实上Linux识别到NUMA架构后，默认的内存分配方案就是：优先尝试在请求线程当前所处的CPU的Local内存上分配空间。<strong>如果local内存不足，优先淘汰local内存中无用的Page（Inactive，Unmapped）</strong>。然后才到其它NUMA上分配内存。</p>
+<p>intel 芯片跨node延迟远低于其他家，所以跨node性能损耗不大</p>
+<p>zone_reclaim_mode，它用来管理当一个内存区域(zone)内部的内存耗尽时，是从其内部进行内存回收还是可以从其他zone进行回收的选项：</p>
+<p>zone_reclaim_mode:</p>
+<blockquote>
+<p>Zone_reclaim_mode allows someone to set more or less aggressive approaches to<br>reclaim memory when a zone runs out of memory. If it is set to zero then no<br>zone reclaim occurs. Allocations will be satisfied from other zones &#x2F; nodes<br>in the system.</p>
+</blockquote>
+<p>zone_reclaim_mode的四个参数值的意义分别是：</p>
+<p>0   &#x3D; Allocate from all nodes before reclaiming memory<br>1   &#x3D; Reclaim memory from local node vs allocating from next node<br>2   &#x3D; Zone reclaim writes dirty pages out<br>4   &#x3D; Zone reclaim swaps pages</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/sys/vm/zone_reclaim_mode</span><br><span class="line">0</span><br></pre></td></tr></table></figure>
+
+<p>我查了2.6.32以及4.19.91内核的机器 zone_reclaim_mode 都是默认0 ，也就是kernel会：优先使用本NUMA上的内存，如果本NUMA不够了不要优先回收PageCache而是优先使用其它NUMA上的内存。这也是我们想要的</p>
+<p>Kernel文档也告诉大家默认就是0，但是为什么会出现优先回收了PageCache呢？</p>
+<h3 id="查看kernel提交记录"><a href="#查看kernel提交记录" class="headerlink" title="查看kernel提交记录"></a>查看kernel提交记录</h3><p><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/4f9b16a64753d0bb607454347036dc997fd03b82">github kernel commit</a></p>
+<p><img src="/images/951413iMgBlog/1620956491058-09a1ebc6-c248-41db-9def-67b4f489c4f4.png" alt="undefined"> </p>
+<p><img src="/images/951413iMgBlog/1620956524069-85ec2c06-ff55-48e9-8c26-96e738456ed4.png" alt="undefined"> </p>
+<p><img src="/images/951413iMgBlog/1620956551990-6e376a3d-de40-4180-a05b-b21a9cbf33bc.png" alt="undefined"> </p>
+<p>关键是上图红框中的代码，node distance比较大（也就是开启了NUMA的话），强制将 zone_reclaim_mode设为1，这是2014年提交的代码，将这个强制设为1的逻辑去掉了。</p>
+<p>这也就是为什么之前大佬们碰到NUMA问题后尝试修改 zone_reclaim_mode 没有效果，<strong>也就是2014年前只要开启了NUMA就强制线回收PageCache，即使设置zone_reclaim_mode也没有意义，真是个可怕的Bug。</strong></p>
+<h3 id="验证一下zone-reclaim-mode-0是生效的"><a href="#验证一下zone-reclaim-mode-0是生效的" class="headerlink" title="验证一下zone_reclaim_mode 0是生效的"></a>验证一下zone_reclaim_mode 0是生效的</h3><p>内核版本：3.10.0-327.ali2017.alios7.x86_64</p>
+<h4 id="测试方法"><a href="#测试方法" class="headerlink" title="测试方法"></a><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/e02dc017c3032dcdce1b993af0db135462e1b4b7">测试方法</a></h4><p>先将一个160G的文件加载到内存里，然后再用代码分配64G的内存出来使用。<br>单个NUMA node的内存为256G，本身用掉了60G，加上这次的160G的PageCache，和之前的一些其他PageCache,总的 PageCache用了179G，那么这个node总内存还剩256G-60G-179G，</p>
+<p>如果这个时候再分配64G内存的话，本node肯定不够了，我们来看在 zone_reclaim_mode&#x3D;0 的时候是优先回收PageCache还是分配了到另外一个NUMA node(这个NUMA node 有240G以上的内存空闲）</p>
+<h4 id="测试过程"><a href="#测试过程" class="headerlink" title="测试过程"></a>测试过程</h4><p>分配64G内存</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">#taskset -c 0 ./alloc 64</span><br><span class="line">To allocate 64GB memory</span><br><span class="line">Used time: 39 seconds</span><br><span class="line"></span><br><span class="line">#grep FilePages /sys/devices/system/node/node0/meminfo</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/1620966121309-a264fd7f-fe50-4fc6-940f-4cb603ec7874.png" alt="undefined"> </p>
+<p>从如上截图来看，再分配64G内存的时候即使node0不够了也没有回收node0上的PageCache，而是将内存跨NUMA分配到了node1上，符合预期！</p>
+<p>释放这64G内存后，如下图可以看到node0回收了25G，剩下的39G都是在node1上：<br><img src="/images/951413iMgBlog/1620967573650-b8400c2f-7b48-4502-b7d5-6c050e557126.png" alt="undefined"> </p>
+<h3 id="将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试"><a href="#将-proc-sys-vm-zone-reclaim-mode-改成-1-继续同样的测试" class="headerlink" title="将 &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;zone_reclaim_mode 改成 1 继续同样的测试"></a>将 &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;zone_reclaim_mode 改成 1 继续同样的测试</h3><p>可以看到zone_reclaim_mode 改成 1，node0内存不够了也没有分配node1上的内存，而是从PageCache回收了40G内存，整个分配64G内存的过程也比不回收PageCache慢了12秒，这12秒就是额外的卡顿</p>
+<p><img src="/images/951413iMgBlog/1620977108922-a2f67827-cf00-43a0-bba1-4ba105a33201.png" alt="undefined"> </p>
+<p>测试结论：<strong>从这个测试可以看到NUMA 在内存使用上不会优先回收 PageCache 了</strong></p>
+<h3 id="innodb-numa-interleave"><a href="#innodb-numa-interleave" class="headerlink" title="innodb_numa_interleave"></a>innodb_numa_interleave</h3><p>从5.7开始，mysql增加了对NUMA的无感知：<a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave">innodb_numa_interleave</a>，也就是在开了NUMA的机器上，使用内错交错来分配内存，相当于使用上关掉 NUMA</p>
+<blockquote>
+<p>For the <a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/8.0/en/innodb-parameters.html#sysvar_innodb_numa_interleave"><code>innodb_numa_interleave</code></a> option to be available, MySQL must be compiled on a NUMA-enabled Linux system.</p>
+</blockquote>
+<p>当开启了 innodb_numa_interleave 的话在为innodb buffer pool分配内存的时候将 <a target="_blank" rel="noopener" href="https://linux.die.net/man/2/set_mempolicy">NUMA memory policy</a> 设置为 MPOL_INTERLEAVE 分配完后再设置回 MPOL_DEFAULT（OS默认内存分配行为，也就是zone_reclaim_mode指定的行为)。</p>
+<p>innodb_numa_interleave参数是为innodb更精细化地分配innodb buffer pool 而增加的。很典型地innodb_numa_interleave为on只是更好地规避了前面所说的zone_reclaim_mode的kernel bug，<strong>修复后这个参数没有意义了</strong>。</p>
+<h3 id="AUTOMATIC-NUMA-BALANCING"><a href="#AUTOMATIC-NUMA-BALANCING" class="headerlink" title="AUTOMATIC NUMA BALANCING"></a><a target="_blank" rel="noopener" href="https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing">AUTOMATIC NUMA BALANCING</a></h3><p>RedHat 7默认会自动让内存或者进程就近迁移，让内存和CPU距离更近以达到最好的效果</p>
+<blockquote>
+<p>Automatic NUMA balancing improves the performance of applications running on NUMA hardware systems. It is enabled by default on Red Hat Enterprise Linux 7 systems.</p>
+<p>An application will generally perform best when the threads of its processes are accessing memory on the same NUMA node as the threads are scheduled. Automatic NUMA balancing moves tasks (which can be threads or processes) closer to the memory they are accessing. It also moves application data to memory closer to the tasks that reference it. This is all done automatically by the kernel when automatic NUMA balancing is active.</p>
+</blockquote>
+<p>对应参数</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cat /proc/sys/kernel/numa_balancing shows 1</span><br></pre></td></tr></table></figure>
+
+<h3 id="监控"><a href="#监控" class="headerlink" title="监控"></a>监控</h3><p>查找相应的内存和调度器事件</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta prompt_">#</span><span class="language-bash">perf <span class="built_in">stat</span> -e <span class="built_in">sched</span>:sched_stick_numa,<span class="built_in">sched</span>:sched_move_numa,<span class="built_in">sched</span>:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 7191</span></span><br><span class="line"> Performance counter stats for process id &#x27;7191&#x27;:</span><br><span class="line"></span><br><span class="line">                 0      sched:sched_stick_numa                                        (100.00%)</span><br><span class="line">                 1      sched:sched_move_numa                                         (100.00%)</span><br><span class="line">                 0      sched:sched_swap_numa</span><br><span class="line">                 0      migrate:mm_migrate_pages</span><br><span class="line">               286      minor-faults</span><br><span class="line">               </span><br><span class="line"><span class="meta prompt_"># </span><span class="language-bash">perf <span class="built_in">stat</span> -e <span class="built_in">sched</span>:sched_stick_numa,<span class="built_in">sched</span>:sched_move_numa,<span class="built_in">sched</span>:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p PID</span></span><br><span class="line">...</span><br><span class="line">                 1      sched:sched_stick_numa</span><br><span class="line">                 3      sched:sched_move_numa</span><br><span class="line">                41      sched:sched_swap_numa</span><br><span class="line">             5,239      migrate:mm_migrate_pages</span><br><span class="line">            50,161      minor-faults</span><br><span class="line"><span class="meta prompt_"></span></span><br><span class="line"><span class="meta prompt_">#</span><span class="language-bash">perf <span class="built_in">stat</span> -e <span class="built_in">sched</span>:sched_stick_numa,<span class="built_in">sched</span>:sched_move_numa,<span class="built_in">sched</span>:sched_swap_numa,migrate:mm_migrate_pages,minor-faults -p 676322</span></span><br><span class="line"> Performance counter stats for process id &#x27;676322&#x27;:</span><br><span class="line"></span><br><span class="line">                 0      sched:sched_stick_numa</span><br><span class="line">                16      sched:sched_move_numa</span><br><span class="line">                 0      sched:sched_swap_numa</span><br><span class="line">                24      migrate:mm_migrate_pages</span><br><span class="line">             2,079      minor-faults               </span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>放弃对NUMA的偏见吧，优先回收 PageCache 这个Bug早已修复了</li>
+<li>按NUMA绑定core收益巨大，即使只有两个NUMA的intel芯片，也有一倍以上的性能提升，在飞腾等其他芯片上收益更大</li>
+<li>没必要自欺欺人关掉NUMA了</li>
+<li>RDS这样独占物理机的服务可以做到按NUMA来绑定core，收益可观</li>
+<li>ECS售卖如果能够精确地按NUMA绑核的话性能，超卖比能高很多</li>
+<li>在刷tpcc数据的时候更应该开NUMA和正确绑核</li>
+</ul>
+<p>我个人一直对集团所有机器默认关闭NUMA耿耿于怀，因为定制的物理机（BIOS也是定制的）BIOS默认就是关闭NUMA的，装机还得一台台手工打开（跪了，几十万台啊），算是理清了来龙去脉。因为一个kernel的bug让大家对NUMA一直有偏见，即使14年已经修复了，大家还是以讹传讹，没必要。</p>
+<p>关于cpu为什么高但是没有产出的原因是因为CPU流水线长期stall，导致很低的IPC，所以性能自然上不去，可以看<a target="_blank" rel="noopener" href="http://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html">这篇文章</a> </p>
+<p>其他同学测试的结论：</p>
+<ul>
+<li>Hadoop离线作业在 Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 24 cores&#x2F;socket * 2, Turbo Off 下打开NUMA后性能提升8%</li>
+</ul>
+<p>一些其它不好解释的现象：</p>
+<ol>
+<li>增加少量跨NUMA 的core进来时能增加QPS的，但是随着跨NUMA core越来越多（总core也越来越多）QPS反而会达到一个峰值后下降—效率低的core多了，抢走任务，执行得慢</li>
+<li>压12-19和8-15同样8core，不跨NUMA的8-15性能只好5%左右(87873 VS 92801) — 难以解释</li>
+<li>由1、2所知在测试少量core的时候跨NUMA性能下降体现不出来</li>
+<li>在压0-31core的时候，如果运行 perf这个时候QPS反而会增加（13万上升到15万）— 抢走了一些CPU资源，让某个地方竞争反而减小了</li>
+<li>综上在我个人理解是core越多的时候UPI压力到了瓶颈，才会出现加core性能反而下降</li>
+</ol>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf">https://www.redhat.com/files/summit/session-assets/2018/Performance-analysis-and-tuning-of-Red-Hat-Enterprise-Linux-Part-1.pdf</a></p>
+<p><a target="_blank" rel="noopener" href="https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/">https://informixdba.wordpress.com/2015/10/16/zone-reclaim-mode/</a></p>
+<p><a target="_blank" rel="noopener" href="https://queue.acm.org/detail.cfm?id=2513149">https://queue.acm.org/detail.cfm?id=2513149</a></p>
+<p><a target="_blank" rel="noopener" href="https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/">NUMA DEEP DIVE PART 1: FROM UMA TO NUMA</a> 这是一个系列，都很干货，值得推荐</p>
+<p><a target="_blank" rel="noopener" href="https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf">https://15721.courses.cs.cmu.edu/spring2016/papers/p743-leis.pdf</a> Morsel-Driven Parallelism: A NUMA-Aware Query Evaluation Framework for the Many-Core Age 论文给出了很多numa-aware下的bandwidth、latency数据，以及对THC-H的影响</p>
+<h2 id="如果你觉得看完对你很有帮助可以通过如下方式找到我"><a href="#如果你觉得看完对你很有帮助可以通过如下方式找到我" class="headerlink" title="如果你觉得看完对你很有帮助可以通过如下方式找到我"></a>如果你觉得看完对你很有帮助可以通过如下方式找到我</h2><p>find me on twitter: <a target="_blank" rel="noopener" href="https://twitter.com/plantegg">@plantegg</a></p>
+<p>知识星球：<a target="_blank" rel="noopener" href="https://t.zsxq.com/0cSFEUh2J">https://t.zsxq.com/0cSFEUh2J</a></p>
+<p>开了一个星球，在里面讲解一些案例、知识、学习方法，肯定没法让大家称为顶尖程序员(我自己都不是)，只是希望用我的方法、知识、经验、案例作为你的垫脚石，帮助你快速、早日成为一个基本合格的程序员。</p>
+<p>争取在星球内：</p>
+<ul>
+<li>养成基本动手能力</li>
+<li>拥有起码的分析推理能力–按我接触的程序员，大多都是没有逻辑的</li>
+<li>知识上教会你几个关键的知识点</li>
+</ul>
+<img src="/Users/ren/case/951413iMgBlog/image-20240324161113874-5525714.png" alt="image-20240324161113874" style="zoom:50%;" />
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/NUMA/" rel="tag"># NUMA</a>
+              <a href="/tags/zone-reclaim-mode/" rel="tag"># zone_reclaim_mode</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021/04/06/%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%99%E4%B9%88%E5%A4%9ACLOSE_WAIT/" rel="prev" title="为什么这么多CLOSE_WAIT">
+                  <i class="fa fa-angle-left"></i> 为什么这么多CLOSE_WAIT
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/" rel="next" title="飞腾ARM芯片-FT2500的性能测试">
+                  飞腾ARM芯片-FT2500的性能测试 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

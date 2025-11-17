@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接服务器总是抛异常的问题，然后定位分析并查阅各种资料文章，对TCP连接队列有个深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能把他们说清楚  问题描述场景：JAVA的client和server，使用socket通信。server使用NIO。  1.间歇性的出现client向server建">
+<meta property="og:type" content="article">
+<meta property="og:title" content="就是要你懂TCP--半连接队列和全连接队列">
+<meta property="og:url" content="https://plantegg.github.io/2020/04/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97--%E9%98%BF%E9%87%8C%E6%8A%80%E6%9C%AF%E5%85%AC%E4%BC%97%E5%8F%B7%E7%89%88%E6%9C%AC/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="关于TCP 半连接队列和全连接队列 最近碰到一个client端连接服务器总是抛异常的问题，然后定位分析并查阅各种资料文章，对TCP连接队列有个深入的理解 查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能把他们说清楚  问题描述场景：JAVA的client和server，使用socket通信。server使用NIO。  1.间歇性的出现client向server建">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/77ed9ba81f70f7940546f0a22dabf010.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png">
+<meta property="article:published_time" content="2020-04-07T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.558Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="TCP queue">
+<meta property="article:tag" content="accept queue">
+<meta property="article:tag" content="dropped">
+<meta property="article:tag" content="netstat">
+<meta property="article:tag" content="overflows">
+<meta property="article:tag" content="ss">
+<meta property="article:tag" content="syn flood">
+<meta property="article:tag" content="syn queue">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/04/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97--%E9%98%BF%E9%87%8C%E6%8A%80%E6%9C%AF%E5%85%AC%E4%BC%97%E5%8F%B7%E7%89%88%E6%9C%AC/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/04/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97--%E9%98%BF%E9%87%8C%E6%8A%80%E6%9C%AF%E5%85%AC%E4%BC%97%E5%8F%B7%E7%89%88%E6%9C%AC/","path":"2020/04/07/就是要你懂TCP--半连接队列和全连接队列--阿里技术公众号版本/","title":"就是要你懂TCP--半连接队列和全连接队列"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>就是要你懂TCP--半连接队列和全连接队列 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%85%B3%E4%BA%8ETCP-%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97"><span class="nav-number">1.</span> <span class="nav-text">关于TCP 半连接队列和全连接队列</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E9%97%AE%E9%A2%98"><span class="nav-number">1.2.</span> <span class="nav-text">分析问题</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%AD%A3%E5%B8%B8TCP%E5%BB%BA%E8%BF%9E%E6%8E%A5%E4%B8%89%E6%AC%A1%E6%8F%A1%E6%89%8B%E8%BF%87%E7%A8%8B%EF%BC%9A"><span class="nav-number">1.2.1.</span> <span class="nav-text">正常TCP建连接三次握手过程：</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3TCP%E6%8F%A1%E6%89%8B%E8%BF%87%E7%A8%8B%E4%B8%AD%E5%BB%BA%E8%BF%9E%E6%8E%A5%E7%9A%84%E6%B5%81%E7%A8%8B%E5%92%8C%E9%98%9F%E5%88%97"><span class="nav-number">1.3.</span> <span class="nav-text">深入理解TCP握手过程中建连接的流程和队列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A6%82%E6%9E%9CTCP%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E6%BA%A2%E5%87%BA%EF%BC%8C%E6%9C%89%E5%93%AA%E4%BA%9B%E6%8C%87%E6%A0%87%E5%8F%AF%E4%BB%A5%E7%9C%8B%E5%91%A2%EF%BC%9F"><span class="nav-number">1.4.</span> <span class="nav-text">如果TCP连接队列溢出，有哪些指标可以看呢？</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat-s"><span class="nav-number">1.4.1.</span> <span class="nav-text">netstat -s</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#ss-%E5%91%BD%E4%BB%A4"><span class="nav-number">1.4.2.</span> <span class="nav-text">ss 命令</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#netstat-%E5%91%BD%E4%BB%A4"><span class="nav-number">1.4.3.</span> <span class="nav-text">netstat 命令</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#Recv-Q-%E5%92%8C-Send-Q-%E7%9A%84%E8%AF%B4%E6%98%8E"><span class="nav-number">1.4.3.1.</span> <span class="nav-text">Recv-Q 和 Send-Q 的说明</span></a><ol class="nav-child"><li class="nav-item nav-level-6"><a class="nav-link" href="#%E9%80%9A%E8%BF%87-netstat-%E5%8F%91%E7%8E%B0%E9%97%AE%E9%A2%98%E7%9A%84%E6%A1%88%E4%BE%8B"><span class="nav-number">1.4.3.1.1.</span> <span class="nav-text">通过 netstat 发现问题的案例</span></a></li></ol></li></ol></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AE%9E%E8%B7%B5%E9%AA%8C%E8%AF%81%E4%B8%80%E4%B8%8B%E4%B8%8A%E9%9D%A2%E7%9A%84%E7%90%86%E8%A7%A3"><span class="nav-number">1.5.</span> <span class="nav-text">实践验证一下上面的理解</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Tomcat%E5%92%8CNginx%E4%B8%AD%E7%9A%84Accept%E9%98%9F%E5%88%97%E5%8F%82%E6%95%B0"><span class="nav-number">1.5.1.</span> <span class="nav-text">Tomcat和Nginx中的Accept队列参数</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.6.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9C%80%E5%90%8E%E6%8F%90%E5%87%BA%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98%E7%BB%99%E5%A4%A7%E5%AE%B6%E6%80%9D%E8%80%83"><span class="nav-number">1.7.</span> <span class="nav-text">最后提出相关问题给大家思考</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/04/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97--%E9%98%BF%E9%87%8C%E6%8A%80%E6%9C%AF%E5%85%AC%E4%BC%97%E5%8F%B7%E7%89%88%E6%9C%AC/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="就是要你懂TCP--半连接队列和全连接队列 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          就是要你懂TCP--半连接队列和全连接队列
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-04-07 17:30:03" itemprop="dateCreated datePublished" datetime="2020-04-07T17:30:03+08:00">2020-04-07</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+<p>最近碰到一个client端连接服务器总是抛异常的问题，然后定位分析并查阅各种资料文章，对TCP连接队列有个深入的理解</p>
+<p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能把他们说清楚</p>
+</blockquote>
+<h3 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h3><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
+
+1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
+2.出问题的时间点，会同时有很多连接出现这个问题。
+3.selector没有销毁重建，一直用的都是一个。
+4.程序刚启动的时候必会出现一些，之后会间歇性出现。
+</code></pre>
+<h3 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h3><h4 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h4><p><img src="/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
+<ul>
+<li>第一步：client 发送 syn 到server 发起握手；</li>
+<li>第二步：server 收到 syn后回复syn+ack给client；</li>
+<li>第三步：client 收到syn+ack后，回复server一个ack表示收到了server的syn+ack（此时client的56911端口的连接已经是established）</li>
+</ul>
+<p>从问题的描述来看，有点像TCP建连接的时候全连接队列（accept队列，后面具体讲）满了，尤其是症状2、4. 为了证明是这个原因，马上通过 netstat -s | egrep “listen” 去看队列的溢出统计数据：</p>
+<pre><code>667399 times the listen queue of a socket overflowed
+</code></pre>
+<p>反复看了几次之后发现这个overflowed 一直在增加，那么可以明确的是server上全连接队列一定溢出了</p>
+<p>接着查看溢出后，OS怎么处理：</p>
+<pre><code># cat /proc/sys/net/ipv4/tcp_abort_on_overflow
+0
+</code></pre>
+<p><strong>tcp_abort_on_overflow 为0表示如果三次握手第三步的时候全连接队列满了那么server扔掉client 发过来的ack（在server端认为连接还没建立起来）</strong></p>
+<p>为了证明客户端应用代码的异常跟全连接队列满有关系，我先把tcp_abort_on_overflow修改成 1，1表示第三步的时候如果全连接队列满了，server发送一个reset包给client，表示废掉这个握手过程和这个连接（本来在server端这个连接就还没建立起来）。</p>
+<p>接着测试，这时在客户端异常中可以看到很多connection reset by peer的错误，<strong>到此证明客户端错误是这个原因导致的（逻辑严谨、快速证明问题的关键点所在）</strong>。</p>
+<p>于是开发同学翻看java 源代码发现socket 默认的backlog（这个值控制全连接队列的大小，后面再详述）是50，于是改大重新跑，经过12个小时以上的压测，这个错误一次都没出现了，同时观察到 overflowed 也不再增加了。</p>
+<p>到此问题解决，<strong>简单来说TCP三次握手后有个accept队列，进到这个队列才能从Listen变成accept，默认backlog 值是50，很容易就满了</strong>。满了之后握手第三步的时候server就忽略了client发过来的ack包（隔一段时间server重发握手第二步的syn+ack包给client），如果这个连接一直排不上队就异常了。</p>
+<blockquote>
+<p>但是不能只是满足问题的解决，而是要去复盘解决过程，中间涉及到了哪些知识点是我所缺失或者理解不到位的；这个问题除了上面的异常信息表现出来之外，还有没有更明确地指征来查看和确认这个问题。</p>
+</blockquote>
+<h3 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h3><p><img src="/images/oss/2703fc07dfc4dd5b6e1bb4c2ce620e59.png" alt="image.png"><br>（图片来源：<a target="_blank" rel="noopener" href="http://www.cnxct.com/something-about-phpfpm-s-backlog/%EF%BC%89">http://www.cnxct.com/something-about-phpfpm-s-backlog/）</a></p>
+<p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
+<pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
+</code></pre>
+<p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，否则按tcp_abort_on_overflow指示的执行。</p>
+<p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，client就很容易异常了。</p>
+<p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
+<pre><code>net.ipv4.tcp_synack_retries = 2
+</code></pre>
+<h3 id="如果TCP连接队列溢出，有哪些指标可以看呢？"><a href="#如果TCP连接队列溢出，有哪些指标可以看呢？" class="headerlink" title="如果TCP连接队列溢出，有哪些指标可以看呢？"></a>如果TCP连接队列溢出，有哪些指标可以看呢？</h3><p>上述解决过程有点绕，听起来蒙逼，那么下次再出现类似问题有什么更快更明确的手段来确认这个问题呢？</p>
+<p>（<em>通过具体的、感性的东西来强化我们对知识点的理解和吸收</em>）</p>
+<h4 id="netstat-s"><a href="#netstat-s" class="headerlink" title="netstat -s"></a>netstat -s</h4><pre><code>[root@server ~]#  netstat -s | egrep &quot;listen|LISTEN&quot; 
+667399 times the listen queue of a socket overflowed
+667399 SYNs to LISTEN sockets ignored
+</code></pre>
+<p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了。</p>
+<h4 id="ss-命令"><a href="#ss-命令" class="headerlink" title="ss 命令"></a>ss 命令</h4><pre><code>[root@server ~]# ss -lnt
+Recv-Q Send-Q Local Address:Port  Peer Address:Port 
+0        50               *:3306             *:* 
+</code></pre>
+<p><strong>上面看到的第二列Send-Q 值是50，表示第三列的listen端口上的全连接队列最大为50，第一列Recv-Q为全连接队列当前使用了多少</strong></p>
+<p><strong>全连接队列的大小取决于：min(backlog, somaxconn) . backlog是在socket创建的时候传入的，somaxconn是一个os级别的系统参数</strong></p>
+<p>这个时候可以跟我们的代码建立联系了，比如Java创建ServerSocket的时候会让你传入backlog的值：</p>
+<pre><code>ServerSocket()
+	Creates an unbound server socket.
+ServerSocket(int port)
+	Creates a server socket, bound to the specified port.
+ServerSocket(int port, int backlog)
+	Creates a server socket and binds it to the specified local port number, with the specified backlog.
+ServerSocket(int port, int backlog, InetAddress bindAddr)
+	Create a server with the specified port, listen backlog, and local IP address to bind to.
+</code></pre>
+<p>（来自JDK帮助文档：<a target="_blank" rel="noopener" href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html%EF%BC%89">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
+<p><strong>半连接队列的大小取决于：max(64,  &#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;tcp_max_syn_backlog)。 不同版本的os会有些差异</strong></p>
+<blockquote>
+<p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
+</blockquote>
+<h4 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h4><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p> **netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆，顺便建立知识体系，巩固相关知识点 **  </p>
+<h5 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h5><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Recv-Q</span><br><span class="line">Established: The count of bytes not copied by the user program connected to this socket.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</span><br><span class="line"></span><br><span class="line">Send-Q</span><br><span class="line">Established: The count of bytes not acknowledged by the remote host.</span><br><span class="line">Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. </span><br></pre></td></tr></table></figure>
+
+
+
+<h6 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h6><p>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</p>
+<p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<p>下面的case是接收方太慢，从应用机器的netstat统计来看，也是压力端回复太慢（本机listen 9108端口)</p>
+<img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断PTS到9108之间有瓶颈</strong></p>
+<p>上面是通过一些具体的工具、指标来认识全连接队列（工程效率的手段）   </p>
+<h3 id="实践验证一下上面的理解"><a href="#实践验证一下上面的理解" class="headerlink" title="实践验证一下上面的理解"></a>实践验证一下上面的理解</h3><p>把java中backlog改成10（越小越容易溢出），继续跑压力，这个时候client又开始报异常了，然后在server上通过 ss 命令观察到：</p>
+<pre><code>Fri May  5 13:50:23 CST 2017
+Recv-Q Send-QLocal Address:Port  Peer Address:Port
+11         10         *:3306               *:*
+</code></pre>
+<p>按照前面的理解，这个时候我们能看到3306这个端口上的服务全连接队列最大是10，但是现在有11个在队列中和等待进队列的，肯定有一个连接进不去队列要overflow掉，同时也确实能看到overflow的值在不断地增大。</p>
+<h4 id="Tomcat和Nginx中的Accept队列参数"><a href="#Tomcat和Nginx中的Accept队列参数" class="headerlink" title="Tomcat和Nginx中的Accept队列参数"></a>Tomcat和Nginx中的Accept队列参数</h4><p>Tomcat默认短连接，backlog（Tomcat里面的术语是Accept count）Ali-tomcat默认是200, Apache Tomcat默认100. </p>
+<pre><code>#ss -lnt
+Recv-Q Send-Q   Local Address:Port Peer Address:Port
+0       100                 *:8080            *:*
+</code></pre>
+<p>Nginx默认是511</p>
+<pre><code>$sudo ss -lnt
+State  Recv-Q Send-Q Local Address:PortPeer Address:Port
+LISTEN    0     511              *:8085           *:*
+LISTEN    0     511              *:8085           *:*
+</code></pre>
+<p>因为Nginx是多进程模式，所以看到了多个8085，也就是多个进程都监听同一个端口以尽量避免上下文切换来提升性能   </p>
+<h3 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h3><p>全连接队列、半连接队列溢出这种问题很容易被忽视，但是又很关键，特别是对于一些短连接应用（比如Nginx、PHP，当然他们也是支持长连接的）更容易爆发。 一旦溢出，从cpu、线程状态看起来都比较正常，但是压力上不去，在client看来rt也比较高（rt&#x3D;网络+排队+真正服务时间），但是从server日志记录的真正服务时间来看rt又很短。</p>
+<p>jdk、netty等一些框架默认backlog比较小，可能有些情况下导致性能上不去，比如这个 <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/12919">《netty新建连接并发数很小的case》 </a><br>都是类似原因</p>
+<p>希望通过本文能够帮大家理解TCP连接过程中的半连接队列和全连接队列的概念、原理和作用，更关键的是有哪些指标可以明确看到这些问题（<strong>工程效率帮助强化对理论的理解</strong>）。</p>
+<p>另外每个具体问题都是最好学习的机会，光看书理解肯定是不够深刻的，请珍惜每个具体问题，碰到后能够把来龙去脉弄清楚，每个问题都是你对具体知识点通关的好机会。</p>
+<h3 id="最后提出相关问题给大家思考"><a href="#最后提出相关问题给大家思考" class="headerlink" title="最后提出相关问题给大家思考"></a>最后提出相关问题给大家思考</h3><ol>
+<li>全连接队列满了会影响半连接队列吗？</li>
+<li>netstat -s看到的overflowed和ignored的数值有什么联系吗？</li>
+<li>如果client走完了TCP握手的第三步，在client看来连接已经建立好了，但是server上的对应连接实际没有准备好，这个时候如果client发数据给server，server会怎么处理呢？（有同学说会reset，你觉得呢？）</li>
+</ol>
+<blockquote>
+<p>提出这些问题就是以这个知识点为抓手，让你的知识体系开始自我生长</p>
+</blockquote>
+<hr>
+<p>参考文章：</p>
+<p><a target="_blank" rel="noopener" href="http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html">http://veithen.github.io/2014/01/01/how-tcp-backlog-works-in-linux.html</a></p>
+<p><a target="_blank" rel="noopener" href="http://www.cnblogs.com/zengkefu/p/5606696.html">http://www.cnblogs.com/zengkefu/p/5606696.html</a></p>
+<p><a target="_blank" rel="noopener" href="http://www.cnxct.com/something-about-phpfpm-s-backlog/">http://www.cnxct.com/something-about-phpfpm-s-backlog/</a></p>
+<p><a target="_blank" rel="noopener" href="http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/">http://jaseywang.me/2014/07/20/tcp-queue-%E7%9A%84%E4%B8%80%E4%BA%9B%E9%97%AE%E9%A2%98/</a></p>
+<p><a target="_blank" rel="noopener" href="http://jin-yang.github.io/blog/network-synack-queue.html#">http://jin-yang.github.io/blog/network-synack-queue.html#</a></p>
+<p><a target="_blank" rel="noopener" href="http://blog.chinaunix.net/uid-20662820-id-4154399.html">http://blog.chinaunix.net/uid-20662820-id-4154399.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/12919">https://www.atatech.org/articles/12919</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/12995358.html">https://www.cnblogs.com/xiaolincoding/p/12995358.html</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/netstat/" rel="tag"># netstat</a>
+              <a href="/tags/ss/" rel="tag"># ss</a>
+              <a href="/tags/TCP-queue/" rel="tag"># TCP queue</a>
+              <a href="/tags/accept-queue/" rel="tag"># accept queue</a>
+              <a href="/tags/syn-queue/" rel="tag"># syn queue</a>
+              <a href="/tags/syn-flood/" rel="tag"># syn flood</a>
+              <a href="/tags/overflows/" rel="tag"># overflows</a>
+              <a href="/tags/dropped/" rel="tag"># dropped</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/03/01/%E9%BB%84%E5%A5%87%E5%B8%86%E7%9A%84%E5%A4%8D%E6%97%A6%E7%BB%8F%E6%B5%8E%E8%AF%BE--%E7%AC%94%E8%AE%B0/" rel="prev" title="分析与思考——黄奇帆的复旦经济课笔记">
+                  <i class="fa fa-angle-left"></i> 分析与思考——黄奇帆的复旦经济课笔记
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/05/24/%E7%A8%8B%E5%BA%8F%E5%91%98%E5%A6%82%E4%BD%95%E5%AD%A6%E4%B9%A0%E5%92%8C%E6%9E%84%E5%BB%BA%E7%BD%91%E7%BB%9C%E7%9F%A5%E8%AF%86%E4%BD%93%E7%B3%BB/" rel="next" title="程序员如何学习和构建网络知识体系">
+                  程序员如何学习和构建网络知识体系 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Linux内存–零拷贝本系列有如下几篇 [Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;) Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 零拷贝 “Zero-copy“ describes computer operations in whi">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux内存--零拷贝">
+<meta property="og:url" content="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Linux内存–零拷贝本系列有如下几篇 [Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;) Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 零拷贝 “Zero-copy“ describes computer operations in whi">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/NoOptimization.jpg">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/ccdc10037d35349293cba8a63ad72af5.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20201104175056589.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/516c11b9b9d3f6092f00645c1742c111.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/bd72f4a031bcd88db0ca233e59234832.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/2361e8c6dcfd20a67f404b684196c160.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/figure1.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/figure2.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/figure3.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/figure4.gif">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/gif/figure5.gif">
+<meta property="article:published_time" content="2020-11-15T08:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.521Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="Memory">
+<meta property="article:tag" content="free">
+<meta property="article:tag" content="零拷贝">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/","path":"2020/11/15/Linux内存--零拷贝/","title":"Linux内存--零拷贝"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Linux内存--零拷贝 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux%E5%86%85%E5%AD%98%E2%80%93%E9%9B%B6%E6%8B%B7%E8%B4%9D"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–零拷贝</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%9B%B6%E6%8B%B7%E8%B4%9D"><span class="nav-number">1.1.</span> <span class="nav-text">零拷贝</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#read-write-%E5%92%8C%E9%9B%B6%E6%8B%B7%E8%B4%9D%E4%BC%98%E5%8C%96"><span class="nav-number">1.2.</span> <span class="nav-text">read+write 和零拷贝优化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%9A%E8%BF%87mmap%E6%9B%BF%E6%8D%A2read%E4%BC%98%E5%8C%96%E4%B8%80%E4%B8%8B"><span class="nav-number">1.2.1.</span> <span class="nav-text">通过mmap替换read优化一下</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#sendfile"><span class="nav-number">1.2.2.</span> <span class="nav-text">sendfile</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#SG-DMA%EF%BC%88The-Scatter-Gather-Direct-Memory-Access%EF%BC%89%E6%8A%80%E6%9C%AF"><span class="nav-number">1.2.3.</span> <span class="nav-text">SG-DMA（The Scatter-Gather Direct Memory Access）技术</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#splice"><span class="nav-number">1.2.4.</span> <span class="nav-text">splice()</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#send-with-MSG-ZEROCOPY"><span class="nav-number">1.2.5.</span> <span class="nav-text">send() with MSG_ZEROCOPY</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%9B%B6%E6%8B%B7%E8%B4%9D%E5%BA%94%E7%94%A8"><span class="nav-number">1.2.6.</span> <span class="nav-text">零拷贝应用</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%9B%B6%E6%8B%B7%E8%B4%9D%E6%80%A7%E8%83%BD"><span class="nav-number">1.2.6.1.</span> <span class="nav-text">零拷贝性能</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#DMA"><span class="nav-number">1.3.</span> <span class="nav-text">DMA</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#RDMA"><span class="nav-number">1.4.</span> <span class="nav-text">RDMA</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.5.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Linux内存--零拷贝 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Linux内存--零拷贝
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-11-15 16:30:03" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">2020-11-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Memory/" itemprop="url" rel="index"><span itemprop="name">Memory</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Linux内存–零拷贝"><a href="#Linux内存–零拷贝" class="headerlink" title="Linux内存–零拷贝"></a>Linux内存–零拷贝</h1><p>本系列有如下几篇</p>
+<p>[Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;)</p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">Linux内存–PageCache</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E7%AE%A1%E7%90%86%E5%92%8C%E7%A2%8E%E7%89%87/">Linux内存–管理和碎片</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">Linux内存–HugePage</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">Linux内存–零拷贝</a></p>
+<h2 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h2><blockquote>
+<p>“<strong>Zero-copy</strong>“ describes computer operations in which the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Central_processing_unit">CPU</a> does not perform the task of copying data from one <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/RAM">memory</a> area to another. This is frequently used to save CPU cycles and memory bandwidth when transmitting a file over a network.</p>
+</blockquote>
+<p>零拷贝技术是指计算机执行操作时，<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%A4%AE%E5%A4%84%E7%90%86%E5%99%A8">CPU</a>不需要先将数据从某处<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E9%9A%8F%E6%9C%BA%E5%AD%98%E5%8F%96%E5%AD%98%E5%82%A8%E5%99%A8">内存</a>复制到另一个特定区域。这种技术通常用于通过网络传输文件时节省 CPU 和<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%86%85%E5%AD%98%E5%B8%A6%E5%AE%BD">内存带宽</a>。</p>
+<p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 </p>
+<p><img src="/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg"></p>
+<p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read&#x2F;write没有导致阻塞是不会发生上下文切换的：</p>
+<p><img src="/images/951413iMgBlog/NoOptimization.jpg" alt="NoOptimization"></p>
+<p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
+<p><img src="/images/951413iMgBlog/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
+<p>零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
+<p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
+<p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
+<p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB&#x2F;32KB）上下文切换。</p>
+<h2 id="read-write-和零拷贝优化"><a href="#read-write-和零拷贝优化" class="headerlink" title="read+write 和零拷贝优化"></a>read+write 和零拷贝优化</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(file, tmp_buf, len);</span><br><span class="line">write(socket, tmp_buf, len);</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/951413iMgBlog/image-20201104175056589.png" alt="image-20201104175056589"></p>
+<h3 id="通过mmap替换read优化一下"><a href="#通过mmap替换read优化一下" class="headerlink" title="通过mmap替换read优化一下"></a>通过mmap替换read优化一下</h3><p>用 <code>mmap()</code> 替换原先的 <code>read()</code>，<code>mmap()</code> 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。</p>
+<p><img src="/images/951413iMgBlog/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
+<p>通过使用 <code>mmap()</code> 来代替 <code>read()</code>， 可以减少一次数据拷贝的过程。</p>
+<p>但这还不是最理想的零拷贝，因为首先仍然需要通过 CPU 把内核缓冲区的数据拷贝到 socket 缓冲区里，而且仍然需要 4 次上下文切换，因为系统调用还是 2 次；另外内存映射技术是一个开销很大的虚拟存储操作：这种操作需要修改页表以及用内核缓冲区里的文件数据汰换掉当前 TLB 里的缓存以维持虚拟内存映射的一致性。</p>
+<h3 id="sendfile"><a href="#sendfile" class="headerlink" title="sendfile"></a>sendfile</h3><p>在 Linux 内核版本 2.1 中，提供了一个专门发送文件的系统调用函数 <code>sendfile()</code>，函数形式如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/socket.h&gt;</span></span></span><br><span class="line"><span class="type">ssize_t</span> <span class="title function_">sendfile</span><span class="params">(<span class="type">int</span> out_fd, <span class="type">int</span> in_fd, <span class="type">off_t</span> *offset, <span class="type">size_t</span> count)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>它的前两个参数分别是目的端和源端的文件描述符，后面两个参数是源端的偏移量和复制数据的长度，返回值是实际复制数据的长度。</p>
+<p>首先，它可以替代前面的 <code>read()</code> 和 <code>write()</code> 这两个系统调用，这样就可以减少一次系统调用，也就减少了 2 次上下文切换的开销。</p>
+<p>其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：</p>
+<p><img src="/images/951413iMgBlog/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
+<p>当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。<code>sendfile()</code> 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。</p>
+<p>然而 <code>sendfile()</code> 本身是有很大问题的，从不同的角度来看的话主要是：</p>
+<ol>
+<li>首先一个是这个接口并没有进行标准化，导致 <code>sendfile()</code> 在 Linux 上的接口实现和其他类 Unix 系统的实现并不相同；</li>
+<li>其次由于网络传输的异步性，很难在接收端实现和 <code>sendfile()</code> 对接的技术，因此接收端一直没有实现对应的这种技术；</li>
+<li>最后从性能方面考量，因为 <code>sendfile()</code> 在把磁盘文件从内核缓冲区（page cache）传输到到套接字缓冲区的过程中依然需要 CPU 参与，这就很难避免 CPU 的高速缓存被传输的数据所污染。</li>
+</ol>
+<h3 id="SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术"><a href="#SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术" class="headerlink" title="SG-DMA（The Scatter-Gather Direct Memory Access）技术"></a>SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术</h3><p>上一小节介绍的 <code>sendfile()</code> 技术已经把一次数据读写过程中的 CPU 拷贝的降低至只有 1 次了，但是人永远是贪心和不知足的，现在如果想要把这仅有的一次 CPU 拷贝也去除掉，有没有办法呢？</p>
+<p>当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter&#x2F;gather – 分散&#x2F;收集功能，并修改了 <code>sendfile()</code> 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：</p>
+<p><img src="/images/951413iMgBlog/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
+<p>如果网卡支持 SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。</p>
+<p>这就是所谓的<strong>零拷贝（Zero-copy）技术，因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。</strong> 数据传输过程就再也没有 CPU 的参与了，也因此 CPU 的高速缓存再不会被污染了，也不再需要 CPU 来计算数据校验和了，CPU 可以去执行其他的业务计算任务，同时和 DMA 的 I&#x2F;O 任务并行，此举能极大地提升系统性能。</p>
+<p>零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，<strong>只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。</strong></p>
+<p>所以，总体来看，<strong>零拷贝技术可以把文件传输的性能提高至少一倍以上</strong>。</p>
+<h3 id="splice"><a href="#splice" class="headerlink" title="splice()"></a>splice()</h3><p><code>sendfile()</code> + DMA Scatter&#x2F;Gather 的零拷贝方案虽然高效，但是也有两个缺点：</p>
+<ol>
+<li>这种方案需要引入新的硬件支持；</li>
+<li>虽然 <code>sendfile()</code> 的输出文件描述符在 Linux kernel 2.6.33 版本之后已经可以支持任意类型的文件描述符，但是输入文件描述符依然只能指向文件。</li>
+</ol>
+<p>这两个缺点限制了 <code>sendfile()</code> + DMA Scatter&#x2F;Gather 方案的适用场景。为此，Linux 在 2.6.17 版本引入了一个新的系统调用 <code>splice()</code>，它在功能上和 <code>sendfile()</code> 非常相似，但是能够实现在任意类型的两个文件描述符时之间传输数据；而在底层实现上，<code>splice()</code>又比 <code>sendfile()</code> 少了一次 CPU 拷贝，也就是等同于 <code>sendfile()</code> + DMA Scatter&#x2F;Gather，完全去除了数据传输过程中的 CPU 拷贝。</p>
+<p><code>splice()</code> 所谓的写入数据到管道其实并没有真正地拷贝数据，而是玩了个 tricky 的操作：只进行内存地址指针的拷贝而不真正去拷贝数据。所以，数据 <code>splice()</code> 在内核中并没有进行真正的数据拷贝，因此 <code>splice()</code> 系统调用也是零拷贝。</p>
+<p>还有一点需要注意，前面说过管道的容量是 16 个内存页，也就是 16 * 4KB &#x3D; 64 KB，也就是说一次往管道里写数据的时候最好不要超过 64 KB，否则的话会 <code>splice()</code> 会阻塞住，除非在创建管道的时候使用的是 <code>pipe2()</code> 并通过传入 <code>O_NONBLOCK</code> 属性将管道设置为非阻塞。</p>
+<h3 id="send-with-MSG-ZEROCOPY"><a href="#send-with-MSG-ZEROCOPY" class="headerlink" title="send() with MSG_ZEROCOPY"></a>send() with MSG_ZEROCOPY</h3><p>Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem de Bruijn 在 TCP 网络报文的通用发送接口 <code>send()</code> 中实现的 zero-copy 功能 (MSG_ZEROCOPY) 的 patch，通过这个新功能，用户进程就能够把用户缓冲区的数据通过零拷贝的方式经过内核空间发送到网络套接字中去，这个新技术和前文介绍的几种零拷贝方式相比更加先进，因为前面几种零拷贝技术都是要求用户进程不能处理加工数据而是直接转发到目标文件描述符中去的。Willem de Bruijn 在他的论文里给出的压测数据是：采用 netperf 大包发送测试，性能提升 39%，而线上环境的数据发送性能则提升了 5%~8%，官方文档陈述说这个特性通常只在发送 10KB 左右大包的场景下才会有显著的性能提升。一开始这个特性只支持 TCP，到内核 v5.0 版本之后才支持 UDP。</p>
+<p>这个技术是基于 redhat 红帽在 2010 年给 Linux 内核提交的 virtio-net zero-copy 技术之上实现的，至于底层原理，简单来说就是通过 <code>send()</code> 把数据在用户缓冲区中的分段指针发送到 socket 中去，利用 page pinning 页锁定机制锁住用户缓冲区的内存页，然后利用 DMA 直接在用户缓冲区通过内存地址指针进行数据读取，实现零拷贝</p>
+<p>目前来说，这种技术的主要缺陷有：</p>
+<ol>
+<li>只适用于大文件 (10KB 左右) 的场景，小文件场景因为 page pinning 页锁定和等待缓冲区释放的通知消息这些机制，甚至可能比直接 CPU 拷贝更耗时；</li>
+<li>因为可能异步发送数据，需要额外调用 <code>poll()</code> 和 <code>recvmsg()</code> 系统调用等待 buffer 被释放的通知消息，增加代码复杂度，以及会导致多次用户态和内核态的上下文切换；</li>
+<li>MSG_ZEROCOPY 目前只支持发送端，接收端暂不支持。</li>
+</ol>
+<h3 id="零拷贝应用"><a href="#零拷贝应用" class="headerlink" title="零拷贝应用"></a>零拷贝应用</h3><p>kafka就利用了「零拷贝」技术，从而大幅提升了 I&#x2F;O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一(利用磁盘顺序写；PageCache)。</p>
+<p>非零拷贝代码：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">File.read(fileDesc, buf, len);</span><br><span class="line">Socket.send(socket, buf, len);</span><br></pre></td></tr></table></figure>
+
+<p>Traditional data copying approach：</p>
+<p><img src="/images/951413iMgBlog/gif/figure1.gif" alt="Traditional data copying approach"></p>
+<p>Traditional context switches：</p>
+<p><img src="/images/951413iMgBlog/gif/figure2.gif" alt="Traditional context switches"></p>
+<p>如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 <code>transferTo</code> 方法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Overridepublic</span> </span><br><span class="line"><span class="type">long</span> <span class="title function_">transferFrom</span><span class="params">(FileChannel fileChannel, <span class="type">long</span> position, <span class="type">long</span> count)</span> <span class="keyword">throws</span> IOException &#123; </span><br><span class="line">    <span class="keyword">return</span> fileChannel.transferTo(position, count, socketChannel);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Data copy with transferTo()</p>
+<p><img src="/images/951413iMgBlog/gif/figure3.gif" alt="Data copy with transferTo()"></p>
+<p>Context switching with transferTo()：</p>
+<p><img src="/images/951413iMgBlog/gif/figure4.gif" alt="Context switching when using transferTo()"></p>
+<p>Data copies when transferTo() and gather operations are used</p>
+<p><img src="/images/951413iMgBlog/gif/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
+<p>如果 Linux 系统支持 <code>sendfile()</code> 系统调用，那么 <code>transferTo()</code> 实际上最后就会使用到 <code>sendfile()</code> 系统调用函数。</p>
+<p>Nginx 也支持零拷贝技术，一般默认是开启零拷贝技术，这样有利于提高文件传输的效率，是否开启零拷贝技术的配置如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">...</span><br><span class="line">    sendfile on</span><br><span class="line">...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>sendfile 配置的具体意思:</p>
+<ul>
+<li>设置为 on 表示，使用零拷贝技术来传输文件：sendfile ，这样只需要 2 次上下文切换，和 2 次数据拷贝。</li>
+<li>设置为 off 表示，使用传统的文件传输技术：read + write，这时就需要 4 次上下文切换，和 4 次数据拷贝。</li>
+</ul>
+<p>如果是大文件很容易消耗非常多的PageCache，不推荐使用PageCache（或者说零拷贝），建议使用异步IO+直接IO。</p>
+<p>在 nginx 中，我们可以用如下配置，来根据文件的大小来使用不同的方式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">location /video/ &#123; </span><br><span class="line">    sendfile on; </span><br><span class="line">    aio on; </span><br><span class="line">    directio 1024m; </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当文件大小大于 <code>directio</code> 值后，使用「异步 I&#x2F;O + 直接 I&#x2F;O」，否则使用「零拷贝技术」。</p>
+<h4 id="零拷贝性能"><a href="#零拷贝性能" class="headerlink" title="零拷贝性能"></a>零拷贝性能</h4><p>如果用零拷贝和不用零拷贝来做一个文件服务器，来对比下他们的性能</p>
+<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Performance comparison: Traditional approach vs. zero copy</a></p>
+<table>
+<thead>
+<tr>
+<th align="left">File size</th>
+<th align="left">Normal file transfer (ms)</th>
+<th align="left">transferTo (ms)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">7MB</td>
+<td align="left">156</td>
+<td align="left">45</td>
+</tr>
+<tr>
+<td align="left">21MB</td>
+<td align="left">337</td>
+<td align="left">128</td>
+</tr>
+<tr>
+<td align="left">63MB</td>
+<td align="left">843</td>
+<td align="left">387</td>
+</tr>
+<tr>
+<td align="left">98MB</td>
+<td align="left">1320</td>
+<td align="left">617</td>
+</tr>
+<tr>
+<td align="left">200MB</td>
+<td align="left">2124</td>
+<td align="left">1150</td>
+</tr>
+<tr>
+<td align="left">350MB</td>
+<td align="left">3631</td>
+<td align="left">1762</td>
+</tr>
+<tr>
+<td align="left">700MB</td>
+<td align="left">13498</td>
+<td align="left">4422</td>
+</tr>
+<tr>
+<td align="left">1GB</td>
+<td align="left">18399</td>
+<td align="left">8537</td>
+</tr>
+</tbody></table>
+<h2 id="DMA"><a href="#DMA" class="headerlink" title="DMA"></a>DMA</h2><p>什么是 DMA 技术？简单理解就是，<strong>在进行 I&#x2F;O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，这样 CPU 就可以去处理别的事务</strong></p>
+<h2 id="RDMA"><a href="#RDMA" class="headerlink" title="RDMA"></a>RDMA</h2><p>remote DMA</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/66885">https://www.atatech.org/articles/66885</a></p>
+<p><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1087455">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/13719610.html">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA">https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA</a> 从Linux内存管理到零拷贝</p>
+<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Efficient data transfer through zero copy</a></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/272200286">CPU：一个故事看懂DMA</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/free/" rel="tag"># free</a>
+              <a href="/tags/Memory/" rel="tag"># Memory</a>
+              <a href="/tags/%E9%9B%B6%E6%8B%B7%E8%B4%9D/" rel="tag"># 零拷贝</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/11/11/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0--V2.0/" rel="prev" title="如何在工作中学习--V2.0">
+                  <i class="fa fa-angle-left"></i> 如何在工作中学习--V2.0
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E7%AE%A1%E7%90%86%E5%92%8C%E7%A2%8E%E7%89%87/" rel="next" title="Linux内存--管理和碎片">
+                  Linux内存--管理和碎片 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

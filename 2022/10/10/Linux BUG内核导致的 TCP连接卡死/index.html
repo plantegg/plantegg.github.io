@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发一些新的包(从server抓包可以看到)，一会后服务端不再发任何新包，也不响应dup ack 来传丢掉的包，进入永久静默，最终连接闲置过久被reset，客户端">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一个Linux 内核 bug 导致的 TCP连接卡死">
+<meta property="og:url" content="https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Linux BUG内核导致的 TCP连接卡死问题描述客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发一些新的包(从server抓包可以看到)，一会后服务端不再发任何新包，也不响应dup ack 来传丢掉的包，进入永久静默，最终连接闲置过久被reset，客户端">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230515162204533.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1662602586968-b20b6006-884e-4c33-9938-0277c012579e.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220922092105581.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20220922092321039.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1662698955965-276e9936-6ca4-4269-9fbd-ae05176bf1a6.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/1662822142241-1ce17636-546d-4203-a77c-66c74cb2521e.png">
+<meta property="article:published_time" content="2022-10-10T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.517Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CVE">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="TCP">
+<meta property="article:tag" content="TCPWqueueTooBig">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20230515162204533.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/","path":"2022/10/10/Linux BUG内核导致的 TCP连接卡死/","title":"一个Linux 内核 bug 导致的 TCP连接卡死"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>一个Linux 内核 bug 导致的 TCP连接卡死 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux-BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84-TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB"><span class="nav-number">1.</span> <span class="nav-text">Linux BUG内核导致的 TCP连接卡死</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E6%8F%8F%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">问题描述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">分析</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8E%9F%E5%9B%A0"><span class="nav-number">1.3.</span> <span class="nav-text">原因</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%87%8D%E7%8E%B0%E6%9D%A1%E4%BB%B6"><span class="nav-number">1.4.</span> <span class="nav-text">重现条件</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%94%A8-packetdrill-%E5%A4%8D%E7%8E%B0"><span class="nav-number">1.5.</span> <span class="nav-text">用 packetdrill 复现</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A4%8D%E7%8E%B0%E7%9A%84%E5%85%B3%E9%94%AE%E4%B8%A4%E7%82%B9"><span class="nav-number">1.5.1.</span> <span class="nav-text">复现的关键两点</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%A4%8D%E7%8E%B0%E4%BB%A3%E7%A0%81"><span class="nav-number">1.5.2.</span> <span class="nav-text">复现代码</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%A7%A3%E5%86%B3"><span class="nav-number">1.6.</span> <span class="nav-text">解决</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%9B%B8%E5%85%B3%E8%B5%84%E6%96%99"><span class="nav-number">1.7.</span> <span class="nav-text">相关资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/10/10/Linux%20BUG%E5%86%85%E6%A0%B8%E5%AF%BC%E8%87%B4%E7%9A%84%20TCP%E8%BF%9E%E6%8E%A5%E5%8D%A1%E6%AD%BB/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="一个Linux 内核 bug 导致的 TCP连接卡死 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          一个Linux 内核 bug 导致的 TCP连接卡死
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-10-10 17:30:03" itemprop="dateCreated datePublished" datetime="2022-10-10T17:30:03+08:00">2022-10-10</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Linux-BUG内核导致的-TCP连接卡死"><a href="#Linux-BUG内核导致的-TCP连接卡死" class="headerlink" title="Linux BUG内核导致的 TCP连接卡死"></a>Linux BUG内核导致的 TCP连接卡死</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>客户端从 server 拖数据，偶尔会出现 TCP 连接卡死，卡死的现象就是 server 不遵循 TCP 重传逻辑，客户端不停地发 dup ack，但是服务端不响应这些dup ack仍然发一些新的包(从server抓包可以看到)，一会后服务端不再发任何新包，也不响应dup ack 来传丢掉的包，进入永久静默，最终连接闲置过久被reset，客户端抛连接异常.</p>
+<p><img src="/images/951413iMgBlog/image-20230515162204533.png" alt="image-20230515162204533"></p>
+<p>Client MySQL JDBC 协议拉取 Server 3306端口 数据，频繁出现卡死与超时，Client端Java 报错：Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server. - com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Application was streaming results when the connection failed. Consider raising value of ‘net_write_timeout’ on the server.  </p>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>服务端抓包可以看到：这个 TCP 流， 17:40:40 后 3306 端口不做任何响应，进入卡死状态，在卡死前有一些重传</p>
+<p><img src="/images/951413iMgBlog/1662602586968-b20b6006-884e-4c33-9938-0277c012579e.png" alt="image.png"></p>
+<p>同时通过观察这些连接的实时状态：</p>
+<p><img src="/images/951413iMgBlog/image-20220922092105581.png" alt="image-20220922092105581"></p>
+<p>rto一直在增加，但是这个时候 server 上抓不到任何包，说明内核在做 rto 重传，但是重传包没有到达本机网卡，应该还是被内核其它环节吃掉了。</p>
+<p>再观察 netstat -s 状态，重传的时候，TCPWqueueTooBig 值会增加，也就是重传-&gt;TCPWqueueTooBig-&gt;重传包未发出-&gt;循环-&gt;相当于 TCP 连接卡死、静默状态</p>
+<p><img src="/images/951413iMgBlog/image-20220922092321039.png" alt="image-20220922092321039"></p>
+<p>顺着 TCPWqueueTooBig 查看<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/f070ef2ac66716357066b683fb0baf55f8191a2e">内核代码提交记录</a>， 红色部分是修 CVE-2019-11478 添加的代码，引入了这个 卡死 的bug，绿色部分增加了更严格的条件又修复了卡死的 bug</p>
+<p><img src="/images/951413iMgBlog/1662698955965-276e9936-6ca4-4269-9fbd-ae05176bf1a6.png" alt="image.png"></p>
+<h2 id="原因"><a href="#原因" class="headerlink" title="原因"></a>原因</h2><p>2019-05 为了解决 <a target="_blank" rel="noopener" href="https://www.secrss.com/articles/11570">CVE-2019-11478</a> 增加了这个commit：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/f070ef2ac66716357066b683fb0baf55f8191a2e">f070ef2ac66716357066b683fb0baf55f8191a2e</a>，这部分代码在发送 buffer 满的时候忽略要发的包，进入静默有包也不发</p>
+<p>为了解决这个问题 2019-07-20 fix 版本：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/b617158dc096709d8600c53b6052144d12b89fab">https://github.com/torvalds/linux/commit/b617158dc096709d8600c53b6052144d12b89fab</a></p>
+<p>4.19.57 是 2019-07-03 发布，完美引入了这个 bug</p>
+<p>快速确认：netstat -s | grep TCPWqueueTooBig  如果不为0 就出现过 TCP 卡死，同时还可以看到 tb(待发送队列) 大于 rb（发送队列 buffer）</p>
+<h2 id="重现条件"><a href="#重现条件" class="headerlink" title="重现条件"></a>重现条件</h2><p>必要条件：合并了 commit：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/f070ef2ac66716357066b683fb0baf55f8191a2e">f070ef2ac66716357066b683fb0baf55f8191a2e</a> 的内核版本</p>
+<p>提高重现概率的其它非必要条件：</p>
+<ol>
+<li>数据量大—拖数据任务、大查询；</li>
+<li>有丢包—链路偏长连接，丢包概率大；</li>
+<li>多个任务 —一个失败整个任务失败，客户体感强烈</li>
+<li>Server 设置了小buffer，出现概率更高</li>
+</ol>
+<p>在这四种情况下出现概率更高。用户单个小查询SQL 睬中这个bug后一般可能就是个连接异常，重试就过去了，所以可能没有抱怨。 得这四个条件一起用户的抱怨就会凸显出来。</p>
+<h2 id="用-packetdrill-复现"><a href="#用-packetdrill-复现" class="headerlink" title="用 packetdrill 复现"></a><a target="_blank" rel="noopener" href="https://github.com/google/packetdrill">用 packetdrill 复现</a></h2><p>编译 packetdrill 报找不到lib包的错误的话，到Makefile 里去掉 -static , 默认用静态link方式，本地没有pthread静态包</p>
+<p><a target="_blank" rel="noopener" href="https://xargin.com/packetdrill-intro/">https://xargin.com/packetdrill-intro/</a> packetdrill介绍</p>
+<p>文章末尾一堆链接里好多人重现这个bug都用到了 packetdrill </p>
+<h3 id="复现的关键两点"><a href="#复现的关键两点" class="headerlink" title="复现的关键两点"></a>复现的关键两点</h3><ol>
+<li>让对端重传一个大包（包的长度超过一个mss，进而触发tcp_fragment）</li>
+<li>sk_wmem_queued 远大于 sk_sndbuf，即使得tcp_fragment函数的条件成立，具体如下：</li>
+</ol>
+<p><img src="/images/951413iMgBlog/1662822142241-1ce17636-546d-4203-a77c-66c74cb2521e.png" alt="img"></p>
+<h3 id="复现代码"><a href="#复现代码" class="headerlink" title="复现代码"></a>复现代码</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">`gtests/net/common/defaults.sh`</span><br><span class="line">0 `echo start`</span><br><span class="line"></span><br><span class="line">// Establish a connection.</span><br><span class="line">+0.1   socket(..., SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">+0 setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line">+0 setsockopt(3, SOL_SOCKET, SO_SNDBUF, [4096], 4) = 0</span><br><span class="line">+0 setsockopt(3, SOL_SOCKET, SO_RCVBUF, [8192], 4) = 0</span><br><span class="line">+0  bind(3, ..., ...) = 0</span><br><span class="line">+0  listen(3, 1) = 0</span><br><span class="line"></span><br><span class="line">+0  &lt; S 0:0(0) win 32792 &lt;mss 1460,sackOK,nop,nop,nop,wscale 7&gt;</span><br><span class="line">+0  &gt; S. 0:0(0) ack 1 &lt;...&gt;</span><br><span class="line">+.1 &lt; . 1:1(0) ack 1 win 257</span><br><span class="line">+0  accept(3, ..., ...) = 4</span><br><span class="line"></span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 write(4, ..., 3000) = 3000</span><br><span class="line">+0 &lt; . 1:1(0) ack 3001 win 257</span><br><span class="line">// wait for retransmission</span><br><span class="line">+100 `echo done`</span><br></pre></td></tr></table></figure>
+
+<p>复现结果有问题的内核版本上 tcpdump抓包看到卡死，用ss命令展示的信息，可以看到sk_wmem_queued为w22680，远大于tb8192</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">State      Recv-Q Send-Q                 Local Address:Port                                Peer Address:Port              </span><br><span class="line">ESTAB      0      15000                192.168.169.124:8080                                   192.0.2.1:50069              </span><br><span class="line">         skmem:(r0,rb16384,t0,tb8192,f1896,w22680,o0,bl0,d0) cubic wscale:7,0 rto:37760 backoff:7 rtt:87.643/51.642 mss:1460 rcvmss:536 advmss:1460 cwnd:1 ssthresh:9 bytes_acked:3000 segs_out:14 segs_in:3 data_segs_out:14 send 133.3Kbps lastsnd:63524 lastrcv:63524 lastack:63524 pacing_rate 3.5Mbps delivery_rate 796.4Mbps app_limited busy:63524ms unacked:11 lost:11 rcv_space:7300 minrtt:0.044</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="解决"><a href="#解决" class="headerlink" title="解决"></a>解决</h2><p>升级内核到带有2019-07-20 fix 版本：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/b617158dc096709d8600c53b6052144d12b89fab">https://github.com/torvalds/linux/commit/b617158dc096709d8600c53b6052144d12b89fab</a></p>
+<h2 id="相关资料"><a href="#相关资料" class="headerlink" title="相关资料"></a>相关资料</h2><p><a target="_blank" rel="noopener" href="https://www.secrss.com/articles/11570">https://www.secrss.com/articles/11570</a></p>
+<p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/4302501">https://access.redhat.com/solutions/4302501</a></p>
+<p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/5162381">https://access.redhat.com/solutions/5162381</a></p>
+<p>databricks 的相同案例： <a target="_blank" rel="noopener" href="https://www.databricks.com/blog/2019/09/16/adventures-in-the-tcp-stack-performance-regressions-vulnerability-fixes.html">https://www.databricks.com/blog/2019/09/16/adventures-in-the-tcp-stack-performance-regressions-vulnerability-fixes.html</a></p>
+<p>6月第一个人报了这个bug：<a target="_blank" rel="noopener" href="https://lore.kernel.org/netdev/CALMXkpYVRxgeqarp4gnmX7GqYh1sWOAt6UaRFqYBOaaNFfZ5sw@mail.gmail.com/">https://lore.kernel.org/netdev/CALMXkpYVRxgeqarp4gnmX7GqYh1sWOAt6UaRFqYBOaaNFfZ5sw@mail.gmail.com/</a></p>
+<blockquote>
+<p>Hi Eric, I now have a packetdrill test that started failing (see below). Admittedly, a bit weird test with the SO_SNDBUF forced so low. Nevertheless, previously this test would pass, now it stalls after the write() because tcp_fragment() returns -ENOMEM. Your commit-message mentions that this could trigger when one sets SO_SNDBUF low. But, here we have a complete stall of the connection and we never recover.<br>I don’t know if we care about this, but there it is :-)</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://patches.linaro.org/project/stable/patch/20210125183204.684104321@linuxfoundation.org/">一个 zero windows 下卡死的内核bug</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/TCP/" rel="tag"># TCP</a>
+              <a href="/tags/TCPWqueueTooBig/" rel="tag"># TCPWqueueTooBig</a>
+              <a href="/tags/CVE/" rel="tag"># CVE</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022/10/10/Nginx%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/" rel="prev" title="Nginx 性能测试">
+                  <i class="fa fa-angle-left"></i> Nginx 性能测试
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022/10/24/weibo/" rel="next" title="微博备份">
+                  微博备份 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

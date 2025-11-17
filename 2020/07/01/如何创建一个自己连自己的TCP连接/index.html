@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="如何创建一个自己连自己的TCP连接 能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？  最近有同时找我，说是发现了一个奇怪的问题，他的 MySQLD listen 28350 端口， Sysbench 和 MySQLD 部署在同一台机器上，然后压 MySQL，只要 MySQL 一挂掉就再也起不来，起不来是因为 28350 端口被 Sysben">
+<meta property="og:type" content="article">
+<meta property="og:title" content="如何创建一个自己连自己的TCP连接">
+<meta property="og:url" content="https://plantegg.github.io/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="如何创建一个自己连自己的TCP连接 能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？  最近有同时找我，说是发现了一个奇怪的问题，他的 MySQLD listen 28350 端口， Sysbench 和 MySQLD 部署在同一台机器上，然后压 MySQL，只要 MySQL 一挂掉就再也起不来，起不来是因为 28350 端口被 Sysben">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/ignore-error,1">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/b9a0144a3835759c844f697bc45103fa.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/5373ecfe0d4496d106c64d3f370c893c.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/4d188cab03e919f055bb9dbe3da0188c.png">
+<meta property="article:published_time" content="2020-07-01T09:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.574Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="TCP">
+<meta property="article:tag" content="network">
+<meta property="article:tag" content="simultaneous">
+<meta property="article:tag" content="自连接">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/Users/ren/case/951413iMgBlog/ignore-error,1">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/","path":"2020/07/01/如何创建一个自己连自己的TCP连接/","title":"如何创建一个自己连自己的TCP连接"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>如何创建一个自己连自己的TCP连接 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.</span> <span class="nav-text">如何创建一个自己连自己的TCP连接</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95"><span class="nav-number">1.1.</span> <span class="nav-text">测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#port-range"><span class="nav-number">1.2.</span> <span class="nav-text">port range</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%B0%E5%BA%95%E4%B8%80%E5%8F%B0%E6%9C%BA%E5%99%A8%E4%B8%8A%E6%9C%80%E5%A4%9A%E8%83%BD%E5%88%9B%E5%BB%BA%E5%A4%9A%E5%B0%91%E4%B8%AATCP%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.3.</span> <span class="nav-text">到底一台机器上最多能创建多少个TCP连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84%E8%BF%9E%E6%8E%A5"><span class="nav-number">1.4.</span> <span class="nav-text">自己连自己的连接</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#TCP-simultanous-open"><span class="nav-number">1.5.</span> <span class="nav-text">TCP simultanous open</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84%E5%8E%9F%E7%90%86%E8%A7%A3%E9%87%8A"><span class="nav-number">1.6.</span> <span class="nav-text">自己连自己的原理解释</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E8%A7%A3%E5%86%B3"><span class="nav-number">1.7.</span> <span class="nav-text">问题解决</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#bind-%E5%92%8C-connect%E3%80%81listen"><span class="nav-number">1.8.</span> <span class="nav-text">bind 和 connect、listen</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#listen"><span class="nav-number">1.8.1.</span> <span class="nav-text">listen</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.9.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="如何创建一个自己连自己的TCP连接 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          如何创建一个自己连自己的TCP连接
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-07-01 17:30:03" itemprop="dateCreated datePublished" datetime="2020-07-01T17:30:03+08:00">2020-07-01</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="如何创建一个自己连自己的TCP连接"><a href="#如何创建一个自己连自己的TCP连接" class="headerlink" title="如何创建一个自己连自己的TCP连接"></a>如何创建一个自己连自己的TCP连接</h1><blockquote>
+<p>能不能建立一个tcp连接， src-ip:src-port 等于dest-ip:dest-port 呢？</p>
+</blockquote>
+<p>最近有同时找我，说是发现了一个奇怪的问题，他的 MySQLD listen 28350 端口， Sysbench 和 MySQLD 部署在同一台机器上，然后压 MySQL，只要 MySQL 一挂掉就再也起不来，起不来是因为 28350 端口被 Sysbench 抢走了，如下图，对 Sysbench 来说他已经连上 28350 的 MySQL 了（注意 ESTABLISHED 状态）：</p>
+<p><img src="/Users/ren/case/951413iMgBlog/ignore-error,1" alt="img"></p>
+<p>所以问题就是能不能建立一个自己连自己的连接呢？建立后有什么现象和后果？</p>
+<h2 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h2><p>执行</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.79 18082 -p 18082</span><br></pre></td></tr></table></figure>
+
+<p>然后就能看到</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18082</span><br><span class="line">tcp        0      0 192.168.0.79:18082      192.168.0.79:18082      ESTABLISHED</span><br></pre></td></tr></table></figure>
+
+<p>比较神奇，这个连接的srcport等于destport，并且完全可以工作，也能收发数据。这有点颠覆大家的理解，端口能重复使用？</p>
+<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地端口范围由参数控制</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </span><br><span class="line">10000	65535</span><br></pre></td></tr></table></figure>
+
+<p>所以也经常看到一个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
+<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>在内存、文件句柄足够的话可以创建的连接是没有限制的，那么&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range指定的端口范围到底是什么意思呢？</p>
+<p>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一，比如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18089</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </span><br><span class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</span><br></pre></td></tr></table></figure>
+
+<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。</p>
+<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
+<p>但是如果程序调用的是bind函数(bind(ip,port&#x3D;0))这个时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接下来这个socket是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候4元组是唯一的。</p>
+<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
+<h2 id="自己连自己的连接"><a href="#自己连自己的连接" class="headerlink" title="自己连自己的连接"></a>自己连自己的连接</h2><p>我们来看自己连自己发生了什么</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># strace nc 192.168.0.79 18084 -p 18084</span></span><br><span class="line">execve(<span class="string">&quot;/usr/bin/nc&quot;</span>, [<span class="string">&quot;nc&quot;</span>, <span class="string">&quot;192.168.0.79&quot;</span>, <span class="string">&quot;18084&quot;</span>, <span class="string">&quot;-p&quot;</span>, <span class="string">&quot;18084&quot;</span>], [/* 31 vars */]) = 0</span><br><span class="line">brk(NULL)                               = 0x23d4000</span><br><span class="line">mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f213f394000</span><br><span class="line">access(<span class="string">&quot;/etc/ld.so.preload&quot;</span>, R_OK)      = -1 ENOENT (No such file or directory)</span><br><span class="line">open(<span class="string">&quot;/etc/ld.so.cache&quot;</span>, O_RDONLY|O_CLOEXEC) = 3</span><br><span class="line">fstat(3, &#123;st_mode=S_IFREG|0644, st_size=23295, ...&#125;) = 0</span><br><span class="line">mmap(NULL, 23295, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f213f38e000</span><br><span class="line">close(3)                                = 0</span><br><span class="line">open(<span class="string">&quot;/lib64/libssl.so.10&quot;</span>, O_RDONLY|O_CLOEXEC) = 3</span><br><span class="line">………………</span><br><span class="line">munmap(0x7f213f393000, 4096)            = 0</span><br><span class="line">open(<span class="string">&quot;/usr/share/ncat/ca-bundle.crt&quot;</span>, O_RDONLY) = -1 ENOENT (No such file or directory)</span><br><span class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</span><br><span class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line"><span class="built_in">bind</span>(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">&quot;0.0.0.0&quot;</span>)&#125;, 16) = 0</span><br><span class="line">//注意这里<span class="built_in">bind</span>后直接就是connect，没有listen</span><br><span class="line">connect(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(<span class="string">&quot;192.168.0.79&quot;</span>)&#125;, 16) = -1 EINPROGRESS (Operation now <span class="keyword">in</span> progress)</span><br><span class="line"><span class="keyword">select</span>(4, [3], [3], [3], &#123;10, 0&#125;)       = 1 (out [3], left &#123;9, 999998&#125;)</span><br><span class="line">getsockopt(3, SOL_SOCKET, SO_ERROR, [0], [4]) = 0</span><br><span class="line"><span class="keyword">select</span>(4, [0 3], [], [], NULL</span><br></pre></td></tr></table></figure>
+
+<p>抓包看看，正常三次握手，但是syn的seq和syn+ack的seq是一样的</p>
+<p><img src="/images/oss/341f2891253baa4eebdaeaf34aa60c4b.png" alt="image.png"></p>
+<p>这个连接算是常说的TCP simultaneous open，simultaneous open指的是两个不同port同时发syn建连接。而这里是先创建了一个socket，然后socket bind到18084端口上（作为local port，因为nc指定了local port），然后执行 connect, 连接到的目标也是192.168.0.79:18084，而这个目标正好是刚刚创建的socket，也就是自己连自己（连接双方总共只有一个socket）。因为一个socket充当了两个角色（client、server），握手的时候发syn，自己收到自己发的syn，就相当于两个角色simultaneous open了。</p>
+<p>正常一个连接一定需要两个socket参与（这两个socket不一定要在两台机器上），而这个连接只用了一个socket就创建了，还能正常传输数据。但是仔细观察发数据的时候发放的seq增加（注意tcp_len 11那里的seq），收方的seq也增加了11，这是因为本来这就是用的同一个socket。正常两个socket通讯不是这样的。</p>
+<p>那么这种情况为什么没有当做bug被处理呢？</p>
+<h2 id="TCP-simultanous-open"><a href="#TCP-simultanous-open" class="headerlink" title="TCP simultanous open"></a>TCP simultanous open</h2><p>在tcp连接的定义中，通常都是一方先发起连接，假如两边同时发起连接，也就是两个socket同时给对方发 syn 呢？ 这在内核中是支持的，就叫同时打开（simultaneous open）。</p>
+<p><img src="/images/oss/b9a0144a3835759c844f697bc45103fa.png" alt="image.png"></p>
+<p>​							                                           摘自《tcp&#x2F;ip卷1》</p>
+<p>可以清楚地看到这个连接建立用了四次握手，然后连接建立了，当然也有 simultanous close(3次挥手成功关闭连接)。如下内核代码 net&#x2F;ipv4&#x2F;tcp_input.c 的5924行中就说明了允许这种自己连自己的连接（当然也允许simultanous open). 也就是允许一个socket本来应该收到 syn+ack(发出syn后), 结果收到了syn的情况，而一个socket自己连自己又是这种情况的特例。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">	static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,</span><br><span class="line">                     const struct tcphdr *th)</span><br><span class="line">	&#123;</span><br><span class="line">5916         /* PAWS check. */</span><br><span class="line">						 //PAWS机制全称Protect Againest Wrapped Sequence numbers，</span><br><span class="line">						 //目的是为了解决在高带宽下，TCP序号可能被重复使用而带来的问题。</span><br><span class="line">5917         if (tp-&gt;rx_opt.ts_recent_stamp &amp;&amp; tp-&gt;rx_opt.saw_tstamp &amp;&amp;</span><br><span class="line">5918             tcp_paws_reject(&amp;tp-&gt;rx_opt, 0))</span><br><span class="line">5919                 goto discard_and_undo;</span><br><span class="line">5920         //在socket发送syn后收到了一个syn(正常应该收到syn+ack),这里是允许的。</span><br><span class="line">5921         if (th-&gt;syn) &#123;</span><br><span class="line">5922                 /* We see SYN without ACK. It is attempt of</span><br><span class="line">5923                  * simultaneous connect with crossed SYNs.</span><br><span class="line">5924                  * Particularly, it can be connect to self.  //自己连自己</span><br><span class="line">5925                  */</span><br><span class="line">5926                 tcp_set_state(sk, TCP_SYN_RECV);</span><br><span class="line">5927 </span><br><span class="line">5928                 if (tp-&gt;rx_opt.saw_tstamp) &#123;</span><br><span class="line">5929                         tp-&gt;rx_opt.tstamp_ok = 1;</span><br><span class="line">5930                         tcp_store_ts_recent(tp);</span><br><span class="line">5931                         tp-&gt;tcp_header_len =</span><br><span class="line">5932                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;</span><br><span class="line">5933                 &#125; else &#123;</span><br><span class="line">5934                         tp-&gt;tcp_header_len = sizeof(struct tcphdr);</span><br><span class="line">5935                 &#125;</span><br><span class="line">5936 </span><br><span class="line">5937                 tp-&gt;rcv_nxt = TCP_SKB_CB(skb)-&gt;seq + 1;</span><br><span class="line">5938                 tp-&gt;copied_seq = tp-&gt;rcv_nxt;</span><br><span class="line">5939                 tp-&gt;rcv_wup = TCP_SKB_CB(skb)-&gt;seq + 1;</span><br><span class="line">5940 </span><br><span class="line">5941                 /* RFC1323: The window in SYN &amp; SYN/ACK segments is</span><br><span class="line">5942                  * never scaled.</span><br><span class="line">5943                  */</span><br></pre></td></tr></table></figure>
+
+<p>也就是在发送syn进入SYN_SENT状态之后，收到对端发来的syn包后不会RST，而是处理流程如下，调用tcp_set_state(sk, TCP_SYN_RECV)进入SYN_RECV状态，以及调用tcp_send_synack(sk)向对端发送syn+ack。</p>
+<h2 id="自己连自己的原理解释"><a href="#自己连自己的原理解释" class="headerlink" title="自己连自己的原理解释"></a>自己连自己的原理解释</h2><p>第一我们要理解Kernel是支持simultaneous open（同时打开）的，也就是说socket发走syn后，本来应该收到一个syn+ack的，但是实际收到了一个syn（没有ack），这是允许的。这叫TCP连接同时打开（同时给对方发syn），四次握手然后建立连接成功。</p>
+<p>自己连自己又是simultaneous open的一个特例，特别在这个连接只有一个socket参与，发送、接收都是同一个socket，自然也会是发syn后收到了自己的syn（自己发给自己），然后依照simultaneous open连接也能创建成功。</p>
+<p>这个bind到18084 local port的socket又要连接到 18084 port上，而这个18084 socket已经bind到了socket（也就是自己），就形成了两个socket 的simultaneous open一样，内核又允许这种simultaneous open，所以就形成了自己连自己，也就是一个socket在自己给自己收发数据，所以看到收方和发放的seq是一样的。</p>
+<p>可以用python来重现这个连接连自己的过程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">import socket</span><br><span class="line">import time</span><br><span class="line"></span><br><span class="line">connected=False</span><br><span class="line">while (not connected):</span><br><span class="line">        try:</span><br><span class="line">          sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)</span><br><span class="line">          sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)</span><br><span class="line">          sock.bind((&#x27;&#x27;, 18084))               //sock 先bind到18084</span><br><span class="line">          sock.connect((&#x27;127.0.0.1&#x27;,18084))    //然后同一个socket连自己</span><br><span class="line">          connected=True</span><br><span class="line">        except socket.error,(value,message):</span><br><span class="line">        	print message</span><br><span class="line"></span><br><span class="line">        if not connected:</span><br><span class="line">        	print &quot;reconnect&quot;</span><br><span class="line">               </span><br><span class="line">print &quot;tcp self connection occurs!&quot;</span><br><span class="line">print &quot;netstat -an|grep 18084&quot;</span><br><span class="line">time.sleep(1800)             </span><br></pre></td></tr></table></figure>
+
+<p>这里connect前如果没有bind那么系统就会从 local port range 分配一个可用port。</p>
+<p>bind成功后会将ip+port放入hash表来判重，这就是我们常看到的 Bind to *** failed (IOD #1): Address already in use 异常。所以一台机器上，如果有多个ip，是可以将同一个port bind多次的，但是bind的时候如果不指定ip，也就是bind(‘0’, port) 还是会冲突。</p>
+<p>connect成功后会将四元组放入ehash来判定连接的重复性。如果connect四元组冲突了就会报如下错误</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># nc 192.168.0.82 8080 -p 29798 -s 192.168.0.79</span><br><span class="line">Ncat: Cannot assign requested address.</span><br></pre></td></tr></table></figure>
+
+<h2 id="问题解决"><a href="#问题解决" class="headerlink" title="问题解决"></a><strong>问题解决</strong></h2><p>知道原因就好解决了，有如下两个方案</p>
+<ol>
+<li>正常应该通过 port_range 限制随机端口的使用范围(就是给 Sysbench 这些客户端使用的)，而 Listen 使用的端口在 port_range 之外，这样就不会出现自己连自己的连接了</li>
+<li>将 listen 端口添加到 &#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_reserved_ports 中</li>
+</ol>
+<p>方案2示例(推荐该方案)如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"># echo 3306,32768,1024-3000,32769-65535 &gt;/proc/sys/net/ipv4/ip_local_reserved_ports</span><br><span class="line">//合并连续的区间</span><br><span class="line"># cat /proc/sys/net/ipv4/ip_local_reserved_ports</span><br><span class="line">1024-3000,3306,32768-65535</span><br></pre></td></tr></table></figure>
+
+<p>以上两个方法都可以解决这个问题，方案2 简直是为这种情况量身打造的</p>
+<h2 id="bind-和-connect、listen"><a href="#bind-和-connect、listen" class="headerlink" title="bind 和 connect、listen"></a>bind 和 connect、listen</h2><p>当对一个TCP socket调用connect函数时，如果这个socket没有bind指定的端口号，操作系统会为它选择一个当前未被使用的端口号，这个端口号被称为ephemeral port, 范围可以在&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range里查看。假设30000这个端口被选为ephemeral port。</p>
+<p>如果这个socket指定了local port那么socket创建后会执行bind将这个socket bind到这个port。比如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3</span><br><span class="line">fcntl(3, F_GETFL)                       = 0x2 (flags O_RDWR)</span><br><span class="line">fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK)    = 0</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0</span><br><span class="line">bind(3, &#123;sa_family=AF_INET, sin_port=htons(18084), sin_addr=inet_addr(&quot;0.0.0.0&quot;)&#125;, 16) = 0</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/oss/5373ecfe0d4496d106c64d3f370c893c.png" alt="image.png"></p>
+<h3 id="listen"><a href="#listen" class="headerlink" title="listen"></a>listen</h3><p><img src="/images/oss/4d188cab03e919f055bb9dbe3da0188c.png" alt="image-20200702131215819"></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://segmentfault.com/a/1190000002396411">https://segmentfault.com/a/1190000002396411</a></p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a364572/article/details/40628171">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
+<p><a target="_blank" rel="noopener" href="https://ops.tips/blog/how-linux-tcp-introspection/">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
+<p><a target="_blank" rel="noopener" href="https://idea.popcount.org/2014-04-03-bind-before-connect/">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/TCP/" rel="tag"># TCP</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+              <a href="/tags/simultaneous/" rel="tag"># simultaneous</a>
+              <a href="/tags/%E8%87%AA%E8%BF%9E%E6%8E%A5/" rel="tag"># 自连接</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/05/24/%E7%A8%8B%E5%BA%8F%E5%91%98%E5%A6%82%E4%BD%95%E5%AD%A6%E4%B9%A0%E5%92%8C%E6%9E%84%E5%BB%BA%E7%BD%91%E7%BB%9C%E7%9F%A5%E8%AF%86%E4%BD%93%E7%B3%BB/" rel="prev" title="程序员如何学习和构建网络知识体系">
+                  <i class="fa fa-angle-left"></i> 程序员如何学习和构建网络知识体系
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/07/03/MySQL%20JDBC%20StreamResult%20%E5%92%8C%20net_write_timeout/" rel="next" title="MySQL JDBC StreamResult 和 net_write_timeout">
+                  MySQL JDBC StreamResult 和 net_write_timeout <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

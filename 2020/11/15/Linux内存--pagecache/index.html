@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Linux内存–PageCache本系列有如下几篇 [Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;) Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 read&#x2F;writeread(2)&#x2F;write(2) 是 Linux 系统中最基本">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux内存--PageCache">
+<meta property="og:url" content="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="Linux内存–PageCache本系列有如下几篇 [Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;) Linux内存–PageCache Linux内存–管理和碎片 Linux内存–HugePage Linux内存–零拷贝 read&#x2F;writeread(2)&#x2F;write(2) 是 Linux 系统中最基本">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/740b95056dace8ae6fb3b8f58d91572e.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/3fdffacd66c0981956b15be348fff46a.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/4b341ba757d27e3a81145a55f54363e1.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/f16438b744a248d7671d5ac7317b0a98.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png">
+<meta property="og:image" content="https://plantegg.github.io/images/oss/d5446b656e8d91a9fb72200a7b97e723.png">
+<meta property="article:published_time" content="2020-11-15T08:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.521Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="Memory">
+<meta property="article:tag" content="PageCache">
+<meta property="article:tag" content="free">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/","path":"2020/11/15/Linux内存--pagecache/","title":"Linux内存--PageCache"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Linux内存--PageCache | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Linux%E5%86%85%E5%AD%98%E2%80%93PageCache"><span class="nav-number">1.</span> <span class="nav-text">Linux内存–PageCache</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#read-write"><span class="nav-number">1.1.</span> <span class="nav-text">read&#x2F;write</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#pagecache-%E7%9A%84%E4%BA%A7%E7%94%9F%E5%92%8C%E9%87%8A%E6%94%BE"><span class="nav-number">1.2.</span> <span class="nav-text">pagecache 的产生和释放</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#min-%E5%92%8C-low%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="nav-number">1.2.1.</span> <span class="nav-text">min 和 low的区别</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%86%85%E5%AD%98%E5%9B%9E%E6%94%B6%E6%96%B9%E5%BC%8F"><span class="nav-number">1.2.2.</span> <span class="nav-text">内存回收方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#direct-IO"><span class="nav-number">1.2.3.</span> <span class="nav-text">direct IO</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#cache%E5%9B%9E%E6%94%B6"><span class="nav-number">1.3.</span> <span class="nav-text">cache回收</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Page%E5%9B%9E%E6%94%B6%E2%80%93%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD"><span class="nav-number">1.4.</span> <span class="nav-text">Page回收–缺页中断</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%B3%BB%E7%BB%9F%E4%B8%AD%E8%84%8F%E9%A1%B5%E8%BF%87%E5%A4%9A%E5%BC%95%E8%B5%B7-load-%E9%A3%99%E9%AB%98"><span class="nav-number">1.4.1.</span> <span class="nav-text">系统中脏页过多引起 load 飙高</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%80%9A%E8%BF%87tracepoint%E5%88%86%E6%9E%90%E5%86%85%E5%AD%98%E5%8D%A1%E9%A1%BF%E9%97%AE%E9%A2%98"><span class="nav-number">1.5.</span> <span class="nav-text">通过tracepoint分析内存卡顿问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="nav-number">1.6.</span> <span class="nav-text">参考资料</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Linux内存--PageCache | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Linux内存--PageCache
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2020-11-15 16:30:03" itemprop="dateCreated datePublished" datetime="2020-11-15T16:30:03+08:00">2020-11-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Memory/" itemprop="url" rel="index"><span itemprop="name">Memory</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Linux内存–PageCache"><a href="#Linux内存–PageCache" class="headerlink" title="Linux内存–PageCache"></a>Linux内存–PageCache</h1><p>本系列有如下几篇</p>
+<p>[Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;)</p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">Linux内存–PageCache</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E7%AE%A1%E7%90%86%E5%92%8C%E7%A2%8E%E7%89%87/">Linux内存–管理和碎片</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">Linux内存–HugePage</a></p>
+<p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">Linux内存–零拷贝</a></p>
+<h2 id="read-write"><a href="#read-write" class="headerlink" title="read&#x2F;write"></a>read&#x2F;write</h2><p><code>read(2)/write(2)</code> 是 Linux 系统中最基本的 I&#x2F;O 读写系统调用，我们开发操作 I&#x2F;O 的程序时必定会接触到它们，而在这两个系统调用和真实的磁盘读写之间存在一层称为 <code>Kernel buffer cache</code> 的缓冲区缓存。在 Linux 中 I&#x2F;O 缓存其实可以细分为两个：<code>Page Cache</code> 和 <code>Buffer Cache</code>，这两个其实是一体两面，共同组成了 Linux 的内核缓冲区（Kernel Buffer Cache），Page Cache 是在应用程序读写文件的过程中产生的：</p>
+<ul>
+<li><strong>读磁盘</strong>：内核会先检查 <code>Page Cache</code> 里是不是已经缓存了这个数据，若是，直接从这个内存缓冲区里读取返回，若否，则穿透到磁盘去读取，然后再缓存在 <code>Page Cache</code> 里，以备下次缓存命中；</li>
+<li><strong>写磁盘</strong>：内核直接把数据写入 <code>Page Cache</code>，并把对应的页标记为 dirty，添加到 dirty list 里，然后就直接返回，内核会定期把 dirty list 的页缓存 flush 到磁盘，保证页缓存和磁盘的最终一致性。</li>
+</ul>
+<p>在 Linux 还不支持虚拟内存技术之前，还没有页的概念，因此 <code>Buffer Cache</code> 是基于操作系统读写磁盘的最小单位 – 块（block）来进行的，所有的磁盘块操作都是通过 <code>Buffer Cache</code> 来加速，<strong>Linux 引入虚拟内存的机制来管理内存后，页成为虚拟内存管理的最小单位</strong>，因此也引入了 <code>Page Cache</code> 来缓存 Linux 文件内容，主要用来作为文件系统上的文件数据的缓存，提升读写性能，常见的是针对文件的 <code>read()/write()</code> 操作，另外也包括了通过 <code>mmap()</code> 映射之后的块设备，也就是说，事实上 Page Cache 负责了大部分的块设备文件的缓存工作。而 <code>Buffer Cache</code> 用来在系统对块设备进行读写的时候，对块进行数据缓存的系统来使用。</p>
+<p>在 Linux 2.4 版本之后，kernel 就将两者进行了统一，<code>Buffer Cache</code> 不再以独立的形式存在，而是以融合的方式存在于 <code>Page Cache</code> 中</p>
+<p><img src="/images/oss/cd1b3a9bebaf1e7219904fd537191cde.png"></p>
+<p>融合之后就可以统一操作 <code>Page Cache</code> 和 <code>Buffer Cache</code>：处理文件 I&#x2F;O 缓存交给 <code>Page Cache</code>，而当底层 RAW device 刷新数据时以 <code>Buffer Cache</code> 的块单位来实际处理。</p>
+<h2 id="pagecache-的产生和释放"><a href="#pagecache-的产生和释放" class="headerlink" title="pagecache 的产生和释放"></a>pagecache 的产生和释放</h2><ul>
+<li>标准 I&#x2F;O 是写的 (write(2)) 用户缓冲区 (Userpace Page 对应的内存)，<strong>然后再将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong>；如果是读的 (read(2)) 话则是先从内核缓冲区拷贝到用户缓冲区，再从用户缓冲区读数据，也就是 buffer 和文件内容不存在任何映射关系。</li>
+<li>对于存储映射 I&#x2F;O（Memory-Mapped I&#x2F;O） 而言，则是直接将 Pagecache Page 给映射到用户地址空间，用户直接读写 Pagecache Page 中内容，效率相对标准IO更高一些</li>
+</ul>
+<img src="/images/oss/51bf36aa14dc01e7ad309c1bb9d252e9.png" alt="image.png" style="zoom: 20%;" />
+
+<p>当 <strong>将用户缓冲区里的数据拷贝到内核缓冲区 (Pagecache Page 对应的内存)</strong> 最容易发生缺页中断，OS需要先分配Page（应用感知到的就是卡顿了）</p>
+<img src="/images/oss/d62ea00662f8342b7df3aab6b28e4cbb.png" alt="img.png" style="zoom: 25%;" />  
+
+
+
+<ul>
+<li>Page Cache 是在应用程序读写文件的过程中产生的，所以在读写文件之前你需要留意是否还有足够的内存来分配 Page Cache；</li>
+<li>Page Cache 中的脏页很容易引起问题，你要重点注意这一块；</li>
+<li>在系统可用内存不足的时候就会回收 Page Cache 来释放出来内存，可以通过 sar 或者 &#x2F;proc&#x2F;vmstat 来观察这个行为从而更好的判断问题是否跟回收有关</li>
+</ul>
+<p>缺页后kswapd在短时间内回收不了足够多的 free 内存，或kswapd 还没有触发执行，操作系统就会进行内存页直接回收。这个过程中，应用会进行自旋等待直到回收的完成，从而产生巨大的延迟。</p>
+<img src="/images/oss/0a5cdeb75b7dee2068254cd4b7fe254d.png" style="zoom:50%;" />
+
+<p>如果page被swapped，那么恢复进内存的过程也对延迟有影响，当匿名内存页被回收后，如果下次再访问就会产生IO的延迟。</p>
+<img src="/images/oss/740b95056dace8ae6fb3b8f58d91572e.png" style="zoom:50%;" />
+
+
+
+<h3 id="min-和-low的区别"><a href="#min-和-low的区别" class="headerlink" title="min 和 low的区别"></a>min 和 low的区别</h3><ol>
+<li>min下的内存是保留给内核使用的；当到达min，会触发内存的direct reclaim （vm.min_free_kbytes）</li>
+<li>low水位比min高一些，当内存可用量小于low的时候，会触发 kswapd回收内存，当kswapd慢慢的将内存 回收到high水位，就开始继续睡眠</li>
+</ol>
+<h3 id="内存回收方式"><a href="#内存回收方式" class="headerlink" title="内存回收方式"></a>内存回收方式</h3><p>内存回收方式有两种，主要对应low ，min</p>
+<ol>
+<li>kswapd reclaim : 达到low水位线时执行 – 异步（实际还有，只是比较危险了，后台kswapd会回收，不会卡顿应用）</li>
+<li>direct reclaim : 达到min水位线时执行 – 同步</li>
+</ol>
+<p>为了减少缺页中断，首先就要保证我们有足够的内存可以使用。由于Linux会尽可能多的使用free的内存，运行很久的应用free的内存是很少的。下面的图中，紫色表示已经使用的内存，白色表示尚未分配的内存。当我们的内存使用达到水位的low值的时候，kswapd就会开始回收工作，而一旦内存分配超过了min，就会进行内存的直接回收。</p>
+<img src="/images/oss/5933cc4c28f86aa08410a8af4ff4410d.png" style="zoom:50%;" />
+
+<p>针对这种情况，需要采用预留内存的手段，系统参数vm.extra_free_kbytes就是用来做这个事情的。这个参数设置了系统预留给应用的内存，可以避免紧急需要内存时发生内存回收不及时导致的高延迟。从下面图中可以看到，通过vm.extra_free_kbytes的设置，预留内存可以让内存的申请处在一个安全的水位。<strong>需要注意的是，因为内核的优化，在3.10以上的内核版本这个参数已经被取消。</strong></p>
+<img src="/images/oss/f55022d4eb181b92ba5d2e142ec940c8.png" style="zoom: 50%;" />
+
+<p>三个watermark的计算方法：</p>
+<p>watermark[min] &#x3D; vm.min_free_kbytes换算为page单位即可，假设为vm.min_free_kbytes。</p>
+<p>watermark[low] &#x3D; watermark[min] * 5 &#x2F; 4</p>
+<p>watermark[high] &#x3D; watermark[min] * 3 &#x2F; 2</p>
+<p>比如默认 vm.min_free_kbytes &#x3D; 65536是64K，很容易导致应用的毛刺，可以适当改大</p>
+<p>或者禁止： vm.swappiness  来避免swapped来减少延迟</p>
+<h3 id="direct-IO"><a href="#direct-IO" class="headerlink" title="direct IO"></a>direct IO</h3><p>绕过page cache，直接读写硬盘</p>
+<h2 id="cache回收"><a href="#cache回收" class="headerlink" title="cache回收"></a>cache回收</h2><p>系统内存大体可分为三块，应用程序使用内存、系统Cache 使用内存（包括page cache、buffer，内核slab 等）和Free 内存。</p>
+<ul>
+<li><p>应用程序使用内存：应用使用都是虚拟内存，应用申请内存时只是分配了地址空间，并未真正分配出物理内存，等到应用真正访问内存时会触发内核的缺页中断，这时候才真正的分配出物理内存，映射到用户的地址空间，因此应用使用内存是不需要连续的，内核有机制将非连续的物理映射到连续的进程地址空间中（mmu），缺页中断申请的物理内存，内核优先给低阶碎内存。</p>
+</li>
+<li><p>系统Cache 使用内存：使用的也是虚拟内存，申请机制与应用程序相同。</p>
+</li>
+<li><p>Free 内存，未被使用的物理内存，这部分内存以4k 页的形式被管理在内核伙伴算法结构中，相邻的2^n 个物理页会被伙伴算法组织到一起，形成一块连续物理内存，所谓的阶内存就是这里的n (0&lt;&#x3D; n &lt;&#x3D;10)，高阶内存指的就是一块连续的物理内存，在OSS 的场景中，如果3阶内存个数比较小的情况下，如果系统有吞吐burst 就会触发Drop cache 情况。</p>
+</li>
+</ul>
+<blockquote>
+<p>echo 1&#x2F;2&#x2F;3 &gt;&#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches</p>
+</blockquote>
+<p>查看回收后：</p>
+<pre><code>cat /proc/meminfo
+</code></pre>
+<img src="/images/oss/7cedcb6daa53cbcfc9c68568086500b7.png" alt="image.png" style="zoom:20%;" />
+
+<p>当我们执行 echo 2 来 drop slab 的时候，它也会把 Page Cache(inode可能会有对应的pagecache，inode释放后对应的pagecache也释放了)给 drop 掉</p>
+<p>在系统内存紧张的时候，运维人员或者开发人员会想要通过 drop_caches 的方式来释放一些内存，但是由于他们清楚 Page Cache 被释放掉会影响业务性能，所以就期望只去 drop slab 而不去 drop pagecache。于是很多人这个时候就运行 echo 2 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches，但是结果却出乎了他们的意料：Page Cache 也被释放掉了，业务性能产生了明显的下降。</p>
+<p>查看 drop_caches 是否执行过释放：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">$ grep drop /proc/vmstat</span><br><span class="line">drop_pagecache 1</span><br><span class="line">drop_slab 0</span><br><span class="line"></span><br><span class="line">$ grep inodesteal /proc/vmstat </span><br><span class="line">pginodesteal 114341</span><br><span class="line">kswapd_inodesteal 1291853</span><br></pre></td></tr></table></figure>
+
+<p>在内存紧张的时候会触发内存回收，内存回收会尝试去回收 reclaimable（可以被回收的）内存，这部分内存既包含 Page Cache 又包含 reclaimable kernel memory(比如 slab)。inode被回收后可以通过  grep inodesteal &#x2F;proc&#x2F;vmstat 观察到</p>
+<blockquote>
+<p>kswapd_inodesteal 是指在 kswapd 回收的过程中，因为回收 inode 而释放的 pagecache page 个数；</p>
+<p>pginodesteal 是指 kswapd 之外其他线程在回收过程中，因为回收 inode 而释放的 pagecache page 个数;</p>
+</blockquote>
+<h2 id="Page回收–缺页中断"><a href="#Page回收–缺页中断" class="headerlink" title="Page回收–缺页中断"></a>Page回收–缺页中断</h2><img src="/images/oss/3fdffacd66c0981956b15be348fff46a.png" alt="image.png" style="zoom:20%;" />
+
+<p>从图里你可以看到，在开始内存回收后，首先进行后台异步回收（上图中蓝色标记的地方），这不会引起进程的延迟；如果后台异步回收跟不上进程内存申请的速度，就会开始同步阻塞回收，导致延迟（上图中红色和粉色标记的地方，这就是引起 load 高的地址 – Sys CPU 使用率飙升&#x2F;Sys load 飙升）。</p>
+<p>那么，针对直接内存回收引起 load 飙高或者业务 RT 抖动的问题，一个解决方案就是及早地触发后台回收来避免应用程序进行直接内存回收，那具体要怎么做呢？</p>
+<img src="/images/oss/4b341ba757d27e3a81145a55f54363e1.png" alt="image.png" style="zoom:25%;" />
+
+<p>它的意思是：当内存水位低于 watermark low 时，就会唤醒 kswapd 进行后台回收，然后 kswapd 会一直回收到 watermark high。</p>
+<p>那么，我们可以增大 min_free_kbytes 这个配置选项来及早地触发后台回收，该选项最终控制的是内存回收水位，不过，内存回收水位是内核里面非常细节性的知识点，我们可以先不去讨论。</p>
+<p>对于大于等于 128G 的系统而言，将 min_free_kbytes 设置为 4G 比较合理，这是我们在处理很多这种问题时总结出来的一个经验值，既不造成较多的内存浪费，又能避免掉绝大多数的直接内存回收。</p>
+<p>该值的设置和总的物理内存并没有一个严格对应的关系，我们在前面也说过，如果配置不当会引起一些副作用，所以在调整该值之前，我的建议是：你可以渐进式地增大该值，比如先调整为 1G，观察 sar -B 中 pgscand 是否还有不为 0 的情况；如果存在不为 0 的情况，继续增加到 2G，再次观察是否还有不为 0 的情况来决定是否增大，以此类推。</p>
+<blockquote>
+<p>sar -B :  Report paging statistics.</p>
+<p>pgscand&#x2F;s  Number of pages scanned directly per second.</p>
+</blockquote>
+<h3 id="系统中脏页过多引起-load-飙高"><a href="#系统中脏页过多引起-load-飙高" class="headerlink" title="系统中脏页过多引起 load 飙高"></a>系统中脏页过多引起 load 飙高</h3><p>直接回收过程中，如果存在较多脏页就可能涉及在回收过程中进行回写，这可能会造成非常大的延迟，而且因为这个过程本身是阻塞式的，所以又可能进一步导致系统中处于 D 状态的进程数增多，最终的表现就是系统的 load 值很高。</p>
+<img src="/images/oss/f16438b744a248d7671d5ac7317b0a98.png" alt="image.png" style="zoom: 25%;" />
+
+<p>可以通过 sar -r 来观察系统中的脏页个数：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ sar -r 1</span><br><span class="line">07:30:01 PM kbmemfree kbmemused  %memused kbbuffers  kbcached  kbcommit   %commit  kbactive   kbinact   kbdirty</span><br><span class="line">09:20:01 PM   5681588   2137312     27.34         0   1807432    193016      2.47    534416   1310876         4</span><br><span class="line">09:30:01 PM   5677564   2141336     27.39         0   1807500    204084      2.61    539192   1310884        20</span><br><span class="line">09:40:01 PM   5679516   2139384     27.36         0   1807508    196696      2.52    536528   1310888        20</span><br><span class="line">09:50:01 PM   5679548   2139352     27.36         0   1807516    196624      2.51    536152   1310892        24</span><br></pre></td></tr></table></figure>
+
+<p>kbdirty 就是系统中的脏页大小，它同样也是对 &#x2F;proc&#x2F;vmstat 中 nr_dirty 的解析。你可以通过调小如下设置来将系统脏页个数控制在一个合理范围:</p>
+<blockquote>
+<p>vm.dirty_background_bytes &#x3D; 0</p>
+<p>vm.dirty_background_ratio &#x3D; 10</p>
+<p>vm.dirty_bytes &#x3D; 0</p>
+<p>vm.dirty_expire_centisecs &#x3D; 3000</p>
+<p>vm.dirty_ratio &#x3D; 20</p>
+</blockquote>
+<p>至于这些值调整大多少比较合适，也是因系统和业务的不同而异，我的建议也是一边调整一边观察，将这些值调整到业务可以容忍的程度就可以了，即在调整后需要观察业务的服务质量 (SLA)，要确保 SLA 在可接受范围内。调整的效果可以通过 &#x2F;proc&#x2F;vmstat 来查看：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#grep &quot;nr_dirty_&quot; /proc/vmstat</span><br><span class="line">nr_dirty_threshold 3071708</span><br><span class="line">nr_dirty_background_threshold 1023902</span><br></pre></td></tr></table></figure>
+
+<p>在4.20的内核并且sar 的版本为12.3.3可以看到PSI（Pressure-Stall Information）</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">some avg10=45.49 avg60=10.23 avg300=5.41 total=76464318</span><br><span class="line">full avg10=40.87 avg60=9.05 avg300=4.29 total=58141082</span><br></pre></td></tr></table></figure>
+
+<p>重点关注 avg10 这一列，它表示最近 10s 内存的平均压力情况，如果它很大（比如大于 40）那 load 飙高大概率是由于内存压力，尤其是 Page Cache 的压力引起的。</p>
+<img src="/images/oss/cf58f10a523e1e4f0db443be3f54fc04.png" alt="image.png" style="zoom: 25%;" />
+
+<h2 id="通过tracepoint分析内存卡顿问题"><a href="#通过tracepoint分析内存卡顿问题" class="headerlink" title="通过tracepoint分析内存卡顿问题"></a>通过tracepoint分析内存卡顿问题</h2><img src="/images/oss/d5446b656e8d91a9fb72200a7b97e723.png" alt="image.png" style="zoom:25%;" />
+
+<p>我们继续以内存规整 (memory compaction) 为例，来看下如何利用 tracepoint 来对它进行观察：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">#首先来使能compcation相关的一些tracepoing</span><br><span class="line">$ echo 1 &gt;</span><br><span class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_begin/enable</span><br><span class="line">$ echo 1 &gt;</span><br><span class="line">/sys/kernel/debug/tracing/events/compaction/mm_compaction_end/enable </span><br><span class="line"></span><br><span class="line">#然后来读取信息，当compaction事件触发后就会有信息输出</span><br><span class="line">$ cat /sys/kernel/debug/tracing/trace_pipe</span><br><span class="line">           &lt;...&gt;-49355 [037] .... 1578020.975159: mm_compaction_begin: </span><br><span class="line">zone_start=0x2080000 migrate_pfn=0x2080000 free_pfn=0x3fe5800 </span><br><span class="line">zone_end=0x4080000, mode=async</span><br><span class="line">           &lt;...&gt;-49355 [037] .N.. 1578020.992136: mm_compaction_end: </span><br><span class="line">zone_start=0x2080000 migrate_pfn=0x208f420 free_pfn=0x3f4b720 </span><br><span class="line">zone_end=0x4080000, mode=async status=contended</span><br></pre></td></tr></table></figure>
+
+<p>从这个例子中的信息里，我们可以看到是 49355 这个进程触发了 compaction，begin 和 end 这两个 tracepoint 触发的时间戳相减，就可以得到 compaction 给业务带来的延迟，我们可以计算出这一次的延迟为 17ms。</p>
+<p>或者用 <a target="_blank" rel="noopener" href="https://lore.kernel.org/linux-mm/20191001144524.GB3321@techsingularity.net/T/">perf script</a> 脚本来分析, <a target="_blank" rel="noopener" href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop.py">基于 bcc(eBPF) 写的direct reclaim snoop</a>来观察进程因为 direct reclaim 而导致的延迟。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/66885">https://www.atatech.org/articles/66885</a></p>
+<p><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1087455">https://cloud.tencent.com/developer/article/1087455</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/13719610.html">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/free/" rel="tag"># free</a>
+              <a href="/tags/Memory/" rel="tag"># Memory</a>
+              <a href="/tags/PageCache/" rel="tag"># PageCache</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/" rel="prev" title="Linux内存--HugePage">
+                  <i class="fa fa-angle-left"></i> Linux内存--HugePage
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2020/11/17/MySQL%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%AF%BC%E8%87%B4%E7%9A%84%E5%BB%B6%E6%97%B6%E5%8D%A1%E9%A1%BF%E6%8E%92%E6%9F%A5/" rel="next" title="MySQL线程池导致的延时卡顿排查">
+                  MySQL线程池导致的延时卡顿排查 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

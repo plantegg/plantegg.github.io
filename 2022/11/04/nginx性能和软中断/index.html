@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="nginx性能和软中断问题 如何调整软中断才能达到最优性能？ 通过 top 观察软中断 和 si%、sy% 的关系  测试机型双路 Intel(R) Xeon(R) CPU E5-2682 v4 sh 两块万兆网卡：Intel Corporation 82599ES 10-Gigabit SFI&#x2F;SFP+ Network Connection (rev 01) 内核：3.10.0-327">
+<meta property="og:type" content="article">
+<meta property="og:title" content="nginx性能和软中断">
+<meta property="og:url" content="https://plantegg.github.io/2022/11/04/nginx%E6%80%A7%E8%83%BD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="nginx性能和软中断问题 如何调整软中断才能达到最优性能？ 通过 top 观察软中断 和 si%、sy% 的关系  测试机型双路 Intel(R) Xeon(R) CPU E5-2682 v4 sh 两块万兆网卡：Intel Corporation 82599ES 10-Gigabit SFI&#x2F;SFP+ Network Connection (rev 01) 内核：3.10.0-327">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152031791.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152044825.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221101113948809.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221101114217738.png">
+<meta property="article:published_time" content="2022-11-04T04:30:03.000Z">
+<meta property="article:modified_time" content="2025-11-16T11:58:49.541Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="CPU">
+<meta property="article:tag" content="irqbalance">
+<meta property="article:tag" content="nginx">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="softirq">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20221031152031791.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2022/11/04/nginx%E6%80%A7%E8%83%BD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2022/11/04/nginx%E6%80%A7%E8%83%BD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD/","path":"2022/11/04/nginx性能和软中断/","title":"nginx性能和软中断"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>nginx性能和软中断 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#nginx%E6%80%A7%E8%83%BD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD"><span class="nav-number">1.</span> <span class="nav-text">nginx性能和软中断</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%97%AE%E9%A2%98"><span class="nav-number">1.1.</span> <span class="nav-text">问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E6%9C%BA%E5%9E%8B"><span class="nav-number">1.2.</span> <span class="nav-text">测试机型</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%92%8C-si"><span class="nav-number">1.3.</span> <span class="nav-text">软中断和 si%</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">274</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/11/04/nginx%E6%80%A7%E8%83%BD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="nginx性能和软中断 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          nginx性能和软中断
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-11-04 12:30:03" itemprop="dateCreated datePublished" datetime="2022-11-04T12:30:03+08:00">2022-11-04</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/performance/" itemprop="url" rel="index"><span itemprop="name">performance</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="nginx性能和软中断"><a href="#nginx性能和软中断" class="headerlink" title="nginx性能和软中断"></a>nginx性能和软中断</h1><h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><ul>
+<li>如何调整软中断才能达到最优性能？</li>
+<li>通过 top 观察软中断 和 si%、sy% 的关系</li>
+</ul>
+<h2 id="测试机型"><a href="#测试机型" class="headerlink" title="测试机型"></a>测试机型</h2><p>双路 Intel(R) Xeon(R) CPU E5-2682 v4 sh</p>
+<p>两块万兆网卡：Intel Corporation 82599ES 10-Gigabit SFI&#x2F;SFP+ Network Connection (rev 01)</p>
+<p>内核：3.10.0-327</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br></pre></td></tr></table></figure>
+
+<h2 id="软中断和-si"><a href="#软中断和-si" class="headerlink" title="软中断和 si%"></a>软中断和 si%</h2><p>压nginx 碰到一个奇怪的问题，将软中断绑到48-63核，如果nginx绑到这个socket下的其它核比如 16-23，我就基本上看不到 si% 的使用率；如果所有条件都不变我将nginx 绑0-7core（另外一个socket），那么我能看到0-7 core上的软中断 si%使用率达到600%以上（8core累加）。 si%使用率应该只和 PPS、流量相关，这个测试中不同绑核nginx的QPS 差了20%以内。</p>
+<p><img src="/images/951413iMgBlog/image-20221031152031791.png" alt="image-20221031152031791"><img src="/images/951413iMgBlog/image-20221031152044825.png" alt="image-20221031152044825"></p>
+<p>CPU是intel E5，网卡插在node0上</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Model name:            Intel(R) Xeon(R) CPU E5-2682 v4 @ 2.50GHz</span><br><span class="line">NUMA node0 CPU(s):     0-15,32-47</span><br><span class="line">NUMA node1 CPU(s):     16-31,48-63</span><br><span class="line"></span><br><span class="line">软中断绑定：IRQBALANCE_BANNED_CPUS=0000ffff,ffffffff</span><br></pre></td></tr></table></figure>
+
+<p>默认业务进程调用内核软中断do_softirq等来处理收发包，不需要跨core，如果将软中断绑定到具体的core后，会触发ksoftirqd 来调用do_softirq来处理收发包，整体上肯定效率不如同一个core处理业务和软中断的效率高。进一步如果软中断跨socket绑定导致处理时长进一步升高、总效率更差</p>
+<p><a target="_blank" rel="noopener" href="https://askubuntu.com/questions/7858/why-is-ksoftirqd-0-process-using-all-of-my-cpu">https://askubuntu.com/questions/7858/why-is-ksoftirqd-0-process-using-all-of-my-cpu</a></p>
+<p><img src="/images/951413iMgBlog/image-20221101113948809.png" alt="image-20221101113948809"></p>
+<p>下图场景下，收包没有占用 si，而是占用的 sy</p>
+<p><img src="/images/951413iMgBlog/image-20221101114217738.png" alt="image-20221101114217738"></p>
+<p>将软中断和业务进程拆开绑核，均将软中断、业务基本压满的情况下，如果软中断在本node，QPS 增加20%+</p>
+<p>软中断打满单核后的IPC：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">#perf stat --cpu 29  //软中断所在core，si%=100%，和业务以及网卡跨node</span><br><span class="line"> Performance counter stats for &#x27;CPU(s) 29&#x27;:</span><br><span class="line"></span><br><span class="line">       4470.584807      task-clock (msec)         #    1.001 CPUs utilized            (100.00%)</span><br><span class="line">               252      context-switches          #    0.056 K/sec                    (100.00%)</span><br><span class="line">                 8      cpu-migrations            #    0.002 K/sec                    (100.00%)</span><br><span class="line">                 3      page-faults               #    0.001 K/sec</span><br><span class="line">    11,158,106,237      cycles                    #    2.496 GHz                      (100.00%)</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">     7,976,745,525      instructions              #    0.71  insns per cycle          (100.00%)</span><br><span class="line">     1,444,740,326      branches                  #  323.166 M/sec                    (100.00%)</span><br><span class="line">         7,073,805      branch-misses             #    0.49% of all branches</span><br><span class="line"></span><br><span class="line">       4.465613433 seconds time elapsed</span><br><span class="line"></span><br><span class="line">#perf stat --cpu 1  //软中断所在core，si%=100%，和业务以及网卡跨node</span><br><span class="line"> Performance counter stats for &#x27;CPU(s) 1&#x27;:</span><br><span class="line"></span><br><span class="line">       5132.639092      task-clock (msec)         #    1.002 CPUs utilized            (100.00%)</span><br><span class="line">             1,119      context-switches          #    0.218 K/sec                    (100.00%)</span><br><span class="line">                 6      cpu-migrations            #    0.001 K/sec                    (100.00%)</span><br><span class="line">                 0      page-faults               #    0.000 K/sec</span><br><span class="line">    12,773,996,227      cycles                    #    2.489 GHz                      (100.00%)</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">    12,457,832,798      instructions              #    0.98  insns per cycle          (100.00%)</span><br><span class="line">     2,243,820,953      branches                  #  437.167 M/sec                    (100.00%)</span><br><span class="line">        12,769,358      branch-misses             #    0.57% of all branches</span><br><span class="line"></span><br><span class="line">       5.124937947 seconds time elapsed</span><br></pre></td></tr></table></figure>
+
+<p>Nginx业务进程的IPC</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">#perf stat -p 30434   //软中断跨node</span><br><span class="line"></span><br><span class="line"> Performance counter stats for process id &#x27;30434&#x27;:</span><br><span class="line"></span><br><span class="line">       6838.088642      task-clock (msec)         #    0.953 CPUs utilized            (100.00%)</span><br><span class="line">            19,664      context-switches          #    0.003 M/sec                    (100.00%)</span><br><span class="line">                 0      cpu-migrations            #    0.000 K/sec                    (100.00%)</span><br><span class="line">                 4      page-faults               #    0.001 K/sec</span><br><span class="line">    17,027,659,259      cycles                    #    2.490 GHz                      (100.00%)</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">    14,315,679,297      instructions              #    0.84  insns per cycle          (100.00%)</span><br><span class="line">     2,919,774,303      branches                  #  426.987 M/sec                    (100.00%)</span><br><span class="line">        34,643,571      branch-misses             #    1.19% of all branches</span><br><span class="line"></span><br><span class="line">       7.176493377 seconds time elapsed      </span><br><span class="line">       </span><br><span class="line">#perf stat -p 30434    //软中断和nginx、网卡在同一node</span><br><span class="line">^C</span><br><span class="line"> Performance counter stats for process id &#x27;30434&#x27;:</span><br><span class="line"></span><br><span class="line">       5720.308631      task-clock (msec)         #    0.979 CPUs utilized            (100.00%)</span><br><span class="line">            11,513      context-switches          #    0.002 M/sec                    (100.00%)</span><br><span class="line">                 1      cpu-migrations            #    0.000 K/sec                    (100.00%)</span><br><span class="line">                 0      page-faults               #    0.000 K/sec</span><br><span class="line">    14,234,226,577      cycles                    #    2.488 GHz                      (100.00%)</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-frontend</span><br><span class="line">   &lt;not supported&gt;      stalled-cycles-backend</span><br><span class="line">    14,741,777,543      instructions              #    1.04  insns per cycle          (100.00%)</span><br><span class="line">     3,009,021,477      branches                  #  526.024 M/sec                    (100.00%)</span><br><span class="line">        35,690,882      branch-misses             #    1.19% of all branches</span><br><span class="line"></span><br><span class="line">       5.845534744 seconds time elapsed       </span><br></pre></td></tr></table></figure>
+
+<p>如果将nginx绑到node1（和网卡分开），同样再将软中断绑到node0、node1上，这个时候同样是软中断和业务在同一node性能要好，也就是软中断要和业务在一个node和网卡在哪里没关系。</p>
+<p>网络包收发涉及两块内存分配：描述符(指针)和data buffer（存放网络包数据）；</p>
+<p><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/230545">网卡的描述符、data buffer申请的内存都在设备所在的numa上</a>， 如果将队列的中断绑定到其他cpu上， 那么队列申请的data buffer的节点也会跟着中断迁移，但是描述符是和网卡所在的node绑定不会迁移的。</p>
+<p>Top 看到的 ksoftirqd 占用cpu不高，但是去看对应的 CPU core si消耗比较高，这是因为 ksoftirqd 只是触发软中断后的入口，进而会调用do_softirq&#x2F;net_rx_action 等内核函数，在 si% 的消耗中包含了这些被调用的消耗</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li><p>软中断绑定优先让irqbalance自己决定，默认系统倾向于自动在业务中调用软中断，代价最低</p>
+</li>
+<li><p>尽量不要让包溢出net.core.netdev_budget，溢出后触发ksoftirqd 来处理效率更低</p>
+</li>
+<li><p>尽量控制不要让 ksoftirqd 打满，所以可以绑定更多core来</p>
+</li>
+</ul>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/CPU/" rel="tag"># CPU</a>
+              <a href="/tags/nginx/" rel="tag"># nginx</a>
+              <a href="/tags/softirq/" rel="tag"># softirq</a>
+              <a href="/tags/irqbalance/" rel="tag"># irqbalance</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022/10/24/weibo/" rel="prev" title="微博备份">
+                  <i class="fa fa-angle-left"></i> 微博备份
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2023/04/02/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E6%9C%89%E7%9F%A5%E8%AF%86%E4%BD%86%E6%B2%A1%E6%9C%89%E8%83%BD%E5%8A%9B/" rel="next" title="为什么你有知识但没有能力">
+                  为什么你有知识但没有能力 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2025</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
