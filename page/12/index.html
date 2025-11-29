@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-count">184</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,220 +168,6 @@
     </div>
 
     <div class="main-inner index posts-expand">
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/" class="post-title-link" itemprop="url">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2019-12-16 12:30:03" itemprop="dateCreated datePublished" datetime="2019-12-16T12:30:03+08:00">2019-12-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Intel-PAUSE指令变化如何影响MySQL的性能"><a href="#Intel-PAUSE指令变化如何影响MySQL的性能" class="headerlink" title="Intel PAUSE指令变化如何影响MySQL的性能"></a>Intel PAUSE指令变化如何影响MySQL的性能</h1><h2 id="导读"><a href="#导读" class="headerlink" title="导读"></a>导读</h2><p>x86、arm指令都很多，无论是应用程序员还是数据库内核研发大多时候都不需要对这些指令深入理解，但是 Pause 指令和数据库操作太紧密了，本文通过一次非常有趣的性能优化来引入对 Pause 指令的理解，期望可以事半功倍地搞清楚 CPU指令集是如何影响你的程序的。</p>
-<p>文章分成两大部分，第一部分是 MySQL 集群的一次全表扫描性能优化过程； 第二部分是问题解决后的原理分析以及Pause指令的来龙去脉和优缺点以及应用场景分析。</p>
-<h2 id="业务结构"><a href="#业务结构" class="headerlink" title="业务结构"></a>业务结构</h2><p>为理解方便做了部分简化：</p>
-<p>client -&gt; Tomcat -&gt; LVS -&gt; MySQL（32 个 MySQLD实例集群，每个实例8Core）</p>
-<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>通过 client 压 Tomcat 和 MySQL 集群（对数据做分库分表），MySQL 集群是32个实例，每个业务 SQL 都需要经过 Tomcat 拆分成 256 个 SQL 发送给 32 个MySQL（每个MySQL上有8个分库），这 256 条下发给 MySQL 的 SQL 不是完全串行，但也不是完全并行，有一定的并行性。</p>
-<p>业务 SQL 如下是一个简单的select sum求和，这个 SQL在每个MySQL上都很快（有索引）</p>
-<pre><code>SELECT SUM(emp_arr_amt) FROM table_c WHERE INSUTYPE=&#39;310&#39; AND Revs_Flag=&#39;Z&#39; AND accrym=&#39;201910&#39; AND emp_no=&#39;1050457&#39;;
-</code></pre>
-<h2 id="监控指标说明"><a href="#监控指标说明" class="headerlink" title="监控指标说明"></a>监控指标说明</h2><ul>
-<li>后述或者截图中的逻辑RT&#x2F;QPS是指 client 上看到的Tomcat的 RT 和 QPS； </li>
-<li>RT ：response time 请求响应时间，判断性能瓶颈的唯一指标;</li>
-<li>物理RT&#x2F;QPS是指Tomcat看到的MySQL  RT 和QPS（这里的 RT 是指到达Tomcat节点网卡的 RT ，所以还包含了网络消耗）</li>
-</ul>
-<h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><p>通过client压一个Tomcat节点+32个MySQL，QPS大概是430，Tomcat节点CPU跑满，MySQL  RT 是0.5ms，增加一个Tomcat节点，QPS大概是700，Tomcat CPU接近跑满，MySQL  RT 是0.6ms，到这里性能基本随着扩容线性增加，是符合预期的。</p>
-<p>继续增加Tomcat节点来横向扩容性能，通过client压三个Tomcat节点+32个MySQL，QPS还是700，Tomcat节点CPU跑不满，MySQL  RT 是0.8ms，这就严重不符合预期了。</p>
-<p>性能压测原则：</p>
-<blockquote>
-<p>加并发QPS不再上升说明到了某个瓶颈，哪个环节RT增加最多瓶颈就在哪里</p>
-</blockquote>
-<p><img src="/images/951413iMgBlog/image-20221026145848312.png" alt="image-20221026145848312"></p>
-<p><strong>到这里一切都还是符合我们的经验的，看起来就是 MySQL 有瓶颈（RT 增加明显）。</strong></p>
-<h2 id="排查-MySQL"><a href="#排查-MySQL" class="headerlink" title="排查 MySQL"></a>排查 MySQL</h2><p>现场DBA通过监控看到MySQL CPU不到20%，没有慢查询，并且尝试用client越过所有中间环节直接压其中一个MySQL，可以将 MySQL CPU 跑满，这时的QPS大概是38000（对应上面的场景client QPS为700的时候，单个MySQL上的QPS才跑到6000) 所以排除了MySQL的嫌疑(这个推理不够严谨为后面排查埋下了大坑)。</p>
-<p>那么接下来的嫌疑在网络、LVS 等中间环节上。</p>
-<h2 id="LVS和网络的嫌疑"><a href="#LVS和网络的嫌疑" class="headerlink" title="LVS和网络的嫌疑"></a>LVS和网络的嫌疑</h2><p>首先通过大查询排除了带宽的问题，因为这里都是小包，pps到了72万，很自然想到了网关、LVS的限流之类的</p>
-<p>pps监控，这台物理机有4个MySQL实例上，pps 9万左右，9*32&#x2F;4&#x3D;72万<br><img src="/images/oss/b84245c17e213de528f2ad8090d504f6.png" alt="image.png"></p>
-<p>…………（省略巨长的分析、拉人、扯皮过程）</p>
-<p>最终所有网络因素都被排除，核心证据是：做压测的时候反复从 Tomcat 上 ping 后面的MySQL，RT 跟没有压力的时候一样，也说明了网络没有问题(请思考这个 ping 的作用)。</p>
-<h2 id="问题的确认"><a href="#问题的确认" class="headerlink" title="问题的确认"></a>问题的确认</h2><p>尝试在Tomcat上打开日志，并将慢 SQL 阈值设置为100ms，这个时候确实能从日志中看到大量MySQL上的慢查询，因为这个SQL需要在Tomcat上做拆分成256个SQL，同时下发，一旦有一个SQL返回慢，整个请求就因为这个短板被拖累了。平均 RT  0.8ms，但是经常有超过100ms的话对整体影响还是很大的。</p>
-<p>将Tomcat记录下来的慢查询（Tomcat增加了一个唯一id下发给MySQL）到MySQL日志中查找，果然发现MySQL上确实慢了，所以到这里基本确认是MySQL的问题，终于不用再纠结是否是网络问题了。</p>
-<p>同时在Tomcat进行抓包，对网卡上的 RT 进行统计分析：</p>
-<p><img src="/images/oss/ffd66d9a6098979b555dfb00d3494255.png" alt="image.png"></p>
-<p>上是Tomcat上抓到的每个sql的物理RT 平均值，上面是QPS 430的时候， RT  0.6ms，下面是3个server，QPS为700，但是 RT 上升到了0.9ms，基本跟Tomcat监控记录到的物理RT一致。如果MySQL上也有类似抓包计算 RT 时间的话可以快速排除网络问题。</p>
-<p>网络抓包得到的 RT 数据更容易被所有人接受。尝试过在MySQL上抓包，但是因为LVS模块的原因，进出端口、ip都被修改过，所以没法分析一个流的响应时间。</p>
-<h2 id="重心再次转向MySQL"><a href="#重心再次转向MySQL" class="headerlink" title="重心再次转向MySQL"></a>重心再次转向MySQL</h2><p>这个时候因为问题点基本确认，再去查看MySQL是否有问题的重心都不一样了，不再只是看看CPU和慢查询，这个问题明显更复杂一些。</p>
-<blockquote>
-<p>教训：CPU只是影响性能的一个因素，RT 才是结果，要追着 RT 跑，而不是只看 CPU</p>
-</blockquote>
-<p>通过监控发现MySQL CPU虽然一直不高，但是经常看到running thread飙到100多，很快又降下去了，看起来像是突发性的并发查询请求太多导致了排队等待，每个MySQL实例是8Core的CPU，尝试将MySQL实例扩容到16Core（只是为了验证这个问题），QPS确实可以上升到1000（没有到达理想的1400）。</p>
-<p>这是Tomcat上监控到的MySQL状态：<br><img src="/images/oss/e73c1371a02106a52f8a13f89a9dd9ad.png" alt="image.png"></p>
-<p>同时在MySQL机器上通过vmstat也可以看到这种飙升：<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
-<p>以上分析可以清晰看到虽然 MySQL 整体压力不大，但是似乎会偶尔来一波卡顿、running 任务飙升。</p>
-<p>像这种短暂突发性的并发流量似乎监控都很难看到（基本都被平均掉了），只有一些实时性监控偶尔会采集到这种短暂突发性飙升，这也导致了一开始忽视了MySQL。</p>
-<p>所以接下来的核心问题就是MySQL为什么会有这种飙升、这种飙升的影响到底是什么？</p>
-<h2 id="perf-top"><a href="#perf-top" class="headerlink" title="perf top"></a>perf top</h2><p>直接用 perf 看下 MySQLD 进程，发现 ut_delay 高得不符合逻辑：</p>
-<p><img src="/images/oss/cd145c494c074e01e9d2d1d5583a87a0.png" alt="image.png"></p>
-<p>展开看一下，基本是在优化器中做索引命中行数的选择：</p>
-<img src="/images/oss/46d5f5ee5c58d7090a71164e645ccf79.png" alt="image.png" style="zoom: 67%;" />
-
-<p>跟直接在 MySQL 命令行中通过 show processlist看到的基本一致：</p>
-<img src="/images/oss/89cccebe41a8b8461ea75586b61b929f.png" alt="image.png" style="zoom:50%;" />
-
-<p>这是 MySQL 的优化器在对索引进行统计，统计的时候要加锁，thread running 抖动的时候通过 show processlist 看到很多 thread处于 statistics 状态。也就是高并发下加锁影响了 CPU 压不上去同时 RT 剧烈增加。</p>
-<p>这里ut_delay 消耗了 28% 的 CPU 肯定太不正常了，于是将 innodb_spin_wait_delay 从 30 改成 6 后性能立即上去了，继续增加 Tomcat 节点，QPS也可以线性增加。</p>
-<blockquote>
-<p>耗CPU最高的调用函数栈是…<code>mutex_spin_wait</code>-&gt;<code>ut_delay</code>，属于锁等待的逻辑。InnoDB在这里用的是自旋锁，锁等待是通过调用 ut_delay 让 CPU做空循环在等锁的时候不释放CPU从而避免上下文切换，会消耗比较高的CPU。</p>
-</blockquote>
-<h2 id="最终的性能"><a href="#最终的性能" class="headerlink" title="最终的性能"></a>最终的性能</h2><p>调整参数 innodb_spin_wait_delay&#x3D;6 后在4个Tomcat节点下，并发40时，QPS跑到了1700，物理RT：0.7，逻辑RT：19.6，cpu：90%，这个时候只需要继续扩容 Tomcat 节点的数量就可以增加QPS<br><img src="/images/oss/48c976f989747266f9892403794996c0.png" alt="image.png"></p>
-<p>再跟调整前比较一下，innodb_spin_wait_delay&#x3D;30，并发40时，QPS 500+，物理RT：2.6ms 逻辑RT：72.1ms cpu：37%<br><img src="/images/oss/fdb459972926cff371f5f5ab703790bb.png" alt="image.png"></p>
-<p>再看看调整前压测的时候的vmstat和tsar –cpu，可以看到process running抖动明显<br><img src="/images/oss/4dbd9dff9deacec0e9911e3a7d025578.png" alt="image.png"></p>
-<p>对比修改delay后的process running就很稳定了，即使QPS大了3倍<br><img src="/images/oss/ed46d35161ea28352acd4289a3e9ddad.png" alt="image.png"></p>
-<h2 id="事后思考和分析"><a href="#事后思考和分析" class="headerlink" title="事后思考和分析"></a>事后思考和分析</h2><p>到这里问题得到了完美解决，但是不禁要问为什么？ut_delay 是怎么工作的？ 和 innodb_spin_wait_delay 以及自旋锁的关系？</p>
-<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>既然调整 innodb_spin_wait_delay 就能解决这个问题，那就要先分析一下 innodb_spin_wait_delay 的作用</p>
-<h3 id="关于-innodb-spin-wait-delay"><a href="#关于-innodb-spin-wait-delay" class="headerlink" title="关于 innodb_spin_wait_delay"></a>关于 innodb_spin_wait_delay</h3><p>innodb通过大量的自旋锁(比如 <code>InnoDB</code> <a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_mutex">mutexes</a> and <a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rw_lock">rw-locks</a>)来用高CPU消耗避免上下文切换，这是自旋锁的正确使用方式，在多核场景下，它们一起自旋抢同一个锁，容易造成<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/30684974/are-cache-line-ping-pong-and-false-sharing-the-same">cache ping-pong</a>，进而多个CPU核之间会互相使对方缓存部分无效。所以这里<a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html">innodb通过增加 innodb_spin_wait_delay 和 Pause 配合来缓解cache ping-pong</a>，也就是本来通过CPU 高速自旋抢锁，换成了抢锁失败后 delay一下（Pause）但是不释放CPU，delay 时间到后继续抢锁，也就是把连续的自旋抢锁转换成了更稀疏的点状的抢锁（间隔的 delay是个随机数），这样不但避免了上下文切换也大大减少了cache ping-pong。</p>
-<h3 id="自旋锁如何减少了cache-ping-pong"><a href="#自旋锁如何减少了cache-ping-pong" class="headerlink" title="自旋锁如何减少了cache ping-pong"></a>自旋锁如何减少了cache ping-pong</h3><p>多线程竞争锁的时候，加锁失败的线程会“忙等待”，直到它拿到锁。什么叫“忙等待”呢？它并不意味着一直执行 CAS 函数，而是会与 CPU 紧密配合 ，它通过 CPU 提供的 <code>PAUSE</code> 指令，减少循环等待时的cache ping-pong和耗电量；对于单核 CPU，忙等待并没有意义，此时它会主动把线程休眠。</p>
-<h3 id="X86-PAUSE-指令"><a href="#X86-PAUSE-指令" class="headerlink" title="X86 PAUSE 指令"></a>X86 PAUSE 指令</h3><p>X86设计了Pause指令，也就是调用 Pause 指令的代码会抢着 CPU 不释放，但是CPU 会打个盹，比如 10个时钟周期，相对一次上下文切换是大几千个时钟周期。</p>
-<p>这样应用一旦自旋抢锁失败可以先 Pause 一下，只是这个Pause 时间对于 MySQL 来说还不够久，所以需要增加参数 innodb_spin_wait_delay 来将休息时间放大一些。</p>
-<p>在我们的这个场景下对每个 SQL的 RT 抖动非常敏感（放大256倍），所以过高的 delay 会导致部分SQL  RT  变高。</p>
-<p>函数 ut_delay(ut_rnd_interval(0, srv_spin_wait_delay)) 用来执行这个delay：</p>
-<pre><code>/***************************MySQL代码****************************//**
-Runs an idle loop on CPU. The argument gives the desired delay
-in microseconds on 100 MHz Pentium + Visual C++.
-@return dummy value */
-UNIV_INTERN
-ulint
-ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随机数
-{
-        ulint   i, j;
-
-        UT_LOW_PRIORITY_CPU();
-
-        j = 0;
-
-        for (i = 0; i &lt; delay * 50; i++) {  //delay 放大50倍
-                j += i;
-                UT_RELAX_CPU();             //调用 CPU Pause
-        }
-
-        UT_RESUME_PRIORITY_CPU();
-
-        return(j);
-}
-</code></pre>
-<p>innodb_spin_wait_delay的默认值为6. spin 等待延迟是一个动态全局参数，您可以在MySQL选项文件（my.cnf或my.ini）中指定该参数，或者在运行时使用SET GLOBAL 来修改。在我们的MySQL配置中默认改成了30，导致了这个问题。</p>
-<h3 id="CPU-为什么要有Pause"><a href="#CPU-为什么要有Pause" class="headerlink" title="CPU 为什么要有Pause"></a>CPU 为什么要有Pause</h3><p>首先可以看到 Pause 指令的作用：</p>
-<ul>
-<li>避免上下文切换，应用层想要休息可能会用yield、sleep，这两操作对于CPU来说太重了(伴随上下文切换)</li>
-<li>能给超线程腾出计算能力（HT共享核，但是有单独的寄存器等存储单元，CPU Pause的时候，对应的HT可以占用计算资源），比如同一个core上先跑多个Pause，同时再跑 nop 指令，这时 nop指令的 IPC基本不受Pause的影响</li>
-<li>节能（CPU可以休息、但是不让出来），CPU Pause 的时候你从 top 能看到 CPU 100%，但是不耗能。</li>
-</ul>
-<p>所以有了 Pause 指令后能够提高超线程的利用率,节能，减少上下文切换提高自旋锁的效率。</p>
-<blockquote>
-<p><a target="_blank" rel="noopener" href="https://www.reddit.com/r/intel/comments/hogk2n/research_on_the_impact_of_intel_Pause_instruction/">The PAUSE instruction is first introduced</a> for Intel Pentium 4 processor to improve the performance of “spin-wait loop”. The PAUSE instruction is typically used with software threads executing on two logical processors located in the same processor core, waiting for a lock to be released. Such short wait loops tend to last between tens and a few hundreds of cycles. When the wait loop is expected to last for thousands of cycles or more, it is preferable to yield to the operating system by calling one of the OS synchronization API functions, such as WaitForSingleObject on Windows OS.</p>
-<p>An Intel® processor suffers a severe performance penalty when exiting the loop because it detects a possible memory order violation. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation in most situations. The PAUSE instruction can improve the performance of the processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops”. With Pause instruction, processors are able to avoid the memory order violation and pipeline flush, and reduce power consumption through pipeline stall.</p>
-</blockquote>
-<p><strong>从intel sdm手册以及实际测试验证来看，Pause 指令在执行过程中，基本不占用流水线执行资源。</strong></p>
-<h3 id="Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同"><a href="#Skylake-架构的8163-和-Broadwell架构-E5-2682-CPU型号的不同" class="headerlink" title="Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同"></a>Skylake 架构的8163 和 Broadwell架构 E5-2682 CPU型号的不同</h3><p>为什么用得好好的 innodb_spin_wait_delay 参数这次就不行了呢？</p>
-<p>这是因为以前业务一直使用的是 E5-2682 CPU，这次用的是新一代架构的 Skylake 8163，那这两款CPU在这里的核心差别是？</p>
-<p>在Intel 64-ia-32-architectures-optimization-manual手册中提到：</p>
-<blockquote>
-<p>The latency of the PAUSE instruction in prior generation microarchitectures is about 10 cycles, whereas in Skylake microarchitecture it has been extended to as many as 140 cycles.</p>
-<p><a target="_blank" rel="noopener" href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-302.html">The PAUSE instruction can improves the performance</a> of processors supporting Intel Hyper-Threading Technology when executing “spin-wait loops” and other routines where one thread is accessing a shared lock or semaphore in a tight polling loop. When executing a spin-wait loop, the processor can suffer a severe performance penalty when exiting the loop because it detects a possible memory order violation and flushes the core processor’s pipeline. The PAUSE instruction provides a hint to the processor that the code sequence is a spin-wait loop. The processor uses this hint to avoid the memory order violation and prevent the pipeline flush. In addition, the PAUSE instruction de-<br>pipelines the spin-wait loop to prevent it from consuming execution resources excessively and consume power needlessly. (See<a target="_blank" rel="noopener" href="https://xem.github.io/minix86/manual/intel-x86-and-64-manual-vol3/o_fe12b1e2a880e0ce-305.html"> Section 8.10.6.1, “Use the PAUSE Instruction in Spin-Wait Loops,” for more </a>information about using the PAUSE instruction with IA-32 processors supporting Intel Hyper-Threading Technology.)</p>
-</blockquote>
-<p>也就是**Skylake架构的CPU的PAUSE指令从之前的10 cycles 改成了 140 cycles。**这可是14倍的变化呀。</p>
-<p>MySQL 使用 innodb_spin_wait_delay 控制 spin lock等待时间，等待时间时间从0*50个Pause到innodb_spin_wait_delay*50个Pause。<br>以前 innodb_spin_wait_delay 默认配置30，对于E5-2682 CPU，等待的最长时间为：<br>30 * 50 * 10&#x3D;15000 cycles，对于2.5GHz的CPU，等待时间为6us。<br>对应计算 Skylake CPU的等待时间：30 *50 *140&#x3D;210000 cycles，CPU主频也是2.5GHz，等待时间84us。</p>
-<p>E5-2682 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
-<p><img src="/images/951413iMgBlog/image-20221026153750159.png" alt="image-20221026153750159"></p>
-<p>Skylake 8163 CPU型号在不同的delay参数和不同并发压力下的写入性能数据：</p>
-<p><img src="/images/951413iMgBlog/image-20221026153813774.png" alt="image-20221026153813774"></p>
-<p>&#x3D;&#x3D;因为8163的cycles从10改到了140，所以可以看到delay参数对性能的影响更加陡峻。&#x3D;&#x3D;</p>
-<h2 id="总结分析"><a href="#总结分析" class="headerlink" title="总结分析"></a>总结分析</h2><p>Intel CPU 架构不同使得 Pause 指令的CPU Cycles不同导致了 MySQL innodb_spin_wait_delay 在 spin lock 失败的时候（此时需要 Pause* innodb_spin_wait_delay*N）delay更久，使得调用方看到了MySQL更大的 RT ，进而导致 Tomcat Server上业务并发跑不起来，所以最终压力上不去。</p>
-<p>在长链路的排查中，细化定位是哪个节点出了问题是最难的，要盯住 RT 而不是 CPU。</p>
-<p>欲速则不达，做压测的时候还是要老老实实地从一个并发开始观察QPS、 RT ，然后一直增加压力到压不上去了，再看QPS、 RT 变化，然后确认瓶颈点。</p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1005284">https://cloud.tencent.com/developer/article/1005284</a></p>
-<p><a target="_blank" rel="noopener" href="https://dev.mysql.com/doc/refman/5.7/en/innodb-performance-spin_lock_polling.html">mysql doc</a></p>
-<p><a target="_blank" rel="noopener" href="http://oliveryang.net/2018/01/cache-false-sharing-debug">Cache Line 伪共享发现与优化</a></p>
-<p><a target="_blank" rel="noopener" href="https://en.wikichip.org/w/images/e/eb/intel-ref-248966-037.pdf">intel spec</a></p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/dlKC13i9Z8wjDDiU2tig6Q">Intel PAUSE指令变化影响到MySQL的性能，该如何解决？</a></p>
-<p><a target="_blank" rel="noopener" href="https://topic.atatech.org/articles/173194">ARM软硬件协同设计：锁优化</a>, arm不同于x86，用的是yield来代替Pause</p>
-<p><a target="_blank" rel="noopener" href="http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html">http://cr.openjdk.java.net/~dchuyko/8186670/yield/spinwait.html</a></p>
-<p><a target="_blank" rel="noopener" href="https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/">https://aloiskraus.wordpress.com/2018/06/16/why-skylakex-cpus-are-sometimes-50-slower-how-intel-has-broken-existing-code/</a> Windows+.NET 平台下的分析过程及修复方案</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
 
     
 
@@ -658,7 +444,7 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+      <time title="修改时间：2025-11-29 15:19:06" itemprop="dateModified" datetime="2025-11-29T15:19:06+08:00">2025-11-29</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -694,7 +480,7 @@ ut_delay(ulint delay)  //delay 是[0,innodb_spin_wait_delay)之间的一个随�
 </ul>
 <p>LT比ET会多一次重新加入就绪队列的动作，也就是意味着一定有一次poll不到东西，效率是有影响但是队列长度有限所以基本可以不用考虑。但是LT编程方式上要简单多了，所以LT也是默认的。</p>
 <p>举个 🌰：你有急事打电话找人，如果对方一直不接，那你只有一直打，直到他接电话为止，这就是 lt 模式；如果不急，电话打过去对方不接，那就等有空再打，这就是 et 模式。</p>
-<p><img src="/Users/ren/case/951413iMgBlog/1732793220279-61c6e613-481e-4c90-bd01-80bbb9851cc9.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/1732793220279-61c6e613-481e-4c90-bd01-80bbb9851cc9.png" alt="img"></p>
 <h3 id="条件触发的问题：不必要的唤醒"><a href="#条件触发的问题：不必要的唤醒" class="headerlink" title="条件触发的问题：不必要的唤醒"></a>条件触发的问题：不必要的唤醒</h3><ol>
 <li>内核：收到一个新建连接的请求</li>
 <li>内核：由于 “惊群效应” ，唤醒两个正在 epoll_wait() 的线程 A 和线程 B</li>
@@ -2128,7 +1914,7 @@ probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+      <time title="修改时间：2025-11-29 15:19:06" itemprop="dateModified" datetime="2025-11-29T15:19:06+08:00">2025-11-29</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -2259,7 +2045,7 @@ field: logger
 <p>查看 Jedis 连接池：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vmtool --action getInstances --className redis.clients.jedis.util.Pool --express &#x27;instances[0]&#x27;</span><br></pre></td></tr></table></figure>
 
-<p><img src="/Users/ren/case/951413iMgBlog/fa74ce53-229c-4956-b581-8b31374b65c0.png" alt="img"></p>
+<p><img src="/images/951413iMgBlog/fa74ce53-229c-4956-b581-8b31374b65c0.png" alt="img"></p>
 <h2 id="logger-查看和修改-logger配置"><a href="#logger-查看和修改-logger配置" class="headerlink" title="logger 查看和修改 logger配置"></a>logger 查看和修改 logger配置</h2><p>列出所有logger，然后修改logger的level</p>
 <pre><code>classloader -l  //列出所有 classloader 一般是这个：sun.misc.Launcher$AppClassLoader
 或者：
@@ -2941,6 +2727,289 @@ java[4457] lock 0x7f5d533a0d54 contended 1 times, 2202 avg us
 <p><a target="_blank" rel="noopener" href="http://arthurchiao.art/blog/trace-packet-with-tracepoint-perf-ebpf-zh/">使用 Linux tracepoint、perf 和 eBPF 跟踪数据包 (2017)</a></p>
 <p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/yEMp70FmFYn6qL8kCZgS8A">使用ftrace分析函数性能</a></p>
 <p><a target="_blank" rel="noopener" href="https://blog.csdn.net/qq_41988448/article/details/127813132">eBPF学习笔记（二）—— eBPF开发工具</a>  主要是关于 bpftrace 的使用实例</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/12/logback%E6%97%A5%E5%BF%97%E5%BC%82%E6%AD%A5%E5%8C%96%E8%BE%93%E5%87%BA%E5%AF%B9%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2019/09/12/logback%E6%97%A5%E5%BF%97%E5%BC%82%E6%AD%A5%E5%8C%96%E8%BE%93%E5%87%BA%E5%AF%B9%E6%80%A7%E8%83%BD%E7%9A%84%E5%BD%B1%E5%93%8D/" class="post-title-link" itemprop="url">logback 日志异步化输出对性能的影响</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-09-12 12:30:03" itemprop="dateCreated datePublished" datetime="2019-09-12T12:30:03+08:00">2019-09-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/performance/" itemprop="url" rel="index"><span itemprop="name">performance</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="logback-日志异步化输出对性能的影响"><a href="#logback-日志异步化输出对性能的影响" class="headerlink" title="logback 日志异步化输出对性能的影响"></a>logback 日志异步化输出对性能的影响</h1><h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p>Java在每次请求结束后都会输出日志记录每次请求的相关信息，一个QPS对应一次日志的输出。</p>
+<p>异步化基本百利而无一害，特定的场景、机器下可以数倍提升效率</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
+<li>异步化对性能的影响取决于日志的多少和机器CPU的核数</li>
+<li>logback日志异步化主要是写日志逻辑变成了单线程，没有锁</li>
+<li>异步化后性能有10-15%的提升(Profiling看到日志相关的CPU占比从13%降到6.5%)</li>
+<li>异步输出条件下，日志多少对性能的影响有，但是不明显（15%以内）</li>
+<li>如果是同步输出日志，开启延迟flush log（<immediateFlush>false</immediateFlush> &#x2F;&#x2F;flush policy）能有5%的性能提升</li>
+<li>异步化后再开启延迟flush log对性能提升不明显(Profiling看到log flush的CPU从1.2%降到0.4%)</li>
+<li>slf4j只是个接口框架，JUL&#x2F;log4j2和logback是具体实现，logback是log4j的升级版</li>
+<li>如果一秒钟日志输出达到6M（主要取决于条数），那么异步化能提升一倍的性能（日志太多的时候同步下CPU跑不满）</li>
+<li>同步日志输出场景下瓶颈主要在同步锁而不是磁盘写日志（顺序写磁盘）</li>
+<li>从Profiler堆栈来看异步后锁和日志输出部分占比明显降低</li>
+<li>CPU核数越多意味着并发越多，那么同步异步和immediateFlush的影响越明显</li>
+<li>异步化输出日志后对avg rt 和 rt 95%线下降影响非常明显，也更稳定</li>
+<li>immediateFlush 对同步影响比较明显（一倍），主要是因为每次刷盘慢导致别的线程等锁时间长，在异步场景下基本不明显</li>
+<li>immediateFlush为false有丢日志的风险，异步后没有必要再设immediateFlush为false</li>
+<li>延迟Flush的cache取决于JDK的BufferedOutputStream缓冲大小，默认8K，不可更改</li>
+<li>异步后日志输出的瓶颈在于单核能力，Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz 输出能力大概是每秒20万条日志</li>
+</ul>
+<h2 id="测试数据"><a href="#测试数据" class="headerlink" title="测试数据"></a>测试数据</h2><h3 id="4核的机器下性能提升没这么明显，因为锁争抢没这么激烈"><a href="#4核的机器下性能提升没这么明显，因为锁争抢没这么激烈" class="headerlink" title="4核的机器下性能提升没这么明显，因为锁争抢没这么激烈"></a>4核的机器下性能提升没这么明显，因为锁争抢没这么激烈</h3><p><img src="/images/oss/d38fecd4932266209c6a1ca0265f98aa.png" alt="image.png"></p>
+<p>4.9内核下, 异步对rt影响明显, 似乎是4.9对锁的处理更好：</p>
+<p><img src="/images/oss/1566290324749-86d349a5-b647-439c-ac19-f7b772f9e575.png" alt="image.png"></p>
+<p>2.6.32下异步对rt影响不是很大</p>
+<p><img src="/images/oss/1566291069825-24063e55-20e8-4689-a0af-b8a7083ca806.png" alt="image.png"></p>
+<p><img src="/images/oss/1566291122368-e60ca95a-ae36-47f8-957c-747f35834233.png" alt="image.png"></p>
+<p>加大120线程并发，可以看到tps提升明显但是rt仍然不明显</p>
+<p><img src="/images/oss/1566292019098-60f15294-a001-452e-8ecb-626aada11837.png" alt="image.png"></p>
+<p>如果将 sql.log 改为error级别，tps上升到30000，rt比info也有将近10%的提升，这个rt的提升是因为tps提升导致的。（都是异步输出的场景下）</p>
+<p><img src="/images/oss/1566294041222-153fbe62-e503-4d35-b99a-bd2517332592.png" alt="image.png"></p>
+<h3 id="同步情况下的profiler"><a href="#同步情况下的profiler" class="headerlink" title="同步情况下的profiler"></a>同步情况下的profiler</h3><p>recordSQL: 12.9%<br>logback.doAppend: 10%</p>
+<p><img src="/images/oss/4e0595c173522e37edf87b568eab6e7f.png" alt="image.png"></p>
+<h3 id="异步情况下的profiler"><a href="#异步情况下的profiler" class="headerlink" title="异步情况下的profiler:"></a>异步情况下的profiler:</h3><p>recordSQL:  3.7%<br><img src="/images/oss/a88a3595d386be2ffeb0652ba2fdeea1.png" alt="image.png"></p>
+<p>logback.doAppend: 2.63%</p>
+<p><img src="/images/oss/e3d0200c0edf97540d422252fb23a4c2.png" alt="image.png"></p>
+<h3 id="在16个core的机器上锁争抢更明显"><a href="#在16个core的机器上锁争抢更明显" class="headerlink" title="在16个core的机器上锁争抢更明显"></a>在16个core的机器上锁争抢更明显</h3><p><a target="_blank" rel="noopener" href="https://yuque.antfin-inc.com/preview/lark/0/2019/svg/33359/1568184395734-ff64a8ee-8b24-45ec-8fc3-024e14b8e7f0.svg">99.8%的锁都是doApend</a> </p>
+<p><img src="/images/oss/15879d15dbe876b5ee3bed02dfa18894.png" alt="image.png"></p>
+<h3 id="同步和异步以及immediateFlush的影响"><a href="#同步和异步以及immediateFlush的影响" class="headerlink" title="同步和异步以及immediateFlush的影响"></a>同步和异步以及immediateFlush的影响</h3><p>16core的机器</p>
+<p><img src="/images/oss/f0e39a66b63fe00877b6663f8857a739.png" alt="image.png"></p>
+<p>结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）<br>异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显</p>
+<h3 id="一个业务逻辑稍微慢点的场景"><a href="#一个业务逻辑稍微慢点的场景" class="headerlink" title="一个业务逻辑稍微慢点的场景"></a>一个业务逻辑稍微慢点的场景</h3><p>异步输出日志点查场景tps11万+，同步输出日志后点查tps4万+，同时jstack堆栈也能看到333个BLOCKED堆栈：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br></pre></td><td class="code"><pre><span class="line">#[ 210s] threads: 400, tps: 0.00, reads/s: 115845.43, writes/s: 0.00, response time: 7.57ms (95%)</span><br><span class="line">#[ 220s] threads: 400, tps: 0.00, reads/s: 116453.12, writes/s: 0.00, response time: 7.28ms (95%)</span><br><span class="line">#[ 230s] threads: 400, tps: 0.00, reads/s: 116400.31, writes/s: 0.00, response time: 7.33ms (95%)</span><br><span class="line">#[ 240s] threads: 400, tps: 0.00, reads/s: 116025.35, writes/s: 0.00, response time: 7.48ms (95%)</span><br><span class="line">#[ 250s] threads: 400, tps: 0.00, reads/s: 45260.97, writes/s: 0.00, response time: 29.57ms (95%)</span><br><span class="line">#[ 260s] threads: 400, tps: 0.00, reads/s: 41598.41, writes/s: 0.00, response time: 29.07ms (95%)</span><br><span class="line">#[ 270s] threads: 400, tps: 0.00, reads/s: 41939.98, writes/s: 0.00, response time: 28.96ms (95%)</span><br><span class="line">#[ 280s] threads: 400, tps: 0.00, reads/s: 40875.48, writes/s: 0.00, response time: 29.16ms (95%)</span><br><span class="line">#[ 290s] threads: 400, tps: 0.00, reads/s: 41053.73, writes/s: 0.00, response time: 29.07ms (95%)</span><br><span class="line"></span><br><span class="line">--- 1687260767618 ns (100.00%), 91083 samples</span><br><span class="line"> [ 0] ch.qos.logback.classic.sift.SiftingAppender</span><br><span class="line"> [ 1] ch.qos.logback.core.AppenderBase.doAppend</span><br><span class="line"> [ 2] ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders</span><br><span class="line"> [ 3] ch.qos.logback.classic.Logger.appendLoopOnAppenders</span><br><span class="line"> [ 4] ch.qos.logback.classic.Logger.callAppenders</span><br><span class="line"> [ 5] ch.qos.logback.classic.Logger.buildLoggingEventAndAppend</span><br><span class="line"> [ 6] ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus</span><br><span class="line"> [ 7] ch.qos.logback.classic.Logger.info</span><br><span class="line"> [ 8] com.taobao.tddl.common.utils.logger.slf4j.Slf4jLogger.info</span><br><span class="line"> [ 9] com.taobao.tddl.common.utils.logger.support.FailsafeLogger.info</span><br><span class="line"> [10] com.alibaba.cobar.server.util.LogUtils.recordSql</span><br><span class="line"> [11] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line"> [12] com.alibaba.cobar.server.ServerConnection.innerExecute</span><br><span class="line"> [13] com.alibaba.cobar.server.ServerConnection$1.run</span><br><span class="line"> [14] com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run</span><br><span class="line"> [15] java.util.concurrent.Executors$RunnableAdapter.call</span><br><span class="line"> [16] java.util.concurrent.FutureTask.run</span><br><span class="line"> [17] java.util.concurrent.ThreadPoolExecutor.runWorker</span><br><span class="line"> [18] java.util.concurrent.ThreadPoolExecutor$Worker.run</span><br><span class="line"> [19] java.lang.Thread.run</span><br><span class="line">  </span><br><span class="line">&quot;ServerExecutor-3-thread-480&quot; #753 daemon prio=5 os_prio=0 tid=0x00007f8265842000 nid=0x26f1 waiting for monitor entry [0x00007f82270bf000]</span><br><span class="line">  java.lang.Thread.State: BLOCKED (on object monitor)</span><br><span class="line">	at ch.qos.logback.core.AppenderBase.doAppend(AppenderBase.java:64)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	at ch.qos.logback.core.spi.AppenderAttachableImpl.appendLoopOnAppenders(AppenderAttachableImpl.java:48)</span><br><span class="line">	at ch.qos.logback.classic.Logger.appendLoopOnAppenders(Logger.java:282)</span><br><span class="line">	at ch.qos.logback.classic.Logger.callAppenders(Logger.java:269)</span><br><span class="line">	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:470)</span><br><span class="line">	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:424)</span><br><span class="line">	at ch.qos.logback.classic.Logger.info(Logger.java:628)</span><br><span class="line">	at com.taobao.tddl.common.utils.logger.slf4j.Slf4jLogger.info(Slf4jLogger.java:42)</span><br><span class="line">	at com.taobao.tddl.common.utils.logger.support.FailsafeLogger.info(FailsafeLogger.java:102)</span><br><span class="line">	at com.alibaba.cobar.server.util.LogUtils.recordSql(LogUtils.java:115)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection.innerExecute(ServerConnection.java:874)</span><br><span class="line">	- locked &lt;0x00007f87382cb108&gt; (a com.alibaba.cobar.server.ServerConnection)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection.innerExecute(ServerConnection.java:569)</span><br><span class="line">	- locked &lt;0x00007f87382cb108&gt; (a com.alibaba.cobar.server.ServerConnection)</span><br><span class="line">	at com.alibaba.cobar.server.ServerConnection$1.run(ServerConnection.java:402)</span><br><span class="line">	at com.taobao.tddl.common.utils.thread.FlowControlThreadPool$RunnableAdapter.run(FlowControlThreadPool.java:480)</span><br><span class="line">	at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)</span><br><span class="line">	at java.util.concurrent.FutureTask.run(FutureTask.java:266)</span><br><span class="line">	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1152)</span><br><span class="line">	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:627)</span><br><span class="line">	at java.lang.Thread.run(Thread.java:861)</span><br><span class="line"></span><br><span class="line">  - waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- locked &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br><span class="line">	- waiting to lock &lt;0x00007f866dcec208&gt; (a ch.qos.logback.classic.sift.SiftingAppender)</span><br></pre></td></tr></table></figure>
+
+<h2 id="immediateFlush-true-false-以及同步异步对tps的影响"><a href="#immediateFlush-true-false-以及同步异步对tps的影响" class="headerlink" title="immediateFlush true&#x2F;false 以及同步异步对tps的影响"></a>immediateFlush true&#x2F;false 以及同步异步对tps的影响</h2><p><img src="/images/oss/a4753f40c89640c4d86a54902b9ed691.png" alt="image.png"></p>
+<p>结论：同步输出的情况下immediateFlush 为false性能有一倍的提升（但是异常退出的情况下有丢日志风险）异步输出是同步的4倍（这个差异依赖于cpu核数、业务逻辑的特点等），在异步的情况下immediateFlush无所谓，所以王者还是异步输出，同时异步输出对rt 95%线下降非常明显</p>
+<h2 id="异步配置"><a href="#异步配置" class="headerlink" title="异步配置"></a>异步配置</h2><pre><code>    &lt;appender name=&quot;asyncROOT&quot; class=&quot;ch.qos.logback.classic.AsyncAppender&quot;&gt;
+        &lt;queueSize&gt;1000&lt;/queueSize&gt;
+        &lt;maxFlushTime&gt;3000&lt;/maxFlushTime&gt;
+				&lt;discardingThreshold&gt;0&lt;/discardingThreshold&gt;
+        &lt;neverBlock&gt;true&lt;/neverBlock&gt;
+        &lt;appender-ref ref=&quot;ROOT&quot;/&gt;
+		&lt;/appender&gt;
+</code></pre>
+<h2 id="JDK中BufferedOutputStream-Buffer大小"><a href="#JDK中BufferedOutputStream-Buffer大小" class="headerlink" title="JDK中BufferedOutputStream Buffer大小"></a>JDK中BufferedOutputStream Buffer大小</h2><pre><code>/** 
+ * Creates a new buffered output stream to write data to the 
+ * specified underlying output stream. 
+ * 
+ * @param   out   the underlying output stream. 
+ */  
+public BufferedOutputStream(OutputStream out) {  
+    this(out, 8192);  
+}  
+</code></pre>
+<p>尝试改大buffer基本没什么明显的影响</p>
+<h2 id="测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）"><a href="#测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）" class="headerlink" title="测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）"></a>测试环境2个节点的DRDS-Server，每个节点4Core8G（机型sn1）</h2><table>
+<thead>
+<tr>
+<th></th>
+<th>tps</th>
+<th>100秒每个节点输出日志大小</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不输出日志</td>
+<td>35097</td>
+<td></td>
+</tr>
+<tr>
+<td>sql.log+同步</td>
+<td>28891</td>
+<td>292M</td>
+</tr>
+<tr>
+<td>sql.log+异步</td>
+<td>32164</td>
+<td>292M</td>
+</tr>
+<tr>
+<td>sql.log+com.taobao&#x2F;trace+异步</td>
+<td>28894</td>
+<td>670M</td>
+</tr>
+<tr>
+<td>sql.log+com.taobao&#x2F;trace+同步</td>
+<td>13248</td>
+<td></td>
+</tr>
+</tbody></table>
+<p>com.taobao&#x2F;trace 指的是将com.taobao.*设为trace输出，以增加输出日志量。</p>
+<h3 id="是否开启immediateFlush（默认true）"><a href="#是否开启immediateFlush（默认true）" class="headerlink" title="是否开启immediateFlush（默认true）"></a>是否开启immediateFlush（默认true）</h3><table>
+<thead>
+<tr>
+<th></th>
+<th>tps</th>
+<th>100秒每个节点输出日志大小</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同步+immediateFlush</td>
+<td>27610</td>
+<td>282M</td>
+</tr>
+<tr>
+<td>同步</td>
+<td>29554</td>
+<td>303M</td>
+</tr>
+<tr>
+<td>异步+immediateFlush</td>
+<td>31100</td>
+<td>245M</td>
+</tr>
+<tr>
+<td>异步</td>
+<td>31150</td>
+<td>260M</td>
+</tr>
+</tbody></table>
+<p>（这个表格和前面的表格整体tps不一致，前一个表格是晚上测试，这个表格是上午测试的，不清楚是否环境受到了影响）</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>关键结论见最前面，但是要结合自己场景输出日志的速度，日志输出越少影响越不明显，机器核数越多会越明显，总的原因就是logback的 AppenderBase的doAppend()函数需要同步</p>
+<pre><code>public synchronized void doAppend(E eventObject)
+</code></pre>
+<h2 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h2><p>Logback 异步日志处理能力分析</p>
+<h3 id="环境信息"><a href="#环境信息" class="headerlink" title="环境信息"></a>环境信息</h3><p>32C128G</p>
+<h3 id="单条日志较大-len-1137"><a href="#单条日志较大-len-1137" class="headerlink" title="单条日志较大 len&#x3D;1137"></a>单条日志较大 len&#x3D;1137</h3><p>top</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">13200 admin     20   0  128.6g  78.6g  22864 R 85.1 63.5  15:13.50 AsyncAppende //异步写日志</span><br><span class="line">13389 admin     20   0  128.6g  78.6g  22864 R 42.1 63.5   1:33.49 logback-5 --压缩</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">13200 admin     20   0  128.6g  78.5g  22864 R 85.1 63.5  15:54.71 AsyncAppender-W</span><br><span class="line">13456 admin     20   0  128.6g  78.5g  22864 R 73.5 63.5   1:49.45 logback-6</span><br></pre></td></tr></table></figure>
+
+<p>日志内容</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[len=1137] select 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/</span><br><span class="line"></span><br><span class="line">[ 408s] threads: 360, tps: 0.00, reads/s: 78817.18, writes/s: 0.00, response time: 15.55ms (95%)</span><br><span class="line">[ 409s] threads: 360, tps: 0.00, reads/s: 85020.78, writes/s: 0.00, response time: 12.70ms (95%)</span><br><span class="line">[ 410s] threads: 360, tps: 0.00, reads/s: 86073.08, writes/s: 0.00, response time: 12.83ms (95%)</span><br><span class="line">[ 411s] threads: 360, tps: 0.00, reads/s: 84357.86, writes/s: 0.00, response time: 12.90ms (95%)</span><br></pre></td></tr></table></figure>
+
+<p>平均每分钟输出日志内容 13个512MB日志文件，每秒100MB的输出能力</p>
+<h3 id="每条日志len-150"><a href="#每条日志len-150" class="headerlink" title="每条日志len&#x3D;150"></a>每条日志len&#x3D;150</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[len=150] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ </span><br><span class="line"></span><br><span class="line">[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)</span><br><span class="line">[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)</span><br><span class="line">[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)</span><br></pre></td></tr></table></figure>
+
+<p>减小日志</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[len=46] SELECT 1 /*skkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk*/ </span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W</span><br><span class="line">15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-5</span><br><span class="line">15664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W</span><br><span class="line">15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND15646 admin     20   0  128.4g  78.1g  22976 R 82.8 63.2   4:45.75 AsyncAppender-W</span><br><span class="line">15958 admin     20   0  128.4g  78.1g  22976 R 46.0 63.2   0:27.01 logback-515664 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:47.70 Processor2-W15666 admin     20   0  128.4g  78.1g  22976 R 29.8 63.2   1:48.03 Processor3-W</span><br></pre></td></tr></table></figure>
+
+<h3 id="select-1日志"><a href="#select-1日志" class="headerlink" title="select 1日志"></a>select 1日志</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[len=8] SELECT 1 </span><br><span class="line"></span><br><span class="line">[  10s] threads: 120, tps: 0.00, reads/s: 185004.17, writes/s: 0.00, response time: 1.77ms (95%)</span><br><span class="line">[  11s] threads: 120, tps: 0.00, reads/s: 188139.08, writes/s: 0.00, response time: 1.73ms (95%)</span><br><span class="line">[  12s] threads: 120, tps: 0.00, reads/s: 185597.99, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  13s] threads: 120, tps: 0.00, reads/s: 188732.07, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line">[  14s] threads: 120, tps: 0.00, reads/s: 188982.57, writes/s: 0.00, response time: 1.74ms (95%)</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15646 admin     20   0  128.3g  78.1g  22976 R 81.5 63.2   3:37.77 AsyncAppender-W</span><br><span class="line">16849 admin     20   0  128.3g  78.1g  22976 R 37.7 63.2   0:26.85 logback-8</span><br><span class="line">16066 admin     20   0  128.3g  78.1g  22976 S 33.8 63.2   0:33.07 logback-7</span><br></pre></td></tr></table></figure>
+
+<h3 id="点查日志"><a href="#点查日志" class="headerlink" title="点查日志"></a>点查日志</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[len=43] SELECT *, pad FROM sbtest1 WHERE id=5000089</span><br><span class="line"></span><br><span class="line">[  31s] threads: 360, tps: 0.00, reads/s: 120084.93, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  32s] threads: 360, tps: 0.00, reads/s: 119897.70, writes/s: 0.00, response time: 3.21ms (95%)</span><br><span class="line">[  33s] threads: 360, tps: 0.00, reads/s: 120158.21, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  34s] threads: 360, tps: 0.00, reads/s: 119777.94, writes/s: 0.00, response time: 3.22ms (95%)</span><br><span class="line">[  35s] threads: 360, tps: 0.00, reads/s: 120047.95, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line">[  36s] threads: 360, tps: 0.00, reads/s: 118585.32, writes/s: 0.00, response time: 3.23ms (95%)</span><br><span class="line">[  37s] threads: 360, tps: 0.00, reads/s: 119351.12, writes/s: 0.00, response time: 3.20ms (95%)</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND</span><br><span class="line">15644 admin     20   0  128.5g  78.3g  22976 R 99.9 63.3   1:12.14 logback-1</span><br><span class="line">15646 admin     20   0  128.5g  78.3g  22976 R 65.6 63.3   8:46.11 AsyncAppender-W</span><br><span class="line">15659 admin     20   0  128.5g  78.3g  22976 R 25.5 63.3   2:53.82 Processor0-R</span><br><span class="line">15662 admin     20   0  128.5g  78.3g  22976 S 25.5 63.3   3:06.63 Processor1-W</span><br></pre></td></tr></table></figure>
+
+<p>后端RDS快打满了</p>
+<h3 id="案例总结"><a href="#案例总结" class="headerlink" title="案例总结"></a>案例总结</h3><p>len表示日志长度</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>len&#x3D;43 ，点查</th>
+<th>len&#x3D;8 select 1</th>
+<th>[len&#x3D;150] SELECT 1</th>
+<th>[len&#x3D;1137] select 1</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>QPS</td>
+<td>12万（rds瓶颈）</td>
+<td>18.6万(写日志单线程瓶颈)</td>
+<td>18.5万</td>
+<td>8.5万(磁盘瓶颈)</td>
+</tr>
+</tbody></table>
+<p>因为<strong>调度问题</strong> 异步写日志进程很难跑满CPU, 最多跑到80%左右</p>
+<p>单核按条输出能力在 18万条每秒左右（Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz）</p>
+<p>如果日志太大会受限于物理磁盘写出能力，测试环境最大输出能力是每秒 100MB</p>
+<h2 id="16core-VS-32-Core-案例比较"><a href="#16core-VS-32-Core-案例比较" class="headerlink" title="16core VS 32 Core 案例比较"></a>16core VS 32 Core 案例比较</h2><p>如果都是用一半超线程，32 Core基本能达到16Core的1.9倍性能</p>
+<p>下图上半部分是32C，下半部分是16C</p>
+<p><img src="/images/951413iMgBlog/image-20220810160155192.png" alt="image-20220810160155192"></p>
+<p>对应CPU状态</p>
+<p><img src="/images/951413iMgBlog/image-20220810160241298.png" alt="image-20220810160241298"></p>
+<p><img src="/images/951413iMgBlog/image-20220810160249972.png" alt="image-20220810160249972"></p>
+<p>如果都改用物理核后，32Core VS 16Core是 25万 VS 15万，大概提升有1.67倍，不到2倍</p>
+<p>同时看到perf 也是打了7折，这应该是core太多后应用代码内部锁竞争太激励</p>
+<h2 id="横向比较"><a href="#横向比较" class="headerlink" title="横向比较"></a>横向比较</h2><p>logback、log4j2等横向关系和性能比较分析</p>
+<h3 id="日志框架"><a href="#日志框架" class="headerlink" title="日志框架"></a>日志框架</h3><p>紫色为接口类，蓝色为实现，白色为转换<br><img src="/images/oss/f8f589fd11e4d480162e24b02d95e511.png" alt="image.png"></p>
+<p>log4j-over-slf4j和slf4j-log4j12之所以不能共存，是因为它俩可以造成循环依赖！从图中可以看到，有不少会造成循环依赖的场景，比如jul-to-slf4j与slf4j-jdk14、jcl-over-slf4j与JCL等，有些jar的共存会让调用方产生困惑，不知道具体调用哪个</p>
+<p><img src="/images/951413iMgBlog/image-20220907151035617.png" alt="image-20220907151035617"></p>
+<h3 id="性能比较"><a href="#性能比较" class="headerlink" title="性能比较"></a>性能比较</h3><p><img src="/images/oss/260fd07e702c1a0636d277bbf73607cb.png" alt="image.png"></p>
+<ul>
+<li>可见在同步日志模式下, Logback的性能是最糟糕的.</li>
+<li>而log4j2的性能无论在同步日志模式还是异步日志模式下都是最佳的.</li>
+</ul>
+<p>其根本原因在于log4j2使用了LMAX, 一个无锁的线程间通信库代替了, logback和log4j之前的队列. 并发性能大大提升。有兴趣的同学，可以深入探索。</p>
+<p>来自log4j2官方的比较数据（同步，在不同的瓶颈下）</p>
+<p><a target="_blank" rel="noopener" href="https://logging.apache.org/log4j/2.x/performance.html">https://logging.apache.org/log4j/2.x/performance.html</a>：</p>
+<p><img src="/images/oss/46214ad5378ef5790ad167037a41149d.png" alt="image.png"></p>
+<p><img src="/images/oss/ef794e63ba049e1fa76a1884a6e213a5.png" alt="image.png"></p>
+<h4 id="异步场景下的性能比较"><a href="#异步场景下的性能比较" class="headerlink" title="异步场景下的性能比较"></a>异步场景下的性能比较</h4><p>AsyncAppender to FileAppender<br><img src="/images/oss/29c0786bbcecc092ca7c84cce203453d.png" alt="image.png"></p>
+<h3 id="Log4j2中的异步日志-AsyncAppender"><a href="#Log4j2中的异步日志-AsyncAppender" class="headerlink" title="Log4j2中的异步日志(AsyncAppender)"></a>Log4j2中的异步日志(AsyncAppender)</h3><p>默认用ArrayBlockingQueue.队列大小为128.</p>
+<h4 id="关于ArrayBlockingQueue"><a href="#关于ArrayBlockingQueue" class="headerlink" title="关于ArrayBlockingQueue"></a>关于ArrayBlockingQueue</h4><p>ArrayBlockingQueue是一种地节省了空间，对于记日志有很好的适用性，同时避免内存的伸缩产生波动，也降低了GC的负担。入队出队时由内部的重入锁来控制并发，同时默认采用非公平锁的性质来处理活跃线程的闯入(Barge)，从而提高吞吐量。<br>ArrayBlockingQueue在处理数据的入队提供了offer和put方法。两者的区别是：如果队列满了，offer直接返回给调用线程false, 而不用等待，这种场景较适合异步写日志，即使没有入队成功，仍然可以接受。而put方法则会让当前线程进入等待队列，并再次去竞争锁。<br>类似的，处理出队时提供了poll和take方法，区别也是是否阻塞调用线程。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.iteye.com/blog/k1280000-2265177">flush cache 大小8K </a></p>
 
       
     </div>

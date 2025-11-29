@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">185</span>
+          <span class="site-state-item-count">184</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,139 +168,6 @@
     </div>
 
     <div class="main-inner index posts-expand">
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/08/28/%E8%A7%A3%E5%86%B3%E9%97%AE%E9%A2%98%E6%80%9D%E8%B7%AF/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2023/08/28/%E8%A7%A3%E5%86%B3%E9%97%AE%E9%A2%98%E6%80%9D%E8%B7%AF/" class="post-title-link" itemprop="url">解决Java/MySQL性能问题的思路</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2023-08-28 10:30:03" itemprop="dateCreated datePublished" datetime="2023-08-28T10:30:03+08:00">2023-08-28</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/performance/" itemprop="url" rel="index"><span itemprop="name">performance</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="解决-Java-MySQL-性能问题的思路"><a href="#解决-Java-MySQL-性能问题的思路" class="headerlink" title="解决 Java&#x2F;MySQL 性能问题的思路"></a>解决 Java&#x2F;MySQL 性能问题的思路</h1><p>10年前写的，重新发一下</p>
-<h2 id="系统性能问题"><a href="#系统性能问题" class="headerlink" title="系统性能问题"></a>系统性能问题</h2><ul>
-<li>CPU（基本上WEB服务器没有多少IO，主要是CPU有瓶颈）<ul>
-<li>top&#x2F;vmstat 观察CPU使用率，Load负载，r&#x2F;b线程数量等；</li>
-<li>IO（数据库大多数时候瓶颈是IO，主要是索引没建好；如果数据库CPU紧张的话，检查一下是不是order by&#x2F;group by 等操作太多）</li>
-<li>vmstat 观察IO&#x2F;Util吞吐，磁盘最怕随机读写了（比如：索引命中后，需要离散地从磁盘读数据）</li>
-<li>对于数据库来说最怕内存不够的时候使用Swap了，所以尽量增大分配给数据库的内存，一旦有Swap就要引起注意了</li>
-</ul>
-</li>
-</ul>
-<h2 id="Java程序问题（运行慢）"><a href="#Java程序问题（运行慢）" class="headerlink" title="Java程序问题（运行慢）"></a>Java程序问题（运行慢）</h2><p>​    先通过 top 查看整个CPU资源使用情况；<br>​    通过top -Hp pid查看java进程的每一个线程占用CPU的情况；<br>​        如果有一个线程占用CPU过高，有两种可能：<br>​            没有内存了，Java垃圾回收线程不停地运行尝试回收内存，但是每次无法收回，确认：<br>​                jstat -gcutil pid 1s   观察10多秒钟就能发现了，看是不是内存使用率接近100%了<br>​            类似于死循环（hash冲突攻击），就是一个线程一直占用一个核的所有CPU资源（其实一个线程总是占用一个核超过50%的资源都是不太正常的），解决：<br>​                用我的checkPerf脚本，定位这个线程具体执行的任务（能具体到某一行），对应看代码解决。            </p>
-<pre><code>    如果有很多线程，每个线程占用的CPU都不多(基本都在10%以下)，那基本是正常的，只是程序并发确实很高。
-
-如果死锁：
-    jstack -l pid 多执行几次，统计一下stack中总是在等待哪些锁，可以对锁id进行排序统计（sort uniq grep）
-上面列出来的都是明显的瓶颈，最可怕的是哪里都没有明显的瓶颈，哪里都要偷一点点CPU资源走，这是可以试试JProfiler这样更专业一点的工具，同时要配合自己对业务的了解来解决。
-
-一旦触发频繁地抛出异常，CPU占用率会急剧地上升（抛异常比正常情况下会慢2个数量级）主要是由于：Throwable的构造函数中会调用native的fillInStackTrace()，这个方法就会构造整个异常栈了。
-</code></pre>
-<p>Java内存的问题，如果有内存泄露（就是执行完fgc&#x2F;old gc后不能回收的内存不断地增加）：<br>    怎么确认没有内存了：<br>        jps -lmv pid 先确认你的参数，也就是你给JVM分配了多大的堆(-Xmx 比如1G); 然后jstat -gcutil pid 1s 看看GC运行情况，如果(O&#x2F;E 两列基本接近100%的话就是内存不够了)<br>            内存不够分两种：一种是真的不够，就是你们的系统很庞大需要1G以上的内存，而你只分配了1G，这个没什么好说的，增大内存，物理内存不够就投钱买；<br>            第二一种是你们的代码写的烂，有内存泄露，这样的话分配多少内存都不够，得找出是否有内存泄露，看接下的解决方案        </p>
-<pre><code>快速解决：jmap -histo:live pid  来统计所有对象的个数（String/char/Integer/HashEntry 这样的对象很多很正常，主要是盯着你们公司的包名下的那些对象）
-每隔一分钟执行一次上面的命令，执行5次以上，看看你们公司报名下的对象数量哪个在一直增加，那基本上就是这个对象引起了泄露；
-用课堂上的工具HouseMD(java -Xbootclasspath/a:/usr/java/jdk1.6.0_29/lib/tools.jar -jar housemd-assembly-0.2.2.jar pid)来动态监控创建这个对象的地方（一般来说很多时候创建了这些对象把他们丢到一个HashMap然后就不管了），分析一下有没有释放！
-    &gt;trace -s -d ClassName
-
-上面的方法实在没法定位就用: jmap -dump:live,format=b,file=heap.bin pid 导出整个内存（耗时间，需要很大的内存的机器才能对这个导出文件进行分析，会将JVM锁住一段时间）
-    在Eclipse的插件EMA中打开这个文件（2G的物理文件需要4G以上的内存，5G以上的需要将近20G的内存来分析了）
-    盯着你们公司报名的那些对象，看看引用关系，谁拿着这些对象没释放（是否是必要的），可以一直追查的RootReference
-</code></pre>
-<h2 id="MySQL-数据库的性能问题"><a href="#MySQL-数据库的性能问题" class="headerlink" title="MySQL 数据库的性能问题"></a>MySQL 数据库的性能问题</h2><p>大部分情况下是磁盘IO的问题（索引没建好、查询太复杂）；</p>
-<ul>
-<li><p>索引问题的话分析慢查询日志，explain 他们挨个解决。</p>
-</li>
-<li><p>偶尔也有数据库CPU不够的情况，如果并发高CPU不够很正常，如果并发不高，那很可能就是group by&#x2F;order by&#x2F;random之类的操作严重消耗了数据库的CPU</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">mysql -e &quot;show full processlist&quot; | grep -v Sleep | sort -rnk6 查看那些SQL语句执行的太长</span><br><span class="line">拿出这个SQL语句分析他们的执行计划: explain SQL 然后改进；</span><br><span class="line">分析慢查询日志，统计top10性能杀手的语句，挨个explain他们，然后改进（具体改进办法具体分析，这里只谈思路）</span><br></pre></td></tr></table></figure></li>
-</ul>
-<p>总结一下数据库问题就只有这三招：show full processlist&#x2F;分析慢查询日志&#x2F;explain（然后建好联合索引）</p>
-<p>补充一个数据库连接数不够的问题，很多人碰到了，不知道怎么解决：</p>
-<ul>
-<li>在mysql 命令行里执行：show variables like ‘%max_connections%’;  看看你们的数据实际配置是多少（比如1000）</li>
-<li>show full processlist 数一下多少行，一行代表一个连接，比如这里是1000行，那基本上就是连接数不够了，你要解决的为什么你的数据库需要这么多连接</li>
-<li>接下来分析这些连接是从哪来的IP，然后问你自己：根据你们的服务类型的特点需要这么多连接吗？</li>
-</ul>
-<h3 id="数据库性能问题提问请给出："><a href="#数据库性能问题提问请给出：" class="headerlink" title="数据库性能问题提问请给出："></a>数据库性能问题提问请给出：</h3><ul>
-<li>show full processlist;</li>
-<li>查询语句;</li>
-<li>表结构(包括索引结构);</li>
-<li>数据库引擎类型;</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
 
     
 
@@ -621,7 +488,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+      <time title="修改时间：2025-11-29 15:19:06" itemprop="dateModified" datetime="2025-11-29T15:19:06+08:00">2025-11-29</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -734,7 +601,7 @@
 <p>Druid中有个计数器createTaskCount，用来记录每个连接池当前正在创建连接的任务数，默认不能超过3。Druid中，在keepAlive&#x3D;true的情况下，这个计数器有bug，存在加了但没减的情况，导致这个值涨到3之后没有减回去，从而无法提交新的创建连接任务。</p>
 <p> 注意，进入这个状态后的连接池，是无法自动恢复的。Druid升级到1.1.24可以修复这个问题。</p>
 <h3 id="Druid-报错-4"><a href="#Druid-报错-4" class="headerlink" title="Druid 报错 4"></a>Druid 报错 4</h3><p>下图这个堆栈很有意思，栈顶是连接不够触发 Druid 创建新连接，但是建新连接报错了，于是需要记录日志，但是有些场景(比如任务流) 要求，错误信息要往数据库存，于是记录日志触发取连接，然后就死锁了：</p>
-<p><img src="/Users/ren/case/951413iMgBlog/image-20250306153320704.png" alt="image-20250306153320704"></p>
+<p><img src="/images/951413iMgBlog/image-20250306153320704.png" alt="image-20250306153320704"></p>
 <h3 id="分片逻辑"><a href="#分片逻辑" class="headerlink" title="分片逻辑"></a>分片逻辑</h3><p>因为数据量太大，一台Database存放不下，自然会分片，或者说单表几千万之后也是建议分片。</p>
 <p>分片逻辑是取业务id最后两位的字符去取string hashcode，再对16个Database分片</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">如果对id后两位字符(从00-99供100个数字，因为不排除id里面有字符，但实际主要是0-9的数字)的ascii码取hash然后按16取模的结果：</span><br><span class="line">0</span><br><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9  --开始不正常，10-14号分片没有直接跳到15号分片</span><br><span class="line">15</span><br><span class="line">0</span><br><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">……</span><br><span class="line"></span><br><span class="line">//分片求模代码</span><br><span class="line">for(int i=0;i&lt;10;++i) //0的ascii码是48，依此类推</span><br><span class="line">	for(int j=0;j&lt;10;++j)</span><br><span class="line">		 int value=((48+i)*31+j) mod 16;</span><br></pre></td></tr></table></figure>
@@ -1715,6 +1582,118 @@
 
 
 
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2023/05/06/%E6%88%91%E7%9A%84%E7%BD%91%E7%BB%9C%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E4%B8%BA%E4%BB%80%E4%B9%88%E7%AA%81%E7%84%B6%E4%B8%8B%E9%99%8D%E4%BA%86/" class="post-title-link" itemprop="url">我的网络传输速度为什么突然下降了</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2023-05-06 12:30:03" itemprop="dateCreated datePublished" datetime="2023-05-06T12:30:03+08:00">2023-05-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="我的网络传输速度为什么突然下降了"><a href="#我的网络传输速度为什么突然下降了" class="headerlink" title="我的网络传输速度为什么突然下降了"></a>我的网络传输速度为什么突然下降了</h1><h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>这个问题是我星球成员做星球里面的必做实验时碰到的一个问题</p>
+<p>最后的分析用到了我们的抓包大法+ping一ping真牛逼的证明方案，所以特意放出来供大家试试，同时也检验大家对知识的掌握和运用。</p>
+<p>这个问题很好，在EC2上稳定重现，假如你们的业务碰到了这个问题你怎么解决？</p>
+<p>或者换个场景描述：你有一个SQL单独执行很快，2个SQL并行一起查速度就降到了原来的10%，是DB还是谁的锅？</p>
+<p>推特上大佬们的讨论，看看别人都是怎么思考和推理的：<a target="_blank" rel="noopener" href="https://treeverse.app/view/RDzsOXjO">https://treeverse.app/view/RDzsOXjO</a></p>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>一个降速问题，在AWS的 <a href="t2.micro">t2.micro</a>机器上几乎100％复现，操作: </p>
+<ol>
+<li>开三台aws <a href="t2.micro">t2.micro</a>机器，一台做server两台做client, 已知正常情况rtt是0.5ms，bandwidth 60mbps，文件大小2g</li>
+<li>client1 去curl get server 文件，等一段时间速度稳定在 60mbps</li>
+<li>然后用 client2 去curl get server 文件</li>
+<li>可以观察到两个client都降速到3.5mbps，这种情况就是算把server跑坏了。</li>
+<li>关掉client2, 观察到client1恢复到7-8mbps，但是远低于60mbps的带宽上限，也就是速度被限制到了标称的10%</li>
+<li>server搞坏之后，client重新下载就会出现一开始还行，但过10s就会掉到7-8mbps的情况，需要重启server才能恢复到60mbps</li>
+</ol>
+<p>星球不能发多图，和pcap文件，重现的详细抓包、截图等都放在 google driver上了: <a target="_blank" rel="noopener" href="https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a">https://drive.google.com/drive/folders/13rsOQ-6VZhXu0JRMLlUypRposRRcRN-a</a> （<strong>建议大家去下载client2.pcap抓包看看</strong>）</p>
+<p>抓包发现大量dup ack, 且bytes in flight很大，server send buffer很大。</p>
+<p><img src="/images/951413iMgBlog/FryRnESX2vOUCICndaLZ3MuaqSmH.png" alt="img"></p>
+<p><strong>&#x3D;&#x3D;强烈建议你先别往下看，去下载上面链接中的抓包文件分析看看，然后和下面的分析对比一下&#x3D;&#x3D;</strong></p>
+<hr>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>有网络大牛陈硕老师 <a target="_blank" rel="noopener" href="https://twitter.com/bnu_chenshuo/status/1654288717673291776">在EC2上重现了这个问题</a> 以及他的分析，速度由300Mbps下降到了60Mbps：</p>
+<p><img src="/images/951413iMgBlog/Fnl-CGFUBMjLwQWa2i6kPo7MuJFc.png" alt="img"></p>
+<p>以及 左耳朵耗子 老师也做了实验以及分析：<a target="_blank" rel="noopener" href="https://twitter.com/haoel/status/1654655067365179393">https://twitter.com/haoel/status/1654655067365179393</a></p>
+<p>我的分析：<a target="_blank" rel="noopener" href="https://articles.zsxq.com/id_iq5a872u8sux.html">https://articles.zsxq.com/id_iq5a872u8sux.html</a></p>
+<p><img src="/images/951413iMgBlog/image-20230506132001274.png" alt="image-20230506132001274"></p>
+<h3 id="证明"><a href="#证明" class="headerlink" title="证明"></a>证明</h3><p>证明原理如这个图</p>
+<p><img src="/images/951413iMgBlog/image-20230506131422140.png" alt="image-20230506131422140"></p>
+<p><img src="/images/951413iMgBlog/image-20230506131709216.png" alt="image-20230506131709216"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>99%的人不会弄脏双手去实验，哪怕是只需要下载一个抓包就能分析出来都不会去下载。但是为什么刚好是两位陈老师会去测试重现一下呢(原谅你没有AWS机器，但是不接受你不去google driver下载抓包文件 :) )，大概率他们的时间、经验、知识都比你要丰富一些，但是他们不忌惮弄脏手而你只想做个过客看看就懂，但最后你真的啥都没看懂！</p>
 
       
     </div>
