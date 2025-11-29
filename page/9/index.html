@@ -177,7 +177,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -195,7 +195,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/" class="post-title-link" itemprop="url">Linux内存--零拷贝</a>
+          <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/" class="post-title-link" itemprop="url">Linux内存--HugePage</a>
         </h2>
 
         <div class="post-meta-container">
@@ -235,160 +235,190 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="Linux内存–零拷贝"><a href="#Linux内存–零拷贝" class="headerlink" title="Linux内存–零拷贝"></a>Linux内存–零拷贝</h1><p>本系列有如下几篇</p>
+          <h1 id="Linux内存–HugePage"><a href="#Linux内存–HugePage" class="headerlink" title="Linux内存–HugePage"></a>Linux内存–HugePage</h1><p>本系列有如下几篇</p>
 <p>[Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;)</p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">Linux内存–PageCache</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E7%AE%A1%E7%90%86%E5%92%8C%E7%A2%8E%E7%89%87/">Linux内存–管理和碎片</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">Linux内存–HugePage</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">Linux内存–零拷贝</a></p>
-<h2 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h2><blockquote>
-<p>“<strong>Zero-copy</strong>“ describes computer operations in which the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Central_processing_unit">CPU</a> does not perform the task of copying data from one <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/RAM">memory</a> area to another. This is frequently used to save CPU cycles and memory bandwidth when transmitting a file over a network.</p>
+<h2 id="proc-buddyinfo"><a href="#proc-buddyinfo" class="headerlink" title="&#x2F;proc&#x2F;buddyinfo"></a>&#x2F;proc&#x2F;buddyinfo</h2><p>&#x2F;proc&#x2F;buddyinfo记录了内存的详细碎片情况。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/buddyinfo </span><br><span class="line">Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 </span><br><span class="line">Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 </span><br><span class="line">Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854</span><br></pre></td></tr></table></figure>
+
+<p>Normal行的第二列表示：  643847*2^1*Page_Size(4K) ;  第三列表示：  357451*2^2*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。</p>
+<p>应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上–2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。</p>
+<h2 id="slabtop和-proc-slabinfo"><a href="#slabtop和-proc-slabinfo" class="headerlink" title="slabtop和&#x2F;proc&#x2F;slabinfo"></a>slabtop和&#x2F;proc&#x2F;slabinfo</h2><p>slabtop和&#x2F;proc&#x2F;slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes</p>
+<h2 id="关于hugetlb"><a href="#关于hugetlb" class="headerlink" title="关于hugetlb"></a>关于hugetlb</h2><p>This is an entry in the TLB that points to a HugePage (a large&#x2F;big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a “hugetlb page entry”. The ‘hugetlb” term is also (and mostly) used synonymously with a HugePage.</p>
+<p> hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。</p>
+<p><strong>Linux下的大页分为两种类型：标准大页（Huge Pages）和透明大页（Transparent Huge Pages）</strong></p>
+<p>标准大页管理是预分配的方式，而透明大页管理则是动态分配的方式</p>
+<p>目前透明大页与传统HugePages联用会出现一些问题，导致性能问题和系统重启。Oracle 建议禁用透明大页（Transparent Huge Pages）</p>
+<p>hugetlbfs比THP要好，开thp的机器碎片化严重（不开THP会有更严重的碎片化问题），最后和没开THP一样 <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/152660">https://www.atatech.org/articles/152660</a></p>
+<p>Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存不足时，它们也不会被 Swap 到磁盘上，这也就能从根源上杜绝了重要内存被频繁换入和换出的可能。</p>
+<blockquote>
+<p><strong>Transparent Hugepages</strong> are similar to standard <strong>HugePages</strong>. However, while standard <strong>HugePages</strong> allocate memory at startup, <strong>Transparent Hugepages</strong> memory uses the khugepaged thread in the kernel to allocate memory dynamically during runtime, using swappable <strong>HugePages</strong>.</p>
 </blockquote>
-<p>零拷贝技术是指计算机执行操作时，<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%A4%AE%E5%A4%84%E7%90%86%E5%99%A8">CPU</a>不需要先将数据从某处<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E9%9A%8F%E6%9C%BA%E5%AD%98%E5%8F%96%E5%AD%98%E5%82%A8%E5%99%A8">内存</a>复制到另一个特定区域。这种技术通常用于通过网络传输文件时节省 CPU 和<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%86%85%E5%AD%98%E5%B8%A6%E5%AE%BD">内存带宽</a>。</p>
-<p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 </p>
-<p><img src="/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg"></p>
-<p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read&#x2F;write没有导致阻塞是不会发生上下文切换的：</p>
-<p><img src="/images/951413iMgBlog/NoOptimization.jpg" alt="NoOptimization"></p>
-<p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
-<p><img src="/images/951413iMgBlog/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
-<p>零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
-<p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
-<p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
-<p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB&#x2F;32KB）上下文切换。</p>
-<h2 id="read-write-和零拷贝优化"><a href="#read-write-和零拷贝优化" class="headerlink" title="read+write 和零拷贝优化"></a>read+write 和零拷贝优化</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(file, tmp_buf, len);</span><br><span class="line">write(socket, tmp_buf, len);</span><br></pre></td></tr></table></figure>
-
-<p><img src="/images/951413iMgBlog/image-20201104175056589.png" alt="image-20201104175056589"></p>
-<h3 id="通过mmap替换read优化一下"><a href="#通过mmap替换read优化一下" class="headerlink" title="通过mmap替换read优化一下"></a>通过mmap替换read优化一下</h3><p>用 <code>mmap()</code> 替换原先的 <code>read()</code>，<code>mmap()</code> 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。</p>
-<p><img src="/images/951413iMgBlog/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
-<p>通过使用 <code>mmap()</code> 来代替 <code>read()</code>， 可以减少一次数据拷贝的过程。</p>
-<p>但这还不是最理想的零拷贝，因为首先仍然需要通过 CPU 把内核缓冲区的数据拷贝到 socket 缓冲区里，而且仍然需要 4 次上下文切换，因为系统调用还是 2 次；另外内存映射技术是一个开销很大的虚拟存储操作：这种操作需要修改页表以及用内核缓冲区里的文件数据汰换掉当前 TLB 里的缓存以维持虚拟内存映射的一致性。</p>
-<h3 id="sendfile"><a href="#sendfile" class="headerlink" title="sendfile"></a>sendfile</h3><p>在 Linux 内核版本 2.1 中，提供了一个专门发送文件的系统调用函数 <code>sendfile()</code>，函数形式如下：</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/socket.h&gt;</span></span></span><br><span class="line"><span class="type">ssize_t</span> <span class="title function_">sendfile</span><span class="params">(<span class="type">int</span> out_fd, <span class="type">int</span> in_fd, <span class="type">off_t</span> *offset, <span class="type">size_t</span> count)</span>;</span><br></pre></td></tr></table></figure>
-
-<p>它的前两个参数分别是目的端和源端的文件描述符，后面两个参数是源端的偏移量和复制数据的长度，返回值是实际复制数据的长度。</p>
-<p>首先，它可以替代前面的 <code>read()</code> 和 <code>write()</code> 这两个系统调用，这样就可以减少一次系统调用，也就减少了 2 次上下文切换的开销。</p>
-<p>其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：</p>
-<p><img src="/images/951413iMgBlog/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
-<p>当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。<code>sendfile()</code> 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。</p>
-<p>然而 <code>sendfile()</code> 本身是有很大问题的，从不同的角度来看的话主要是：</p>
-<ol>
-<li>首先一个是这个接口并没有进行标准化，导致 <code>sendfile()</code> 在 Linux 上的接口实现和其他类 Unix 系统的实现并不相同；</li>
-<li>其次由于网络传输的异步性，很难在接收端实现和 <code>sendfile()</code> 对接的技术，因此接收端一直没有实现对应的这种技术；</li>
-<li>最后从性能方面考量，因为 <code>sendfile()</code> 在把磁盘文件从内核缓冲区（page cache）传输到到套接字缓冲区的过程中依然需要 CPU 参与，这就很难避免 CPU 的高速缓存被传输的数据所污染。</li>
-</ol>
-<h3 id="SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术"><a href="#SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术" class="headerlink" title="SG-DMA（The Scatter-Gather Direct Memory Access）技术"></a>SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术</h3><p>上一小节介绍的 <code>sendfile()</code> 技术已经把一次数据读写过程中的 CPU 拷贝的降低至只有 1 次了，但是人永远是贪心和不知足的，现在如果想要把这仅有的一次 CPU 拷贝也去除掉，有没有办法呢？</p>
-<p>当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter&#x2F;gather – 分散&#x2F;收集功能，并修改了 <code>sendfile()</code> 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：</p>
-<p><img src="/images/951413iMgBlog/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
-<p>如果网卡支持 SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。</p>
-<p>这就是所谓的<strong>零拷贝（Zero-copy）技术，因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。</strong> 数据传输过程就再也没有 CPU 的参与了，也因此 CPU 的高速缓存再不会被污染了，也不再需要 CPU 来计算数据校验和了，CPU 可以去执行其他的业务计算任务，同时和 DMA 的 I&#x2F;O 任务并行，此举能极大地提升系统性能。</p>
-<p>零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，<strong>只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。</strong></p>
-<p>所以，总体来看，<strong>零拷贝技术可以把文件传输的性能提高至少一倍以上</strong>。</p>
-<h3 id="splice"><a href="#splice" class="headerlink" title="splice()"></a>splice()</h3><p><code>sendfile()</code> + DMA Scatter&#x2F;Gather 的零拷贝方案虽然高效，但是也有两个缺点：</p>
-<ol>
-<li>这种方案需要引入新的硬件支持；</li>
-<li>虽然 <code>sendfile()</code> 的输出文件描述符在 Linux kernel 2.6.33 版本之后已经可以支持任意类型的文件描述符，但是输入文件描述符依然只能指向文件。</li>
-</ol>
-<p>这两个缺点限制了 <code>sendfile()</code> + DMA Scatter&#x2F;Gather 方案的适用场景。为此，Linux 在 2.6.17 版本引入了一个新的系统调用 <code>splice()</code>，它在功能上和 <code>sendfile()</code> 非常相似，但是能够实现在任意类型的两个文件描述符时之间传输数据；而在底层实现上，<code>splice()</code>又比 <code>sendfile()</code> 少了一次 CPU 拷贝，也就是等同于 <code>sendfile()</code> + DMA Scatter&#x2F;Gather，完全去除了数据传输过程中的 CPU 拷贝。</p>
-<p><code>splice()</code> 所谓的写入数据到管道其实并没有真正地拷贝数据，而是玩了个 tricky 的操作：只进行内存地址指针的拷贝而不真正去拷贝数据。所以，数据 <code>splice()</code> 在内核中并没有进行真正的数据拷贝，因此 <code>splice()</code> 系统调用也是零拷贝。</p>
-<p>还有一点需要注意，前面说过管道的容量是 16 个内存页，也就是 16 * 4KB &#x3D; 64 KB，也就是说一次往管道里写数据的时候最好不要超过 64 KB，否则的话会 <code>splice()</code> 会阻塞住，除非在创建管道的时候使用的是 <code>pipe2()</code> 并通过传入 <code>O_NONBLOCK</code> 属性将管道设置为非阻塞。</p>
-<h3 id="send-with-MSG-ZEROCOPY"><a href="#send-with-MSG-ZEROCOPY" class="headerlink" title="send() with MSG_ZEROCOPY"></a>send() with MSG_ZEROCOPY</h3><p>Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem de Bruijn 在 TCP 网络报文的通用发送接口 <code>send()</code> 中实现的 zero-copy 功能 (MSG_ZEROCOPY) 的 patch，通过这个新功能，用户进程就能够把用户缓冲区的数据通过零拷贝的方式经过内核空间发送到网络套接字中去，这个新技术和前文介绍的几种零拷贝方式相比更加先进，因为前面几种零拷贝技术都是要求用户进程不能处理加工数据而是直接转发到目标文件描述符中去的。Willem de Bruijn 在他的论文里给出的压测数据是：采用 netperf 大包发送测试，性能提升 39%，而线上环境的数据发送性能则提升了 5%~8%，官方文档陈述说这个特性通常只在发送 10KB 左右大包的场景下才会有显著的性能提升。一开始这个特性只支持 TCP，到内核 v5.0 版本之后才支持 UDP。</p>
-<p>这个技术是基于 redhat 红帽在 2010 年给 Linux 内核提交的 virtio-net zero-copy 技术之上实现的，至于底层原理，简单来说就是通过 <code>send()</code> 把数据在用户缓冲区中的分段指针发送到 socket 中去，利用 page pinning 页锁定机制锁住用户缓冲区的内存页，然后利用 DMA 直接在用户缓冲区通过内存地址指针进行数据读取，实现零拷贝</p>
-<p>目前来说，这种技术的主要缺陷有：</p>
-<ol>
-<li>只适用于大文件 (10KB 左右) 的场景，小文件场景因为 page pinning 页锁定和等待缓冲区释放的通知消息这些机制，甚至可能比直接 CPU 拷贝更耗时；</li>
-<li>因为可能异步发送数据，需要额外调用 <code>poll()</code> 和 <code>recvmsg()</code> 系统调用等待 buffer 被释放的通知消息，增加代码复杂度，以及会导致多次用户态和内核态的上下文切换；</li>
-<li>MSG_ZEROCOPY 目前只支持发送端，接收端暂不支持。</li>
-</ol>
-<h3 id="零拷贝应用"><a href="#零拷贝应用" class="headerlink" title="零拷贝应用"></a>零拷贝应用</h3><p>kafka就利用了「零拷贝」技术，从而大幅提升了 I&#x2F;O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一(利用磁盘顺序写；PageCache)。</p>
-<p>非零拷贝代码：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">File.read(fileDesc, buf, len);</span><br><span class="line">Socket.send(socket, buf, len);</span><br></pre></td></tr></table></figure>
-
-<p>Traditional data copying approach：</p>
-<p><img src="/images/951413iMgBlog/gif/figure1.gif" alt="Traditional data copying approach"></p>
-<p>Traditional context switches：</p>
-<p><img src="/images/951413iMgBlog/gif/figure2.gif" alt="Traditional context switches"></p>
-<p>如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 <code>transferTo</code> 方法：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Overridepublic</span> </span><br><span class="line"><span class="type">long</span> <span class="title function_">transferFrom</span><span class="params">(FileChannel fileChannel, <span class="type">long</span> position, <span class="type">long</span> count)</span> <span class="keyword">throws</span> IOException &#123; </span><br><span class="line">    <span class="keyword">return</span> fileChannel.transferTo(position, count, socketChannel);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>Data copy with transferTo()</p>
-<p><img src="/images/951413iMgBlog/gif/figure3.gif" alt="Data copy with transferTo()"></p>
-<p>Context switching with transferTo()：</p>
-<p><img src="/images/951413iMgBlog/gif/figure4.gif" alt="Context switching when using transferTo()"></p>
-<p>Data copies when transferTo() and gather operations are used</p>
-<p><img src="/images/951413iMgBlog/gif/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
-<p>如果 Linux 系统支持 <code>sendfile()</code> 系统调用，那么 <code>transferTo()</code> 实际上最后就会使用到 <code>sendfile()</code> 系统调用函数。</p>
-<p>Nginx 也支持零拷贝技术，一般默认是开启零拷贝技术，这样有利于提高文件传输的效率，是否开启零拷贝技术的配置如下：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">...</span><br><span class="line">    sendfile on</span><br><span class="line">...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>sendfile 配置的具体意思:</p>
+<p>HugePage要求OS启动的时候提前分配出来，管理难度比较大，所以Enterprise Linux 6增加了一层抽象层来动态创建管理HugePage，这就是THP，而这个THP对应用透明，由khugepaged thread在后台动态将小页组成大页给应用使用，这里会遇上碎片问题导致需要compact才能得到大页，应用感知到的就是SYS CPU飙高，应用卡顿了。</p>
+<p>虽然 HugePages 的开启大都需要开发或者运维工程师的额外配置，但是在应用程序中启用 HugePages 却可以在以下几个方面降低内存页面的管理开销：</p>
 <ul>
-<li>设置为 on 表示，使用零拷贝技术来传输文件：sendfile ，这样只需要 2 次上下文切换，和 2 次数据拷贝。</li>
-<li>设置为 off 表示，使用传统的文件传输技术：read + write，这时就需要 4 次上下文切换，和 4 次数据拷贝。</li>
+<li>更大的内存页能够减少内存中的页表层级，这不仅可以降低页表的内存占用，也能降低从虚拟内存到物理内存转换的性能损耗；</li>
+<li>更大的内存页意味着更高的缓存命中率，CPU 有更高的几率可以直接在 TLB（Translation lookaside buffer）中获取对应的物理地址；</li>
+<li>更大的内存页可以减少获取大内存的次数，使用 HugePages 每次可以获取 2MB 的内存，是 4KB 的默认页效率的 512 倍；</li>
 </ul>
-<p>如果是大文件很容易消耗非常多的PageCache，不推荐使用PageCache（或者说零拷贝），建议使用异步IO+直接IO。</p>
-<p>在 nginx 中，我们可以用如下配置，来根据文件的大小来使用不同的方式：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">location /video/ &#123; </span><br><span class="line">    sendfile on; </span><br><span class="line">    aio on; </span><br><span class="line">    directio 1024m; </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="HugePage"><a href="#HugePage" class="headerlink" title="HugePage"></a>HugePage</h2><p><strong>为什么需要Huge Page</strong> 了解CPU Cache大致架构的话，一定听过TLB Cache。<code>Linux</code>系统中，对程序可见的，可使用的内存地址是<code>Virtual Address</code>。每个程序的内存地址都是从0开始的。而实际的数据访问是要通过<code>Physical Address</code>进行的。因此，每次内存操作，CPU都需要从<code>page table</code>中把<code>Virtual Address</code>翻译成对应的<code>Physical Address</code>，那么对于大量内存密集型程序来说<code>page table</code>的查找就会成为程序的瓶颈。</p>
+<p>所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
+<p>Huge pages require contiguous areas of memory, so allocating them at boot is the most reliable method since memory has not yet become fragmented. To do so, add the following parameters to the kernel boot command line:</p>
+<p><strong>Huge pages kernel options</strong></p>
+<ul>
+<li><p>hugepages</p>
+<p>Defines the number of persistent huge pages configured in the kernel at boot time. The default value is <code>0</code>. It is only possible to allocate (or deallocate) huge pages if there are sufficient physically contiguous free pages in the system. Pages reserved by this parameter cannot be used for other purposes.</p>
+<p>Default size huge pages can be dynamically allocated or deallocated by changing the value of the <code>/proc/sys/vm/nr_hugepages</code> file.</p>
+<p>In a NUMA system, huge pages assigned with this parameter are divided equally between nodes. You can assign huge pages to specific nodes at runtime by changing the value of the node’s <code>/sys/devices/system/node/node_id/hugepages/hugepages-1048576kB/nr_hugepages</code> file.</p>
+<p>For more information, read the relevant kernel documentation, which is installed in <code>/usr/share/doc/kernel-doc-kernel_version/Documentation/vm/hugetlbpage.txt</code> by default. This documentation is available only if the <em>kernel-doc</em> package is installed.</p>
+</li>
+<li><p>hugepagesz</p>
+<p>Defines the size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
+</li>
+<li><p>default_hugepagesz</p>
+<p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
+</li>
+</ul>
+<p>应用程序想要利用大页优势，需要通过hugetlb文件系统来使用标准大页。<a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/208718">操作步骤</a></p>
+<h4 id="1-预留大页"><a href="#1-预留大页" class="headerlink" title="1.预留大页"></a>1.预留大页</h4><p>echo 20 &gt; &#x2F;sys&#x2F;kernel&#x2F;mm&#x2F;hugepages&#x2F;hugepages-2048kB&#x2F;nr_hugepages</p>
+<h4 id="2-挂载hugetlb文件系统"><a href="#2-挂载hugetlb文件系统" class="headerlink" title="2.挂载hugetlb文件系统"></a>2.挂载hugetlb文件系统</h4><p>mount hugetlbfs &#x2F;mnt&#x2F;huge -t hugetlbfs</p>
+<h4 id="3-映射hugetbl文件"><a href="#3-映射hugetbl文件" class="headerlink" title="3.映射hugetbl文件"></a>3.映射hugetbl文件</h4><p>fd &#x3D; open(“&#x2F;mnt&#x2F;huge&#x2F;test.txt”, O_CREAT|O_RDWR);</p>
+<p>addr &#x3D; mmap(0, MAP_LENGTH, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);</p>
+<h4 id="4-hugepage统计信息"><a href="#4-hugepage统计信息" class="headerlink" title="4.hugepage统计信息"></a>4.hugepage统计信息</h4><p>通过hugepage提供的sysfs接口，可以了解大页使用情况</p>
+<p>HugePages_Total: 预先分配的大页数量</p>
+<p>HugePages_Free：空闲大页数量</p>
+<p>HugePages_Rsvd: mmap申请大页数量(还没有产生缺页)</p>
+<p>HugePages_Surp: 多分配的大页数量(由nr_overcommit_hugepages决定)</p>
+<h4 id="5-hugpage优缺点"><a href="#5-hugpage优缺点" class="headerlink" title="5 hugpage优缺点"></a>5 hugpage优缺点</h4><p>缺点:</p>
+<p>1.需要提前预估大页使用量，并且预留的大页不能被其他内存分配接口使用。</p>
+<p>2.兼容性不好，应用使用标准大页，需要对代码进行重构才能有效的使用标准大页。</p>
+<p>优点:因为内存是预留的，缺页延时非常小</p>
+<p>针对Hugepage的不足，内核又衍生出了THP大页(<strong>Transparent Huge pages)</strong></p>
+<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a target="_blank" rel="noopener" href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/">工具</a></h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">yum install libhugetlbfs-utils -y</span><br><span class="line"></span><br><span class="line">//列出</span><br><span class="line">hugeadm --pool-list</span><br><span class="line">      Size  Minimum  Current  Maximum  Default</span><br><span class="line">   2097152    12850    12850    12850        *</span><br><span class="line">1073741824        0        0        0</span><br><span class="line"></span><br><span class="line">hugeadm --list-all-mounts</span><br><span class="line">Mount Point          Options</span><br><span class="line">/dev/hugepages       rw,relatime,pagesize=2M</span><br></pre></td></tr></table></figure>
 
-<p>当文件大小大于 <code>directio</code> 值后，使用「异步 I&#x2F;O + 直接 I&#x2F;O」，否则使用「零拷贝技术」。</p>
-<h4 id="零拷贝性能"><a href="#零拷贝性能" class="headerlink" title="零拷贝性能"></a>零拷贝性能</h4><p>如果用零拷贝和不用零拷贝来做一个文件服务器，来对比下他们的性能</p>
-<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Performance comparison: Traditional approach vs. zero copy</a></p>
-<table>
-<thead>
-<tr>
-<th align="left">File size</th>
-<th align="left">Normal file transfer (ms)</th>
-<th align="left">transferTo (ms)</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">7MB</td>
-<td align="left">156</td>
-<td align="left">45</td>
-</tr>
-<tr>
-<td align="left">21MB</td>
-<td align="left">337</td>
-<td align="left">128</td>
-</tr>
-<tr>
-<td align="left">63MB</td>
-<td align="left">843</td>
-<td align="left">387</td>
-</tr>
-<tr>
-<td align="left">98MB</td>
-<td align="left">1320</td>
-<td align="left">617</td>
-</tr>
-<tr>
-<td align="left">200MB</td>
-<td align="left">2124</td>
-<td align="left">1150</td>
-</tr>
-<tr>
-<td align="left">350MB</td>
-<td align="left">3631</td>
-<td align="left">1762</td>
-</tr>
-<tr>
-<td align="left">700MB</td>
-<td align="left">13498</td>
-<td align="left">4422</td>
-</tr>
-<tr>
-<td align="left">1GB</td>
-<td align="left">18399</td>
-<td align="left">8537</td>
-</tr>
-</tbody></table>
-<h2 id="DMA"><a href="#DMA" class="headerlink" title="DMA"></a>DMA</h2><p>什么是 DMA 技术？简单理解就是，<strong>在进行 I&#x2F;O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，这样 CPU 就可以去处理别的事务</strong></p>
-<h2 id="RDMA"><a href="#RDMA" class="headerlink" title="RDMA"></a>RDMA</h2><p>remote DMA</p>
+<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
+<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
+<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
+<p>8.0中总算优化了这个场景，测试细节可以参考<a target="_blank" rel="noopener" href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html">这篇</a></p>
+<p>16K VS 4K 性能对比（4K接近翻倍）</p>
+<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
+<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
+<h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a target="_blank" rel="noopener" href="http://cenalulu.github.io/linux/huge-page-on-numa/">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
+<ul>
+<li>通过CPU间的总线进行通讯，造成总线繁忙</li>
+<li>同时也降低了CPU执行效率。</li>
+<li>CPU本地Cache频繁失效</li>
+</ul>
+<p>类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。</p>
+<h4 id="连续数据需要跨CPU读取"><a href="#连续数据需要跨CPU读取" class="headerlink" title="连续数据需要跨CPU读取"></a>连续数据需要跨CPU读取</h4><p>Page太大，更容易造成Page跨Numa&#x2F;CPU 分布。</p>
+<p>从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，<code>Array A</code>和<code>Array B</code>大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此<code>Array B</code>就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。</p>
+<p><img src="/images/951413iMgBlog/false_sharing.png" alt="img"></p>
+<h3 id="Java进程开启HugePage"><a href="#Java进程开启HugePage" class="headerlink" title="Java进程开启HugePage"></a><a target="_blank" rel="noopener" href="https://kstefanj.github.io/2021/05/19/large-pages-and-java.html">Java进程开启HugePage</a></h3><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
+<h4 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h4><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes&#x3D;2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
+<blockquote>
+<p>-XX:+UseLargePages -XX:LargePageSizeInBytes&#x3D;2m -XX:+UseHugeTLBFS</p>
+</blockquote>
+<h4 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h4><p>设置HugePage的大小</p>
+<blockquote>
+<p>cat &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages</p>
+</blockquote>
+<p>nr_hugepages设置多大参考如下计算方法：</p>
+<blockquote>
+<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB &#x3D; 3 * 1024 MB &#x3D; 3072 MB &#x3D; 3072 * 1024 kB &#x3D; 3145728 kB and 3145728 kB &#x2F; 2048 kB &#x3D; 1536):</p>
+<p>echo 1536 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages </p>
+</blockquote>
+<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
+<p>对于c++来说，他malloc经常会散落得全地址都是，因为会触发各种mmap，冷热区域。所以THP和hugepage都可能导致大量内存被浪费了，进而导致内存紧张，性能下滑。jvm的连续内存布局，加上gc会使得内存密度很紧凑。THP的问题是，他是逻辑页，不是物理页，tlb依旧要N份，所以他的收益来自page fault减少，是一次性的收益。</p>
+<p>hugepage的在减少page_fault上和thp效果一样第二个作用是，他只需要一份TLB了，hugepage是真正的大页内存，thp是逻辑上的，物理上还是需要很多小的page。</p>
+<p><strong>如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。</strong></p>
+<h3 id="code-hugepage-代码大页"><a href="#code-hugepage-代码大页" class="headerlink" title="code_hugepage 代码大页"></a>code_hugepage 代码大页</h3><p>代码大页特性主要为大代码段业务服务，可以降低程序的iTLB miss，从而提升程序性能。针对倚天这一类跨numa访存开销大的芯片有比较好的性能提升效果</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">// 1 表示仅打开二进制和动态库大页  2 仅打开可执行匿名大页 3 相当于1+2，0 表示关闭</span><br><span class="line">echo 1 &gt; /sys/kernel/mm/transparent_hugepage/hugetext_enabled //1 可以改成2/3</span><br></pre></td></tr></table></figure>
+
+<p>是否启用代码大页，可以查看&#x2F;proc&#x2F;&#x2F;smaps中FilePmdMapped字段可确定是否使用了代码大页。 扫描进程代码大页使用数量（<strong>单位KB</strong>）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cat /proc/&lt;pid&gt;/smaps | grep FilePmdMapped | awk &#x27;&#123;sum+=$2&#125;END&#123;print&quot;Sum= &quot;,sum&#125;&#x27;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="THP"><a href="#THP" class="headerlink" title="THP"></a><a target="_blank" rel="noopener" href="https://ata.atatech.org/articles/11000208718">THP</a></h2><p>Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时<strong>每次写命令引起的复制内存页单位放大了512倍</strong>，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  </p>
+<p>THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。</p>
+<p>大页在使用的时候需要清理512个4K页面，再返回给用户，这里的清理动作可能会导致卡顿。另外碎片化严重的时候触发内存整理造成卡顿</p>
+<p>大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.﻿</p>
+<p>1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k<strong>hugepage</strong>d 动态为vma分配大页(内存回收，内存归整)</p>
+<p>2.madvise系统调用只是给VMA加了VM_<strong>HUGEPAGE,用来</strong>标记这段虚拟地址需要使用大页</p>
+<p><img src="/images/951413iMgBlog/image-20240116134744487.png" alt="image-20240116134744487"></p>
+<h3 id="THP-原理"><a href="#THP-原理" class="headerlink" title="THP 原理"></a>THP 原理</h3><p>大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.</p>
+<p>1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k<strong>hugepage</strong>d 动态为vma分配大页(内存回收，内存归整)</p>
+<p>2.madvise系统调用只是给VMA加了VM_<strong>HUGEPAGE,用来</strong>标记这段虚拟地址需要使用大页</p>
+<p>THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line">[always] madvise never</span><br><span class="line"></span><br><span class="line">grep &quot;Huge&quot; /proc/meminfo</span><br><span class="line">AnonHugePages:   1286144 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">HugePages_Total:       0</span><br><span class="line">HugePages_Free:        0</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:               0 kB</span><br><span class="line"></span><br><span class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &#x27;&#123; if($2&gt;4) print $0&#125; &#x27; |  awk -F &quot;/&quot;  &#x27;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &#x27;</span><br><span class="line"></span><br><span class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &#x27;&#123; if($2&gt;4) print $0&#125; &#x27; |  awk -F &quot;/&quot;  &#x27;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &#x27;</span><br><span class="line"></span><br><span class="line">//查看pagesize（默认4K） </span><br><span class="line">$getconf PAGESIZE</span><br></pre></td></tr></table></figure>
+
+<p>在透明大页功能打开时，造成系统性能下降的主要原因可能是 <code>khugepaged</code> 守护进程。该进程会在（它认为）系统空闲时启动，扫描系统中剩余的空闲内存，并将普通 4k 页转换为大页。该操作会在内存路径中加锁，而该守护进程可能会在错误的时间启动扫描和转换大页的操作，从而影响应用性能。</p>
+<p>此外，当缺页异常(page faults)增多时，透明大页会和普通 4k 页一样，产生同步内存压缩(direct compaction)操作，以节省内存。该操作是一个同步的内存整理操作，如果应用程序会短时间分配大量内存，内存压缩操作很可能会被触发，从而会对系统性能造成风险。<a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/712830">https://yq.aliyun.com/articles/712830</a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#查看系统级别的 THP 使用情况，执行下列命令：</span><br><span class="line">cat /proc/meminfo  | grep AnonHugePages</span><br><span class="line">#类似地，查看进程级别的 THP 使用情况，执行下列命令：</span><br><span class="line">cat /proc/1730/smaps | grep AnonHugePages |grep -v &quot;0 kB&quot;</span><br><span class="line">#是否开启了hugepage</span><br><span class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line">always [madvise] never</span><br></pre></td></tr></table></figure>
+
+<p><code>/proc/sys/vm/nr_hugepages</code> 中存储的数据就是大页面的数量，虽然在默认情况下它的值都是 0，不过我们可以通过更改该文件的内容申请或者释放操作系统中的大页：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ echo 1 &gt; /proc/sys/vm/nr_hugepages</span><br><span class="line">$ cat /proc/meminfo | grep HugePages_</span><br><span class="line">HugePages_Total:       1</span><br><span class="line">HugePages_Free:        1</span><br></pre></td></tr></table></figure>
+
+<h3 id="THP和perf"><a href="#THP和perf" class="headerlink" title="THP和perf"></a>THP和perf</h3><p>thp on后比off性能稳定好 10-15%，开启THP最显著的指标是 iTLB命中率显著提升了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br></pre></td><td class="code"><pre><span class="line">//on 419+E5-2682， thp never</span><br><span class="line">9,145,128,732      branch-instructions       #  229.068 M/sec                    (10.65%)</span><br><span class="line">       555,518,878      branch-misses             #    6.07% of all branches          (14.24%)</span><br><span class="line">     3,951,535,475      bus-cycles                #   98.979 M/sec                    (14.29%)</span><br><span class="line">       372,477,068      cache-misses              #    7.733 % of all cache refs      (14.34%)</span><br><span class="line">     4,816,702,013      cache-references          #  120.649 M/sec                    (14.36%)</span><br><span class="line">   114,521,174,305      cpu-cycles                #    2.869 GHz                      (14.36%)</span><br><span class="line">    48,969,565,344      instructions              #    0.43  insn per cycle           (17.93%)</span><br><span class="line">    98,728,666,922      ref-cycles                # 2472.967 M/sec                    (21.52%)</span><br><span class="line">         39,922.47 msec cpu-clock                 #    7.898 CPUs utilized</span><br><span class="line">     1,848,336,574      L1-dcache-load-misses     #   13.31% of all L1-dcache hits    (21.51%)</span><br><span class="line">    13,889,399,043      L1-dcache-loads           #  347.903 M/sec                    (21.51%)</span><br><span class="line">     7,055,617,648      L1-dcache-stores          #  176.730 M/sec                    (21.50%)</span><br><span class="line">     2,017,950,458      L1-icache-load-misses                                         (21.50%)</span><br><span class="line">        88,802,885      LLC-load-misses           #    9.86% of all LL-cache hits     (14.35%)</span><br><span class="line">       900,379,398      LLC-loads                 #   22.553 M/sec                    (14.33%)</span><br><span class="line">       162,711,813      LLC-store-misses          #    4.076 M/sec                    (7.13%)</span><br><span class="line">       419,869,955      LLC-stores                #   10.517 M/sec                    (7.14%)</span><br><span class="line">       553,257,955      branch-load-misses        #   13.858 M/sec                    (10.71%)</span><br><span class="line">     9,195,874,519      branch-loads              #  230.339 M/sec                    (14.29%)</span><br><span class="line">       176,112,524      dTLB-load-misses          #    1.28% of all dTLB cache hits   (14.29%)</span><br><span class="line">    13,739,965,115      dTLB-loads                #  344.160 M/sec                    (14.28%)</span><br><span class="line">        33,087,849      dTLB-store-misses         #    0.829 M/sec                    (14.28%)</span><br><span class="line">     6,992,863,588      dTLB-stores               #  175.158 M/sec                    (14.26%)</span><br><span class="line">       170,555,902      iTLB-load-misses          #  107.90% of all iTLB cache hits   (14.24%)</span><br><span class="line">       158,070,998      iTLB-loads                #    3.959 M/sec                    (14.24%)</span><br><span class="line"></span><br><span class="line">//on 419+E5-2682， thp always</span><br><span class="line">    12,958,974,094      branch-instructions       #  227.392 M/sec                    (10.68%)</span><br><span class="line">       850,468,837      branch-misses             #    6.56% of all branches          (14.27%)</span><br><span class="line">     5,639,495,284      bus-cycles                #   98.957 M/sec                    (14.29%)</span><br><span class="line">       526,744,798      cache-misses              #    7.324 % of all cache refs      (14.32%)</span><br><span class="line">     7,192,328,925      cache-references          #  126.204 M/sec                    (14.34%)</span><br><span class="line">   163,419,436,811      cpu-cycles                #    2.868 GHz                      (14.33%)</span><br><span class="line">    68,638,583,038      instructions              #    0.42  insn per cycle           (17.90%)</span><br><span class="line">   140,882,455,768      ref-cycles                # 2472.076 M/sec                    (21.48%)</span><br><span class="line">         56,987.52 msec cpu-clock                 #    7.932 CPUs utilized</span><br><span class="line">     2,471,392,118      L1-dcache-load-misses     #   12.69% of all L1-dcache hits    (21.47%)</span><br><span class="line">    19,480,914,771      L1-dcache-loads           #  341.833 M/sec                    (21.48%)</span><br><span class="line">    10,059,893,871      L1-dcache-stores          #  176.522 M/sec                    (21.46%)</span><br><span class="line">     3,184,073,065      L1-icache-load-misses                                         (21.46%)</span><br><span class="line">       128,467,945      LLC-load-misses           #   10.83% of all LL-cache hits     (14.31%)</span><br><span class="line">     1,186,653,892      LLC-loads                 #   20.822 M/sec                    (14.30%)</span><br><span class="line">       224,877,539      LLC-store-misses          #    3.946 M/sec                    (7.15%)</span><br><span class="line">       628,574,746      LLC-stores                #   11.030 M/sec                    (7.15%)</span><br><span class="line">       848,830,289      branch-load-misses        #   14.894 M/sec                    (10.71%)</span><br><span class="line">    13,074,297,582      branch-loads              #  229.416 M/sec                    (14.28%)</span><br><span class="line">       109,223,171      dTLB-load-misses          #    0.56% of all dTLB cache hits   (14.27%)</span><br><span class="line">    19,418,657,165      dTLB-loads                #  340.741 M/sec                    (14.29%)</span><br><span class="line">        13,930,402      dTLB-store-misses         #    0.244 M/sec                    (14.28%)</span><br><span class="line">    10,047,511,003      dTLB-stores               #  176.305 M/sec                    (14.28%)</span><br><span class="line">       194,902,860      iTLB-load-misses          #   61.23% of all iTLB cache hits   (14.27%)</span><br><span class="line">       318,292,771      iTLB-loads                #    5.585 M/sec                    (14.26%)</span><br><span class="line"></span><br><span class="line">//on 310+8269 thp never</span><br><span class="line">        90,790,778      dTLB-load-misses          #    0.67% of all dTLB cache hits   (16.66%)</span><br><span class="line">    13,639,069,352      dTLB-loads                                                    (16.66%)</span><br><span class="line">         6,553,693      dTLB-store-misses                                             (16.63%)</span><br><span class="line">     6,494,274,815      dTLB-stores                                                   (20.28%)</span><br><span class="line">        76,175,883      iTLB-load-misses          #   40.53% of all iTLB cache hits   (20.80%)</span><br><span class="line">       187,932,292      iTLB-loads                                                    (20.76%)</span><br><span class="line"></span><br><span class="line">//on 310+8269 thp always</span><br><span class="line">     7,199,483,512      branch-instructions       #  338.269 M/sec                    (11.46%)</span><br><span class="line">        81,893,729      branch-misses             #    1.14% of all branches          (14.95%)</span><br><span class="line">       532,919,206      bus-cycles                #   25.039 M/sec                    (14.85%)</span><br><span class="line">       253,267,167      cache-misses              #   11.507 % of all cache refs      (14.81%)</span><br><span class="line">     2,201,001,946      cache-references          #  103.414 M/sec                    (14.15%)</span><br><span class="line">    63,971,073,336      cpu-cycles                #    3.006 GHz                      (14.55%)</span><br><span class="line">    37,214,341,673      instructions              #    0.58  insns per cycle          (18.09%)</span><br><span class="line">    52,209,823,072      ref-cycles                # 2453.086 M/sec                    (17.23%)</span><br><span class="line">     1,098,964,315      L1-dcache-load-misses     #   10.17% of all L1-dcache hits    (14.22%)</span><br><span class="line">    10,808,109,191      L1-dcache-loads           #  507.820 M/sec                    (14.31%)</span><br><span class="line">     5,092,652,478      L1-dcache-stores          #  239.279 M/sec                    (14.38%)</span><br><span class="line">     4,338,580,209      L1-icache-load-misses     #  203.849 M/sec                    (14.40%)</span><br><span class="line">        60,262,584      LLC-load-misses           #   21.81% of all LL-cache hits     (14.35%)</span><br><span class="line">       276,321,779      LLC-loads                 #   12.983 M/sec                    (14.31%)</span><br><span class="line">        62,982,184      LLC-store-misses          #    2.959 M/sec                    (10.76%)</span><br><span class="line">       105,448,227      LLC-stores                #    4.954 M/sec                    (8.08%)</span><br><span class="line">        81,163,187      branch-load-misses        #    3.813 M/sec                    (11.67%)</span><br><span class="line">     7,111,481,940      branch-loads              #  334.134 M/sec                    (14.37%)</span><br><span class="line">         4,527,406      dTLB-load-misses          #    0.04% of all dTLB cache hits   (14.30%)</span><br><span class="line">    10,726,725,791      dTLB-loads                #  503.997 M/sec                    (17.33%)</span><br><span class="line">         1,066,097      dTLB-store-misses         #    0.050 M/sec                    (17.37%)</span><br><span class="line">     5,090,008,144      dTLB-stores               #  239.155 M/sec                    (17.34%)</span><br><span class="line">        18,715,797      iTLB-load-misses          #   18.97% of all iTLB cache hits   (17.33%)</span><br><span class="line">        98,684,189      iTLB-loads                #    4.637 M/sec                    (14.29%)</span><br><span class="line">       </span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="MySQL-场景下代码大页对性能的影响"><a href="#MySQL-场景下代码大页对性能的影响" class="headerlink" title="MySQL 场景下代码大页对性能的影响"></a><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/217859">MySQL 场景下代码大页对性能的影响</a></h2><p>不只是数据可以用HugePage，代码段也可以开启HugePage, 无论在x86还是arm（arm下提升更明显）下，都可以得到大页优于透明大页，透明大页优于正常的4K page</p>
+<blockquote>
+<p>收益：代码大页 &gt; anon THP &gt; 4k</p>
+</blockquote>
+<p>arm下，对32core机器用32并发的sysbench来对比，代码大页带来的性能提升大概有11%，iTLB miss下降了10倍左右。</p>
+<p>x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右。</p>
+<h2 id="TLAB-miss高的案例"><a href="#TLAB-miss高的案例" class="headerlink" title="TLAB miss高的案例"></a><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/152660">TLAB miss高的案例</a></h2><p>程序运行久了之后会变慢大概10%</p>
+<p>刚开始运行的时候perf各项数据:</p>
+<p><img src="/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png" alt="img"></p>
+<p>长时间运行后：</p>
+<p><img src="/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png" alt="img"></p>
+<p>内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。</p>
+<p>既然无法理解这个结果，那就只有按部就班的查看内核执行路径上各个函数的差别了，祭出ftrace:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">echo kerel_func_name1 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line"></span><br><span class="line">echo kerel_func_name2 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line"></span><br><span class="line">echo kerel_func_name3 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line">echo 1 &gt; /sys/kernel/debug/tracing/function_profile_enabled</span><br></pre></td></tr></table></figure>
+
+<p>在CPU#20上执行代码:</p>
+<p>taskset -c 20 .&#x2F;b</p>
+<p>代码执行完后:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">echo 0 &gt; /sys/kernel/debug/tracing/function_profile_enabled</span><br><span class="line">cat /sys/kernel/debug/tracing/trace_stat/function20</span><br></pre></td></tr></table></figure>
+
+<p>这个时候就会打印出在各个函数上花费的时间，比如:</p>
+<p><img src="/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png" alt="img"></p>
+<p>经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).</p>
+<p>在阅读代码的过程中，注意到当前内核使能了CONFIG_SPARSEMEM_VMEMMAP&#x3D;y</p>
+<p>原因就是机器运行久了之后内存碎片化严重，导致TLAB Miss严重。</p>
+<p>解决：开启THP后，性能稳定</p>
+<h2 id="碎片化"><a href="#碎片化" class="headerlink" title="碎片化"></a>碎片化</h2><p>内存碎片严重的话会导致系统hang很久(回收、压缩内存）</p>
+<p>尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G&#x2F;8G), 线上机器直接修改vm.min_free_kbytes<strong>会触发回收，导致系统hang住</strong> <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/163233">https://www.atatech.org/articles/163233</a> <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/97130">https://www.atatech.org/articles/97130</a></p>
+<p>compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。</p>
+<p><img src="/images/951413iMgBlog/image-20210628144121108.png" alt="image-20210628144121108"></p>
+<p>一次THP compact堆栈：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">java          R  running task        0 144305 144271 0x00000080</span><br><span class="line"> ffff88096393d788 0000000000000086 ffff88096393d7b8 ffffffff81060b13</span><br><span class="line"> ffff88096393d738 ffffea003968ce50 000000000000000e ffff880caa713040</span><br><span class="line"> ffff8801688b0638 ffff88096393dfd8 000000000000fbc8 ffff8801688b0640</span><br><span class="line"></span><br><span class="line">Call Trace:</span><br><span class="line"> [&lt;ffffffff81060b13&gt;] ? perf_event_task_sched_out+0x33/0x70</span><br><span class="line"> [&lt;ffffffff8100bb8e&gt;] ? apic_timer_interrupt+0xe/0x20</span><br><span class="line"> [&lt;ffffffff810686da&gt;] __cond_resched+0x2a/0x40</span><br><span class="line"> [&lt;ffffffff81528300&gt;] _cond_resched+0x30/0x40</span><br><span class="line"> [&lt;ffffffff81169505&gt;] compact_checklock_irqsave+0x65/0xd0</span><br><span class="line"> [&lt;ffffffff81169862&gt;] compaction_alloc+0x202/0x460</span><br><span class="line"> [&lt;ffffffff811748d8&gt;] ? buffer_migrate_page+0xe8/0x130</span><br><span class="line"> [&lt;ffffffff81174b4a&gt;] migrate_pages+0xaa/0x480</span><br><span class="line"> [&lt;ffffffff81169660&gt;] ? compaction_alloc+0x0/0x460                 //compact and migrate</span><br><span class="line"> [&lt;ffffffff8116a1a1&gt;] compact_zone+0x581/0x950</span><br><span class="line"> [&lt;ffffffff8116a81c&gt;] compact_zone_order+0xac/0x100</span><br><span class="line"> [&lt;ffffffff8116a951&gt;] try_to_compact_pages+0xe1/0x120</span><br><span class="line"> [&lt;ffffffff8112f1ba&gt;] __alloc_pages_direct_compact+0xda/0x1b0</span><br><span class="line"> [&lt;ffffffff8112f80b&gt;] __alloc_pages_nodemask+0x57b/0x8d0</span><br><span class="line"> [&lt;ffffffff81167b9a&gt;] alloc_pages_vma+0x9a/0x150</span><br><span class="line"> [&lt;ffffffff8118337d&gt;] do_huge_pmd_anonymous_page+0x14d/0x3b0        //huge page</span><br><span class="line"> [&lt;ffffffff8152a116&gt;] ? rwsem_down_read_failed+0x26/0x30</span><br><span class="line"> [&lt;ffffffff8114b350&gt;] handle_mm_fault+0x2f0/0x300</span><br><span class="line"> [&lt;ffffffff810ae950&gt;] ? wake_futex+0x40/0x60</span><br><span class="line"> [&lt;ffffffff8104a8d8&gt;] __do_page_fault+0x138/0x480</span><br><span class="line"> [&lt;ffffffff810097cc&gt;] ? __switch_to+0x1ac/0x320</span><br><span class="line"> [&lt;ffffffff81527910&gt;] ? thread_return+0x4e/0x76e</span><br><span class="line"> [&lt;ffffffff8152d45e&gt;] do_page_fault+0x3e/0xa0                       //page fault</span><br><span class="line"> [&lt;ffffffff8152a815&gt;] page_fault+0x25/0x30</span><br></pre></td></tr></table></figure>
+
+
+
+<h3 id="查看pagetypeinfo"><a href="#查看pagetypeinfo" class="headerlink" title="查看pagetypeinfo"></a>查看pagetypeinfo</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/pagetypeinfo</span><br><span class="line">Page block order: 9</span><br><span class="line">Pages per block:  512</span><br><span class="line"></span><br><span class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</span><br><span class="line">Node    0, zone      DMA, type    Unmovable      1      1      1      0      2      1      1      0      1      0      0</span><br><span class="line">Node    0, zone      DMA, type  Reclaimable      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      1      3</span><br><span class="line">Node    0, zone      DMA, type      Reserve      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone    DMA32, type    Unmovable     89    144     98     42     21     14      5      2      1      0      1</span><br><span class="line">Node    0, zone    DMA32, type  Reclaimable     28     22      9      8      0      0      0      0      0      1      7</span><br><span class="line">Node    0, zone    DMA32, type      Movable    402     50     21      8    880    924    321     51      4      1    227</span><br><span class="line">Node    0, zone    DMA32, type      Reserve      0      0      0      0      0      0      0      0      0      0      1</span><br><span class="line">Node    0, zone    DMA32, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type    Unmovable  13709  15231   6637   2646    816    181     46      4      4      1      0</span><br><span class="line">Node    0, zone   Normal, type  Reclaimable      1      5      6   3293   1295    128     29      7      5      0      0</span><br><span class="line">Node    0, zone   Normal, type      Movable   6396 1383350 1301956 1007627 670102 366248 160232  54894  13126   1482     37</span><br><span class="line">Node    0, zone   Normal, type      Reserve      0      0      0      2      1      1      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line"></span><br><span class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</span><br><span class="line">Node 0, zone      DMA            1            0            7            0            0            0</span><br><span class="line">Node 0, zone    DMA32           24           38          889            1            0            0</span><br><span class="line">Node 0, zone   Normal         1568          795       127683            2            0            0</span><br><span class="line">Page block order: 9</span><br><span class="line">Pages per block:  512</span><br><span class="line"></span><br><span class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</span><br><span class="line">Node    1, zone   Normal, type    Unmovable   3938   8735   5469   3221   2097    989    202      6      0      0      0</span><br><span class="line">Node    1, zone   Normal, type  Reclaimable      1      7      7      8      7      2      2      2      1      0      0</span><br><span class="line">Node    1, zone   Normal, type      Movable  18623 1001037 2084894 1261484 631159 276096  87272  17169   1389    797      0</span><br><span class="line">Node    1, zone   Normal, type      Reserve      0      0      0      8      0      0      0      0      0      0      0</span><br><span class="line">Node    1, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line"></span><br><span class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</span><br><span class="line">Node 1, zone   Normal         1530          637       128903            2            0            0</span><br></pre></td></tr></table></figure>
+
+<p>每个zone都有自己的min low high,如下，但是单位是page, 计算案例：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br></pre></td><td class="code"><pre><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#cat /proc/zoneinfo  |grep &quot;Node&quot;</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">Node 1, zone   Normal</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#cat /proc/zoneinfo  |grep &quot;Node 0, zone&quot; -A10</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">  pages free     3975</span><br><span class="line">        min      20</span><br><span class="line">        low      25</span><br><span class="line">        high     30</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  4095</span><br><span class="line">        present  3996</span><br><span class="line">        managed  3975</span><br><span class="line">    nr_free_pages 3975</span><br><span class="line">    nr_alloc_batch 5</span><br><span class="line">--</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">  pages free     382873</span><br><span class="line">        min      2335</span><br><span class="line">        low      2918</span><br><span class="line">        high     3502</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  1044480</span><br><span class="line">        present  513024</span><br><span class="line">        managed  450639</span><br><span class="line">    nr_free_pages 382873</span><br><span class="line">    nr_alloc_batch 584</span><br><span class="line">--</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">  pages free     11105097</span><br><span class="line">        min      61463</span><br><span class="line">        low      76828</span><br><span class="line">        high     92194</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  12058624</span><br><span class="line">        present  12058624</span><br><span class="line">        managed  11859912</span><br><span class="line">    nr_free_pages 11105097</span><br><span class="line">    nr_alloc_batch 12344</span><br><span class="line">    </span><br><span class="line">    low = 5/4 * min</span><br><span class="line">high = 3/2 * min</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=min;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=499 MB</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=low;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=624 MB</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=802 MB</span><br></pre></td></tr></table></figure>
+
+<h2 id="内存碎片化导致rt升高的诊断"><a href="#内存碎片化导致rt升高的诊断" class="headerlink" title="内存碎片化导致rt升高的诊断"></a>内存碎片化导致rt升高的诊断</h2><p>判定方法如下：</p>
+<ol>
+<li>运行 sar -B 观察 pgscand&#x2F;s，其含义为每秒发生的直接内存回收次数，当在一段时间内持续大于 0 时，则应继续执行后续步骤进行排查；</li>
+<li>运行 <code>cat /sys/kernel/debug/extfrag/extfrag_index</code> 观察内存碎片指数，重点关注 order &gt;&#x3D; 3 的碎片指数，当接近 1.000 时，表示碎片化严重，当接近 0 时表示内存不足；</li>
+<li>运行 <code>cat /proc/buddyinfo, cat /proc/pagetypeinfo</code> 查看内存碎片情况， 指标含义参考 （<a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man5/proc.5.html%EF%BC%89%EF%BC%8C%E5%90%8C%E6%A0%B7%E5%85%B3%E6%B3%A8">https://man7.org/linux/man-pages/man5/proc.5.html），同样关注</a> order &gt;&#x3D; 3 的剩余页面数量，pagetypeinfo 相比 buddyinfo 展示的信息更详细一些，根据迁移类型 （伙伴系统通过迁移类型实现反碎片化）进行分组，需要注意的是，当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重，我们需要结合其他工具来排查具体原因，在本文就不做过多介绍了；</li>
+<li>对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 <a target="_blank" rel="noopener" href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt">drsnoop</a>，<a target="_blank" rel="noopener" href="https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt">compactsnoop</a> 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；</li>
+<li>(Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。</li>
+</ol>
+<p>​	</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/66885">https://www.atatech.org/articles/66885</a></p>
 <p><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1087455">https://cloud.tencent.com/developer/article/1087455</a></p>
 <p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/13719610.html">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA">https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA</a> 从Linux内存管理到零拷贝</p>
-<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Efficient data transfer through zero copy</a></p>
-<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/272200286">CPU：一个故事看懂DMA</a></p>
 
       
     </div>
@@ -634,7 +664,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -652,7 +682,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/" class="post-title-link" itemprop="url">Linux内存--HugePage</a>
+          <a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/" class="post-title-link" itemprop="url">Linux内存--零拷贝</a>
         </h2>
 
         <div class="post-meta-container">
@@ -692,190 +722,160 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="Linux内存–HugePage"><a href="#Linux内存–HugePage" class="headerlink" title="Linux内存–HugePage"></a>Linux内存–HugePage</h1><p>本系列有如下几篇</p>
+          <h1 id="Linux内存–零拷贝"><a href="#Linux内存–零拷贝" class="headerlink" title="Linux内存–零拷贝"></a>Linux内存–零拷贝</h1><p>本系列有如下几篇</p>
 <p>[Linux 内存问题汇总](&#x2F;2020&#x2F;01&#x2F;15&#x2F;Linux 内存问题汇总&#x2F;)</p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--pagecache/">Linux内存–PageCache</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E7%AE%A1%E7%90%86%E5%92%8C%E7%A2%8E%E7%89%87/">Linux内存–管理和碎片</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--HugePage/">Linux内存–HugePage</a></p>
 <p><a href="/2020/11/15/Linux%E5%86%85%E5%AD%98--%E9%9B%B6%E6%8B%B7%E8%B4%9D/">Linux内存–零拷贝</a></p>
-<h2 id="proc-buddyinfo"><a href="#proc-buddyinfo" class="headerlink" title="&#x2F;proc&#x2F;buddyinfo"></a>&#x2F;proc&#x2F;buddyinfo</h2><p>&#x2F;proc&#x2F;buddyinfo记录了内存的详细碎片情况。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/buddyinfo </span><br><span class="line">Node 0, zone      DMA      1      1      1      0      2      1      1      0      1      1      3 </span><br><span class="line">Node 0, zone    DMA32      2      5      3      6      2      0      4      4      2      2    404 </span><br><span class="line">Node 0, zone   Normal 243430 643847 357451  32531   9508   6159   3917   2960  17172   2633  22854</span><br></pre></td></tr></table></figure>
-
-<p>Normal行的第二列表示：  643847*2^1*Page_Size(4K) ;  第三列表示：  357451*2^2*Page_Size(4K)  ，高阶内存指的是2^3及更大的内存块。</p>
-<p>应用申请大块连续内存（高阶内存，一般之4阶及以上, 也就是64K以上–2^4*4K）时，容易导致卡顿。这是因为大块连续内存确实系统需要触发回收或者碎片整理，需要一定的时间。</p>
-<h2 id="slabtop和-proc-slabinfo"><a href="#slabtop和-proc-slabinfo" class="headerlink" title="slabtop和&#x2F;proc&#x2F;slabinfo"></a>slabtop和&#x2F;proc&#x2F;slabinfo</h2><p>slabtop和&#x2F;proc&#x2F;slabinfo 查看cached使用情况 主要是：pagecache（页面缓存）， dentries（目录缓存）， inodes</p>
-<h2 id="关于hugetlb"><a href="#关于hugetlb" class="headerlink" title="关于hugetlb"></a>关于hugetlb</h2><p>This is an entry in the TLB that points to a HugePage (a large&#x2F;big page larger than regular 4K and predefined in size). HugePages are implemented via hugetlb entries, i.e. we can say that a HugePage is handled by a “hugetlb page entry”. The ‘hugetlb” term is also (and mostly) used synonymously with a HugePage.</p>
-<p> hugetlb 是TLB中指向HugePage的一个entry(通常大于4k或预定义页面大小)。 HugePage 通过hugetlb entries来实现，也可以理解为HugePage 是hugetlb page entry的一个句柄。</p>
-<p><strong>Linux下的大页分为两种类型：标准大页（Huge Pages）和透明大页（Transparent Huge Pages）</strong></p>
-<p>标准大页管理是预分配的方式，而透明大页管理则是动态分配的方式</p>
-<p>目前透明大页与传统HugePages联用会出现一些问题，导致性能问题和系统重启。Oracle 建议禁用透明大页（Transparent Huge Pages）</p>
-<p>hugetlbfs比THP要好，开thp的机器碎片化严重（不开THP会有更严重的碎片化问题），最后和没开THP一样 <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/152660">https://www.atatech.org/articles/152660</a></p>
-<p>Linux 中的 HugePages 都被锁定在内存中，所以哪怕是在系统内存不足时，它们也不会被 Swap 到磁盘上，这也就能从根源上杜绝了重要内存被频繁换入和换出的可能。</p>
-<blockquote>
-<p><strong>Transparent Hugepages</strong> are similar to standard <strong>HugePages</strong>. However, while standard <strong>HugePages</strong> allocate memory at startup, <strong>Transparent Hugepages</strong> memory uses the khugepaged thread in the kernel to allocate memory dynamically during runtime, using swappable <strong>HugePages</strong>.</p>
+<h2 id="零拷贝"><a href="#零拷贝" class="headerlink" title="零拷贝"></a>零拷贝</h2><blockquote>
+<p>“<strong>Zero-copy</strong>“ describes computer operations in which the <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Central_processing_unit">CPU</a> does not perform the task of copying data from one <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/RAM">memory</a> area to another. This is frequently used to save CPU cycles and memory bandwidth when transmitting a file over a network.</p>
 </blockquote>
-<p>HugePage要求OS启动的时候提前分配出来，管理难度比较大，所以Enterprise Linux 6增加了一层抽象层来动态创建管理HugePage，这就是THP，而这个THP对应用透明，由khugepaged thread在后台动态将小页组成大页给应用使用，这里会遇上碎片问题导致需要compact才能得到大页，应用感知到的就是SYS CPU飙高，应用卡顿了。</p>
-<p>虽然 HugePages 的开启大都需要开发或者运维工程师的额外配置，但是在应用程序中启用 HugePages 却可以在以下几个方面降低内存页面的管理开销：</p>
-<ul>
-<li>更大的内存页能够减少内存中的页表层级，这不仅可以降低页表的内存占用，也能降低从虚拟内存到物理内存转换的性能损耗；</li>
-<li>更大的内存页意味着更高的缓存命中率，CPU 有更高的几率可以直接在 TLB（Translation lookaside buffer）中获取对应的物理地址；</li>
-<li>更大的内存页可以减少获取大内存的次数，使用 HugePages 每次可以获取 2MB 的内存，是 4KB 的默认页效率的 512 倍；</li>
-</ul>
-<h2 id="HugePage"><a href="#HugePage" class="headerlink" title="HugePage"></a>HugePage</h2><p><strong>为什么需要Huge Page</strong> 了解CPU Cache大致架构的话，一定听过TLB Cache。<code>Linux</code>系统中，对程序可见的，可使用的内存地址是<code>Virtual Address</code>。每个程序的内存地址都是从0开始的。而实际的数据访问是要通过<code>Physical Address</code>进行的。因此，每次内存操作，CPU都需要从<code>page table</code>中把<code>Virtual Address</code>翻译成对应的<code>Physical Address</code>，那么对于大量内存密集型程序来说<code>page table</code>的查找就会成为程序的瓶颈。</p>
-<p>所以现代CPU中就出现了TLB(Translation Lookaside Buffer) Cache用于缓存少量热点内存地址的mapping关系。然而由于制造成本和工艺的限制，响应时间需要控制在CPU Cycle级别的Cache容量只能存储几十个对象。那么TLB Cache在应对大量热点数据<code>Virual Address</code>转换的时候就显得捉襟见肘了。我们来算下按照标准的Linux页大小(page size) 4K，一个能缓存64元素的TLB Cache只能涵盖<code>4K*64 = 256K</code>的热点数据的内存地址，显然离理想非常遥远的。于是Huge Page就产生了。</p>
-<p>Huge pages require contiguous areas of memory, so allocating them at boot is the most reliable method since memory has not yet become fragmented. To do so, add the following parameters to the kernel boot command line:</p>
-<p><strong>Huge pages kernel options</strong></p>
-<ul>
-<li><p>hugepages</p>
-<p>Defines the number of persistent huge pages configured in the kernel at boot time. The default value is <code>0</code>. It is only possible to allocate (or deallocate) huge pages if there are sufficient physically contiguous free pages in the system. Pages reserved by this parameter cannot be used for other purposes.</p>
-<p>Default size huge pages can be dynamically allocated or deallocated by changing the value of the <code>/proc/sys/vm/nr_hugepages</code> file.</p>
-<p>In a NUMA system, huge pages assigned with this parameter are divided equally between nodes. You can assign huge pages to specific nodes at runtime by changing the value of the node’s <code>/sys/devices/system/node/node_id/hugepages/hugepages-1048576kB/nr_hugepages</code> file.</p>
-<p>For more information, read the relevant kernel documentation, which is installed in <code>/usr/share/doc/kernel-doc-kernel_version/Documentation/vm/hugetlbpage.txt</code> by default. This documentation is available only if the <em>kernel-doc</em> package is installed.</p>
-</li>
-<li><p>hugepagesz</p>
-<p>Defines the size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
-</li>
-<li><p>default_hugepagesz</p>
-<p>Defines the default size of persistent huge pages configured in the kernel at boot time. Valid values are 2 MB and 1 GB. The default value is 2 MB.</p>
-</li>
-</ul>
-<p>应用程序想要利用大页优势，需要通过hugetlb文件系统来使用标准大页。<a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/208718">操作步骤</a></p>
-<h4 id="1-预留大页"><a href="#1-预留大页" class="headerlink" title="1.预留大页"></a>1.预留大页</h4><p>echo 20 &gt; &#x2F;sys&#x2F;kernel&#x2F;mm&#x2F;hugepages&#x2F;hugepages-2048kB&#x2F;nr_hugepages</p>
-<h4 id="2-挂载hugetlb文件系统"><a href="#2-挂载hugetlb文件系统" class="headerlink" title="2.挂载hugetlb文件系统"></a>2.挂载hugetlb文件系统</h4><p>mount hugetlbfs &#x2F;mnt&#x2F;huge -t hugetlbfs</p>
-<h4 id="3-映射hugetbl文件"><a href="#3-映射hugetbl文件" class="headerlink" title="3.映射hugetbl文件"></a>3.映射hugetbl文件</h4><p>fd &#x3D; open(“&#x2F;mnt&#x2F;huge&#x2F;test.txt”, O_CREAT|O_RDWR);</p>
-<p>addr &#x3D; mmap(0, MAP_LENGTH, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);</p>
-<h4 id="4-hugepage统计信息"><a href="#4-hugepage统计信息" class="headerlink" title="4.hugepage统计信息"></a>4.hugepage统计信息</h4><p>通过hugepage提供的sysfs接口，可以了解大页使用情况</p>
-<p>HugePages_Total: 预先分配的大页数量</p>
-<p>HugePages_Free：空闲大页数量</p>
-<p>HugePages_Rsvd: mmap申请大页数量(还没有产生缺页)</p>
-<p>HugePages_Surp: 多分配的大页数量(由nr_overcommit_hugepages决定)</p>
-<h4 id="5-hugpage优缺点"><a href="#5-hugpage优缺点" class="headerlink" title="5 hugpage优缺点"></a>5 hugpage优缺点</h4><p>缺点:</p>
-<p>1.需要提前预估大页使用量，并且预留的大页不能被其他内存分配接口使用。</p>
-<p>2.兼容性不好，应用使用标准大页，需要对代码进行重构才能有效的使用标准大页。</p>
-<p>优点:因为内存是预留的，缺页延时非常小</p>
-<p>针对Hugepage的不足，内核又衍生出了THP大页(<strong>Transparent Huge pages)</strong></p>
-<h3 id="工具"><a href="#工具" class="headerlink" title="工具"></a><a target="_blank" rel="noopener" href="https://www.golinuxcloud.com/configure-hugepages-vm-nr-hugepages-red-hat-7/">工具</a></h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">yum install libhugetlbfs-utils -y</span><br><span class="line"></span><br><span class="line">//列出</span><br><span class="line">hugeadm --pool-list</span><br><span class="line">      Size  Minimum  Current  Maximum  Default</span><br><span class="line">   2097152    12850    12850    12850        *</span><br><span class="line">1073741824        0        0        0</span><br><span class="line"></span><br><span class="line">hugeadm --list-all-mounts</span><br><span class="line">Mount Point          Options</span><br><span class="line">/dev/hugepages       rw,relatime,pagesize=2M</span><br></pre></td></tr></table></figure>
+<p>零拷贝技术是指计算机执行操作时，<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E4%B8%AD%E5%A4%AE%E5%A4%84%E7%90%86%E5%99%A8">CPU</a>不需要先将数据从某处<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E9%9A%8F%E6%9C%BA%E5%AD%98%E5%8F%96%E5%AD%98%E5%82%A8%E5%99%A8">内存</a>复制到另一个特定区域。这种技术通常用于通过网络传输文件时节省 CPU 和<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%86%85%E5%AD%98%E5%B8%A6%E5%AE%BD">内存带宽</a>。</p>
+<p>零拷贝可以做到用户空间和内核空间共用同一块内存（Java中的DirectBuffer），这样少做一次拷贝。普通Buffer是在JVM堆上分配的内存，而DirectBuffer是堆外分配的（内核和JVM可以同时读写），这样不需要再多一次内核到用户Buffer的拷贝 </p>
+<p><img src="/images/951413iMgBlog/83e2dfbd25d703c58877b2faf71c4944.jpg"></p>
+<p>比如通过网络下载文件，普通拷贝的流程会复制4次并有4次上下文切换，上下文切换是因为读写慢导致了IO的阻塞，进而线程被内核挂起，所以发生了上下文切换。在极端情况下如果read&#x2F;write没有导致阻塞是不会发生上下文切换的：</p>
+<p><img src="/images/951413iMgBlog/NoOptimization.jpg" alt="NoOptimization"></p>
+<p>改成零拷贝后，也就是将read和write合并成一次，直接在内核中完成磁盘到网卡的数据复制</p>
+<p><img src="/images/951413iMgBlog/ccdc10037d35349293cba8a63ad72af5.png" alt="image.png"></p>
+<p>零拷贝就是操作系统提供的新函数(sendfile)，同时接收文件描述符和 TCP socket 作为输入参数，这样执行时就可以完全在内核态完成内存拷贝，既减少了内存拷贝次数，也降低了上下文切换次数。</p>
+<p>而且，零拷贝取消了用户缓冲区后，不只降低了用户内存的消耗，还通过最大化利用 socket 缓冲区中的内存，间接地再一次减少了系统调用的次数，从而带来了大幅减少上下文切换次数的机会！</p>
+<p>应用读取磁盘写入网络的时候还得考虑缓存的大小，一般会设置的比较小，这样一个大文件导致多次小批量的读取，每次读取伴随着多次上下文切换。</p>
+<p>零拷贝使我们不必关心 socket 缓冲区的大小（socket缓冲区大小本身默认就是动态调整、或者应用代码指定大小）。比如，调用零拷贝发送方法时，尽可以把发送字节数设为文件的所有未发送字节数，例如 320MB，也许此时 socket 缓冲区大小为 1.4MB，那么一次性就会发送 1.4MB 到客户端，而不是只有 32KB。这意味着对于 1.4MB 的 1 次零拷贝，仅带来 2 次上下文切换，而不使用零拷贝且用户缓冲区为 32KB 时，经历了 176 次（4 * 1.4MB&#x2F;32KB）上下文切换。</p>
+<h2 id="read-write-和零拷贝优化"><a href="#read-write-和零拷贝优化" class="headerlink" title="read+write 和零拷贝优化"></a>read+write 和零拷贝优化</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">read(file, tmp_buf, len);</span><br><span class="line">write(socket, tmp_buf, len);</span><br></pre></td></tr></table></figure>
 
-<h3 id="大页和-MySQL-性能-case"><a href="#大页和-MySQL-性能-case" class="headerlink" title="大页和 MySQL 性能 case"></a>大页和 MySQL 性能 case</h3><p>MySQL的页都是16K, 当查询的行不在内存中时需要按照16K为单位从磁盘读取页,而文件系统中的页是4k，也就是一次数据库请求需要有4次磁盘IO，如过查询比较随机，每次只需要一个页中的几行数据，存在很大的读放大。</p>
-<p>那么我们是否可以把MySQL的页设置为4K来减少读放大呢？</p>
-<p>在5.7里收益不大，因为每次IO存在 fil_system 的锁，导致IO的并发上不去</p>
-<p>8.0中总算优化了这个场景，测试细节可以参考<a target="_blank" rel="noopener" href="http://dimitrik.free.fr/blog/archives/2018/05/mysql-performance-1m-iobound-qps-with-80-ga-on-intel-optane-ssd.html">这篇</a></p>
-<p>16K VS 4K 性能对比（4K接近翻倍）</p>
-<p><img src="/images/951413iMgBlog/1547605552845-d406952d-9857-462d-a666-1694b19fbedb.png" alt="img"></p>
-<p>4K会带来的问题：顺序insert慢了10%（因为fsync更多了）；DDL更慢；二级索引更多的场景下4K性能较差；大BP下，刷脏代价大。</p>
-<h3 id="HugePage-带来的问题"><a href="#HugePage-带来的问题" class="headerlink" title="HugePage 带来的问题"></a><a target="_blank" rel="noopener" href="http://cenalulu.github.io/linux/huge-page-on-numa/">HugePage 带来的问题</a></h3><h4 id="CPU对同一个Page抢占增多"><a href="#CPU对同一个Page抢占增多" class="headerlink" title="CPU对同一个Page抢占增多"></a>CPU对同一个Page抢占增多</h4><p>对于写操作密集型的应用，Huge Page会大大增加Cache写冲突的发生概率。由于CPU独立Cache部分的写一致性用的是<code>MESI协议</code>，写冲突就意味：</p>
-<ul>
-<li>通过CPU间的总线进行通讯，造成总线繁忙</li>
-<li>同时也降低了CPU执行效率。</li>
-<li>CPU本地Cache频繁失效</li>
-</ul>
-<p>类比到数据库就相当于，原来一把用来保护10行数据的锁，现在用来锁1000行数据了。必然这把锁在线程之间的争抢概率要大大增加。</p>
-<h4 id="连续数据需要跨CPU读取"><a href="#连续数据需要跨CPU读取" class="headerlink" title="连续数据需要跨CPU读取"></a>连续数据需要跨CPU读取</h4><p>Page太大，更容易造成Page跨Numa&#x2F;CPU 分布。</p>
-<p>从下图我们可以看到，原本在4K小页上可以连续分配，并因为较高命中率而在同一个CPU上实现locality的数据。到了Huge Page的情况下，就有一部分数据为了填充统一程序中上次内存分配留下的空间，而被迫分布在了两个页上。而在所在Huge Page中占比较小的那部分数据，由于在计算CPU亲和力的时候权重小，自然就被附着到了其他CPU上。那么就会造成：本该以热点形式存在于CPU2 L1或者L2 Cache上的数据，不得不通过CPU inter-connect去remote CPU获取数据。 假设我们连续申明两个数组，<code>Array A</code>和<code>Array B</code>大小都是1536K。内存分配时由于第一个Page的2M没有用满，因此<code>Array B</code>就被拆成了两份，分割在了两个Page里。而由于内存的亲和配置，一个分配在Zone 0，而另一个在Zone 1。那么当某个线程需要访问Array B时就不得不通过代价较大的Inter-Connect去获取另外一部分数据。</p>
-<p><img src="/images/951413iMgBlog/false_sharing.png" alt="img"></p>
-<h3 id="Java进程开启HugePage"><a href="#Java进程开启HugePage" class="headerlink" title="Java进程开启HugePage"></a><a target="_blank" rel="noopener" href="https://kstefanj.github.io/2021/05/19/large-pages-and-java.html">Java进程开启HugePage</a></h3><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
-<h4 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h4><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes&#x3D;2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
-<blockquote>
-<p>-XX:+UseLargePages -XX:LargePageSizeInBytes&#x3D;2m -XX:+UseHugeTLBFS</p>
-</blockquote>
-<h4 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h4><p>设置HugePage的大小</p>
-<blockquote>
-<p>cat &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages</p>
-</blockquote>
-<p>nr_hugepages设置多大参考如下计算方法：</p>
-<blockquote>
-<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB &#x3D; 3 * 1024 MB &#x3D; 3072 MB &#x3D; 3072 * 1024 kB &#x3D; 3145728 kB and 3145728 kB &#x2F; 2048 kB &#x3D; 1536):</p>
-<p>echo 1536 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages </p>
-</blockquote>
-<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
-<p>对于c++来说，他malloc经常会散落得全地址都是，因为会触发各种mmap，冷热区域。所以THP和hugepage都可能导致大量内存被浪费了，进而导致内存紧张，性能下滑。jvm的连续内存布局，加上gc会使得内存密度很紧凑。THP的问题是，他是逻辑页，不是物理页，tlb依旧要N份，所以他的收益来自page fault减少，是一次性的收益。</p>
-<p>hugepage的在减少page_fault上和thp效果一样第二个作用是，他只需要一份TLB了，hugepage是真正的大页内存，thp是逻辑上的，物理上还是需要很多小的page。</p>
-<p><strong>如果TLB miss，则可能需要额外三次内存读取操作才能将线性地址翻译为物理地址。</strong></p>
-<h3 id="code-hugepage-代码大页"><a href="#code-hugepage-代码大页" class="headerlink" title="code_hugepage 代码大页"></a>code_hugepage 代码大页</h3><p>代码大页特性主要为大代码段业务服务，可以降低程序的iTLB miss，从而提升程序性能。针对倚天这一类跨numa访存开销大的芯片有比较好的性能提升效果</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">// 1 表示仅打开二进制和动态库大页  2 仅打开可执行匿名大页 3 相当于1+2，0 表示关闭</span><br><span class="line">echo 1 &gt; /sys/kernel/mm/transparent_hugepage/hugetext_enabled //1 可以改成2/3</span><br></pre></td></tr></table></figure>
+<p><img src="/images/951413iMgBlog/image-20201104175056589.png" alt="image-20201104175056589"></p>
+<h3 id="通过mmap替换read优化一下"><a href="#通过mmap替换read优化一下" class="headerlink" title="通过mmap替换read优化一下"></a>通过mmap替换read优化一下</h3><p>用 <code>mmap()</code> 替换原先的 <code>read()</code>，<code>mmap()</code> 也即是内存映射（memory map）：把用户进程空间的一段内存缓冲区（user buffer）映射到文件所在的内核缓冲区（kernel buffer）上。</p>
+<p><img src="/images/951413iMgBlog/516c11b9b9d3f6092f00645c1742c111.png" alt="image.png"></p>
+<p>通过使用 <code>mmap()</code> 来代替 <code>read()</code>， 可以减少一次数据拷贝的过程。</p>
+<p>但这还不是最理想的零拷贝，因为首先仍然需要通过 CPU 把内核缓冲区的数据拷贝到 socket 缓冲区里，而且仍然需要 4 次上下文切换，因为系统调用还是 2 次；另外内存映射技术是一个开销很大的虚拟存储操作：这种操作需要修改页表以及用内核缓冲区里的文件数据汰换掉当前 TLB 里的缓存以维持虚拟内存映射的一致性。</p>
+<h3 id="sendfile"><a href="#sendfile" class="headerlink" title="sendfile"></a>sendfile</h3><p>在 Linux 内核版本 2.1 中，提供了一个专门发送文件的系统调用函数 <code>sendfile()</code>，函数形式如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/socket.h&gt;</span></span></span><br><span class="line"><span class="type">ssize_t</span> <span class="title function_">sendfile</span><span class="params">(<span class="type">int</span> out_fd, <span class="type">int</span> in_fd, <span class="type">off_t</span> *offset, <span class="type">size_t</span> count)</span>;</span><br></pre></td></tr></table></figure>
 
-<p>是否启用代码大页，可以查看&#x2F;proc&#x2F;&#x2F;smaps中FilePmdMapped字段可确定是否使用了代码大页。 扫描进程代码大页使用数量（<strong>单位KB</strong>）：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cat /proc/&lt;pid&gt;/smaps | grep FilePmdMapped | awk &#x27;&#123;sum+=$2&#125;END&#123;print&quot;Sum= &quot;,sum&#125;&#x27;</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="THP"><a href="#THP" class="headerlink" title="THP"></a><a target="_blank" rel="noopener" href="https://ata.atatech.org/articles/11000208718">THP</a></h2><p>Linux kernel在2.6.38内核增加了Transparent Huge Pages (THP)特性 ，支持大内存页(2MB)分配，默认开启。当开启时可以降低fork子进程的速度，但fork之后，每个内存页从原来4KB变为2MB，会大幅增加重写期间父进程内存消耗。同时<strong>每次写命令引起的复制内存页单位放大了512倍</strong>，会拖慢写操作的执行时间，导致大量写操作慢查询。例如简单的incr命令也会出现在慢查询中。因此Redis日志中建议将此特性进行禁用。  </p>
-<p>THP 的目的是用一个页表项来映射更大的内存（大页），这样可以减少 Page Fault，因为需要的页数少了。当然，这也会提升 TLB（Translation Lookaside Buffer，由存储器管理单元用于改进虚拟地址到物理地址的转译速度） 命中率，因为需要的页表项也少了。如果进程要访问的数据都在这个大页中，那么这个大页就会很热，会被缓存在 Cache 中。而大页对应的页表项也会出现在 TLB 中，从上一讲的存储层次我们可以知道，这有助于性能提升。但是反过来，假设应用程序的数据局部性比较差，它在短时间内要访问的数据很随机地位于不同的大页上，那么大页的优势就会消失。</p>
-<p>大页在使用的时候需要清理512个4K页面，再返回给用户，这里的清理动作可能会导致卡顿。另外碎片化严重的时候触发内存整理造成卡顿</p>
-<p>大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.﻿</p>
-<p>1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k<strong>hugepage</strong>d 动态为vma分配大页(内存回收，内存归整)</p>
-<p>2.madvise系统调用只是给VMA加了VM_<strong>HUGEPAGE,用来</strong>标记这段虚拟地址需要使用大页</p>
-<p><img src="/images/951413iMgBlog/image-20240116134744487.png" alt="image-20240116134744487"></p>
-<h3 id="THP-原理"><a href="#THP-原理" class="headerlink" title="THP 原理"></a>THP 原理</h3><p>大页分配: 在缺页处理函数__handle_mm_fault中判断是否使用大页 大页生成: 主要通过在分配大页内存时是否带__GFP_DIRECT_RECLAIM 标志来控制大页的生成.</p>
-<p>1.异步生成大页: 在缺页处理中，把需要异步生成大页的VMA注册到链表，内核态线程k<strong>hugepage</strong>d 动态为vma分配大页(内存回收，内存归整)</p>
-<p>2.madvise系统调用只是给VMA加了VM_<strong>HUGEPAGE,用来</strong>标记这段虚拟地址需要使用大页</p>
-<p>THP 对redis、mongodb 这种cache类推荐关闭，对drds这种java应用最好打开</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#cat /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line">[always] madvise never</span><br><span class="line"></span><br><span class="line">grep &quot;Huge&quot; /proc/meminfo</span><br><span class="line">AnonHugePages:   1286144 kB</span><br><span class="line">ShmemHugePages:        0 kB</span><br><span class="line">HugePages_Total:       0</span><br><span class="line">HugePages_Free:        0</span><br><span class="line">HugePages_Rsvd:        0</span><br><span class="line">HugePages_Surp:        0</span><br><span class="line">Hugepagesize:       2048 kB</span><br><span class="line">Hugetlb:               0 kB</span><br><span class="line"></span><br><span class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &#x27;&#123; if($2&gt;4) print $0&#125; &#x27; |  awk -F &quot;/&quot;  &#x27;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &#x27;</span><br><span class="line"></span><br><span class="line">$grep -e AnonHugePages  /proc/*/smaps | awk  &#x27;&#123; if($2&gt;4) print $0&#125; &#x27; |  awk -F &quot;/&quot;  &#x27;&#123;print $0; system(&quot;ps -fp &quot; $3)&#125; &#x27;</span><br><span class="line"></span><br><span class="line">//查看pagesize（默认4K） </span><br><span class="line">$getconf PAGESIZE</span><br></pre></td></tr></table></figure>
-
-<p>在透明大页功能打开时，造成系统性能下降的主要原因可能是 <code>khugepaged</code> 守护进程。该进程会在（它认为）系统空闲时启动，扫描系统中剩余的空闲内存，并将普通 4k 页转换为大页。该操作会在内存路径中加锁，而该守护进程可能会在错误的时间启动扫描和转换大页的操作，从而影响应用性能。</p>
-<p>此外，当缺页异常(page faults)增多时，透明大页会和普通 4k 页一样，产生同步内存压缩(direct compaction)操作，以节省内存。该操作是一个同步的内存整理操作，如果应用程序会短时间分配大量内存，内存压缩操作很可能会被触发，从而会对系统性能造成风险。<a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/712830">https://yq.aliyun.com/articles/712830</a></p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#查看系统级别的 THP 使用情况，执行下列命令：</span><br><span class="line">cat /proc/meminfo  | grep AnonHugePages</span><br><span class="line">#类似地，查看进程级别的 THP 使用情况，执行下列命令：</span><br><span class="line">cat /proc/1730/smaps | grep AnonHugePages |grep -v &quot;0 kB&quot;</span><br><span class="line">#是否开启了hugepage</span><br><span class="line">$cat /sys/kernel/mm/transparent_hugepage/enabled</span><br><span class="line">always [madvise] never</span><br></pre></td></tr></table></figure>
-
-<p><code>/proc/sys/vm/nr_hugepages</code> 中存储的数据就是大页面的数量，虽然在默认情况下它的值都是 0，不过我们可以通过更改该文件的内容申请或者释放操作系统中的大页：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">$ echo 1 &gt; /proc/sys/vm/nr_hugepages</span><br><span class="line">$ cat /proc/meminfo | grep HugePages_</span><br><span class="line">HugePages_Total:       1</span><br><span class="line">HugePages_Free:        1</span><br></pre></td></tr></table></figure>
-
-<h3 id="THP和perf"><a href="#THP和perf" class="headerlink" title="THP和perf"></a>THP和perf</h3><p>thp on后比off性能稳定好 10-15%，开启THP最显著的指标是 iTLB命中率显著提升了</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br></pre></td><td class="code"><pre><span class="line">//on 419+E5-2682， thp never</span><br><span class="line">9,145,128,732      branch-instructions       #  229.068 M/sec                    (10.65%)</span><br><span class="line">       555,518,878      branch-misses             #    6.07% of all branches          (14.24%)</span><br><span class="line">     3,951,535,475      bus-cycles                #   98.979 M/sec                    (14.29%)</span><br><span class="line">       372,477,068      cache-misses              #    7.733 % of all cache refs      (14.34%)</span><br><span class="line">     4,816,702,013      cache-references          #  120.649 M/sec                    (14.36%)</span><br><span class="line">   114,521,174,305      cpu-cycles                #    2.869 GHz                      (14.36%)</span><br><span class="line">    48,969,565,344      instructions              #    0.43  insn per cycle           (17.93%)</span><br><span class="line">    98,728,666,922      ref-cycles                # 2472.967 M/sec                    (21.52%)</span><br><span class="line">         39,922.47 msec cpu-clock                 #    7.898 CPUs utilized</span><br><span class="line">     1,848,336,574      L1-dcache-load-misses     #   13.31% of all L1-dcache hits    (21.51%)</span><br><span class="line">    13,889,399,043      L1-dcache-loads           #  347.903 M/sec                    (21.51%)</span><br><span class="line">     7,055,617,648      L1-dcache-stores          #  176.730 M/sec                    (21.50%)</span><br><span class="line">     2,017,950,458      L1-icache-load-misses                                         (21.50%)</span><br><span class="line">        88,802,885      LLC-load-misses           #    9.86% of all LL-cache hits     (14.35%)</span><br><span class="line">       900,379,398      LLC-loads                 #   22.553 M/sec                    (14.33%)</span><br><span class="line">       162,711,813      LLC-store-misses          #    4.076 M/sec                    (7.13%)</span><br><span class="line">       419,869,955      LLC-stores                #   10.517 M/sec                    (7.14%)</span><br><span class="line">       553,257,955      branch-load-misses        #   13.858 M/sec                    (10.71%)</span><br><span class="line">     9,195,874,519      branch-loads              #  230.339 M/sec                    (14.29%)</span><br><span class="line">       176,112,524      dTLB-load-misses          #    1.28% of all dTLB cache hits   (14.29%)</span><br><span class="line">    13,739,965,115      dTLB-loads                #  344.160 M/sec                    (14.28%)</span><br><span class="line">        33,087,849      dTLB-store-misses         #    0.829 M/sec                    (14.28%)</span><br><span class="line">     6,992,863,588      dTLB-stores               #  175.158 M/sec                    (14.26%)</span><br><span class="line">       170,555,902      iTLB-load-misses          #  107.90% of all iTLB cache hits   (14.24%)</span><br><span class="line">       158,070,998      iTLB-loads                #    3.959 M/sec                    (14.24%)</span><br><span class="line"></span><br><span class="line">//on 419+E5-2682， thp always</span><br><span class="line">    12,958,974,094      branch-instructions       #  227.392 M/sec                    (10.68%)</span><br><span class="line">       850,468,837      branch-misses             #    6.56% of all branches          (14.27%)</span><br><span class="line">     5,639,495,284      bus-cycles                #   98.957 M/sec                    (14.29%)</span><br><span class="line">       526,744,798      cache-misses              #    7.324 % of all cache refs      (14.32%)</span><br><span class="line">     7,192,328,925      cache-references          #  126.204 M/sec                    (14.34%)</span><br><span class="line">   163,419,436,811      cpu-cycles                #    2.868 GHz                      (14.33%)</span><br><span class="line">    68,638,583,038      instructions              #    0.42  insn per cycle           (17.90%)</span><br><span class="line">   140,882,455,768      ref-cycles                # 2472.076 M/sec                    (21.48%)</span><br><span class="line">         56,987.52 msec cpu-clock                 #    7.932 CPUs utilized</span><br><span class="line">     2,471,392,118      L1-dcache-load-misses     #   12.69% of all L1-dcache hits    (21.47%)</span><br><span class="line">    19,480,914,771      L1-dcache-loads           #  341.833 M/sec                    (21.48%)</span><br><span class="line">    10,059,893,871      L1-dcache-stores          #  176.522 M/sec                    (21.46%)</span><br><span class="line">     3,184,073,065      L1-icache-load-misses                                         (21.46%)</span><br><span class="line">       128,467,945      LLC-load-misses           #   10.83% of all LL-cache hits     (14.31%)</span><br><span class="line">     1,186,653,892      LLC-loads                 #   20.822 M/sec                    (14.30%)</span><br><span class="line">       224,877,539      LLC-store-misses          #    3.946 M/sec                    (7.15%)</span><br><span class="line">       628,574,746      LLC-stores                #   11.030 M/sec                    (7.15%)</span><br><span class="line">       848,830,289      branch-load-misses        #   14.894 M/sec                    (10.71%)</span><br><span class="line">    13,074,297,582      branch-loads              #  229.416 M/sec                    (14.28%)</span><br><span class="line">       109,223,171      dTLB-load-misses          #    0.56% of all dTLB cache hits   (14.27%)</span><br><span class="line">    19,418,657,165      dTLB-loads                #  340.741 M/sec                    (14.29%)</span><br><span class="line">        13,930,402      dTLB-store-misses         #    0.244 M/sec                    (14.28%)</span><br><span class="line">    10,047,511,003      dTLB-stores               #  176.305 M/sec                    (14.28%)</span><br><span class="line">       194,902,860      iTLB-load-misses          #   61.23% of all iTLB cache hits   (14.27%)</span><br><span class="line">       318,292,771      iTLB-loads                #    5.585 M/sec                    (14.26%)</span><br><span class="line"></span><br><span class="line">//on 310+8269 thp never</span><br><span class="line">        90,790,778      dTLB-load-misses          #    0.67% of all dTLB cache hits   (16.66%)</span><br><span class="line">    13,639,069,352      dTLB-loads                                                    (16.66%)</span><br><span class="line">         6,553,693      dTLB-store-misses                                             (16.63%)</span><br><span class="line">     6,494,274,815      dTLB-stores                                                   (20.28%)</span><br><span class="line">        76,175,883      iTLB-load-misses          #   40.53% of all iTLB cache hits   (20.80%)</span><br><span class="line">       187,932,292      iTLB-loads                                                    (20.76%)</span><br><span class="line"></span><br><span class="line">//on 310+8269 thp always</span><br><span class="line">     7,199,483,512      branch-instructions       #  338.269 M/sec                    (11.46%)</span><br><span class="line">        81,893,729      branch-misses             #    1.14% of all branches          (14.95%)</span><br><span class="line">       532,919,206      bus-cycles                #   25.039 M/sec                    (14.85%)</span><br><span class="line">       253,267,167      cache-misses              #   11.507 % of all cache refs      (14.81%)</span><br><span class="line">     2,201,001,946      cache-references          #  103.414 M/sec                    (14.15%)</span><br><span class="line">    63,971,073,336      cpu-cycles                #    3.006 GHz                      (14.55%)</span><br><span class="line">    37,214,341,673      instructions              #    0.58  insns per cycle          (18.09%)</span><br><span class="line">    52,209,823,072      ref-cycles                # 2453.086 M/sec                    (17.23%)</span><br><span class="line">     1,098,964,315      L1-dcache-load-misses     #   10.17% of all L1-dcache hits    (14.22%)</span><br><span class="line">    10,808,109,191      L1-dcache-loads           #  507.820 M/sec                    (14.31%)</span><br><span class="line">     5,092,652,478      L1-dcache-stores          #  239.279 M/sec                    (14.38%)</span><br><span class="line">     4,338,580,209      L1-icache-load-misses     #  203.849 M/sec                    (14.40%)</span><br><span class="line">        60,262,584      LLC-load-misses           #   21.81% of all LL-cache hits     (14.35%)</span><br><span class="line">       276,321,779      LLC-loads                 #   12.983 M/sec                    (14.31%)</span><br><span class="line">        62,982,184      LLC-store-misses          #    2.959 M/sec                    (10.76%)</span><br><span class="line">       105,448,227      LLC-stores                #    4.954 M/sec                    (8.08%)</span><br><span class="line">        81,163,187      branch-load-misses        #    3.813 M/sec                    (11.67%)</span><br><span class="line">     7,111,481,940      branch-loads              #  334.134 M/sec                    (14.37%)</span><br><span class="line">         4,527,406      dTLB-load-misses          #    0.04% of all dTLB cache hits   (14.30%)</span><br><span class="line">    10,726,725,791      dTLB-loads                #  503.997 M/sec                    (17.33%)</span><br><span class="line">         1,066,097      dTLB-store-misses         #    0.050 M/sec                    (17.37%)</span><br><span class="line">     5,090,008,144      dTLB-stores               #  239.155 M/sec                    (17.34%)</span><br><span class="line">        18,715,797      iTLB-load-misses          #   18.97% of all iTLB cache hits   (17.33%)</span><br><span class="line">        98,684,189      iTLB-loads                #    4.637 M/sec                    (14.29%)</span><br><span class="line">       </span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="MySQL-场景下代码大页对性能的影响"><a href="#MySQL-场景下代码大页对性能的影响" class="headerlink" title="MySQL 场景下代码大页对性能的影响"></a><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/217859">MySQL 场景下代码大页对性能的影响</a></h2><p>不只是数据可以用HugePage，代码段也可以开启HugePage, 无论在x86还是arm（arm下提升更明显）下，都可以得到大页优于透明大页，透明大页优于正常的4K page</p>
-<blockquote>
-<p>收益：代码大页 &gt; anon THP &gt; 4k</p>
-</blockquote>
-<p>arm下，对32core机器用32并发的sysbench来对比，代码大页带来的性能提升大概有11%，iTLB miss下降了10倍左右。</p>
-<p>x86下，性能提升只有大概3-5%之间，iTLB miss下降了1.5-3倍左右。</p>
-<h2 id="TLAB-miss高的案例"><a href="#TLAB-miss高的案例" class="headerlink" title="TLAB miss高的案例"></a><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/152660">TLAB miss高的案例</a></h2><p>程序运行久了之后会变慢大概10%</p>
-<p>刚开始运行的时候perf各项数据:</p>
-<p><img src="/images/951413iMgBlog/7a26deaf96bdcc07db4db34ae1178641.png" alt="img"></p>
-<p>长时间运行后：</p>
-<p><img src="/images/951413iMgBlog/3385ae6ffbd5b48b80efa759f42b8174.png" alt="img"></p>
-<p>内存的利用以页为单位，当时分析认为，在此4k连续的基础上，页的碎片不应该对64 byte align的cache有什么影响。当时guest和host都没有开THP。</p>
-<p>既然无法理解这个结果，那就只有按部就班的查看内核执行路径上各个函数的差别了，祭出ftrace:</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">echo kerel_func_name1 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line"></span><br><span class="line">echo kerel_func_name2 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line"></span><br><span class="line">echo kerel_func_name3 &gt; /sys/kernel/debug/tracing/set_ftrace_filter</span><br><span class="line">echo 1 &gt; /sys/kernel/debug/tracing/function_profile_enabled</span><br></pre></td></tr></table></figure>
-
-<p>在CPU#20上执行代码:</p>
-<p>taskset -c 20 .&#x2F;b</p>
-<p>代码执行完后:</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">echo 0 &gt; /sys/kernel/debug/tracing/function_profile_enabled</span><br><span class="line">cat /sys/kernel/debug/tracing/trace_stat/function20</span><br></pre></td></tr></table></figure>
-
-<p>这个时候就会打印出在各个函数上花费的时间，比如:</p>
-<p><img src="/images/951413iMgBlog/329769dd1da2ed324ac11b8b922382cd.png" alt="img"></p>
-<p>经过调试后，逐步定位到主要时间差距在  __mem_cgroup_commit_charge() (58%).</p>
-<p>在阅读代码的过程中，注意到当前内核使能了CONFIG_SPARSEMEM_VMEMMAP&#x3D;y</p>
-<p>原因就是机器运行久了之后内存碎片化严重，导致TLAB Miss严重。</p>
-<p>解决：开启THP后，性能稳定</p>
-<h2 id="碎片化"><a href="#碎片化" class="headerlink" title="碎片化"></a>碎片化</h2><p>内存碎片严重的话会导致系统hang很久(回收、压缩内存）</p>
-<p>尽量让系统的free多一点(比例高一点）可以调整 vm.min_free_kbytes(128G 以内 2G，256G以内 4G&#x2F;8G), 线上机器直接修改vm.min_free_kbytes<strong>会触发回收，导致系统hang住</strong> <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/163233">https://www.atatech.org/articles/163233</a> <a target="_blank" rel="noopener" href="https://www.atatech.org/articles/97130">https://www.atatech.org/articles/97130</a></p>
-<p>compact: 在进行 compcation 时，线程会从前往后扫描已使用的 movable page，然后从后往前扫描 free page，扫描结束后会把这些 movable page 给迁移到 free page 里，最终规整出一个 2M 的连续物理内存，这样 THP 就可以成功申请内存了。</p>
-<p><img src="/images/951413iMgBlog/image-20210628144121108.png" alt="image-20210628144121108"></p>
-<p>一次THP compact堆栈：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">java          R  running task        0 144305 144271 0x00000080</span><br><span class="line"> ffff88096393d788 0000000000000086 ffff88096393d7b8 ffffffff81060b13</span><br><span class="line"> ffff88096393d738 ffffea003968ce50 000000000000000e ffff880caa713040</span><br><span class="line"> ffff8801688b0638 ffff88096393dfd8 000000000000fbc8 ffff8801688b0640</span><br><span class="line"></span><br><span class="line">Call Trace:</span><br><span class="line"> [&lt;ffffffff81060b13&gt;] ? perf_event_task_sched_out+0x33/0x70</span><br><span class="line"> [&lt;ffffffff8100bb8e&gt;] ? apic_timer_interrupt+0xe/0x20</span><br><span class="line"> [&lt;ffffffff810686da&gt;] __cond_resched+0x2a/0x40</span><br><span class="line"> [&lt;ffffffff81528300&gt;] _cond_resched+0x30/0x40</span><br><span class="line"> [&lt;ffffffff81169505&gt;] compact_checklock_irqsave+0x65/0xd0</span><br><span class="line"> [&lt;ffffffff81169862&gt;] compaction_alloc+0x202/0x460</span><br><span class="line"> [&lt;ffffffff811748d8&gt;] ? buffer_migrate_page+0xe8/0x130</span><br><span class="line"> [&lt;ffffffff81174b4a&gt;] migrate_pages+0xaa/0x480</span><br><span class="line"> [&lt;ffffffff81169660&gt;] ? compaction_alloc+0x0/0x460                 //compact and migrate</span><br><span class="line"> [&lt;ffffffff8116a1a1&gt;] compact_zone+0x581/0x950</span><br><span class="line"> [&lt;ffffffff8116a81c&gt;] compact_zone_order+0xac/0x100</span><br><span class="line"> [&lt;ffffffff8116a951&gt;] try_to_compact_pages+0xe1/0x120</span><br><span class="line"> [&lt;ffffffff8112f1ba&gt;] __alloc_pages_direct_compact+0xda/0x1b0</span><br><span class="line"> [&lt;ffffffff8112f80b&gt;] __alloc_pages_nodemask+0x57b/0x8d0</span><br><span class="line"> [&lt;ffffffff81167b9a&gt;] alloc_pages_vma+0x9a/0x150</span><br><span class="line"> [&lt;ffffffff8118337d&gt;] do_huge_pmd_anonymous_page+0x14d/0x3b0        //huge page</span><br><span class="line"> [&lt;ffffffff8152a116&gt;] ? rwsem_down_read_failed+0x26/0x30</span><br><span class="line"> [&lt;ffffffff8114b350&gt;] handle_mm_fault+0x2f0/0x300</span><br><span class="line"> [&lt;ffffffff810ae950&gt;] ? wake_futex+0x40/0x60</span><br><span class="line"> [&lt;ffffffff8104a8d8&gt;] __do_page_fault+0x138/0x480</span><br><span class="line"> [&lt;ffffffff810097cc&gt;] ? __switch_to+0x1ac/0x320</span><br><span class="line"> [&lt;ffffffff81527910&gt;] ? thread_return+0x4e/0x76e</span><br><span class="line"> [&lt;ffffffff8152d45e&gt;] do_page_fault+0x3e/0xa0                       //page fault</span><br><span class="line"> [&lt;ffffffff8152a815&gt;] page_fault+0x25/0x30</span><br></pre></td></tr></table></figure>
-
-
-
-<h3 id="查看pagetypeinfo"><a href="#查看pagetypeinfo" class="headerlink" title="查看pagetypeinfo"></a>查看pagetypeinfo</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">#cat /proc/pagetypeinfo</span><br><span class="line">Page block order: 9</span><br><span class="line">Pages per block:  512</span><br><span class="line"></span><br><span class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</span><br><span class="line">Node    0, zone      DMA, type    Unmovable      1      1      1      0      2      1      1      0      1      0      0</span><br><span class="line">Node    0, zone      DMA, type  Reclaimable      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type      Movable      0      0      0      0      0      0      0      0      0      1      3</span><br><span class="line">Node    0, zone      DMA, type      Reserve      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone      DMA, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone    DMA32, type    Unmovable     89    144     98     42     21     14      5      2      1      0      1</span><br><span class="line">Node    0, zone    DMA32, type  Reclaimable     28     22      9      8      0      0      0      0      0      1      7</span><br><span class="line">Node    0, zone    DMA32, type      Movable    402     50     21      8    880    924    321     51      4      1    227</span><br><span class="line">Node    0, zone    DMA32, type      Reserve      0      0      0      0      0      0      0      0      0      0      1</span><br><span class="line">Node    0, zone    DMA32, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone    DMA32, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type    Unmovable  13709  15231   6637   2646    816    181     46      4      4      1      0</span><br><span class="line">Node    0, zone   Normal, type  Reclaimable      1      5      6   3293   1295    128     29      7      5      0      0</span><br><span class="line">Node    0, zone   Normal, type      Movable   6396 1383350 1301956 1007627 670102 366248 160232  54894  13126   1482     37</span><br><span class="line">Node    0, zone   Normal, type      Reserve      0      0      0      2      1      1      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    0, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line"></span><br><span class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</span><br><span class="line">Node 0, zone      DMA            1            0            7            0            0            0</span><br><span class="line">Node 0, zone    DMA32           24           38          889            1            0            0</span><br><span class="line">Node 0, zone   Normal         1568          795       127683            2            0            0</span><br><span class="line">Page block order: 9</span><br><span class="line">Pages per block:  512</span><br><span class="line"></span><br><span class="line">Free pages count per migrate type at order       0      1      2      3      4      5      6      7      8      9     10</span><br><span class="line">Node    1, zone   Normal, type    Unmovable   3938   8735   5469   3221   2097    989    202      6      0      0      0</span><br><span class="line">Node    1, zone   Normal, type  Reclaimable      1      7      7      8      7      2      2      2      1      0      0</span><br><span class="line">Node    1, zone   Normal, type      Movable  18623 1001037 2084894 1261484 631159 276096  87272  17169   1389    797      0</span><br><span class="line">Node    1, zone   Normal, type      Reserve      0      0      0      8      0      0      0      0      0      0      0</span><br><span class="line">Node    1, zone   Normal, type          CMA      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line">Node    1, zone   Normal, type      Isolate      0      0      0      0      0      0      0      0      0      0      0</span><br><span class="line"></span><br><span class="line">Number of blocks type     Unmovable  Reclaimable      Movable      Reserve          CMA      Isolate</span><br><span class="line">Node 1, zone   Normal         1530          637       128903            2            0            0</span><br></pre></td></tr></table></figure>
-
-<p>每个zone都有自己的min low high,如下，但是单位是page, 计算案例：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br></pre></td><td class="code"><pre><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#cat /proc/zoneinfo  |grep &quot;Node&quot;</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">Node 1, zone   Normal</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#cat /proc/zoneinfo  |grep &quot;Node 0, zone&quot; -A10</span><br><span class="line">Node 0, zone      DMA</span><br><span class="line">  pages free     3975</span><br><span class="line">        min      20</span><br><span class="line">        low      25</span><br><span class="line">        high     30</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  4095</span><br><span class="line">        present  3996</span><br><span class="line">        managed  3975</span><br><span class="line">    nr_free_pages 3975</span><br><span class="line">    nr_alloc_batch 5</span><br><span class="line">--</span><br><span class="line">Node 0, zone    DMA32</span><br><span class="line">  pages free     382873</span><br><span class="line">        min      2335</span><br><span class="line">        low      2918</span><br><span class="line">        high     3502</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  1044480</span><br><span class="line">        present  513024</span><br><span class="line">        managed  450639</span><br><span class="line">    nr_free_pages 382873</span><br><span class="line">    nr_alloc_batch 584</span><br><span class="line">--</span><br><span class="line">Node 0, zone   Normal</span><br><span class="line">  pages free     11105097</span><br><span class="line">        min      61463</span><br><span class="line">        low      76828</span><br><span class="line">        high     92194</span><br><span class="line">        scanned  0</span><br><span class="line">        spanned  12058624</span><br><span class="line">        present  12058624</span><br><span class="line">        managed  11859912</span><br><span class="line">    nr_free_pages 11105097</span><br><span class="line">    nr_alloc_batch 12344</span><br><span class="line">    </span><br><span class="line">    low = 5/4 * min</span><br><span class="line">high = 3/2 * min</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=min;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=499 MB</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=low;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=624 MB</span><br><span class="line"></span><br><span class="line">[root@jiangyi01.sqa.zmf /home/ahao.mah]</span><br><span class="line">#T=high;sum=0;for i in `cat /proc/zoneinfo  |grep $T | awk &#x27;&#123;print $NF&#125;&#x27;`;do sum=`echo &quot;$sum+$i&quot; |bc`;done;sum=`echo &quot;$sum*4/1024&quot; |bc`;echo &quot;sum=$&#123;sum&#125; MB&quot;</span><br><span class="line">sum=802 MB</span><br></pre></td></tr></table></figure>
-
-<h2 id="内存碎片化导致rt升高的诊断"><a href="#内存碎片化导致rt升高的诊断" class="headerlink" title="内存碎片化导致rt升高的诊断"></a>内存碎片化导致rt升高的诊断</h2><p>判定方法如下：</p>
+<p>它的前两个参数分别是目的端和源端的文件描述符，后面两个参数是源端的偏移量和复制数据的长度，返回值是实际复制数据的长度。</p>
+<p>首先，它可以替代前面的 <code>read()</code> 和 <code>write()</code> 这两个系统调用，这样就可以减少一次系统调用，也就减少了 2 次上下文切换的开销。</p>
+<p>其次，该系统调用，可以直接把内核缓冲区里的数据拷贝到 socket 缓冲区里，不再拷贝到用户态，这样就只有 2 次上下文切换，和 3 次数据拷贝。如下图：</p>
+<p><img src="/images/951413iMgBlog/bd72f4a031bcd88db0ca233e59234832.png" alt="image.png"></p>
+<p>当然这里还是有一次CPU来拷贝内存的过程，仍然有文件截断的问题。<code>sendfile()</code> 依然是一个适用性很窄的技术，最适合的场景基本也就是一个静态文件服务器了。</p>
+<p>然而 <code>sendfile()</code> 本身是有很大问题的，从不同的角度来看的话主要是：</p>
 <ol>
-<li>运行 sar -B 观察 pgscand&#x2F;s，其含义为每秒发生的直接内存回收次数，当在一段时间内持续大于 0 时，则应继续执行后续步骤进行排查；</li>
-<li>运行 <code>cat /sys/kernel/debug/extfrag/extfrag_index</code> 观察内存碎片指数，重点关注 order &gt;&#x3D; 3 的碎片指数，当接近 1.000 时，表示碎片化严重，当接近 0 时表示内存不足；</li>
-<li>运行 <code>cat /proc/buddyinfo, cat /proc/pagetypeinfo</code> 查看内存碎片情况， 指标含义参考 （<a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man5/proc.5.html%EF%BC%89%EF%BC%8C%E5%90%8C%E6%A0%B7%E5%85%B3%E6%B3%A8">https://man7.org/linux/man-pages/man5/proc.5.html），同样关注</a> order &gt;&#x3D; 3 的剩余页面数量，pagetypeinfo 相比 buddyinfo 展示的信息更详细一些，根据迁移类型 （伙伴系统通过迁移类型实现反碎片化）进行分组，需要注意的是，当迁移类型为 Unmovable 的页面都聚集在 order &lt; 3 时，说明内核 slab 碎片化严重，我们需要结合其他工具来排查具体原因，在本文就不做过多介绍了；</li>
-<li>对于 CentOS 7.6 等支持 BPF 的 kernel 也可以运行我们研发的 <a target="_blank" rel="noopener" href="https://github.com/iovisor/bcc/blob/master/tools/drsnoop_example.txt">drsnoop</a>，<a target="_blank" rel="noopener" href="https://github.com/iovisor/bcc/blob/master/tools/compactsnoop_example.txt">compactsnoop</a> 工具对延迟进行定量分析，使用方法和解读方式请参考对应文档；</li>
-<li>(Opt) 使用 ftrace 抓取 mm_page_alloc_extfrag 事件，观察因内存碎片从备用迁移类型“盗取”页面的信息。</li>
+<li>首先一个是这个接口并没有进行标准化，导致 <code>sendfile()</code> 在 Linux 上的接口实现和其他类 Unix 系统的实现并不相同；</li>
+<li>其次由于网络传输的异步性，很难在接收端实现和 <code>sendfile()</code> 对接的技术，因此接收端一直没有实现对应的这种技术；</li>
+<li>最后从性能方面考量，因为 <code>sendfile()</code> 在把磁盘文件从内核缓冲区（page cache）传输到到套接字缓冲区的过程中依然需要 CPU 参与，这就很难避免 CPU 的高速缓存被传输的数据所污染。</li>
 </ol>
-<p>​	</p>
+<h3 id="SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术"><a href="#SG-DMA（The-Scatter-Gather-Direct-Memory-Access）技术" class="headerlink" title="SG-DMA（The Scatter-Gather Direct Memory Access）技术"></a>SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术</h3><p>上一小节介绍的 <code>sendfile()</code> 技术已经把一次数据读写过程中的 CPU 拷贝的降低至只有 1 次了，但是人永远是贪心和不知足的，现在如果想要把这仅有的一次 CPU 拷贝也去除掉，有没有办法呢？</p>
+<p>当然有！通过引入一个新硬件上的支持，我们可以把这个仅剩的一次 CPU 拷贝也给抹掉：Linux 在内核 2.4 版本里引入了 DMA 的 scatter&#x2F;gather – 分散&#x2F;收集功能，并修改了 <code>sendfile()</code> 的代码使之和 DMA 适配。scatter 使得 DMA 拷贝可以不再需要把数据存储在一片连续的内存空间上，而是允许离散存储，gather 则能够让 DMA 控制器根据少量的元信息：一个包含了内存地址和数据大小的缓冲区描述符，收集存储在各处的数据，最终还原成一个完整的网络包，直接拷贝到网卡而非套接字缓冲区，避免了最后一次的 CPU 拷贝：</p>
+<p><img src="/images/951413iMgBlog/2361e8c6dcfd20a67f404b684196c160.png" alt="image.png"></p>
+<p>如果网卡支持 SG-DMA（<em>The Scatter-Gather Direct Memory Access</em>）技术（和普通的 DMA 有所不同），我们可以进一步减少通过 CPU 把内核缓冲区里的数据拷贝到 socket 缓冲区的过程。</p>
+<p>这就是所谓的<strong>零拷贝（Zero-copy）技术，因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。</strong> 数据传输过程就再也没有 CPU 的参与了，也因此 CPU 的高速缓存再不会被污染了，也不再需要 CPU 来计算数据校验和了，CPU 可以去执行其他的业务计算任务，同时和 DMA 的 I&#x2F;O 任务并行，此举能极大地提升系统性能。</p>
+<p>零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，<strong>只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。</strong></p>
+<p>所以，总体来看，<strong>零拷贝技术可以把文件传输的性能提高至少一倍以上</strong>。</p>
+<h3 id="splice"><a href="#splice" class="headerlink" title="splice()"></a>splice()</h3><p><code>sendfile()</code> + DMA Scatter&#x2F;Gather 的零拷贝方案虽然高效，但是也有两个缺点：</p>
+<ol>
+<li>这种方案需要引入新的硬件支持；</li>
+<li>虽然 <code>sendfile()</code> 的输出文件描述符在 Linux kernel 2.6.33 版本之后已经可以支持任意类型的文件描述符，但是输入文件描述符依然只能指向文件。</li>
+</ol>
+<p>这两个缺点限制了 <code>sendfile()</code> + DMA Scatter&#x2F;Gather 方案的适用场景。为此，Linux 在 2.6.17 版本引入了一个新的系统调用 <code>splice()</code>，它在功能上和 <code>sendfile()</code> 非常相似，但是能够实现在任意类型的两个文件描述符时之间传输数据；而在底层实现上，<code>splice()</code>又比 <code>sendfile()</code> 少了一次 CPU 拷贝，也就是等同于 <code>sendfile()</code> + DMA Scatter&#x2F;Gather，完全去除了数据传输过程中的 CPU 拷贝。</p>
+<p><code>splice()</code> 所谓的写入数据到管道其实并没有真正地拷贝数据，而是玩了个 tricky 的操作：只进行内存地址指针的拷贝而不真正去拷贝数据。所以，数据 <code>splice()</code> 在内核中并没有进行真正的数据拷贝，因此 <code>splice()</code> 系统调用也是零拷贝。</p>
+<p>还有一点需要注意，前面说过管道的容量是 16 个内存页，也就是 16 * 4KB &#x3D; 64 KB，也就是说一次往管道里写数据的时候最好不要超过 64 KB，否则的话会 <code>splice()</code> 会阻塞住，除非在创建管道的时候使用的是 <code>pipe2()</code> 并通过传入 <code>O_NONBLOCK</code> 属性将管道设置为非阻塞。</p>
+<h3 id="send-with-MSG-ZEROCOPY"><a href="#send-with-MSG-ZEROCOPY" class="headerlink" title="send() with MSG_ZEROCOPY"></a>send() with MSG_ZEROCOPY</h3><p>Linux 内核在 2017 年的 v4.14 版本接受了来自 Google 工程师 Willem de Bruijn 在 TCP 网络报文的通用发送接口 <code>send()</code> 中实现的 zero-copy 功能 (MSG_ZEROCOPY) 的 patch，通过这个新功能，用户进程就能够把用户缓冲区的数据通过零拷贝的方式经过内核空间发送到网络套接字中去，这个新技术和前文介绍的几种零拷贝方式相比更加先进，因为前面几种零拷贝技术都是要求用户进程不能处理加工数据而是直接转发到目标文件描述符中去的。Willem de Bruijn 在他的论文里给出的压测数据是：采用 netperf 大包发送测试，性能提升 39%，而线上环境的数据发送性能则提升了 5%~8%，官方文档陈述说这个特性通常只在发送 10KB 左右大包的场景下才会有显著的性能提升。一开始这个特性只支持 TCP，到内核 v5.0 版本之后才支持 UDP。</p>
+<p>这个技术是基于 redhat 红帽在 2010 年给 Linux 内核提交的 virtio-net zero-copy 技术之上实现的，至于底层原理，简单来说就是通过 <code>send()</code> 把数据在用户缓冲区中的分段指针发送到 socket 中去，利用 page pinning 页锁定机制锁住用户缓冲区的内存页，然后利用 DMA 直接在用户缓冲区通过内存地址指针进行数据读取，实现零拷贝</p>
+<p>目前来说，这种技术的主要缺陷有：</p>
+<ol>
+<li>只适用于大文件 (10KB 左右) 的场景，小文件场景因为 page pinning 页锁定和等待缓冲区释放的通知消息这些机制，甚至可能比直接 CPU 拷贝更耗时；</li>
+<li>因为可能异步发送数据，需要额外调用 <code>poll()</code> 和 <code>recvmsg()</code> 系统调用等待 buffer 被释放的通知消息，增加代码复杂度，以及会导致多次用户态和内核态的上下文切换；</li>
+<li>MSG_ZEROCOPY 目前只支持发送端，接收端暂不支持。</li>
+</ol>
+<h3 id="零拷贝应用"><a href="#零拷贝应用" class="headerlink" title="零拷贝应用"></a>零拷贝应用</h3><p>kafka就利用了「零拷贝」技术，从而大幅提升了 I&#x2F;O 的吞吐率，这也是 Kafka 在处理海量数据为什么这么快的原因之一(利用磁盘顺序写；PageCache)。</p>
+<p>非零拷贝代码：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">File.read(fileDesc, buf, len);</span><br><span class="line">Socket.send(socket, buf, len);</span><br></pre></td></tr></table></figure>
+
+<p>Traditional data copying approach：</p>
+<p><img src="/images/951413iMgBlog/gif/figure1.gif" alt="Traditional data copying approach"></p>
+<p>Traditional context switches：</p>
+<p><img src="/images/951413iMgBlog/gif/figure2.gif" alt="Traditional context switches"></p>
+<p>如果你追溯 Kafka 文件传输的代码，你会发现，最终它调用了 Java NIO 库里的 <code>transferTo</code> 方法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Overridepublic</span> </span><br><span class="line"><span class="type">long</span> <span class="title function_">transferFrom</span><span class="params">(FileChannel fileChannel, <span class="type">long</span> position, <span class="type">long</span> count)</span> <span class="keyword">throws</span> IOException &#123; </span><br><span class="line">    <span class="keyword">return</span> fileChannel.transferTo(position, count, socketChannel);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Data copy with transferTo()</p>
+<p><img src="/images/951413iMgBlog/gif/figure3.gif" alt="Data copy with transferTo()"></p>
+<p>Context switching with transferTo()：</p>
+<p><img src="/images/951413iMgBlog/gif/figure4.gif" alt="Context switching when using transferTo()"></p>
+<p>Data copies when transferTo() and gather operations are used</p>
+<p><img src="/images/951413iMgBlog/gif/figure5.gif" alt="Data copies when transferTo() and gather operations are used"></p>
+<p>如果 Linux 系统支持 <code>sendfile()</code> 系统调用，那么 <code>transferTo()</code> 实际上最后就会使用到 <code>sendfile()</code> 系统调用函数。</p>
+<p>Nginx 也支持零拷贝技术，一般默认是开启零拷贝技术，这样有利于提高文件传输的效率，是否开启零拷贝技术的配置如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">http &#123;</span><br><span class="line">...</span><br><span class="line">    sendfile on</span><br><span class="line">...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>sendfile 配置的具体意思:</p>
+<ul>
+<li>设置为 on 表示，使用零拷贝技术来传输文件：sendfile ，这样只需要 2 次上下文切换，和 2 次数据拷贝。</li>
+<li>设置为 off 表示，使用传统的文件传输技术：read + write，这时就需要 4 次上下文切换，和 4 次数据拷贝。</li>
+</ul>
+<p>如果是大文件很容易消耗非常多的PageCache，不推荐使用PageCache（或者说零拷贝），建议使用异步IO+直接IO。</p>
+<p>在 nginx 中，我们可以用如下配置，来根据文件的大小来使用不同的方式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">location /video/ &#123; </span><br><span class="line">    sendfile on; </span><br><span class="line">    aio on; </span><br><span class="line">    directio 1024m; </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当文件大小大于 <code>directio</code> 值后，使用「异步 I&#x2F;O + 直接 I&#x2F;O」，否则使用「零拷贝技术」。</p>
+<h4 id="零拷贝性能"><a href="#零拷贝性能" class="headerlink" title="零拷贝性能"></a>零拷贝性能</h4><p>如果用零拷贝和不用零拷贝来做一个文件服务器，来对比下他们的性能</p>
+<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Performance comparison: Traditional approach vs. zero copy</a></p>
+<table>
+<thead>
+<tr>
+<th align="left">File size</th>
+<th align="left">Normal file transfer (ms)</th>
+<th align="left">transferTo (ms)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">7MB</td>
+<td align="left">156</td>
+<td align="left">45</td>
+</tr>
+<tr>
+<td align="left">21MB</td>
+<td align="left">337</td>
+<td align="left">128</td>
+</tr>
+<tr>
+<td align="left">63MB</td>
+<td align="left">843</td>
+<td align="left">387</td>
+</tr>
+<tr>
+<td align="left">98MB</td>
+<td align="left">1320</td>
+<td align="left">617</td>
+</tr>
+<tr>
+<td align="left">200MB</td>
+<td align="left">2124</td>
+<td align="left">1150</td>
+</tr>
+<tr>
+<td align="left">350MB</td>
+<td align="left">3631</td>
+<td align="left">1762</td>
+</tr>
+<tr>
+<td align="left">700MB</td>
+<td align="left">13498</td>
+<td align="left">4422</td>
+</tr>
+<tr>
+<td align="left">1GB</td>
+<td align="left">18399</td>
+<td align="left">8537</td>
+</tr>
+</tbody></table>
+<h2 id="DMA"><a href="#DMA" class="headerlink" title="DMA"></a>DMA</h2><p>什么是 DMA 技术？简单理解就是，<strong>在进行 I&#x2F;O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，这样 CPU 就可以去处理别的事务</strong></p>
+<h2 id="RDMA"><a href="#RDMA" class="headerlink" title="RDMA"></a>RDMA</h2><p>remote DMA</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/66885">https://www.atatech.org/articles/66885</a></p>
 <p><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1087455">https://cloud.tencent.com/developer/article/1087455</a></p>
 <p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/xiaolincoding/p/13719610.html">https://www.cnblogs.com/xiaolincoding/p/13719610.html</a></p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA">https://mp.weixin.qq.com/s/dZNjq05q9jMFYhJrjae_LA</a> 从Linux内存管理到零拷贝</p>
+<p><a target="_blank" rel="noopener" href="https://developer.ibm.com/articles/j-zerocopy/">Efficient data transfer through zero copy</a></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/272200286">CPU：一个故事看懂DMA</a></p>
 
       
     </div>
