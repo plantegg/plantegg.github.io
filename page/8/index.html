@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">186</span>
+          <span class="site-state-item-count">190</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">276</span>
+        <span class="site-state-item-count">282</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,593 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/" class="post-title-link" itemprop="url">一次海光物理机资源竞争压测的记录</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-03-07 17:30:03" itemprop="dateCreated datePublished" datetime="2021-03-07T17:30:03+08:00">2021-03-07</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="一次海光物理机资源竞争压测的记录"><a href="#一次海光物理机资源竞争压测的记录" class="headerlink" title="一次海光物理机资源竞争压测的记录"></a>一次海光物理机资源竞争压测的记录</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>问题描述如下</p>
+<blockquote>
+<p>sysbench 压200个服务节点(每个4c16G，总共800core), 发现qps不能线性增加（200节点比100节点好1.2倍而已)。</p>
+<p>如果压单个服务节点节点QPS 2.4万，CPU跑到390%（每个服务节点独占4个核），如果压200个服务节点（分布在16台64核的海光物理机上）平均每个服务节点节点QPS才1.2万。但是每个服务节点的CPU也跑到了390%左右。 现在的疑问就是为什么CPU跑上去了QPS打了个5折。</p>
+<p>机器集群为16*64core 为1024core，也就是每个服务节点独占4core还有冗余</p>
+</blockquote>
+<p>因为服务节点还需要通过LVS调用后端的多个MySQL集群，所以需要排除LVS、网络等链路瓶颈，然后找到根因是什么。</p>
+<h3 id="海光物理机CPU相关信息"><a href="#海光物理机CPU相关信息" class="headerlink" title="海光物理机CPU相关信息"></a>海光物理机CPU相关信息</h3><p>总共有16台如下的海光服务器</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br></pre></td><td class="code"><pre><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                64</span><br><span class="line">On-line CPU(s) list:   0-63</span><br><span class="line">Thread(s) per core:    2      //每个物理core有两个超线程</span><br><span class="line">Core(s) per socket:    16     //每路16个物理core</span><br><span class="line">Socket(s):             2      //2路</span><br><span class="line">NUMA node(s):          4</span><br><span class="line">Vendor ID:             HygonGenuine</span><br><span class="line">CPU family:            24</span><br><span class="line">Model:                 1</span><br><span class="line">Model name:            Hygon C86 5280 16-core Processor</span><br><span class="line">Stepping:              1</span><br><span class="line">CPU MHz:               2455.552</span><br><span class="line">CPU max MHz:           2500.0000</span><br><span class="line">CPU min MHz:           1600.0000</span><br><span class="line">BogoMIPS:              4999.26</span><br><span class="line">Virtualization:        AMD-V</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             64K</span><br><span class="line">L2 cache:              512K</span><br><span class="line">L3 cache:              8192K</span><br><span class="line">NUMA node0 CPU(s):     0-7,32-39</span><br><span class="line">NUMA node1 CPU(s):     8-15,40-47</span><br><span class="line">NUMA node2 CPU(s):     16-23,48-55</span><br><span class="line">NUMA node3 CPU(s):     24-31,56-63</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid extd_apicid amd_dcm aperfmperf pni pclmulqdq monitor ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpb hw_pstate sme ssbd sev ibpb vmmcall fsgsbase bmi1 avx2 smep bmi2 MySQLeed adx smap clflushopt sha_ni xsaveopt xsavec xgetbv1 xsaves clzero irperf xsaveerptr arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic v_vmsave_vmload vgif overflow_recov succor smca</span><br><span class="line"></span><br><span class="line">#numactl -H</span><br><span class="line">available: 4 nodes (0-3)</span><br><span class="line">node 0 cpus: 0 1 2 3 4 5 6 7 32 33 34 35 36 37 38 39</span><br><span class="line">node 0 size: 128854 MB</span><br><span class="line">node 0 free: 89350 MB</span><br><span class="line">node 1 cpus: 8 9 10 11 12 13 14 15 40 41 42 43 44 45 46 47</span><br><span class="line">node 1 size: 129019 MB</span><br><span class="line">node 1 free: 89326 MB</span><br><span class="line">node 2 cpus: 16 17 18 19 20 21 22 23 48 49 50 51 52 53 54 55</span><br><span class="line">node 2 size: 128965 MB</span><br><span class="line">node 2 free: 86542 MB</span><br><span class="line">node 3 cpus: 24 25 26 27 28 29 30 31 56 57 58 59 60 61 62 63</span><br><span class="line">node 3 size: 129020 MB</span><br><span class="line">node 3 free: 98227 MB</span><br><span class="line">node distances:</span><br><span class="line">node   0   1   2   3</span><br><span class="line">  0:  10  16  28  22</span><br><span class="line">  1:  16  10  22  28</span><br><span class="line">  2:  28  22  10  16</span><br><span class="line">  3:  22  28  16  10</span><br></pre></td></tr></table></figure>
+
+<p>AMD Zen 架构的CPU是胶水核，也就是把两个die拼一块封装成一块CPU，所以一块CPU内跨die之间延迟还是很高的。</p>
+<h2 id="验证是否是上下游的瓶颈"><a href="#验证是否是上下游的瓶颈" class="headerlink" title="验证是否是上下游的瓶颈"></a>验证是否是上下游的瓶颈</h2><p>需要先分析问题是否在LVS调用后端的多个MySQL集群上。</p>
+<p>先写一个简单的测试程序：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line">#cat Test.java</span><br><span class="line">import java.sql.Connection;</span><br><span class="line">import java.sql.DriverManager;</span><br><span class="line">import java.sql.ResultSet;</span><br><span class="line">import java.sql.SQLException;</span><br><span class="line">import java.sql.Statement;</span><br><span class="line">/*</span><br><span class="line"> * 目录：/home/admin/jdbc</span><br><span class="line"> *</span><br><span class="line"> * 编译：</span><br><span class="line"> *  javac -cp /home/admin/lib/*:. Test.java</span><br><span class="line"> *</span><br><span class="line"> *  运行：</span><br><span class="line"> *   java -cp /home/admin/MySQL-server/lib/*:. Test &quot;jdbc:mysql://172.16.160.1:4261/qc_pay_0xwd_0002&quot; &quot;myhhzi0d&quot; &quot;jOXaC1Lbif-k&quot; &quot;select count(*) from pay_order where user_id=1169257092557639682 and order_no=&#x27;201909292111250000102&#x27;&quot; &quot;100&quot;</span><br><span class="line"> *   */</span><br><span class="line">public class Test &#123;</span><br><span class="line"></span><br><span class="line">    public static void main(String args[]) throws NumberFormatException, InterruptedException, ClassNotFoundException &#123;</span><br><span class="line">        Class.forName(&quot;com.mysql.jdbc.Driver&quot;);</span><br><span class="line">        String url = args[0];</span><br><span class="line">        String user = args[1];</span><br><span class="line">        String pass = args[2];</span><br><span class="line">        String sql = args[3];</span><br><span class="line">        String interval = args[4];</span><br><span class="line">        try &#123;</span><br><span class="line">            Connection conn = DriverManager.getConnection(url, user, pass);</span><br><span class="line">            while (true) &#123;</span><br><span class="line">                long start = System.currentTimeMillis();</span><br><span class="line">                for(int i=0; i&lt;1000; ++i)&#123;</span><br><span class="line">                    Statement stmt = conn.createStatement();</span><br><span class="line">                    ResultSet rs = stmt.executeQuery(sql);</span><br><span class="line">                    while (rs.next()) &#123;</span><br><span class="line">                    &#125;</span><br><span class="line">                    rs.close();</span><br><span class="line">                    stmt.close();</span><br><span class="line">                    Thread.sleep(Long.valueOf(interval));</span><br><span class="line">                &#125;</span><br><span class="line">                long end = System.currentTimeMillis();</span><br><span class="line">                System.out.println(&quot;rt : &quot; + (end - start));</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; catch (SQLException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>然后通过传入不同的jdbc参数跑2组测试:</p>
+<ol>
+<li>走服务节点执行指定id的点查； </li>
+<li>直接从服务节点节点连MySQL指定id点查</li>
+</ol>
+<p>上述2组测试同时跑在三组场景下：</p>
+<ul>
+<li>A) 服务节点和MySQL都没有压力； </li>
+<li>B) 跑1、2测试的服务节点没有压力，但是sysbench 在压别的服务节点，这样后端的MySQL是有sysbench压侧压力，LVS也有流量压力的； </li>
+<li>C) sysbench压所有服务节点, 包含运行 1、2测试程序节点）</li>
+</ul>
+<p>这样2组测试3个场景组合可以得到6组响应时间的测试数据</p>
+<p>从最终得到6组数据来看可以排除链路以及MySQL的问题，瓶颈似乎还是在服务节点上</p>
+<p><img src="/images/oss/595bc15fdd72860f2d1875c86384a14b.png" alt="image.png"></p>
+<p>单独压一个服务节点节点并在上面跑测试，服务节点 CPU被压到 390%(每个服务节点 节点固定绑到4核), 这个时候整个宿主机压力不大，但是这四个核比较紧张了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#cat rt.log  | awk &#x27;&#123; print $3 &#125;&#x27;  | awk &#x27;&#123;if(min==&quot;&quot;)&#123;min=max=$1&#125;; if($1&gt;max) &#123;max=$1&#125;; if($1&lt;min) &#123;min=$1&#125;; total+=$1; count+=1&#125; END &#123;print &quot;avg &quot; total/count,&quot; | max &quot;max,&quot; | min &quot; min, &quot;| count &quot;, count&#125;&#x27; ; cat MySQL.log  | awk &#x27;&#123; print $3 &#125;&#x27;  | awk &#x27;&#123;if(min==&quot;&quot;)&#123;min=max=$1&#125;; if($1&gt;max) &#123;max=$1&#125;; if($1&lt;min) &#123;min=$1&#125;; total+=$1; count+=1&#125; END &#123;print &quot;avg &quot; total/count,&quot; | max &quot;max,&quot; | min &quot; min, &quot;| count &quot;, count &#125;&#x27;;</span><br><span class="line">avg 2589.13  | max 3385  | min 2502 | count  69</span><br><span class="line">avg 1271.07  | max 1405  | min 1254 | count  141</span><br><span class="line"></span><br><span class="line">[root@d42a01107.cloud.a02.am78 /root]</span><br><span class="line">#taskset -pc 48759</span><br><span class="line">pid 48759&#x27;s current affinity list: 19,52-54</span><br></pre></td></tr></table></figure>
+
+<p>通过这6组测试数据可以看到，只有在整个系统都有压力（服务节点所在物理机、LVS、MySQL）的时候rt飙升最明显（C组数据），如果只是LVS、MySQL有压力，服务节点没有压力的时候可以看到数据还是很好的（B组数据）</p>
+<h2 id="分析宿主机资源竞争"><a href="#分析宿主机资源竞争" class="headerlink" title="分析宿主机资源竞争"></a>分析宿主机资源竞争</h2><h3 id="perf分析"><a href="#perf分析" class="headerlink" title="perf分析"></a>perf分析</h3><p>只压单个服务节点</p>
+<p><img src="/images/oss/7aea9045e50794fadc0439ee806f2496.png" alt="image.png"></p>
+<p><img src="/images/oss/86c3f14887345a1d5f08cae985816564.png" alt="image.png"></p>
+<p><strong>从以上截图，可以看到关键的 insn per cycle 能到0.51和0.66（这个数值越大性能越好）</strong></p>
+<p>如果同时压物理机上的所有服务节点</p>
+<p><img src="/images/oss/02f47474c612c2bf6e612efea3ab5de3.png" alt="image.png"></p>
+<p><img src="/images/oss/c3d90e077d00a7a3db54770d9eea2dbb.png" alt="image.png"></p>
+<p><strong>从以上截图，可以看到关键的 insn per cycle 能降到了0.27和0.31（这个数值越大性能越好），基本相当于单压的5折</strong></p>
+<p>通过 perf list 找出所有Hardware event，然后对他们进行perf:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo perf stat -e branch-instructions,branch-misses,cache-references,cpu-cycles,instructions,stalled-cycles-backend,stalled-cycles-frontend,L1-dcache-load-misses,L1-dcache-loads,L1-dcache-prefetches,L1-icache-load-misses,L1-icache-loads,branch-load-misses,branch-loads,dTLB-load-misses,dTLB-loads,iTLB-load-misses,iTLB-loads -a -- `pidof java`</span><br></pre></td></tr></table></figure>
+
+<h3 id="尝试不同的绑核后的一些数据"><a href="#尝试不同的绑核后的一些数据" class="headerlink" title="尝试不同的绑核后的一些数据"></a>尝试不同的绑核后的一些数据</h3><p>通过以上perf数据以及numa结构，尝试将不同服务进程绑定到指定的4个核上</p>
+<p>试了以下三种绑核的办法：</p>
+<p>1）docker swarm随机绑（<strong>以上测试都是用的这种默认方案</strong>）；</p>
+<p>2）一个服务节点绑连续4个core,这4个core都在同一个node； </p>
+<p>3）一个服务节点绑4个core，这个4个core都在在同一个node，同时尽量HT在一起，也就是0，1，32，33 ； 2，3，34，35 这种绑法 </p>
+<p><strong>结果是绑法2性能略好</strong>. </p>
+<p>如果是绑法2，压单个服务节点 QPS能到2.3万；绑法1和3，压单个服务节点性能差别不明显，都是2万左右。 </p>
+<h2 id="尝试将Java进程开启HugePage"><a href="#尝试将Java进程开启HugePage" class="headerlink" title="尝试将Java进程开启HugePage"></a>尝试将Java进程开启HugePage</h2><p>从perf数据来看压满后tlab miss比较高，得想办法降低这个值</p>
+<h3 id="修改JVM启动参数"><a href="#修改JVM启动参数" class="headerlink" title="修改JVM启动参数"></a>修改JVM启动参数</h3><p>JVM启动参数增加如下三个(-XX:LargePageSizeInBytes&#x3D;2m, 这个一定要，有些资料没提这个，在我的JDK8.0环境必须要)：</p>
+<blockquote>
+<p>-XX:+UseLargePages -XX:LargePageSizeInBytes&#x3D;2m -XX:+UseHugeTLBFS</p>
+</blockquote>
+<h3 id="修改机器系统配置"><a href="#修改机器系统配置" class="headerlink" title="修改机器系统配置"></a>修改机器系统配置</h3><p>设置HugePage的大小</p>
+<blockquote>
+<p>cat &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages</p>
+</blockquote>
+<p>nr_hugepages设置多大参考如下计算方法：</p>
+<blockquote>
+<p>If you are using the option <code>-XX:+UseSHM</code> or <code>-XX:+UseHugeTLBFS</code>, then specify the number of large pages. In the following example, 3 GB of a 4 GB system are reserved for large pages (assuming a large page size of 2048kB, then 3 GB &#x3D; 3 * 1024 MB &#x3D; 3072 MB &#x3D; 3072 * 1024 kB &#x3D; 3145728 kB and 3145728 kB &#x2F; 2048 kB &#x3D; 1536):</p>
+<p>echo 1536 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages </p>
+</blockquote>
+<p>透明大页是没有办法减少系统tlab，tlab是对应于进程的，系统分给进程的透明大页还是由物理上的4K page组成。</p>
+<p>Java进程用上HugePages后iTLB-load-misses从80%下降到了14%左右, dTLB也从30%下降到了20%，但是ipc变化不明显，QPS有不到10%的增加(不能确定是不是抖动所致)</p>
+<p><img src="/images/oss/f6882f4c671b4c4b46feb01aa5e272fd.png" alt="image.png"></p>
+<p>在公有云ecs虚拟机上测试对性能没啥帮助，实际看到用掉的HuagPage不多，如果&#x2F;proc&#x2F;sys&#x2F;vm&#x2F;nr_hugepages 设置比较大的话JVM会因为内存不足起不来，两者内存似乎是互斥的</p>
+<h2 id="用sysbench验证一下海光服务器的多core能力"><a href="#用sysbench验证一下海光服务器的多core能力" class="headerlink" title="用sysbench验证一下海光服务器的多core能力"></a>用sysbench验证一下海光服务器的多core能力</h2><p>Intel E5 2682 2.5G VS hygon 7280 2.0G（Zen1）</p>
+<p><img src="/images/951413iMgBlog/image-20210813095409553.png" alt="image-20210813095409553"></p>
+<p><img src="/images/951413iMgBlog/image-20210813095757299.png" alt="image-20210813095757299"></p>
+<p>由以上两个测试结果可以看出单核能力hygon 7280 强于 Intel 2682，但是hygon超线程能力还是没有任何提升。Intel用超线程计算能将耗时从109秒降到74秒。但是hygon(Zen1) 只是从89秒降到了87秒，基本没有变化。</p>
+<p>再补充一个Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz 对比数据 </p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br></pre></td><td class="code"><pre><span class="line">#taskset -c 1,53 /usr/bin/sysbench --num-threads=2 --test=cpu --cpu-max-prime=50000 run</span><br><span class="line">sysbench 0.5:  multi-threaded system evaluation benchmark</span><br><span class="line"></span><br><span class="line">Running the test with following options:</span><br><span class="line">Number of threads: 2</span><br><span class="line">Random number generator seed is 0 and will be ignored</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">Primer numbers limit: 50000</span><br><span class="line"></span><br><span class="line">Threads started!</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">General statistics:</span><br><span class="line">    total time:                          48.5571s</span><br><span class="line">    total number of events:              10000</span><br><span class="line">    total time taken by event execution: 97.0944s</span><br><span class="line">    response time:</span><br><span class="line">         min:                                  8.29ms</span><br><span class="line">         avg:                                  9.71ms</span><br><span class="line">         max:                                 20.88ms</span><br><span class="line">         approx.  95 percentile:               9.71ms</span><br><span class="line"></span><br><span class="line">Threads fairness:</span><br><span class="line">    events (avg/stddev):           5000.0000/2.00</span><br><span class="line">    execution time (avg/stddev):   48.5472/0.01</span><br><span class="line"></span><br><span class="line">#taskset -c 1 /usr/bin/sysbench --num-threads=1 --test=cpu --cpu-max-prime=50000 run</span><br><span class="line">sysbench 0.5:  multi-threaded system evaluation benchmark</span><br><span class="line"></span><br><span class="line">Running the test with following options:</span><br><span class="line">Number of threads: 1</span><br><span class="line">Random number generator seed is 0 and will be ignored</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">Primer numbers limit: 50000</span><br><span class="line"></span><br><span class="line">Threads started!</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">General statistics:</span><br><span class="line">    total time:                          83.2642s</span><br><span class="line">    total number of events:              10000</span><br><span class="line">    total time taken by event execution: 83.2625s</span><br><span class="line">    response time:</span><br><span class="line">         min:                                  8.27ms</span><br><span class="line">         avg:                                  8.33ms</span><br><span class="line">         max:                                 10.03ms</span><br><span class="line">         approx.  95 percentile:               8.36ms</span><br><span class="line"></span><br><span class="line">Threads fairness:</span><br><span class="line">    events (avg/stddev):           10000.0000/0.00</span><br><span class="line">    execution time (avg/stddev):   83.2625/0.00</span><br><span class="line"></span><br><span class="line">#lscpu</span><br><span class="line">Architecture:          x86_64</span><br><span class="line">CPU op-mode(s):        32-bit, 64-bit</span><br><span class="line">Byte Order:            Little Endian</span><br><span class="line">CPU(s):                104</span><br><span class="line">On-line CPU(s) list:   0-103</span><br><span class="line">Thread(s) per core:    2</span><br><span class="line">Core(s) per socket:    26</span><br><span class="line">Socket(s):             2</span><br><span class="line">NUMA node(s):          2</span><br><span class="line">Vendor ID:             GenuineIntel</span><br><span class="line">CPU family:            6</span><br><span class="line">Model:                 85</span><br><span class="line">Model name:            Intel(R) Xeon(R) Platinum 8269CY CPU @ 2.50GHz</span><br><span class="line">Stepping:              7</span><br><span class="line">CPU MHz:               3200.097</span><br><span class="line">CPU max MHz:           3800.0000</span><br><span class="line">CPU min MHz:           1200.0000</span><br><span class="line">BogoMIPS:              4998.89</span><br><span class="line">Virtualization:        VT-x</span><br><span class="line">L1d cache:             32K</span><br><span class="line">L1i cache:             32K</span><br><span class="line">L2 cache:              1024K</span><br><span class="line">L3 cache:              36608K</span><br><span class="line">NUMA node0 CPU(s):     0-25,52-77</span><br><span class="line">NUMA node1 CPU(s):     26-51,78-103</span><br><span class="line">Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch ida arat epb invpcid_single pln pts dtherm spec_ctrl ibpb_support tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm mpx rdt avx512f avx512dq rdseed adx smap clflushopt avx512cdavx512bw avx512vl xsaveopt xsavec xgetbv1 cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local cat_l3 mba</span><br></pre></td></tr></table></figure>
+
+<p>用sysbench 测试Hygon C86 5280 16-core Processor，分别1、8、16、24、32、40、48、56、64 个thread，32个thread前都是完美的线性增加，32core之后基本不增长了，这个应该能说明这个服务器就是32core的能力</p>
+<blockquote>
+<p>sysbench –threads&#x3D;1 –cpu-max-prime&#x3D;50000 cpu run</p>
+</blockquote>
+<p><img src="/images/oss/f86cd786f3a8297078579b547f78ec81.png" alt="image.png"></p>
+<p>对比下intel的 Xeon 104core，也是物理52core，但是性能呈现完美线性</p>
+<p><img src="/images/oss/8086f47b955d8d951e4dd4c7fe5e135e.png" alt="image.png"></p>
+<h3 id="openssl场景多核能力验证"><a href="#openssl场景多核能力验证" class="headerlink" title="openssl场景多核能力验证"></a>openssl场景多核能力验证</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">openssl speed aes-256-ige -multi N</span><br></pre></td></tr></table></figure>
+
+<p>intel 52 VS 26，可以看到52个线程的性能大概是26个的1.8倍</p>
+<p><img src="/images/oss/4534d8e5901cc812aa54e610d1386445.png" alt="image.png"></p>
+<p>intel 104 VS 52 线程，性能还能提升1.4倍</p>
+<p><img src="/images/oss/6583f52e03b9753969e52d6a8b211725.png" alt="image.png"></p>
+<p>海光32 VS 16, 性能能提升大概1.8倍，跟intel一致</p>
+<p><img src="/images/oss/41e7f230ec27653c1b5ae5287971cd3a.png" alt="image.png"></p>
+<p>海光64 VS 32, 性能能提升大概1.2倍</p>
+<p><img src="/images/oss/2ad45a252392a06fa64d7475848e5601.png" alt="image.png"></p>
+<p>总结下就是，在物理core数以内的线程数intel和海光性能基本增加一致；但如果超过物理core数开始使用HT后海光明显相比Intel差了很多。</p>
+<p>intel超线程在openssl场景下性能能提升40%，海光就只能提升20%了。</p>
+<h3 id="对比一下鲲鹏920-ARM架构的芯片"><a href="#对比一下鲲鹏920-ARM架构的芯片" class="headerlink" title="对比一下鲲鹏920 ARM架构的芯片"></a>对比一下鲲鹏920 ARM架构的芯片</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">#numactl -H</span><br><span class="line">available: 1 nodes (0)</span><br><span class="line">node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95</span><br><span class="line">node 0 size: 773421 MB</span><br><span class="line">node 0 free: 756092 MB</span><br><span class="line">node distances:</span><br><span class="line">node   0</span><br><span class="line">  0:  10</span><br></pre></td></tr></table></figure>
+
+<p>96核一起跑openssl基本就是1核的96倍，完美线性，这是因为鲲鹏就没有超线程，都是物理核。如果并发增加到192个，性能和96个基本一样的。</p>
+<p><img src="/images/oss/be30ab94eddc37f1d90c53204a0ed215.png" alt="image.png"></p>
+<h3 id="用Sysbench直接压MySQL-oltp-read-only的场景"><a href="#用Sysbench直接压MySQL-oltp-read-only的场景" class="headerlink" title="用Sysbench直接压MySQL oltp_read_only的场景"></a>用Sysbench直接压MySQL oltp_read_only的场景</h3><p><img src="/images/oss/89c7a0228c45f79b688710206ba9d414.png" alt="image.png"></p>
+<p>从1到10个thread的时候完美呈现线性，到20个thread就只比10个thread增加50%了，30thread比20增加40%，过了32个thread后增加10个core性能加不到10%了。</p>
+<p>在32thread前，随着并发的增加 IPC也有所减少，这也是导致thread翻倍性能不能翻倍的一个主要原因。</p>
+<p>基本也和openssl 场景一致，海光的HT基本可以忽略，做的不是很好。超过32个thread后（物理core数）性能增加及其微弱</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>海光的一个core只有一个fpu，所以超线程算浮点完全没用.</p>
+<blockquote>
+<p>FP处理所有矢量操作。简单的整数向量运算（例如shift，add）都可以在一个周期内完成，是AMD以前架构延迟的一半。<strong>基本浮点数学运算具有三个周期的延迟</strong>，其中包括乘法（用于双精度需要一个额外周期）。<strong>融合乘加是五个周期。</strong></p>
+<p>FP具有用于128位加载操作的单个管道。实际上，整个FP端都针对128位操作进行了优化。 Zen支持所有最新指令，例如SSE和AVX1&#x2F;2。 256位AVX的设计方式是可以将它们作为两个独立的128位操作来执行。 Zen通过将这些指令作为两个操作。也就是说，<strong>Zen将256位操作分为两个µOP</strong>。同样，存储也是在128位块上完成的，从而使256位加载的有效吞吐量为每两个周期一个存储。这些管道之间的平衡相当好，因此大多数操作将安排至少两个管道，以保持每个周期至少一个这样的指令的吞吐量。暗示着，**256位操作将占用两倍的资源来完成操作（即2x寄存器，调度程序和端口）。这是AMD采取的一种折衷方案，有助于节省芯片空间和功耗。**相比之下，英特尔的竞争产品Skylake确实具有专用的256位电路。还应注意的是，英特尔的现代服务器级型号进一步扩展了此功能，以纳入支持AVX-512的专用512位电路，而性能最高的型号则具有二个专用的AVX-512单元。</p>
+<p>此外，Zen还支持SHA和AES（并实现了2个AES单元），以提高加密性能。这些单位可以在浮点调度程序的管道0和1上找到。</p>
+<p>这个也是为什么浮点比Intel X86会弱的原因。</p>
+</blockquote>
+<h3 id="一些其他对比结论"><a href="#一些其他对比结论" class="headerlink" title="一些其他对比结论"></a>一些其他对比结论</h3><ul>
+<li>对纯CPU 运算场景，并发不超过物理core时，比如Prime运算，比如DRDS(CPU bound，IO在网络，可以加并发弥补)<ul>
+<li>海光的IPC能保持稳定；</li>
+<li>intel的IPC有所下降，但是QPS在IPC下降后还能完美线性</li>
+</ul>
+</li>
+<li>在openssl和MySQL oltp_read_only场景下<ul>
+<li>如果并发没超过物理core数时，海光和Intel都能随着并发的翻倍性能能增加80%</li>
+<li>如果并发超过物理core数后，Intel还能随着并发的翻倍性能增加50%，海光增加就只有20%了</li>
+<li>简单理解在这两个场景下Intel的HT能发挥半个物理core的作用，海光的HT就只能发挥0.2个物理core的作用了</li>
+</ul>
+</li>
+<li>海光5280&#x2F;7280 是Zen1&#x2F;Zen2的AMD 架构，每个core只有一个fpu，综上在多个场景下HT基本上都可以忽略</li>
+</ul>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87(FT2500)%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://dino.ciuffetti.info/2011/07/howto-java-huge-pages-linux/">How to use Huge Pages with Java and Linux</a>这个资料中提到了Java使用HugePage的时候启动进程的用户权限问题，在我的docker容器中用的admin启动的进程，测试验证是不需要按资料中的设置。</p>
+<p><a href="https://plantegg.github.io/2019/12/16/Intel%20PAUSE%E6%8C%87%E4%BB%A4%E5%8F%98%E5%8C%96%E6%98%AF%E5%A6%82%E4%BD%95%E5%BD%B1%E5%93%8D%E8%87%AA%E6%97%8B%E9%94%81%E4%BB%A5%E5%8F%8AMySQL%E7%9A%84%E6%80%A7%E8%83%BD%E7%9A%84/">Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的</a></p>
+<p><a target="_blank" rel="noopener" href="https://bbs.huaweicloud.com/blogs/146367">华为TaiShan服务器ARMNginx应用调优案例 大量绑核、中断、Numa等相关调优信息</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/03/05/MacOS%E4%B8%8B%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8iTerm2%E8%AE%BF%E9%97%AE%E6%B0%B4%E6%9C%A8%E7%A4%BE%E5%8C%BA/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021/03/05/MacOS%E4%B8%8B%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8iTerm2%E8%AE%BF%E9%97%AE%E6%B0%B4%E6%9C%A8%E7%A4%BE%E5%8C%BA/" class="post-title-link" itemprop="url">macOS下如何使用iTerm2访问水木社区</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-03-05 17:30:03" itemprop="dateCreated datePublished" datetime="2021-03-05T17:30:03+08:00">2021-03-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="macOS下如何使用iTerm2访问水木社区"><a href="#macOS下如何使用iTerm2访问水木社区" class="headerlink" title="macOS下如何使用iTerm2访问水木社区"></a>macOS下如何使用iTerm2访问水木社区</h1><p>关键字： macOS、iTerm 、Dracula、ssh、bbs.newsmth.net</p>
+<p>windows下有各种Term软件来帮助我们通过ssh访问bbs.newsmth.net, 但是工作环境切换到macOS后发现FTerm、CTerm这样的工具都没有对应的了。但是term下访问 bbs.newsmth.net 简直是太爽了，所以本文希望解决这个问题。</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>ssh 访问 bbs.newsmth.net 是没问题的，但是<strong>要解决配色和字符编码问题</strong></p>
+<h3 id="解决编码"><a href="#解决编码" class="headerlink" title="解决编码"></a>解决编码</h3><p>在iTerm2的配置中增加一个profile，如下图 smth，主要是改字符编码集为 GB 18030，然后修改配色方案，我喜欢的Dracula不适合SMTH，十大完全看不了。</p>
+<p><img src="/images/951413iMgBlog/image-20210602133111201.png" alt="image-20210602133111201"></p>
+<p>执行脚本如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#cat /usr/local/bin/smth</span><br><span class="line">echo -e &quot;\033]50;SetProfile=smth\a&quot;          //切换到smth的profile,也就是切换到了 GB18030</span><br><span class="line">sshpass -p&#x27;密码&#x27; ssh -o ServerAliveInterval=60 水木id@bbs.newsmth.net</span><br><span class="line">echo -e &quot;\033]50;SetProfile=Default\a&quot;       //切换回UTF8</span><br></pre></td></tr></table></figure>
+
+<p>SetProfile&#x3D;smth用来解决profile切换，连smth term前切换成GB 18030，断开的时候恢复成UTF-8，要不然的话正常工作的命令行就乱码了。</p>
+<h3 id="解决配色问题"><a href="#解决配色问题" class="headerlink" title="解决配色问题"></a>解决配色问题</h3><p>然后还是在profile里面把smth的配色方案改成：Tango Dark, 一切简直是完美，工作灌水两不误，别人还发现不了</p>
+<h2 id="最终效果"><a href="#最终效果" class="headerlink" title="最终效果"></a>最终效果</h2><p>目录（右边是工作窗口）：</p>
+<p><img src="/images/oss/0265ed7a728bfdd6be940d838fc1feaf.png" alt="image.png"></p>
+<p>十大，这个十大颜色和右边工作模式的配色方案不一样</p>
+<p><img src="/images/oss/252b9295375f6e6078278a6e64e1d68c.png" alt="image.png"></p>
+<p>断开后恢复成 Dracula 配色和UTF-8编码，不影响工作，别的工作tab也还是正常使用utf8</p>
+<p><img src="/images/oss/cf8912c0634182b44fa92eeb9f854362.png" alt="image.png"></p>
+<p>别的term网站也是类似，比如小百合、byr、ptt等</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/02/14/TCP%E7%96%91%E9%9A%BE%E9%97%AE%E9%A2%98%E6%A1%88%E4%BE%8B%E6%B1%87%E6%80%BB/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021/02/14/TCP%E7%96%91%E9%9A%BE%E9%97%AE%E9%A2%98%E6%A1%88%E4%BE%8B%E6%B1%87%E6%80%BB/" class="post-title-link" itemprop="url">TCP疑难问题案例汇总</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-02-14 13:30:03" itemprop="dateCreated datePublished" datetime="2021-02-14T13:30:03+08:00">2021-02-14</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="TCP疑难问题案例汇总"><a href="#TCP疑难问题案例汇总" class="headerlink" title="TCP疑难问题案例汇总"></a>TCP疑难问题案例汇总</h1><p>碰到各种奇葩的TCP相关问题，所以汇总记录一下。分析清楚这些问题的所有来龙去脉，就能帮你在TCP知识体系里建立几个坚固的抓手，让TCP知识慢慢在抓手之间生长和互通</p>
+<h2 id="服务不响应的现象或者奇怪异常的原因分析"><a href="#服务不响应的现象或者奇怪异常的原因分析" class="headerlink" title="服务不响应的现象或者奇怪异常的原因分析"></a>服务不响应的现象或者奇怪异常的原因分析</h2><p> <a href="/2021/02/10/%E4%B8%80%E4%B8%AA%E9%BB%91%E7%9B%92%E7%A8%8B%E5%BA%8F%E5%A5%87%E6%80%AA%E7%9A%84%E8%A1%8C%E4%B8%BA%E5%88%86%E6%9E%90/">一个黑盒程序奇怪行为的分析</a> listen端口上很快就全连接队列溢出了，导致整个程序不响应了</p>
+<p><a href="/2020/11/02/%E4%B8%BE%E4%B8%89%E5%8F%8D%E4%B8%80--%E4%BB%8E%E7%90%86%E8%AE%BA%E7%9F%A5%E8%AF%86%E5%88%B0%E5%AE%9E%E9%99%85%E9%97%AE%E9%A2%98%E7%9A%84%E6%8E%A8%E5%AF%BC/">举三反一–从理论知识到实际问题的推导</a> 服务端出现大量CLOSE_WAIT 个数正好 等于somaxconn（调整somaxconn大小后 CLOSE_WAIT 也会跟着变成一样的值）</p>
+<p><a href="/2020/11/18/TCP%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/">活久见，TCP连接互串了</a>  应用每过一段时间总是会抛出几个连接异常的错误，需要查明原因。排查后发现是TCP连接互串了，这个案例实在是很珍惜，所以记录一下。</p>
+<p> <a href="/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">如何创建一个自己连自己的TCP连接</a></p>
+<h2 id="传输速度分析"><a href="#传输速度分析" class="headerlink" title="传输速度分析"></a>传输速度分析</h2><p>案例：<a href="/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">TCP传输速度案例分析</a>（长肥网络、rt升高、delay ack的影响等）</p>
+<p>原理：<a href="/2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">就是要你懂TCP–性能和发送接收Buffer的关系：发送窗口大小(Buffer)、接收窗口大小(Buffer)对TCP传输速度的影响，以及怎么观察窗口对传输速度的影响。BDP、RT、带宽对传输速度又是怎么影响的</a></p>
+<p><a href="/2018/06/14/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84TCP%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98/">就是要你懂TCP–最经典的TCP性能问题 Nagle和Delay ack</a></p>
+<p><a href="/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E5%A4%A7%E5%85%A8/">就是要你懂TCP–性能优化大全</a></p>
+<h2 id="TCP队列问题以及连接数"><a href="#TCP队列问题以及连接数" class="headerlink" title="TCP队列问题以及连接数"></a>TCP队列问题以及连接数</h2><p> <a href="/2020/11/30/%E4%B8%80%E5%8F%B0%E6%9C%BA%E5%99%A8%E4%B8%8A%E6%9C%80%E5%A4%9A%E8%83%BD%E5%88%9B%E5%BB%BA%E5%A4%9A%E5%B0%91%E4%B8%AATCP%E8%BF%9E%E6%8E%A5/">到底一台服务器上最多能创建多少个TCP连接</a></p>
+<p> <a href="/2019/08/31/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP%E9%98%9F%E5%88%97--%E9%80%9A%E8%BF%87%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%B1%95%E7%A4%BA%E9%97%AE%E9%A2%98/">就是要你懂TCP队列–通过实战案例来展示问题</a></p>
+<p> <a href="/2017/06/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E5%8D%8A%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97%E5%92%8C%E5%85%A8%E8%BF%9E%E6%8E%A5%E9%98%9F%E5%88%97/">就是要你懂TCP–半连接队列和全连接队列</a></p>
+<p> <a href="/2017/06/02/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E8%BF%9E%E6%8E%A5%E5%92%8C%E6%8F%A1%E6%89%8B/">就是要你懂TCP–握手和挥手</a></p>
+<h2 id="防火墙和reset定位分析"><a href="#防火墙和reset定位分析" class="headerlink" title="防火墙和reset定位分析"></a>防火墙和reset定位分析</h2><p>对ttl、identification等的运用</p>
+<p><a href="/2018/08/26/%E5%85%B3%E4%BA%8ETCP%E8%BF%9E%E6%8E%A5%E7%9A%84KeepAlive%E5%92%8Creset/">关于TCP连接的Keepalive和reset</a></p>
+<p><a href="/2019/11/06/%E8%B0%81%E5%8A%A8%E4%BA%86%E6%88%91%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">就是要你懂网络–谁动了我的TCP连接</a></p>
+<h2 id="TCP相关参数"><a href="#TCP相关参数" class="headerlink" title="TCP相关参数"></a>TCP相关参数</h2><p> <a href="/2020/01/26/TCP%E7%9B%B8%E5%85%B3%E5%8F%82%E6%95%B0%E8%A7%A3%E9%87%8A/">TCP相关参数解释</a></p>
+<p><a href="/2019/05/16/%E7%BD%91%E7%BB%9C%E9%80%9A%E4%B8%8D%E9%80%9A%E6%98%AF%E4%B8%AA%E5%A4%A7%E9%97%AE%E9%A2%98--%E5%8D%8A%E5%A4%9C%E9%B8%A1%E5%8F%AB/">网络通不通是个大问题–半夜鸡叫</a> </p>
+<p><a href="/2018/12/26/%E7%BD%91%E7%BB%9C%E4%B8%A2%E5%8C%85/">网络丢包</a></p>
+<h2 id="工具技巧篇"><a href="#工具技巧篇" class="headerlink" title="工具技巧篇"></a>工具技巧篇</h2><p> <a href="/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/">netstat定位性能案例</a></p>
+<p> [netstat timer keepalive explain](&#x2F;2017&#x2F;08&#x2F;28&#x2F;netstat –timer&#x2F;)</p>
+<p><a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/">就是要你懂网络监控–ss用法大全</a></p>
+<p><a href="/2019/06/21/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E6%8A%93%E5%8C%85--WireShark%E4%B9%8B%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%89%88tshark/">就是要你懂抓包–WireShark之命令行版tshark</a></p>
+<p>[通过tcpdump对Unix Domain Socket 进行抓包解析](&#x2F;2018&#x2F;01&#x2F;01&#x2F;通过tcpdump对Unix Socket 进行抓包解析&#x2F;)</p>
+<p><a href="/2017/12/07/%E5%A6%82%E4%BD%95%E8%BF%BD%E8%B8%AA%E7%BD%91%E7%BB%9C%E6%B5%81%E9%87%8F/">如何追踪网络流量</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/02/10/%E4%B8%80%E4%B8%AA%E9%BB%91%E7%9B%92%E7%A8%8B%E5%BA%8F%E5%A5%87%E6%80%AA%E7%9A%84%E8%A1%8C%E4%B8%BA%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021/02/10/%E4%B8%80%E4%B8%AA%E9%BB%91%E7%9B%92%E7%A8%8B%E5%BA%8F%E5%A5%87%E6%80%AA%E7%9A%84%E8%A1%8C%E4%B8%BA%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">一个黑盒程序奇怪行为的分析</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-02-10 10:30:03" itemprop="dateCreated datePublished" datetime="2021-02-10T10:30:03+08:00">2021-02-10</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="一个黑盒程序奇怪行为的分析"><a href="#一个黑盒程序奇怪行为的分析" class="headerlink" title="一个黑盒程序奇怪行为的分析"></a>一个黑盒程序奇怪行为的分析</h1><h2 id="问题描述："><a href="#问题描述：" class="headerlink" title="问题描述："></a>问题描述：</h2><blockquote>
+<p>从银行金主baba手里拿到一个区块链程序，监听4000，在我们的环境中4000端口上很快就全连接队列溢出了，导致整个程序不响应了。这个程序是黑盒子，没有源代码，但是在金主baba自己的环境运行正常（一样的OS）</p>
+</blockquote>
+<p>如下图所示：</p>
+<p><img src="/images/oss/623ca2f46084958efa447882cbb58e72.png" alt="image.png"></p>
+<p>ss -lnt 看到全连接队列增长到了39，但是netstat -ant找不到这39个连接，本来是想看看队列堆了这么多连接，都是哪些ip连过来的，实际看不到这就奇怪了</p>
+<p>同时验证过程发现我们的环境 4000端口上开了slb，也就是slb会不停滴探活4000端口，关掉slb探活后一切正常了。</p>
+<p>所以总结下来问题就是：</p>
+<ol>
+<li><p>为什么全连接队列里面的连接netstat看不到这些连接，但是ss能看到总数 </p>
+</li>
+<li><p>为什么关掉slb就正常了 </p>
+</li>
+<li><p>为什么应用不accept连接,也不close（应用是个黑盒子）</p>
+</li>
+</ol>
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><h3 id="为什么全连接队列里面的连接netstat-ss都看不到-ss能看到总数"><a href="#为什么全连接队列里面的连接netstat-ss都看不到-ss能看到总数" class="headerlink" title="为什么全连接队列里面的连接netstat&#x2F;ss都看不到(ss能看到总数)"></a>为什么全连接队列里面的连接netstat&#x2F;ss都看不到(ss能看到总数)</h3><p>这是因为这些连接都是探活连接，三次握手后很快被slb reset了，在OS层面这个连接已经被释放，所以肯定看不见。反过来想要是netstat能看见这个连接，那么它的状态是什么？ reset吗？tcp连接状态里肯定是没有reset状态的。</p>
+<p>ss看到的总数是指只要这个连接没有被accept，那么连接队列里就还有这个连接，通过ss也能看到连接队列数量。</p>
+<h4 id="为什么会产生这个错误理解–全连接队列里面的连接netstat一定要能看到？"><a href="#为什么会产生这个错误理解–全连接队列里面的连接netstat一定要能看到？" class="headerlink" title="为什么会产生这个错误理解–全连接队列里面的连接netstat一定要能看到？"></a>为什么会产生这个错误理解–全连接队列里面的连接netstat一定要能看到？</h4><p>那是因为正常情况都是能看到的，从没有考虑过握手后很快reset的情况。也没反问过如果能看到这个连接该是什么状态呢？</p>
+<h4 id="这个连接被reset后，kernel会将全连接队列数量减1吗？"><a href="#这个连接被reset后，kernel会将全连接队列数量减1吗？" class="headerlink" title="这个连接被reset后，kernel会将全连接队列数量减1吗？"></a>这个连接被reset后，kernel会将全连接队列数量减1吗？</h4><p>不会，按照我们的理解连接被reset释放后，那么kernel要释放全连接队列里面的这个连接，因为这些动作都是kernel负责，上层没法处理这个reset。实际上内核认为所有 listen 到的连接, 必须要 accept 走, 用户有权利知道存在过这么一个连接。</p>
+<p>也就是reset后，连接在内核层面释放了，所以netstat&#x2F;ss看不到，但是全连接队列里面的应用数不会减1，只有应用accept后队列才会减1，accept这个空连接后读写会报错。基本可以认为全连接队列溢出了，主要是应用accept太慢导致的。</p>
+<p>当应用从accept队列读取到已经被reset了的连接的时候应用层会得到一个报错信息。</p>
+<h4 id="什么时候连接状态变成-ESTABLISHED"><a href="#什么时候连接状态变成-ESTABLISHED" class="headerlink" title="什么时候连接状态变成 ESTABLISHED"></a>什么时候连接状态变成 ESTABLISHED</h4><p>三次握手成功就变成 ESTABLISHED 了，三次握手成功的第一是收到第三步的ack并且全连接队列没有满，不需要用户态来accept，如果握手第三步的时候OS发现全连接队列满了，这时OS会扔掉这个第三次握手ack，并重传握手第二步的syn+ack, 在OS端这个连接还是 SYN_RECV 状态的，但是client端是 ESTABLISHED状态的了。</p>
+<p>下面是在4000（tearbase）端口上<strong>全连接队列没满，但是应用不再accept了</strong>，nc用12346端口去连4000（tearbase）端口的结果</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -at |grep &quot;:12346 &quot;</span><br><span class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //server</span><br><span class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 ESTABLISHED //client</span><br><span class="line">[root@dcep-blockchain-1 cfl-sm2-sm3]# ss -lt</span><br><span class="line">State       Recv-Q Send-Q      Local Address:Port         Peer Address:Port   </span><br><span class="line">LISTEN      73     1024            *:terabase                 *:* </span><br></pre></td></tr></table></figure>
+
+<p>这是在4000（tearbase）端口上<strong>全连接队列满掉</strong>后，nc用12346端口去连4000（tearbase）端口的结果</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -at |grep &quot;:12346 &quot;  </span><br><span class="line">tcp   0      0 dcep-blockchai:terabase dcep-blockchain-1:12346 SYN_RECV    //server</span><br><span class="line">tcp   0      0 dcep-blockchain-1:12346 dcep-blockchai:terabase ESTABLISHED //client</span><br><span class="line"># ss -lt</span><br><span class="line">State       Recv-Q Send-Q      Local Address:Port       Peer Address:Port   </span><br><span class="line">LISTEN      1025   1024             *:terabase              *:* </span><br></pre></td></tr></table></figure>
+
+<h3 id="为什么关掉slb就正常了"><a href="#为什么关掉slb就正常了" class="headerlink" title="为什么关掉slb就正常了"></a>为什么关掉slb就正常了</h3><p>slb探活逻辑是向监听端口发起三次握手，握手成功后立即发送一个reset断开连接</p>
+<p>这是一个完整的探活过程：</p>
+<p><img src="/images/oss/b81dcbaea26a5130383d0bc8317fd3c5.png" alt="image.png"></p>
+<p>关掉就正常后要结合第三个问题来讲</p>
+<h3 id="为什么应用不accept连接-也不close（应用是个黑盒子）"><a href="#为什么应用不accept连接-也不close（应用是个黑盒子）" class="headerlink" title="为什么应用不accept连接,也不close（应用是个黑盒子）"></a>为什么应用不accept连接,也不close（应用是个黑盒子）</h3><p>因为应用是个黑盒子，看不到源代码，只能从行为来分析了</p>
+<p>从行为来看，这个应用在三次握手后，会主动给client发送一个12字节的数据，但是这个逻辑写在了accept主逻辑内部，一旦主动给client发12字节数据失败（比如这个连接reset了）那么一直卡在这里导致应用不再accept也不再close。</p>
+<p>正确的实现逻辑是，accept在一个单独的线程里，一旦accept到一个新连接，那么就开启一个新的线程来处理这个新连接的读写。accept线程专注accept。</p>
+<p>关掉slb后应用有机会发出这12个字节，然后accept就能继续了，否则就卡死了。</p>
+<h2 id="一些验证"><a href="#一些验证" class="headerlink" title="一些验证"></a>一些验证</h2><h3 id="nc测试连接4000端口"><a href="#nc测试连接4000端口" class="headerlink" title="nc测试连接4000端口"></a>nc测试连接4000端口</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"># nc -p 12346 dcep-blockchain-1 4000</span><br><span class="line"> //握手后4000返回的内容</span><br><span class="line"></span><br><span class="line">抓包：</span><br><span class="line">11:03:16.762547 IP dcep-blockchain-1.12346 &gt; dcep-blockchain-1.terabase: Flags [S], seq 397659761, win 43690, options [mss 65495,sackOK,TS val 2329725964 ecr 0,nop,wscale 7], length 0</span><br><span class="line">04:42:24.466211 IP dcep-blockchain-1.terabase &gt; dcep-blockchain-1.12346: Flags [S.], seq 4239354556, ack 397659762, win 43690, options [mss 65495,sackOK,TS val 2329725964 ecr 2329725964,nop,wscale 7], length 0</span><br><span class="line">11:03:16.762571 IP dcep-blockchain-1.12346 &gt; dcep-blockchain-1.terabase: Flags [.], ack 1, win 342, options [nop,nop,TS val 2329725964 ecr 2329725964], length 0</span><br><span class="line"></span><br><span class="line">----到这三次握手完毕，下面是隔了大概1.5ms，4000发了12字节给nc</span><br><span class="line">11:03:16.763893 IP dcep-blockchain-1.terabase &gt; dcep-blockchain-1.12346: Flags [P.], seq 1:13, ack 1, win 342, options [nop,nop,TS val 2329725966 ecr 2329725964], length 12</span><br><span class="line">11:03:16.763904 IP dcep-blockchain-1.12346 &gt; dcep-blockchain-1.terabase: Flags [.], ack 13, win 342, options [nop,nop,TS val 2329725966 ecr 2329725966], length 0</span><br></pre></td></tr></table></figure>
+
+<p>如果在上面的1.5ms之间nc  reset了这个连接，那么这12字节就发不出来了</p>
+<h3 id="握手后Server主动发数据的行为非常像MySQL-Server"><a href="#握手后Server主动发数据的行为非常像MySQL-Server" class="headerlink" title="握手后Server主动发数据的行为非常像MySQL Server"></a>握手后Server主动发数据的行为非常像MySQL Server</h3><p>MySQL Server在收到mysql client连接后会主动发送 Server Greeting、版本号、认证方式等给client</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">#nc -p 12345 127.0.0.1 3306</span><br><span class="line">J</span><br><span class="line">5.6.29�CuaV9v0xo�!</span><br><span class="line">                  qCHRrGRIJqvzmysql_native_password  </span><br><span class="line">                  </span><br><span class="line">#tcpdump -i any port 12345 -ennt</span><br><span class="line">tcpdump: verbose output suppressed, use -v or -vv for full protocol decode</span><br><span class="line">listening on any, link-type LINUX_SLL (Linux cooked), capture size 262144 bytes</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 76: 127.0.0.1.12345 &gt; 127.0.0.1.3306: Flags [S], seq 3186409724, win 43690, options [mss 65495,sackOK,TS val 3967896050 ecr 0,nop,wscale 7], length 0</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 76: 127.0.0.1.3306 &gt; 127.0.0.1.12345: Flags [S.], seq 4188709983, ack 3186409725, win 43690, options [mss 65495,sackOK,TS val 3967896051 ecr 3967896050,nop,wscale 7], length 0</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 68: 127.0.0.1.12345 &gt; 127.0.0.1.3306: Flags [.], ack 1, win 342, options [nop,nop,TS val 3967896051 ecr 3967896051], length 0 // 握手完毕</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 146: 127.0.0.1.3306 &gt; 127.0.0.1.12345: Flags [P.], seq 1:79, ack 1, win 342, options [nop,nop,TS val 3967896051 ecr 3967896051], length 78 //Server 发出Greeting</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 68: 127.0.0.1.12345 &gt; 127.0.0.1.3306: Flags [.], ack 79, win 342, options [nop,nop,TS val 3967896051 ecr 3967896051], length 0</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 68: 127.0.0.1.3306 &gt; 127.0.0.1.12345: Flags [F.], seq 79, ack 1, win 342, options [nop,nop,TS val 3967913551 ecr 3967896051], length 0</span><br><span class="line"> In 00:00:00:00:00:00 ethertype IPv4 (0x0800), length 68: 127.0.0.1.12345 &gt; 127.0.0.1.3306: Flags [.], ack 80, win 342, options [nop,nop,TS val 3967913591 ecr 3967913551], length 0                  </span><br></pre></td></tr></table></figure>
+
+<p>如下是Server发出的长度为 78 的 Server Greeting信息内容</p>
+<p><img src="/images/oss/203c52d94018bbf72dfd4fc64d8a237b.png" alt="image.png"></p>
+<p>理论上如果slb探活连接检查MySQL Server的状态的时候也是很快reset了，如果MySQL Server程序写得烂的话也会出现同样的情况。</p>
+<p>但是比如我们有实验验证MySQL  Server 是否正常的时候会用 nc 去测试，一般以能看到</p>
+<blockquote>
+<p>5.6.29�CuaV9v0xo�!<br>                  qCHRrGRIJqvzmysql_native_password </p>
+</blockquote>
+<p>就认为MySQL Server是正常的。但是真的是这样吗？我们看看 nc 的如下案例</p>
+<h4 id="nc-6-4-快速fin"><a href="#nc-6-4-快速fin" class="headerlink" title="nc 6.4 快速fin"></a>nc 6.4 快速fin</h4><blockquote>
+<p>#nc –version<br>Ncat: Version 6.40 ( <a target="_blank" rel="noopener" href="http://nmap.org/ncat">http://nmap.org/ncat</a> )</p>
+</blockquote>
+<p>用 nc 测试发现有一定的概率没有出现上面的Server Greeting信息，那么这是因为MySQL Server服务不正常了吗？</p>
+<p><img src="/images/oss/1607660605575-1305739f-1621-4a01-89ad-0f81eef94922.png?x-oss-process=image/resize,w_1500" alt="image.png"></p>
+<blockquote>
+<p> nc -i 3 10.97.170.11 3306 -w 4 -p 1234</p>
+</blockquote>
+<p>-i 3 表示握手成功后 等三秒钟nc退出（发fin）</p>
+<p>nc 6.4 握手后立即发fin断开连接，导致可能收不到Greeting，换成7.5或者mysql client就OK了</p>
+<p>nc 7.5的抓包，明显可以看到nc在发fin前会先等4秒钟：</p>
+<p><img src="/images/oss/1607660937618-d66c4074-9aa2-44cb-8054-f7d3680d1181.png?x-oss-process=image/resize,w_1500" alt="image.png"></p>
+<h3 id="tcpping-模拟slb-探活"><a href="#tcpping-模拟slb-探活" class="headerlink" title="tcpping 模拟slb 探活"></a>tcpping 模拟slb 探活</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python tcpping.py -R -i 0.1 -t 1 dcep-blockchain-1 4000</span><br></pre></td></tr></table></figure>
+
+<p>-i 间隔0.1秒 </p>
+<p>-R reset断开连接</p>
+<p>-t 超时时间1秒</p>
+<p>执行如上代码，跟4000端口握手，然后立即发出reset断开连接（完全模拟slb探活行为），很快重现了问题</p>
+<p>增加延时</p>
+<p>-D 0.01表示握手成功后10ms后再发出reset（让应用有机会成功发出那12个字节），应用工作正常</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python tcpping.py -R -i 0.1 -t 1 -D 0.01 dcep-blockchain-1 4000</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>最大的错误认知就是 ss 看到的全连接队列数量，netstat也能看到。实际是不一定，而这个快速reset+应用不accept就导致了看不到这个现象</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1193,7 +1780,7 @@ sudo ip tcp_metrics delete 100.118.58.7
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+      <time title="修改时间：2026-02-06 13:53:24" itemprop="dateModified" datetime="2026-02-06T13:53:24+08:00">2026-02-06</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1219,7 +1806,7 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 <p>如上第一和第二个语句，<strong>为什么mysql client的输出重定向后就没有ascii制表符了呢</strong>？ </p>
 <p>语句三加上 -t后再经过管道，也有制表符了。</p>
-<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254">stackoverflow上也有很多人有同样的疑问</a>，不过不但没有给出第三行的解法，更没有人讲清楚这个里面的原理。所以接下来我们来分析下这是为什么</p>
+<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/15640287/change-output-format-for-mysql-command-line-results-to-csv/17910254">stackoverflow上也有很多人有同样的疑问</a>，不过没有给出第三行的解法，更没有人讲清楚这个里面的原理。所以接下来我们来分析下这是为什么</p>
 <blockquote>
 <p>-N 去掉表头</p>
 <p>-B batch 模式，用tab键替换分隔符</p>
@@ -1228,7 +1815,7 @@ sudo ip tcp_metrics delete 100.118.58.7
 <p><img src="/images/oss/086f6cd952d2b91eae7eda6d576765f8.png" alt="image.png"></p>
 <p>再对比下第二个语句的strace：</p>
 <p><img src="/images/oss/984bcce23ff8766b52fdede8ff3eadec.png" alt="image.png"></p>
-<p>从上面两个strace比较来看，似乎mysql client能检测到要输出到命名管道（S_IFIFO ）还是character device（S_IFCHR），如果是命名管道的话就不要输出制表符了，如果是character device那么就输出ascii制表符。</p>
+<p>从上面两个strace比较来看，似乎mysql client 能检测到要输出到命名管道（S_IFIFO ）还是character device（S_IFCHR），如果是命名管道的话就不要输出制表符了，如果是character device那么就输出ascii制表符。</p>
 <p><a target="_blank" rel="noopener" href="https://linux.die.net/man/2/fstat64">fstats里面对不同输出目标的说明</a>：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">printf(&quot;File type:                &quot;);</span><br><span class="line">   switch (sb.st_mode &amp; S_IFMT) &#123;</span><br><span class="line">    case S_IFBLK:  printf(&quot;block device\n&quot;);            break;</span><br><span class="line">    case S_IFCHR:  printf(&quot;character device\n&quot;);        break;</span><br><span class="line">    case S_IFDIR:  printf(&quot;directory\n&quot;);               break;</span><br><span class="line">    case S_IFIFO:  printf(&quot;FIFO/pipe\n&quot;);               break;</span><br><span class="line">    case S_IFLNK:  printf(&quot;symlink\n&quot;);                 break;</span><br><span class="line">    case S_IFREG:  printf(&quot;regular file\n&quot;);            break;</span><br><span class="line">    case S_IFSOCK: printf(&quot;socket\n&quot;);                  break;</span><br><span class="line">    default:       printf(&quot;unknown?\n&quot;);                break;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
 
@@ -1249,713 +1836,15 @@ sudo ip tcp_metrics delete 100.118.58.7
 
 <p><a target="_blank" rel="noopener" href="https://linux.die.net/man/3/isatty">isatty的解释</a></p>
 <p>结论就是 mysql client根据输出目标的不同（stdout、重定向）输出不同的内容，不过这种做法对用户体感上不是太好。</p>
+<h2 id="2026年大模型秒了这个问题"><a href="#2026年大模型秒了这个问题" class="headerlink" title="2026年大模型秒了这个问题"></a>2026年大模型秒了这个问题</h2><p>MySQL 客户端会检测输出是否为终端（TTY）：</p>
+<ul>
+<li><strong>输出到终端</strong>：使用 ASCII 制表符格式化，便于人类阅读</li>
+<li><strong>输出到管道&#x2F;文件</strong>：自动切换为 tab 分隔的纯文本格式，便于程序处理</li>
+</ul>
+<p>这是 MySQL 客户端的智能行为，类似于 ls 命令在终端显示多列，重定向后变成单列。</p>
 <h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>Linux管道居然不是按顺序，而是并发执行的：<a target="_blank" rel="noopener" href="https://unix.stackexchange.com/questions/37508/in-what-order-do-piped-commands-run">https://unix.stackexchange.com/questions/37508/in-what-order-do-piped-commands-run</a>  掉坑里了，并发问题就多了，实际测试也发现跑几千次 ps |grep 会出现，ps看不到后面的grep进程</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://www.pyrosoft.co.uk/blog/2014/09/08/how-to-stop-mysql-ascii-tables-column-separators-from-being-lost-when-redirecting-bash-output/">https://www.pyrosoft.co.uk/blog/2014/09/08/how-to-stop-mysql-ascii-tables-column-separators-from-being-lost-when-redirecting-bash-output/</a></p>
 <p><a target="_blank" rel="noopener" href="https://www.oreilly.com/library/view/mysql-cookbook/0596001452/ch01s22.html">https://www.oreilly.com/library/view/mysql-cookbook/0596001452/ch01s22.html</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/30/%E4%B8%80%E5%8F%B0%E6%9C%BA%E5%99%A8%E4%B8%8A%E6%9C%80%E5%A4%9A%E8%83%BD%E5%88%9B%E5%BB%BA%E5%A4%9A%E5%B0%91%E4%B8%AATCP%E8%BF%9E%E6%8E%A5/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/30/%E4%B8%80%E5%8F%B0%E6%9C%BA%E5%99%A8%E4%B8%8A%E6%9C%80%E5%A4%9A%E8%83%BD%E5%88%9B%E5%BB%BA%E5%A4%9A%E5%B0%91%E4%B8%AATCP%E8%BF%9E%E6%8E%A5/" class="post-title-link" itemprop="url">到底一台服务器上最多能创建多少个TCP连接</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2020-11-30 10:30:03" itemprop="dateCreated datePublished" datetime="2020-11-30T10:30:03+08:00">2020-11-30</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="到底一台服务器上最多能创建多少个TCP连接"><a href="#到底一台服务器上最多能创建多少个TCP连接" class="headerlink" title="到底一台服务器上最多能创建多少个TCP连接"></a>到底一台服务器上最多能创建多少个TCP连接</h1><blockquote>
-<p>经常听到有同学说一台机器最多能创建65535个TCP连接，这其实是错误的理解，为什么会有这个错误的理解呢？</p>
-</blockquote>
-<h2 id="port-range"><a href="#port-range" class="headerlink" title="port range"></a>port range</h2><p>我们都知道linux下本地随机端口范围由参数控制，也就是listen、connect时候如果没有指定本地端口，那么就从下面的port range 中随机取一个可用的</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># cat /proc/sys/net/ipv4/ip_local_port_range </span><br><span class="line">2000	65535</span><br></pre></td></tr></table></figure>
-
-<p>port range的上限是65535，所以也经常看到这个<strong>误解</strong>：一台机器上最多能创建65535个TCP连接</p>
-<h2 id="到底一台机器上最多能创建多少个TCP连接"><a href="#到底一台机器上最多能创建多少个TCP连接" class="headerlink" title="到底一台机器上最多能创建多少个TCP连接"></a>到底一台机器上最多能创建多少个TCP连接</h2><p>先说<strong>结论</strong>：在内存、文件句柄足够的话可以创建的连接是<strong>没有限制</strong>的（每个TCP连接至少要消耗一个文件句柄）。</p>
-<p>那么&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range指定的端口范围到底是什么意思呢？</p>
-<p>核心规则：<strong>一个TCP连接只要保证四元组(src-ip src-port dest-ip dest-port)唯一就可以了，而不是要求src port唯一</strong></p>
-<p>后面所讲都遵循这个规则，所以在心里反复默念：<strong>四元组唯一</strong> 五个大字，就能分析出来到底能创建多少TCP连接了。</p>
-<p>比如如下这个机器上的TCP连接实际状态：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># netstat -ant |grep 18089</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:22         ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18089      192.168.1.79:18080      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.0.79:18089      192.168.0.79:22         TIME_WAIT </span><br><span class="line">tcp        0      0 192.168.1.79:22         192.168.1.79:18089      ESTABLISHED</span><br><span class="line">tcp        0      0 192.168.1.79:18080      192.168.1.79:18089      ESTABLISHED</span><br></pre></td></tr></table></figure>
-
-<p>从前三行可以清楚地看到18089被用了三次，第一第二行src-ip、dest-ip也是重复的，但是dest port不一样，第三行的src-port还是18089，但是src-ip变了。他们的四元组均不相同。</p>
-<p>所以一台机器能创建的TCP连接是没有限制的，而ip_local_port_range是指没有bind的时候OS随机分配端口的范围，但是分配到的端口要同时满足五元组唯一，这样 ip_local_port_range 限制的是连同一个目标（dest-ip和dest-port一样）的port的数量（请忽略本地多网卡的情况，因为dest-ip为以后route只会选用一个本地ip）。</p>
-<p>**那么为什么大家有这样的误解呢？**我总结了下，大概是以下两个原因让大家误解了：</p>
-<ul>
-<li>如果是listen服务，那么肯定端口不能重复使用，这样就跟我们的误解对应上了，一个服务器上最多能监听65535个端口。比如nginx监听了80端口，那么tomcat就没法再监听80端口了，这里的80端口只能监听一次。</li>
-<li>另外如果我们要连的server只有一个，比如：1.1.1.1:80 ，同时本机只有一个ip的话，那么这个时候即使直接调connect 也只能创建出65535个连接，因为四元组中的三个是固定的了。</li>
-</ul>
-<p>我们在创建连接前，经常会先调bind，bind后可以调 listen当做服务端监听，也可以直接调connect当做client来连服务端。</p>
-<p>bind(ip,port&#x3D;0) 的时候是让系统绑定到某个网卡和自动分配的端口，此时系统没有办法确定接这个socket 是要去connect还是listen. 如果是listen的话，那么肯定是不能出现端口冲突的(得local port 唯一)，如果是connect的话，只要满足4元组唯一即可。在这种情况下，系统只能尽可能满足更强的要求，就是先要求端口不能冲突，即使之后去connect的时候四元组是唯一的。</p>
-<p>比如 Nginx HaProxy envoy这些软件在创建到upstream的连接时，都会用 bind(0) 的方式, 导致到不同目的的连接无法复用同一个src port，这样后端的最大连接数受限于local_port_range。 nginx的修改 <a target="_blank" rel="noopener" href="http://hg.nginx.org/nginx/rev/2c7b488a61fb">http://hg.nginx.org/nginx/rev/2c7b488a61fb</a></p>
-<blockquote>
-<p>Linux 4.2后的内核增加了IP_BIND_ADDRESS_NO_PORT 这个socket option来解决这个问题，将src port的选择延后到connect的时候</p>
-<p><a target="_blank" rel="noopener" href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=90c337da1524863838658078ec34241f45d8394d">IP_BIND_ADDRESS_NO_PORT (since Linux 4.2)</a><br>              Inform the kernel to not reserve an ephemeral port when using bind(2) with a port number of 0.  The port will later be automatically chosen at connect(2) time, in a way that allows sharing a source port as long as the 4-tuple is unique.</p>
-</blockquote>
-<p>但如果我只是个client端，只需要连接server建立连接，也就不需要bind，直接调connect就可以了，这个时候只要保证四元组唯一就行。</p>
-<p>bind()的时候内核是还不知道四元组的，只知道src_ip、src_port，所以这个时候单网卡下src_port是没法重复的，但是connect()的时候已经知道了四元组的全部信息，所以只要保证四元组唯一就可以了，那么这里的src_port完全是可以重复使用的。</p>
-<p><img src="/images/951413iMgBlog/640-20220224103024676.png" alt="Image"></p>
-<p><strong>是不是加上了 SO_REUSEADDR、SO_REUSEPORT 就能重用端口了呢？</strong></p>
-<h2 id="TCP-SO-REUSEADDR"><a href="#TCP-SO-REUSEADDR" class="headerlink" title="TCP SO_REUSEADDR"></a>TCP SO_REUSEADDR</h2><p>文档描述：</p>
-<blockquote>
-<p>SO_REUSEADDR      Indicates that the rules used in validating addresses supplied in a bind(2) call should allow reuse of local addresses.  For AF_INET sockets this means that a socket may bind, except when there is an active listening socket bound to the address. When the listening socket is bound to INADDR_ANY with a specific port then it is not possible to bind to this port for any local address.  Argument is an integer boolean flag.</p>
-</blockquote>
-<p>从这段文档中我们可以知道三个事：</p>
-<ol>
-<li>使用这个参数后，bind操作是可以重复使用local address的，注意，这里说的是local address，即ip加端口组成的本地地址，如果机器有两个本地ip，那么任意ip或端口部分不一样，它们本身就是可以共存的，不需要使用这个参数。</li>
-<li>当local address被一个处于listen状态的socket使用时，加上该参数也不能重用这个地址。</li>
-<li>当处于listen状态的socket监听的本地地址的ip部分是INADDR_ANY，即表示监听本地的所有ip，即使使用这个参数，也不能再bind包含这个端口的任意本地地址，这个和 2 中描述的其实是一样的。</li>
-</ol>
-<p>&#x3D;&#x3D;SO_REUSEADDR 可以用本地相同的(sip, sport) 去连connect 远程的不同的（dip、dport）&#x2F;&#x2F;而 SO_REUSEPORT主要是解决Server端的port重用&#x3D;&#x3D;</p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/YWzuKBK3TMclejeN2ziAvQ">SO_REUSEADDR 还可以重用TIME_WAIT状态的port</a>, 在程序崩溃后之前的TCP连接会进入到TIME_WAIT状态，需要一段时间才能释放，如果立即重启就会抛出<u>Address Already in use</u>的错误导致启动失败。这时候可以通过在调用bind函数之前设置SO_REUSEADDR来解决。</p>
-<blockquote>
-<p>What exactly does SO_REUSEADDR do?</p>
-<p>This socket option tells the kernel that even if this port is busy (in the TIME_WAIT state), go ahead and reuse it anyway. If it is busy, but with another state, you will still get an address already in use error. It is useful if your server has been shut down, and then restarted right away while sockets are still active on its port. You should be aware that if any unexpected data comes in, it may confuse your server, but while this is possible, it is not likely.</p>
-<p>It has been pointed out that “A socket is a 5 tuple (proto, local addr, local port, remote addr, remote port). SO_REUSEADDR just says that you can reuse local addresses. The 5 tuple still must be unique!” This is true, and this is why it is very unlikely that unexpected data will ever be seen by your server. The danger is that such a 5 tuple is still floating around on the net, and while it is bouncing around, a new connection from the same client, on the same system, happens to get the same remote port. </p>
-</blockquote>
-<p>By setting <code>SO_REUSEADDR</code> user informs the kernel of an intention to share the bound port with anyone else, but only if it doesn’t cause a conflict on the protocol layer. There are at least three situations when this flag is useful:</p>
-<ol>
-<li>Normally after binding to a port and stopping a server it’s neccesary to wait for a socket to time out before another server can bind to the same port. With <code>SO_REUSEADDR</code> set it’s possible to rebind immediately, even if the socket is in a <code>TIME_WAIT</code> state.</li>
-<li>When one server binds to <code>INADDR_ANY</code>, say <code>0.0.0.0:1234</code>, it’s impossible to have another server binding to a specific address like <code>192.168.1.21:1234</code>. With <code>SO_REUSEADDR</code> flag this behaviour is allowed.</li>
-<li>When using the bind before connect trick only a single connection can use a single outgoing source port. With this flag, it’s possible for many connections to reuse the same source port, given that they connect to different destination addresses.</li>
-</ol>
-<h2 id="TCP-SO-REUSEPORT"><a href="#TCP-SO-REUSEPORT" class="headerlink" title="TCP SO_REUSEPORT"></a>TCP SO_REUSEPORT</h2><p>SO_REUSEPORT主要用来解决惊群、性能等问题。通过多个进程、线程来监听同一端口，进来的连接通过内核来hash分发做到负载均衡，避免惊群。</p>
-<blockquote>
-<p>SO_REUSEPORT is also useful for eliminating the try-10-times-to-bind hack in ftpd’s data connection setup routine.  Without SO_REUSEPORT, only one ftpd thread can bind to TCP (lhost, lport, INADDR_ANY, 0) in preparation for connecting back to the client.  Under conditions of heavy load, there are more threads colliding here than the try-10-times hack can accomodate.  With SO_REUSEPORT, things  work nicely and the hack becomes unnecessary.</p>
-</blockquote>
-<p>SO_REUSEPORT使用场景：linux kernel 3.9 引入了最新的SO_REUSEPORT选项，使得多进程或者多线程创建多个绑定同一个ip:port的监听socket，提高服务器的接收链接的并发能力,程序的扩展性更好；此时需要设置SO_REUSEPORT（<strong>注意所有进程都要设置才生效</strong>）。</p>
-<p>setsockopt(listenfd, SOL_SOCKET, SO_REUSEPORT,(const void *)&amp;reuse , sizeof(int));</p>
-<p>目的：每一个进程有一个独立的监听socket，并且bind相同的ip:port，独立的listen()和accept()；提高接收连接的能力。（例如nginx多进程同时监听同一个ip:port）</p>
-<blockquote>
-<p>(a) on Linux SO_REUSEPORT is meant to be used <em>purely</em> for load balancing multiple incoming UDP packets or incoming TCP connection requests across multiple sockets belonging to the same app.  ie. it’s a work around for machines with a lot of cpus, handling heavy load, where a single listening socket becomes a bottleneck because of cross-thread contention on the in-kernel socket lock (and state).</p>
-<p>(b) set IP_BIND_ADDRESS_NO_PORT socket option for tcp sockets before binding to a specific source ip<br>with port 0 if you’re going to use the socket for connect() rather then listen() this allows the kernel<br>to delay allocating the source port until connect() time at which point it is much cheaper</p>
-</blockquote>
-<h2 id="The-Ephemeral-Port-Range"><a href="#The-Ephemeral-Port-Range" class="headerlink" title="The Ephemeral Port Range"></a><a target="_blank" rel="noopener" href="http://www.ncftp.com/ncftpd/doc/misc/ephemeral_ports.html">The Ephemeral Port Range</a></h2><p>Ephemeral Port Range就是我们前面所说的Port Range（&#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;ip_local_port_range）</p>
-<blockquote>
-<p>A TCP&#x2F;IPv4 connection consists of two endpoints, and each endpoint consists of an IP address and a port number. Therefore, when a client user connects to a server computer, an established connection can be thought of as the 4-tuple of (server IP, server port, client IP, client port).</p>
-<p>Usually three of the four are readily known – client machine uses its own IP address and when connecting to a remote service, the server machine’s IP address and service port number are required.</p>
-<p>What is not immediately evident is that when a connection is established that the client side of the connection uses a port number. Unless a client program explicitly requests a specific port number, the port number used is an ephemeral port number.</p>
-<p>Ephemeral ports are temporary ports assigned by a machine’s IP stack, and are assigned from a designated range of ports for this purpose. When the connection terminates, the ephemeral port is available for reuse, although most IP stacks won’t reuse that port number until the entire pool of ephemeral ports have been used.</p>
-<p>So, if the client program reconnects, it will be assigned a different ephemeral port number for its side of the new connection.</p>
-</blockquote>
-<h2 id="linux-如何选择Ephemeral-Port"><a href="#linux-如何选择Ephemeral-Port" class="headerlink" title="linux 如何选择Ephemeral Port"></a>linux 如何选择Ephemeral Port</h2><p>有资料说是随机从Port Range选择port，有的说是顺序选择，那么实际验证一下。</p>
-<p>如下测试代码：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;      // printf</span><br><span class="line">#include &lt;stdlib.h&gt;     // atoi</span><br><span class="line">#include &lt;unistd.h&gt;     // close</span><br><span class="line">#include &lt;arpa/inet.h&gt;  // ntohs</span><br><span class="line">#include &lt;sys/socket.h&gt; // connect, socket</span><br><span class="line"></span><br><span class="line">void sample() &#123;</span><br><span class="line">    // Create socket</span><br><span class="line">    int sockfd;</span><br><span class="line">    if (sockfd = socket(AF_INET, SOCK_STREAM, 0), -1 == sockfd) &#123;</span><br><span class="line">        perror(&quot;socket&quot;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    // Connect to remote. This does NOT actually send a packet.</span><br><span class="line">    const struct sockaddr_in raddr = &#123;</span><br><span class="line">        .sin_family = AF_INET,</span><br><span class="line">        .sin_port   = htons(8080),     // arbitrary remote port</span><br><span class="line">        .sin_addr   = htonl(INADDR_ANY)  // arbitrary remote host</span><br><span class="line">    &#125;;</span><br><span class="line">    if (-1 == connect(sockfd, (const struct sockaddr *)&amp;raddr, sizeof(raddr))) &#123;</span><br><span class="line">        perror(&quot;connect&quot;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    // Display selected ephemeral port</span><br><span class="line">    const struct sockaddr_in laddr;</span><br><span class="line">    socklen_t laddr_len = sizeof(laddr);</span><br><span class="line">    if (-1 == getsockname(sockfd, (struct sockaddr *)&amp;laddr, &amp;laddr_len)) &#123;</span><br><span class="line">        perror(&quot;getsockname&quot;);</span><br><span class="line">    &#125;</span><br><span class="line">    printf(&quot;local port: %i\n&quot;, ntohs(laddr.sin_port));</span><br><span class="line"></span><br><span class="line">    // Close socket</span><br><span class="line">    close(sockfd);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">int main() &#123;</span><br><span class="line">    for (int i = 0; i &lt; 5; i++) &#123;</span><br><span class="line">        sample();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>bind逻辑测试代码</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;netinet/in.h&gt;</span><br><span class="line">#include &lt;arpa/inet.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;errno.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;sys/types.h&gt;</span><br><span class="line">#include &lt;time.h&gt;</span><br><span class="line"></span><br><span class="line">void test_bind()&#123;</span><br><span class="line">    int listenfd = 0, connfd = 0;</span><br><span class="line">    struct sockaddr_in serv_addr;</span><br><span class="line">    char sendBuff[1025];</span><br><span class="line">    time_t ticks;</span><br><span class="line">	  socklen_t len;</span><br><span class="line"></span><br><span class="line">    listenfd = socket(AF_INET, SOCK_STREAM, 0);</span><br><span class="line">    memset(&amp;serv_addr, &#x27;0&#x27;, sizeof(serv_addr));</span><br><span class="line">    memset(sendBuff, &#x27;0&#x27;, sizeof(sendBuff));</span><br><span class="line"></span><br><span class="line">    serv_addr.sin_family = AF_INET;</span><br><span class="line">    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);</span><br><span class="line">    serv_addr.sin_port = htons(0);</span><br><span class="line"></span><br><span class="line">    bind(listenfd, (struct sockaddr*)&amp;serv_addr, sizeof(serv_addr));</span><br><span class="line"></span><br><span class="line">  	len = sizeof(serv_addr);</span><br><span class="line">	  if (getsockname(listenfd, (struct sockaddr *)&amp;serv_addr, &amp;len) == -1) &#123;</span><br><span class="line">		      perror(&quot;getsockname&quot;);</span><br><span class="line">			    return;</span><br><span class="line">	  &#125;</span><br><span class="line">	  printf(&quot;port number %d\n&quot;, ntohs(serv_addr.sin_port)); //只是挑选到了port，在系统层面保留，tcp连接还没有，netstat是看不到的</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">int main(int argc, char *argv[])</span><br><span class="line">&#123;</span><br><span class="line">	    for (int i = 0; i &lt; 5; i++) &#123;</span><br><span class="line">			         test_bind();</span><br><span class="line">					     &#125;</span><br><span class="line">		    return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="3-10-0-327-ali2017-alios7-x86-64"><a href="#3-10-0-327-ali2017-alios7-x86-64" class="headerlink" title="3.10.0-327.ali2017.alios7.x86_64"></a>3.10.0-327.ali2017.alios7.x86_64</h3><p>编译后，执行(3.10.0-327.ali2017.alios7.x86_64)：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">#date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 ; echo &quot;-------&quot; &amp;&amp; ./client &amp;&amp; sleep 10; date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 &amp;&amp; echo &quot;******&quot;; ./client;</span><br><span class="line">Fri Nov 27 10:52:52 CST 2020</span><br><span class="line">local port: 17448</span><br><span class="line">local port: 17449</span><br><span class="line">local port: 17451</span><br><span class="line">local port: 17452</span><br><span class="line">local port: 17453</span><br><span class="line">+++++++</span><br><span class="line">local port: 17455</span><br><span class="line">local port: 17456</span><br><span class="line">local port: 17457</span><br><span class="line">local port: 17458</span><br><span class="line">local port: 17460</span><br><span class="line">-------</span><br><span class="line">local port: 17475</span><br><span class="line">local port: 17476</span><br><span class="line">local port: 17477</span><br><span class="line">local port: 17478</span><br><span class="line">local port: 17479</span><br><span class="line">Fri Nov 27 10:53:02 CST 2020</span><br><span class="line">local port: 17997</span><br><span class="line">local port: 17998</span><br><span class="line">local port: 17999</span><br><span class="line">local port: 18000</span><br><span class="line">local port: 18001</span><br><span class="line">+++++++</span><br><span class="line">local port: 18002</span><br><span class="line">local port: 18003</span><br><span class="line">local port: 18004</span><br><span class="line">local port: 18005</span><br><span class="line">local port: 18006</span><br><span class="line">******</span><br><span class="line">local port: 18010</span><br><span class="line">local port: 18011</span><br><span class="line">local port: 18012</span><br><span class="line">local port: 18013</span><br><span class="line">local port: 18014</span><br></pre></td></tr></table></figure>
-
-<p>从测试看起来linux下端口选择跟时间有关系，起始端口肯定是顺序增加，起始端口应该是在Ephemeral Port范围内并且和时间戳绑定的某个值（也是递增的），即使没有使用任何端口，起始端口也会随时间增加而增加。</p>
-<h3 id="4-19-91-19-1-al7-x86-64"><a href="#4-19-91-19-1-al7-x86-64" class="headerlink" title="4.19.91-19.1.al7.x86_64"></a>4.19.91-19.1.al7.x86_64</h3><p>换个内核版本编译后，执行(4.19.91-19.1.al7.x86_64)：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">$date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 ; echo &quot;-------&quot; &amp;&amp; ./client &amp;&amp; sleep 10; date; ./client &amp;&amp; echo &quot;+++++++&quot; ; ./client &amp;&amp; sleep 0.1 &amp;&amp; echo &quot;******&quot;; ./client;</span><br><span class="line">Fri Nov 27 14:10:47 CST 2020</span><br><span class="line">local port: 7890</span><br><span class="line">local port: 7892</span><br><span class="line">local port: 7894</span><br><span class="line">local port: 7896</span><br><span class="line">local port: 7898</span><br><span class="line">+++++++</span><br><span class="line">local port: 7900</span><br><span class="line">local port: 7902</span><br><span class="line">local port: 7904</span><br><span class="line">local port: 7906</span><br><span class="line">local port: 7908</span><br><span class="line">-------</span><br><span class="line">local port: 7910</span><br><span class="line">local port: 7912</span><br><span class="line">local port: 7914</span><br><span class="line">local port: 7916</span><br><span class="line">local port: 7918</span><br><span class="line">Fri Nov 27 14:10:57 CST 2020</span><br><span class="line">local port: 7966</span><br><span class="line">local port: 7968</span><br><span class="line">local port: 7970</span><br><span class="line">local port: 7972</span><br><span class="line">local port: 7974</span><br><span class="line">+++++++</span><br><span class="line">local port: 7976</span><br><span class="line">local port: 7978</span><br><span class="line">local port: 7980</span><br><span class="line">local port: 7982</span><br><span class="line">local port: 7984</span><br><span class="line">******</span><br><span class="line">local port: 7988</span><br><span class="line">local port: 7990</span><br><span class="line">local port: 7992</span><br><span class="line">local port: 7994</span><br><span class="line">local port: 7996</span><br></pre></td></tr></table></figure>
-
-<p>以上测试时的参数</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1024    65535</span><br></pre></td></tr></table></figure>
-
-<p>将1024改成1025后，分配出来的都是奇数端口了：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1025    1034</span><br><span class="line"></span><br><span class="line">$./client</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br><span class="line">local port: 1027</span><br><span class="line">local port: 1029</span><br><span class="line">local port: 1031</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br><span class="line">local port: 1027</span><br><span class="line">local port: 1029</span><br><span class="line">local port: 1031</span><br><span class="line">local port: 1033</span><br><span class="line">local port: 1025</span><br></pre></td></tr></table></figure>
-
-<p>之所以都是偶数端口，是因为port_range 从偶数开始, 每次从++变到+2的<a target="_blank" rel="noopener" href="https://github.com/plantegg/linux/commit/1580ab63fc9a03593072cc5656167a75c4f1d173">原因</a>，connect挑选随机端口时都是在起始端口的基础上+2，而bind挑选随机端口的起始端口是系统port_range起始端口+1（这样和connect错开），然后每次仍然尝试+2，这样connect和bind基本一个用偶数另外一个就用奇数，一旦不够了再尝试使用另外一组</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">$cat /proc/sys/net/ipv4/ip_local_port_range</span><br><span class="line">1024    1047</span><br><span class="line"></span><br><span class="line">$./bind &amp;  ---bind程序随机挑选5个端口</span><br><span class="line">port number 1039</span><br><span class="line">port number 1043</span><br><span class="line">port number 1045</span><br><span class="line">port number 1041</span><br><span class="line">port number 1047  --用完所有奇数端口</span><br><span class="line"></span><br><span class="line">$./bind &amp;    --继续挑选偶数端口</span><br><span class="line">[8] 4170</span><br><span class="line">port number 1044</span><br><span class="line">port number 1042</span><br><span class="line">port number 1046</span><br><span class="line">port number 0    --实在没有了</span><br><span class="line">port number 0</span><br></pre></td></tr></table></figure>
-
-<p>可见4.19内核下每次port是+2，在3.10内核版本中是+1. 并且都是递增的，同时即使port不使用，也会随着时间的变化这个起始port增大。</p>
-<p>Port Range有点像雷达转盘数字，时间就像是雷达上的扫描指针，这个指针不停地旋转，如果这个时候刚好有应用要申请Port，那么就从指针正好指向的Port开始向后搜索可用port</p>
-<h2 id="tcp-max-tw-buckets"><a href="#tcp-max-tw-buckets" class="headerlink" title="tcp_max_tw_buckets"></a>tcp_max_tw_buckets</h2><p>tcp_max_tw_buckets: 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时，新的连接断开不再进入TIME_WAIT阶段，而是直接断开，并打印warnning.</p>
-<p>实际测试发现 在 TIME_WAIT 数量等于 tcp_max_tw_buckets 时 新的连接仍然可以不断地创建和断开，这个参数大小不会影响性能，只是影响TIME_WAIT 数量的展示（当然 TIME_WAIT 太多导致local port不够除外）, 这个值设置小一点会避免出现端口不够的情况</p>
-<blockquote>
-<p>tcp_max_tw_buckets - INTEGER<br>	Maximal number of timewait sockets held by system simultaneously.If this number is exceeded time-wait socket is immediately destroyed and warning is printed. This limit exists only to prevent simple DoS attacks, you <em>must</em> not lower the limit artificially, but rather increase it (probably, after increasing installed memory), if network conditions require more than default value.</p>
-</blockquote>
-<p>监控指标：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">netstat -s | grep TCPTimeWaitOverflow</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="SO-LINGER"><a href="#SO-LINGER" class="headerlink" title="SO_LINGER"></a><a target="_blank" rel="noopener" href="https://notes.shichao.io/unp/ch7/">SO_LINGER</a></h2><p>SO_LINGER选项<strong>用来设置延迟关闭的时间，等待套接字发送缓冲区中的数据发送完成</strong>。 没有设置该选项时，在调用close() 后，在发送完FIN后会立即进行一些清理工作并返回。 如果设置了SO_LINGER选项，并且等待时间为正值，则在清理之前会等待一段时间。</p>
-<p>如果把延时设置为 0  时，Socket就丢弃数据，并向对方发送一个 <code>RST</code> 来终止连接，因为走的是 RST 包，所以就不会有 <code>TIME_WAIT</code> 了。</p>
-<blockquote>
-<p>This option specifies how the <code>close</code> function operates for a connection-oriented protocol (for TCP, but not for UDP). By default, <code>close</code> returns immediately, but &#x3D;&#x3D;if there is any data still remaining in the socket send buffer, the system will try to deliver the data to the peer&#x3D;&#x3D;.</p>
-</blockquote>
-<p>SO_LINGER 有三种情况</p>
-<ol>
-<li>l_onoff 为false（0）， 那么 l_linger 的值没有意义，socket主动调用close时会立即返回，操作系统会将残留在缓冲区中的数据发送到对端，并按照正常流程关闭(交换FIN-ACK），最后连接进入<code>TIME_WAIT</code>状态。<strong>这是默认情况</strong></li>
-<li>l_onoff 为true（非0），  l_linger 为0，主动调用close的一方也是立刻返回，但是这时TCP会丢弃发送缓冲中的数据，而且不是按照正常流程关闭连接（不发送FIN包），直接发送<code>RST</code>，连接不会进入 time_wait 状态，对端会收到 <code>java.net.SocketException: Connection reset</code>异常</li>
-<li>l_onoff 为true（非0），  l_linger 也为非 0，这表示 <code>SO_LINGER</code>选项生效，并且超时时间大于零，这时调用close的线程被阻塞，TCP会发送缓冲区中的残留数据，这时有两种可能的情况：<ul>
-<li>数据发送完毕，收到对方的ACK，然后进行连接的正常关闭（交换FIN-ACK）</li>
-<li>超时，未发送完(指没收到对端的 ACK)的数据被丢弃，发送<code>RST</code>进行非正常关闭</li>
-</ul>
-</li>
-</ol>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">struct linger &#123;</span><br><span class="line">  int   l_onoff;        /* 0=off, nonzero=on */</span><br><span class="line">  int   l_linger;       /* linger time, POSIX specifies units as seconds */</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
-
-<h3 id="NIO下设置-SO-LINGER-的错误案例"><a href="#NIO下设置-SO-LINGER-的错误案例" class="headerlink" title="NIO下设置 SO_LINGER 的错误案例"></a>NIO下设置 SO_LINGER 的错误案例</h3><p>在使用NIO时，最好不设置<code>SO_LINGER</code>。比如Tomcat服务端接收到请求创建新连接时，做了这样的设置：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SocketChannel.setOption(SocketOption.SO_LINGER, 1000)</span><br></pre></td></tr></table></figure>
-
-<p><code>SO_LINGER</code>的单位为<code>秒</code>！在网络环境比较好的时候，例如客户端、服务器都部署在同一个机房，close虽然会被阻塞，但时间极短可以忽略。但当网络环境不那么好时，例如存在丢包、较长的网络延迟，buffer中的数据一直无法发送成功，那么问题就出现了：<code>close会被阻塞较长的时间，从而直接或间接引起NIO的IO线程被阻塞</code>，服务器会不响应，不能处理accept、read、write等任何IO事件。也就是应用频繁出现挂起现象。解决方法就是删掉这个设置，close时立即返回，由操作系统接手后面的工作。</p>
-<p>被阻塞时会看到如下连接状态：</p>
-<p><img src="/images/951413iMgBlog/image-20220721100246598.png" alt="image-20220721100246598"></p>
-<p>以及对应的堆栈</p>
-<p><img src="/images/951413iMgBlog/image-20220721100421130.png" alt="image-20220721100421130"></p>
-<p>查看其中一个IO线程等待的锁，发现锁是被HTTP线程持有。这个线程正在执行<code>preClose0</code>，就是在这里等待连接的关闭<img src="/images/951413iMgBlog/image-20220721100446521.png" alt="image-20220721100446521"></p>
-<p>每次HTTP线程在关闭连接被阻塞时，同时持有了<code>SocketChannelImpl</code>的对象锁，而 IO线程在把这个连接移除出它的 selector管理队列时，也要获得同一个<code>SocketChannelImpl</code>的对象锁。IO 线程就这么一次次的被阻塞，悲剧的无以复加。有些 NIO框架会让 IO线程去做close，这时候就更加悲剧了。</p>
-<p><strong>总之这里的错误原因有两点：1）网络状态不好；2）错误理解了l_linger 的单位，是秒，不是毫秒。 在这两个原因的共同作用下导致了数据迟迟不能发送完毕，l_linger 超时又需要很久，所以服务会出现一直阻塞的状态。</strong></p>
-<h2 id="为什么要有-time-wait-状态"><a href="#为什么要有-time-wait-状态" class="headerlink" title="为什么要有 time_wait 状态"></a>为什么要有 time_wait 状态</h2><blockquote>
-<p>TIME-WAIT - represents waiting for enough time to pass to be sure the remote TCP received the acknowledgment of its connection termination request.</p>
-</blockquote>
-<p><img src="/images/951413iMgBlog/image-20220721093116395.png" alt="alt text"></p>
-<h2 id="由Nginx-SY-CPU高负载引发内核探索之旅"><a href="#由Nginx-SY-CPU高负载引发内核探索之旅" class="headerlink" title="由Nginx SY CPU高负载引发内核探索之旅"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/njpdTW5TndO4-H7nbEpXAA">由Nginx SY CPU高负载引发内核探索之旅</a></h2><p>这个案例来自腾讯7层网关团队，网关用的Nginx，请求转发给后面的被代理机器(RS:real server)，发现 sys CPU异常高，CPU都用在搜索可用端口.</p>
-<p><img src="/images/951413iMgBlog/640-8259033.png" alt="Image"></p>
-<p><img src="/images/951413iMgBlog/640-20221112211814567.png" alt="Image"></p>
-<p><img src="/images/951413iMgBlog/image7.png" alt="Figure 4: This is a flame graph of the connect syscall in Linux."> </p>
-<p>local port 不够的时候inet_hash_connect 中的spin_lock 会消耗过高的 sys（特别注意4.6内核后 local port 分奇偶数，每次loop+2，所以更容易触发port不够的场景）</p>
-<p>核心原因总结: 4.6后内核把本地端口分成奇偶数，奇数给connect, 偶数给listen，本来端口有6万，这样connect只剩下3万，当这3万用完后也不会报找不到本地可用端口的错误(这里报错可能更好)，而是在奇数里找不到就找偶数里的，每次都这样。 没改以前，总共6万端口，用掉3万，不分奇偶的话那么每找两个端口就有一个能用，也就是50%的概率。但是改了新的实现方案后，每次先要找奇数的3万个，全部在用，然后到偶数里继续找到第30001个才是可用的，也就是找到的概率变成了3万分之一，一下子复杂度高了15000倍，不慢才怪</p>
-<p>对这个把端口分成奇偶数我的看法：这个做法就是坑爹货，在内核里胡乱搞，为了一个小场景搞崩大多数正常场景，真没必要，当然我这是事后诸葛亮，如果当时这种feature拿给我看我也会认为很不错，想不到这个坑点！</p>
-<h2 id="从STGW流量下降探秘内核收包机制"><a href="#从STGW流量下降探秘内核收包机制" class="headerlink" title="从STGW流量下降探秘内核收包机制"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MjM5ODYwMjI2MA==&mid=2649745268&idx=1&sn=f72f164847060d7b19cba272a38485e5&scene=21#wechat_redirect">从STGW流量下降探秘内核收包机制</a></h2><p>listen port search消耗CPU异常高</p>
-<p><img src="/images/951413iMgBlog/640-9840722.jpeg" alt="图片"></p>
-<p>在正常的情况下，服务器的listen port数量，大概就是几w个这样的量级。这种量级下，一个port对应一个socket，哈希桶大小为32是可以接受的。</p>
-<p>然而在内核支持了reuseport并且被广泛使用后，情况就不一样了，**在多进程架构里，listen port对应的socket数量，是会被几十倍的放大的。*<em>以应用层监听了5000个端口，reuseport 使用了50个cpu核心为例，5000</em>50&#x2F;32约等于7812，意味着每次握手包到来时，光是查找listen socket，就需要遍历7800多次。随着机器硬件性能越来越强，应用层使用的cpu数量增多，这个问题还会继续加剧。</p>
-<p><strong>正因为上述原因，并且我们现网机器开启了reuseport，在端口数量较多的机器里，inet_lookup_listener的哈希桶大小太小，遍历过程消耗了cpu，导致出现了函数热点。</strong></p>
-<h2 id="短连接的开销"><a href="#短连接的开销" class="headerlink" title="短连接的开销"></a>短连接的开销</h2><p>用ab通过短连接走 lo 网卡压本机 nginx，CPU0是 ab 进程，CPU3&#x2F;4 是 Nginx 服务，可以看到 si 非常高，QPS 2.2万</p>
-<p><img src="/images/951413iMgBlog/image-20220627154822263.png" alt="image-20220627154822263"></p>
-<p>再将 ab 改用长连接来压，可以看到si、sy都有下降，并且 si 下降到短连接的20%，QPS 还能提升到 5.2万</p>
-<p><img src="/images/951413iMgBlog/image-20220627154931495.png" alt="image-20220627154931495"></p>
-<h2 id="一条连接的开销"><a href="#一条连接的开销" class="headerlink" title="一条连接的开销"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/BwddYkVLSYlkKFNeA-NUVg">一条连接的开销</a></h2><p>主要是内存开销(如图，来源见水印)，另外就是每个连接都会占用一个文件句柄，可以通过参数来设置：fs.nr_open、nofile（其实 nofile 还分 soft 和 hard） 和 fs.file-max</p>
-<p><img src="/images/951413iMgBlog/640-20220413134252639" alt="Image"></p>
-<p>从上图可以看到：</p>
-<ul>
-<li><p>没有收发数据的时候收发buffer不用提前分配，3K多点的内存是指一个连接的元信息数据空间，不包含传输数据的内存buffer</p>
-</li>
-<li><p>客户端发送数据后，会根据数据大小分配send buffer（一般不超过wmem，默认kernel会根据系统内存压力来调整send buffer大小)</p>
-</li>
-<li><p>server端kernel收到数据后存放在rmem中，应用读走后就会释放对应的rmem</p>
-</li>
-<li><p>rmem和wmem都不会重用，用时分配用完释放</p>
-</li>
-</ul>
-<p>可见，内核在 socket 内存开销优化上采取了不少方法:</p>
-<ul>
-<li>内核会尽量及时回收发送缓存区、接收缓存区，但高版本做的更好</li>
-<li>发送接收缓存区最小并一定不是 rmem 内核参数里的最小值，实际大部分时间都是0</li>
-<li>其它状态下，例如对于TIME_WAIT还会回收非必要的 socket_alloc 等对象</li>
-</ul>
-<p>或者看这篇分析：<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/25241630">https://zhuanlan.zhihu.com/p/25241630</a> </p>
-<h2 id="不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够"><a href="#不同进程使用相同端口，设置SO-REUSEADDR后被bind-导致可用-local-port-不够" class="headerlink" title="不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够"></a><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/251853">不同进程使用相同端口，设置SO_REUSEADDR后被bind  导致可用 local port 不够</a></h2><p>A进程选择某个端口当local port 来connect，并设置了 reuseaddr opt（表示其它进程还能继续用这个端口），这时B进程选了这个端口，并且bind了，B进程用完后把这个bind的端口释放了，但是如果 A 进程一直不释放这个端口对应的连接，那么这个端口会一直在内核中记录被bind用掉了（能bind的端口 是65535个，四元组不重复的连接你理解可以无限多），这样的端口越来越多后，剩下可供 A 进程发起连接的本地随机端口就越来越少了(也就是本来A进程选择端口是按四元组的，但因为前面所说的原因，导致不按四元组了，只按端口本身这个一元组来排重)，这时会造成新建连接的时候这个四元组高概率重复，一般这个时候对端大概率还在 time_wait 状态，会忽略掉握手 syn 包并回复 ack ，进而造成建连接卡顿的现象；超频繁的端口复用在LVS 场景下会产生问题，导致建连异常；或者syn包被 RST 触发1秒钟重传 syn</p>
-<p>这个A、B进程共同跑在一台宿主机上很多年了，只因为之前是3.10内核，这次升级到了4.19后因为奇偶数放大了问题</p>
-<p>当A进程已经开启了 SO_REUSEADDR 对外建联，此时 B 进程同样开启 SO_REUSEADDR 可以bind 此端口成功，当前端口就被设置为bind 状态，其他非 SO_REUSEADDR 的建联无法选到此端口</p>
-<h3 id="验证端口被connect-和-listen-同时使用"><a href="#验证端口被connect-和-listen-同时使用" class="headerlink" title="验证端口被connect 和 listen 同时使用"></a>验证端口被connect 和 listen 同时使用</h3><p>尝试先用 connect 把18181 端口用掉，然后在18181端口上起一个listen 服务，再从其他地方连这个listen的 18181端口</p>
-<p><img src="/images/951413iMgBlog/image-20240522103927360.png" alt="image-20240522103927360"></p>
-<p>抓包，本机 ip 是 172.17.151.5 ：</p>
-<p><img src="/images/951413iMgBlog/image-20240522103407831.png" alt="image-20240522103407831"></p>
-<p>抓包里的 stream 1 对应上图的connect to baidu.com:80 </p>
-<p>抓包里的 stream 2 对应其它客户端连listen 18181上的服务，对应的netstat 信息：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">#netstat -anpo |grep 18181</span><br><span class="line">0.0.0.0:18181           0.0.0.0:*               LISTEN      2732449/nc           off (0.00/0/0)</span><br><span class="line">172.17.151.5:18181      19.12.59.7:56166        ESTABLISHED 2732449/nc           off (0.00/0/0) (stream2)</span><br><span class="line">172.17.151.5:18181      110.242.68.66:80        ESTABLISHED 2732445/python       keepalive (4.96/0/0)（stream1）</span><br><span class="line">172.17.151.5:18181      10.143.33.49:123        ESTABLISHED 624/chronyd          off (0.00/0/0)</span><br></pre></td></tr></table></figure>
-
-<p>可以得出如下结论：</p>
-<ul>
-<li><p>两个TCP 连接四元组不一样，互相不干涉</p>
-</li>
-<li><p>先connect(SO_REUSEADDR) 用掉A端口后，还可以在上面继续使用A 端口来 listen(nc -l 18181)</p>
-</li>
-<li><p>先 listen 再connect 是不行的，报：Cannot assign requested address</p>
-</li>
-</ul>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ul>
-<li>在内存、文件句柄足够的话一台服务器上可以创建的TCP连接数量是没有限制的</li>
-<li>SO_REUSEADDR 主要用于快速重用 TIME_WAIT状态的TCP端口，避免服务重启就会抛出Address Already in use的错误</li>
-<li>先起一个listen 的端口设置了 SO_REUSEADDR，在其它进程 connect 的时候也不会从 port range 里再被选出来重用</li>
-<li>SO_REUSEPORT主要用来解决惊群、性能等问题</li>
-<li>全局范围可以用 net.ipv4.tcp_max_tw_buckets &#x3D; 50000 来限制总 time_wait 数量，但是会掩盖问题</li>
-<li>local port的选择是递增搜索的，搜索起始port随时间增加也变大</li>
-</ul>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a target="_blank" rel="noopener" href="https://segmentfault.com/a/1190000002396411">https://segmentfault.com/a/1190000002396411</a></p>
-<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a364572/article/details/40628171">linux中TCP的socket、bind、listen、connect和accept的实现</a></p>
-<p><a target="_blank" rel="noopener" href="https://ops.tips/blog/how-linux-tcp-introspection/">How Linux allows TCP introspection The inner workings of bind and listen on Linux.</a></p>
-<p><a target="_blank" rel="noopener" href="https://idea.popcount.org/2014-04-03-bind-before-connect/">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/C-Eeoeh9GHxugF4J30fz1A">TCP连接中客户端的端口号是如何确定的？</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/plantegg/linux/commit/9b3312bf18f6873e67f1f51dab3364c95c9dc54c">对应4.19内核代码解析</a></p>
-<p><a target="_blank" rel="noopener" href="https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/">How to stop running out of ephemeral ports and start to love long-lived connections</a></p>
-<p><a target="_blank" rel="noopener" href="https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/">https://blog.cloudflare.com/how-to-stop-running-out-of-ephemeral-ports-and-start-to-love-long-lived-connections/</a></p>
-<p>connect() why you so slow?<a target="_blank" rel="noopener" href="https://blog.cloudflare.com/linux-transport-protocol-port-selection-performance">https://blog.cloudflare.com/linux-transport-protocol-port-selection-performance</a>  <a target="_blank" rel="noopener" href="https://lpc.events/event/17/contributions/1593/attachments/1208/2472/lpc-2023-connect-why-you-so-slow.pdf?file=lpc-2023-connect-why-you-so-slow.pdf">https://lpc.events/event/17/contributions/1593/attachments/1208/2472/lpc-2023-connect-why-you-so-slow.pdf?file=lpc-2023-connect-why-you-so-slow.pdf</a> </p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/23/%E4%B8%80%E6%AC%A1%E6%98%A5%E8%8A%82%E5%A4%A7%E4%BF%83%E6%80%A7%E8%83%BD%E5%8E%8B%E6%B5%8B%E4%B8%8D%E8%BE%BE%E6%A0%87%E7%9A%84%E7%93%B6%E9%A2%88%E6%8E%A8%E6%BC%94/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/23/%E4%B8%80%E6%AC%A1%E6%98%A5%E8%8A%82%E5%A4%A7%E4%BF%83%E6%80%A7%E8%83%BD%E5%8E%8B%E6%B5%8B%E4%B8%8D%E8%BE%BE%E6%A0%87%E7%9A%84%E7%93%B6%E9%A2%88%E6%8E%A8%E6%BC%94/" class="post-title-link" itemprop="url">一次春节大促性能压测不达标的瓶颈推演</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2020-11-23 11:30:03" itemprop="dateCreated datePublished" datetime="2020-11-23T11:30:03+08:00">2020-11-23</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-29 15:11:18" itemprop="dateModified" datetime="2025-11-29T15:11:18+08:00">2025-11-29</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/performance/" itemprop="url" rel="index"><span itemprop="name">performance</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="一次春节大促性能压测不达标的瓶颈推演"><a href="#一次春节大促性能压测不达标的瓶颈推演" class="headerlink" title="一次春节大促性能压测不达标的瓶颈推演"></a>一次春节大促性能压测不达标的瓶颈推演</h1><p>本文示范了教科书式的在分布式应用场景下如何通过一个节点的状态来推演分析瓶颈出在上下游的哪个环节上。</p>
-<h2 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h2><p>某客户通过PTS（一个打压力工具）来压选号业务(HTTP服务在9108端口上），一个HTTP请求对应一次select seq-id 和 一次insert</p>
-<p>PTS端看到RT900ms+，QPS大概5万（期望20万）， 数据库代理服务 rt 5ms，QPS 10万+</p>
-<h3 id="链路："><a href="#链路：" class="headerlink" title="链路："></a>链路：</h3><p>pts发起压力 -&gt; 5个eip -&gt; slb -&gt; app(300个容器运行tomcat监听9108端口上） -&gt; slb -&gt; 数据库代理服务集群 -&gt; RDS集群</p>
-<p>性能不达标，怀疑数据库代理服务或者RDS性能不行，作为数据库需要自证清白，所以从RDS和数据库代理服务开始分析问题在哪里。</p>
-<p>略过一系列在数据库代理服务、RDS上分析数据和监控图表都证明数据库代理服务和RDS没问题的过程。</p>
-<p>在明确给出证据数据库代理服务和RDS都没问题后还是要解决问题，所以只能进一步帮助前面的app来分析为什么性能不达标。</p>
-<h2 id="在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析："><a href="#在其中一个app应用上抓包（00-18秒到1-04秒），到数据库代理服务的一个连接分析：" class="headerlink" title="在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析："></a>在其中一个app应用上抓包（00:18秒到1:04秒），到数据库代理服务的一个连接分析：</h2><p><img src="/images/oss/80374e55936bc36bbd243f79fcdb5f8d.png" alt="image.png"></p>
-<p>数据库代理服务每个HTTP请求的响应时间都控制在15ms(一个前端HTTP请求对应一个select seq-id，一个 select readonly, 一个insert， 这个响应时间符合预期）。一个连接每秒才收到20 tps（因为压力不够，压力加大的话这个单连接tps还可以增加）， 20*3000 &#x3D; 6万 ， 跟压测看到基本一致</p>
-<p>300个容器，每个容器 10个连接到数据库代理服务</p>
-<p>如果300个容器上的并发压力不够的话就没法将3000个连接跑满，所以看到的QPS是5万。</p>
-<p><strong>从300个容器可以计算得到这个集群能支持的tps： 300*10（10个连接）* 1000&#x2F;15(每秒钟每个连接能处理的请求数）&#x3D;20万个tps （关键分析能力）</strong></p>
-<p>也就是说通过单QPS 15ms，我们计算可得整个后端的吞吐能力在20万QPS。所以目前问题不在后端，而是压力没有打到后端就出现瓶颈了。</p>
-<h2 id="9108的HTTP服务端口上的抓包分析"><a href="#9108的HTTP服务端口上的抓包分析" class="headerlink" title="9108的HTTP服务端口上的抓包分析"></a>9108的HTTP服务端口上的抓包分析</h2><p><img src="/images/oss/e239a12a1c3612263736256c8efc06e4.png" alt="image.png"></p>
-<p>9108服务的每个HTTP response差不多都是15ms（<strong>这个响应时间基本符合预期</strong>），一个HTTP连接上在45秒的抓包时间范围只收到23个HTTP Request。</p>
-<p>或者下图：</p>
-<img src="/images/951413iMgBlog/image-20220627164250973.png" alt="image-20220627164250973" style="zoom:50%;" />
-
-<img src="/images/951413iMgBlog/image-20220630101036341.png" alt="image-20220630101036341" style="zoom:50%;" />
-
-<p>统计9108端口在45秒总共收到的HTTP请求数量是6745（如下图），也就是每个app每秒钟收到的请求是150个，300*150&#x3D;4.5万（理论值，300个app可能压力分布不一样？），<strong>从这里看app收到的压力还不够</strong>，所以压力还没有打到应用容器中的app，还在更前面</p>
-<p><img src="/images/oss/6a289d1bba1e875d215032b6fdc7b084.png" alt="image.png"></p>
-<p>后来从容器app监控也确认了这个响应时间和抓包看到的一致，所以从抓包分析http响应时间也基本得到15ms的rt关键结论</p>
-<p>从wireshark IO Graphs 也能看到RT 和 QPS</p>
-<p><img src="/images/951413iMgBlog/image-20220623003026351.png" alt="image-20220623003026351"></p>
-<h2 id="从应用容器上的netstat统计来看，也是压力端回复太慢"><a href="#从应用容器上的netstat统计来看，也是压力端回复太慢" class="headerlink" title="从应用容器上的netstat统计来看，也是压力端回复太慢"></a>从应用容器上的netstat统计来看，也是压力端回复太慢</h2><p><img src="/images/oss/938ce314d19b47cba99e2a09c753f606.png" alt="image.png"></p>
-<p>send-q表示回复从9108发走了，没收到对方的ack</p>
-<h2 id="ARMS监控分析9108端口上的RT"><a href="#ARMS监控分析9108端口上的RT" class="headerlink" title="ARMS监控分析9108端口上的RT"></a>ARMS监控分析9108端口上的RT</h2><p>后来PTS的同学说ARMS可以捞到监控数据，如下是对rt时间降序排</p>
-<p><img src="/images/oss/a479bad250c03aee41d58850afab9c14.png" alt="image.png"></p>
-<p>中的rt平均时间，可以看到http的rt确实14.4ms，表现非常平稳，从这个监控也发现实际app是330个而不是用户自己描述的300个，这也就是为什么实际是tps是5万，但是按300个去算的话tps是4.5万（不要纠结客户为什么告诉你是300个容器而不是330个，有时候他们也搞不清楚，业务封装得太好了）</p>
-<p><img src="/images/oss/2f3b76be63d331510eb6f2cecd91747f.png" alt="image.png"></p>
-<p>5分钟时间，QPS是5万+，HTTP的平均rt是15ms， HTTP的最大rt才79ms，和前面抓包分析一致。</p>
-<h2 id="从后端分析的总结"><a href="#从后端分析的总结" class="headerlink" title="从后端分析的总结"></a>从后端分析的总结</h2><p><strong>从9108端口响应时间15ms来看是符合预期的，为什么PTS看到的RT是900ms+，所以压力还没有打到APP上（也就是9108端口）</strong></p>
-<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>最后发现是 eip 带宽不足，只有200M，调整到1G后 tps 也翻了5倍到了25万。</p>
-<p>pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt; app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS</p>
-<p>这个案例有意思的地方是可以通过抓包就能分析出集群能扛的QPS20万（实际只有5万），那么可以把这个分析原则在每个角色上挨个分析一下，来看瓶颈出在了哪个环节。</p>
-<p>应用端看到的rt是900ms，从后段开始往前面应用端来撸，看看每个环节的rt数据。</p>
-<h2 id="教训"><a href="#教训" class="headerlink" title="教训"></a>教训</h2><ul>
-<li>搞清楚 请求 从发起端到DB的链路路径，比如 pts -&gt; 5个eip(总带宽200M) -&gt; slb -&gt;  app(330个HTTP容器） -&gt; slb -&gt; 数据库代理服务 -&gt; RDS </li>
-<li>压不上去得从发压力端开始往后端撸，撸每个产品的rt，每个产品给出自己的rt来自证清白</li>
-<li>应用有arms的话学会看arms对平均rt和QPS的统计，不要纠结个别请求的rt抖动，看平均rt</li>
-<li>通过抓包完全可以分析出来系统能扛多少并发，以及可能的瓶颈位置</li>
-</ul>
-<p>一包在手 万事无忧</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/TCP%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/18/TCP%E8%BF%9E%E6%8E%A5%E4%B8%BA%E5%95%A5%E4%BA%92%E4%B8%B2%E4%BA%86/" class="post-title-link" itemprop="url">活久见，TCP连接互串了</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2020-11-18 17:30:03" itemprop="dateCreated datePublished" datetime="2020-11-18T17:30:03+08:00">2020-11-18</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="活久见，TCP连接互串了"><a href="#活久见，TCP连接互串了" class="headerlink" title="活久见，TCP连接互串了"></a>活久见，TCP连接互串了</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>应用每过一段时间总是会抛出几个连接异常的错误，需要查明原因。</p>
-<p>排查后发现是TCP连接互串了，这个案例实在是很珍惜，所以记录一下。</p>
-<h2 id="抓包"><a href="#抓包" class="headerlink" title="抓包"></a>抓包</h2><p>业务结构： 应用-&gt;MySQL(10.112.61.163)</p>
-<p>在 应用 机器上抓包这个异常连接如下（3269为MySQL服务端口）：</p>
-<p><img src="/images/oss/dd657fee9d961a786c05e8d3cccbc297.png" alt="image.png"></p>
-<p>粗一看没啥奇怪的，就是应用发查询给3269，但是一直没收到3269的ack，所以一直重传。这里唯一的解释就是网络不通。最后MySQL的3269还回复了一个rst，这个rst的id是42889，引起了我的好奇，跟前面的16439不连贯，正常应该是16440才对。（请记住上图中的绿框中的数字）</p>
-<p>于是我过滤了一下端口61902上的所有包：</p>
-<p><img src="/images/oss/8ca7da8ccec0041dd5d3f66f94d1f574.png" alt="image.png"></p>
-<p>可以看到绿框中的查询从61902端口发给3269后，很奇怪居然收到了一个来自别的IP+3306端口的reset，这个包对这个连接来说自然是不认识（这个连接只接受3269的回包），就扔掉了。但是也没收到3269的ack，所以只能不停地重传，然后每次都收到3306的reset，reset包的seq、id都能和上图的绿框对应上。</p>
-<p>明明他们应该是两个连接：</p>
-<blockquote>
-<p> 61902-&gt;10.141.16.0:3306</p>
-<p> 61902-&gt;10.112.61.163:3269</p>
-</blockquote>
-<p>他们虽然用的本地ip端口（61902）是一样的， 但是根据四元组不一样，还是不同的TCP连接，所以应该是不会互相干扰的。但是实际看起来<strong>seq、id都重复了</strong>，不会有这么巧，非常像是TCP互串了。</p>
-<h2 id="分析原因"><a href="#分析原因" class="headerlink" title="分析原因"></a>分析原因</h2><p>10.141.16.0 这个ip看起来像是lvs的ip，查了一下系统，果然是lvs，然后这个lvs 后面的rs就是10.112.61.163</p>
-<p>那么这个连结构就是10.141.16.0:3306：</p>
-<blockquote>
-<p>应用 -&gt; lvs(10.141.16.0:3306)-&gt; 10.112.61.163:3269  跟应用直接连MySQL是一回事了</p>
-</blockquote>
-<p>所以这里的疑问就变成了：<strong>10.141.16.0 这个IP的3306端口为啥能知道 10.112.61.163:3269端口的seq和id，也许是TCP连接串了</strong></p>
-<p>接着往下排查</p>
-<h3 id="先打个岔，分析下这里的LVS的原理"><a href="#先打个岔，分析下这里的LVS的原理" class="headerlink" title="先打个岔，分析下这里的LVS的原理"></a><a href="/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">先打个岔，分析下这里的LVS的原理</a></h3><p>这里使用的是 full NAT模型(full NetWork Address Translation-全部网络地址转换)</p>
-<p>基本流程（类似NAT）：</p>
-<ol>
-<li>client发出请求（sip 200.200.200.2 dip 200.200.200.1）</li>
-<li>请求包到达lvs，lvs修改请求包为**（sip 200.200.200.1， dip rip）** 注意这里sip&#x2F;dip都被修改了</li>
-<li>请求包到达rs， rs回复（sip rip，dip 200.200.200.1）</li>
-<li>这个回复包的目的IP是VIP(不像NAT中是 cip)，所以LVS和RS不在一个vlan通过IP路由也能到达lvs</li>
-<li>lvs修改sip为vip， dip为cip，修改后的回复包（sip 200.200.200.1，dip 200.200.200.2）发给client</li>
-</ol>
-<p><img src="/images/oss/94d55b926b5bb1573c4cab8353428712.png" alt="image.png"></p>
-<p><strong>注意上图中绿色的进包和红色的出包他们的地址变化</strong></p>
-<p>本来这个模型下都是正常的，但是为了Real Server能拿到client ip，也就是Real Server记录来源ip的时候希望记录的是client ip而不是LVS ip。这个时候LVS会将client ip放在tcp的options里面，然后在RealServer机器的内核里面将options中的client ip取出替换掉 lvs ip。所以Real Server上感知到的对端ip就是client ip。</p>
-<p>回包的时候RealServer上的内核模块同样将目标地址从client ip改成lvs ip，同时将client ip放入options中。</p>
-<h2 id="回到问题"><a href="#回到问题" class="headerlink" title="回到问题"></a>回到问题</h2><p>看完理论，再来分析这两个连接的行为</p>
-<p>fulnat模式下连接经过lvs到达mysql后，mysql上看到的连接信息是，cip+port，也就是在MySQL上的连接</p>
-<p>**lvs-ip:port -&gt; 10.112.61.163:3269  被修改成了 **client-ip:61902 **-&gt; 10.112.61.163:3269</p>
-<p>那么跟不走LVS的连接：</p>
-<p><strong>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) 完全重复了。</strong></p>
-<p>MySQL端看到的两个连接四元组一模一样了：</p>
-<blockquote>
-<p>10.112.61.163:3269 -&gt; client-ip:61902 (走LVS，本来应该是lvs ip的，但是被替换成了client ip) </p>
-<p>10.112.61.163:3269 -&gt; client-ip:61902 (直连) </p>
-</blockquote>
-<p>这个时候应用端看到的还是两个连接：</p>
-<blockquote>
-<p>client-ip:61902 -&gt; 10.141.16.0:3306 （走LVS） </p>
-<p>client-ip:61902 -&gt;  10.112.61.163:3269 (直连) </p>
-</blockquote>
-<p>总结下，也就是这个连接经过LVS转换后在服务端（MYSQL）跟直连MySQL的连接四元组完全重复了，也就是MySQL会认为这两个连接就是同一个连接，所以必然出问题了</p>
-<blockquote>
-<p>这个时候用 netstat 看到的应该是两个连接(vtoa 没有替换), 一个是client-&gt;rs, 一个是lvs-&gt;rs, 内核层面看到的还是两个连接, 只是get_peername接口被toa hook修改后, 两个连接返回的srcip是同一个 </p>
-</blockquote>
-<p>实际两个连接建立的情况：</p>
-<blockquote>
-<p> 和mysqlserver的61902是04:22建起来的，和lvs的61902端口 是42:10建起来的，和lvs的61902建起来之后马上就出问题了</p>
-</blockquote>
-<h2 id="问题出现的条件"><a href="#问题出现的条件" class="headerlink" title="问题出现的条件"></a>问题出现的条件</h2><ul>
-<li>fulnat模式的LVS，RS上装有ip转换模块（RS上会将LVS ip还原成client ip）</li>
-<li>client端正好重用一个相同的本地端口分别和RS以及LVS建立了两个连接</li>
-</ul>
-<p>这个时候这两个连接在MySQL端就会变成一个，然后两个连接的内容互串，必然导致rst</p>
-<p>这个问题还挺有意思的，估计没几个程序员一辈子能碰上一次。推荐另外一个好玩的连接：<a href="/2020/07/01/%E5%A6%82%E4%BD%95%E5%88%9B%E5%BB%BA%E4%B8%80%E4%B8%AA%E8%87%AA%E5%B7%B1%E8%BF%9E%E8%87%AA%E5%B7%B1%E7%9A%84TCP%E8%BF%9E%E6%8E%A5/">如何创建一个自己连自己的TCP连接</a></p>
-<p>在很多容器场景也容易出现同样的问题，比如同时暴露 Nodeport 和 Loadbalance IP</p>
-<h2 id="其他场景"><a href="#其他场景" class="headerlink" title="其他场景"></a>其他场景</h2><p>比如在 HA 场景下，需要通过直连节点去做心跳检查(B链路)；同时又要走A链路去跨机房检测，这两个链路下连接的目标IP一直、端口不一样，但是经过转换后都是MySQL-Server+3306端口，容易出现两条连接转换后变成一条连接</p>
-<p><img src="/images/951413iMgBlog/image-20240723203828093.png" alt="image-20240723203828093"></p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2019/06/20/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--lvs%E5%92%8C%E8%BD%AC%E5%8F%91%E6%A8%A1%E5%BC%8F/">就是要你懂负载均衡–lvs和转发模式</a></p>
-<p><a target="_blank" rel="noopener" href="https://idea.popcount.org/2014-04-03-bind-before-connect/">https://idea.popcount.org/2014-04-03-bind-before-connect/</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/issues/81775">no route to host</a></p>
-<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/127099484">另一种形式的tcp连接互串，新连接重用了time_wait的port，导致命中lvs内核表中的维护的旧连接发给了老的realserver</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2020/11/18/MySQL%E9%92%88%E5%AF%B9%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E4%BC%98%E5%8C%96/" class="post-title-link" itemprop="url">MySQL针对秒杀场景的优化</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2020-11-18 07:30:03" itemprop="dateCreated datePublished" datetime="2020-11-18T07:30:03+08:00">2020-11-18</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-29 15:11:18" itemprop="dateModified" datetime="2025-11-29T15:11:18+08:00">2025-11-29</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="MySQL针对秒杀场景的优化"><a href="#MySQL针对秒杀场景的优化" class="headerlink" title="MySQL针对秒杀场景的优化"></a>MySQL针对秒杀场景的优化</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>对于秒杀热点场景，MySQL官方版本500 TPS每秒，在对MySQL优化前只能用redis来扛，redis没有事务能力，比如一个item下有多个sku就搞不定了。同时在前端搞限流、答题等让秒杀流量控制在可以承受的范围内。</p>
-<h2 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h2><p>对于秒杀热点场景，MySQL官方版本扣减只能做到 500 TPS每秒，扛不住大促的流量，需要优化。从控制并发量将500优化到1400，再通过新语法来消除网络rtt对加锁时间的控制这样达到了 4000 TPS。最后合并多个扣减到一个，累积比如10ms提交，能将TPS 能升到4万以上这个能力。</p>
-<h3 id="排队控制并发"><a href="#排队控制并发" class="headerlink" title="排队控制并发"></a>排队控制并发</h3><p>拍减模式在整个交易过程中只有一次扣减交互，所以是不需要付款减库存那样的判重逻辑，就是说，拍减的减库存sql只有一条update语句就搞定了。而付减有两条，一条insert判重+一条update减库存（双十一拍减接口在高峰的rt约为8ms，而付减接口在高峰的rt约为15ms）；</p>
-<p>其次，当大量请求（线程）落到mysql的同一条记录上进行减库存时，线程之间会存在竞争关系，因为要争夺InnoDB的行锁，当一个线程获得了行锁，其他并发线程就只能等待（InnoDB内部还有死锁检测等机制会严重影响性能），当并发度越高时，等待的线程就越多，此时tps会急剧下降，rt会飙升，性能就不能满足要求了。那如何减少锁竞争？答案是：排队！库存中心从几个层面做了排队策略。</p>
-<p>首先，在应用端进行排队，因为很多商品都是有sku的，当sku库存变化时item的库存也要做相应变化，所以需要根据itemId来进行排队，相同itemId的减库存操作会进入串行化排队处理逻辑，不过应用端的排队只能做到单机内存排队，当应用服务器数量过多时，落到db的并发请求仍然很多，所以最好的办法是在db端也加上排队策略，今年库存中心db部署了两个的排队patch，一个叫“并发控制”，是做在InnoDB层的，另一个叫“queue on pk”，是做在mysql的server层的，两个patch各有优缺点，前者不需要应用修改代码，db自动判断，后者需要应用程序写特殊的sql hint，前者控制的全局的sql，后者是根据hint来控制指定sql，两个patch的本质和应用端的排队逻辑是一致的，具体实现不同。双十一库存中心使用的是“并发控制”的patch。</p>
-<blockquote>
-<p>2013年的单减库存TPS最高记录是1381次每秒。</p>
-</blockquote>
-<p>对于秒杀热点场景，官方版本500tps每秒，问题在于同时涌入的请求太多，每次取锁都要检查其它等锁的线程（防止死锁），这个线程队列太长的话导致这个检查时间太长； 继续在前面增加能够进入到后面的并发数的控制，通过增加线程池、控制并发能到1400（no deadlock list check）；</p>
-<blockquote>
-<p><strong>热点更新下的死锁检测(<strong>no deadlock list check</strong>)</strong></p>
-<p>由于热点更新是分布式的客户端并发的向单点的数据库进行了并行更新一条记录，到数据库最后是把并行的线程转行成串行的操作。但在串行操作的时候，由于对同一记录的锁申请列表过大，死锁检测的机制在检测锁队列的时候，反而拖慢了每一个更新。</p>
-<p> 原生版本的MySQL对于正常业务链接没有拒绝机制（除了TDDL的链接池或者MySQL的user_connnection不够用），对于同一行记录到innodb层修改的时候，凡是到innodb层的任务都必须拿到innodb_thread_concurrency的槽位才能执行(当然这里也有很多细节，这里就说最主要的代码改动点)，举例来说：开启一个事务，对于id&#x3D;1的行记录更新，进到innodb层，占着1个innodb_thread_concurrency，等到id&#x3D;1的事务结束，会释放innodb_thread_concurrency,从而达到innodb_thread_concurrency的平衡；</p>
-<p>再进一步，开启一个事务，对id&#x3D;1的行记录更新进到innodb层，占着1个innodb_thread_concurrency，事务不提交（假设innodb_thread_concurrency&#x3D;32)，如果有下一个对id&#x3D;1记录来更新的话，进到innodb层，又占着1个innodb_thread_concurrency，检测发现是对id&#x3D;1的更新，排到第1个对id&#x3D;1的队列的后面，同时释放innodb_thread_concurrency;以此类推这个链表有可能会很长比如1024；执行的时候又需要做死锁检测等一系列工作，都需要用到一个叫做kernel_mutex的mutex（这是一个全局互斥量用来管理锁系统，事务系统，MVCC多版本控制），对于大并发，整个链表非常长的时候，可想而知kernel_metex的竞争多么激烈，从而在链表检测的时间变长。</p>
-</blockquote>
-<h3 id="缩短锁时间"><a href="#缩短锁时间" class="headerlink" title="缩短锁时间"></a>缩短锁时间</h3><p>接下来的问题在于一个事务中有多条语句（最少也有一个update+一个commit），这样update(减库存，开始锁表），走网络，查询结果（走网络），commit，两次跨网络调用导致update锁行比较久，于是可以新造一个语法 select update一次搞定，继续优化 select update commit_on_success_or_fail_rollback，将所有操作一次网络操作全部搞定，能到4000；</p>
-<p>比如库存扣减的业务逻辑可以简化为下面这个事务:</p>
-<p>（1）begin;</p>
-<p>（2）insert 交易流水表; – 交易流水对账</p>
-<p>（3）update 库存明细表 where id in (sku_id，item_id);</p>
-<p>（4）select 库存明细表;</p>
-<p>（5）commit</p>
-<p><img src="/images/951413iMgBlog/TB1yvFqOpXXX.png" alt="Snip20161116_88.png"></p>
-<p>SQL case：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">4059550</span> Query   <span class="keyword">SET</span> autocommit<span class="operator">=</span><span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">update</span> ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> trade <span class="keyword">set</span> version <span class="operator">=</span> version<span class="operator">+</span><span class="number">3</span> ,gmt_modified <span class="operator">=</span> now(), optype<span class="operator">=</span><span class="number">2</span>,feature <span class="operator">=</span><span class="string">&#x27;;abc;&#x27;</span> <span class="keyword">where</span> sub_biz_order_id<span class="operator">=</span><span class="string">&#x27;15&#x27;</span> <span class="keyword">and</span> biz_order_type <span class="operator">=</span><span class="number">1</span> <span class="keyword">and</span> id <span class="operator">=</span><span class="number">5</span> <span class="keyword">and</span> ti_id<span class="operator">=</span><span class="number">1</span> <span class="keyword">and</span> optype <span class="operator">=</span> <span class="number">3</span> <span class="keyword">and</span> root_id <span class="operator">=</span> <span class="number">11</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">select</span> id,<span class="operator">*</span> <span class="keyword">from</span> <span class="keyword">update</span> COMMIT_ON_SUCCESS ROLLBACK_ON_FAIL TARGET_AFFECT_ROW <span class="number">1</span> invetory <span class="keyword">set</span>                     withholding_quantity <span class="operator">=</span> withholding_quantity <span class="operator">+</span> <span class="number">-1</span>,  flag<span class="operator">=</span>flag <span class="operator">&amp;</span><span class="operator">~</span> (<span class="number">1</span><span class="operator">&lt;&lt;</span><span class="number">10</span>) <span class="operator">&amp;</span><span class="operator">~</span> (<span class="number">1</span><span class="operator">&lt;&lt;</span><span class="number">11</span>) , version<span class="operator">=</span>version<span class="operator">+</span><span class="number">3</span>,gmt_modified <span class="operator">=</span> now()         <span class="keyword">WHERE</span>  root_id <span class="operator">=</span> <span class="number">11</span> <span class="keyword">and</span> status <span class="operator">=</span> <span class="number">1</span> <span class="keyword">and</span> id <span class="keyword">in</span>    (     <span class="number">1</span>    )  <span class="keyword">and</span> (withholding_quantity <span class="operator">+</span> <span class="number">-1</span>) <span class="operator">&gt;=</span> <span class="number">0</span></span><br><span class="line"><span class="number">4059550</span> Query   <span class="keyword">commit</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="批量提交"><a href="#批量提交" class="headerlink" title="批量提交"></a>批量提交</h3><p>其主要的核心思想是：针对应用层SQL做轻量化改造，带上”热点行SQL”的hint，当这种SQL进入内核后，在内存中维护一个hash表，将主键或唯一键相同的请求(一般也就是同一商品id)hash到同一个地方做请求的合并，经过一段时间后(默认100us)统一提交，从而实现了将串行处理变成了批处理，让每个热点行更新请求并不需要都去扫描和更新btree。</p>
-<ol>
-<li>热点的自动识别:前面已经讲过了，库存的扣减SQL都会有commit on success标记。mysql内部分为普通通道和热点扣减通道。普通通道里是正常的事务。热点通道里收集带有commit on success标记的事务。在一定的时间区间段内(0.1ms)，将收集到的热点按照主键或者唯一键进行hash; hash到同一个桶中为相同的sku; 分批组提交这0.1ms收集到的热点商品。</li>
-<li>轮询处理: 第一批进行提交时，第二批进行收集； 当第一批完成了提交开始收集时，第二批就可以进行提交了。不断轮询，提高效率</li>
-</ol>
-<p>通过内存合并库存减操作，干到100000（每个减库存操作生成一条独立的update binlog，不影响其他业务2016年双11），实际这里还可以调整批提交时间间隔来进一步提升扣减QPS</p>
-<p><img src="/images/951413iMgBlog/TB1I_BvOpXXXXasXVXXXXXXXXXX.png" alt="Snip20161116_87.png"></p>
-<p>超卖：付款减库存会超卖，拍减库存要防止恶意拍不付款。拍减的话可以通过增加SQL新语法来进一步优化DB响应(select update)</p>
-<p>innodb_buffer_pool_instance: 将buffer pool 分成几个（hash），避免高并发修改的时候一个大锁mutex导致性能不高</p>
-<p>批量提交的压测效果：</p>
-<p><img src="/images/951413iMgBlog/image-20230814104356084.png" alt="image-20230814104356084"></p>
-<h3 id="业务优化"><a href="#业务优化" class="headerlink" title="业务优化"></a>业务优化</h3><p>延迟扣减item，一般一个item下会有多个sku（比如 iPhone14 不同的颜色、配置就是一个不同的sku），而库存会有总库存（item），也有sku 库存，sku库存加起来就是item库存</p>
-<p>导致扣减的时候 item库存更热</p>
 
       
     </div>
@@ -1986,7 +1875,7 @@ sudo ip tcp_metrics delete 100.118.58.7
 
   <div class="copyright">
     &copy; 
-    <span itemprop="copyrightYear">2025</span>
+    <span itemprop="copyrightYear">2026</span>
     <span class="with-love">
       <i class="fa fa-heart"></i>
     </span>

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="AWS RDS MySQL 蓝绿部署升级完整指南概述本文档基于实际测试记录，详细介绍AWS RDS MySQL从5.7升级到8.0的蓝绿部署全过程。 测试环境:  源版本: MySQL 5.7.44-rds.20251212 目标版本: MySQL 8.0.40 实例类型: db.m5.large (2vCPU, 8GB) Multi-AZ: 启用 区域: ap-southeast-1  蓝绿部署">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AWS RDS MySQL 蓝绿部署升级完整指南">
+<meta property="og:url" content="https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="AWS RDS MySQL 蓝绿部署升级完整指南概述本文档基于实际测试记录，详细介绍AWS RDS MySQL从5.7升级到8.0的蓝绿部署全过程。 测试环境:  源版本: MySQL 5.7.44-rds.20251212 目标版本: MySQL 8.0.40 实例类型: db.m5.large (2vCPU, 8GB) Multi-AZ: 启用 区域: ap-southeast-1  蓝绿部署">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2025-10-25T09:30:03.000Z">
+<meta property="article:modified_time" content="2026-02-06T05:53:24.851Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="aws">
+<meta property="article:tag" content="upgrade">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/","path":"2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/","title":"AWS RDS MySQL 蓝绿部署升级完整指南"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>AWS RDS MySQL 蓝绿部署升级完整指南 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#AWS-RDS-MySQL-%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2%E5%8D%87%E7%BA%A7%E5%AE%8C%E6%95%B4%E6%8C%87%E5%8D%97"><span class="nav-number">1.</span> <span class="nav-text">AWS RDS MySQL 蓝绿部署升级完整指南</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%A6%82%E8%BF%B0"><span class="nav-number">1.1.</span> <span class="nav-text">概述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-number">1.2.</span> <span class="nav-text">蓝绿部署流程图</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%89%8D%E7%BD%AE%E6%9D%A1%E4%BB%B6"><span class="nav-number">1.3.</span> <span class="nav-text">前置条件</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-%E6%A3%80%E6%9F%A5%E5%BD%93%E5%89%8D%E5%AE%9E%E4%BE%8B%E7%8A%B6%E6%80%81"><span class="nav-number">1.3.1.</span> <span class="nav-text">1. 检查当前实例状态</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-%E7%A1%AE%E8%AE%A4%E5%8F%AF%E5%8D%87%E7%BA%A7%E7%9A%84%E7%9B%AE%E6%A0%87%E7%89%88%E6%9C%AC"><span class="nav-number">1.3.2.</span> <span class="nav-text">2. 确认可升级的目标版本</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-%E7%A1%AE%E4%BF%9D%E5%A4%87%E4%BB%BD%E5%B7%B2%E5%90%AF%E7%94%A8"><span class="nav-number">1.3.3.</span> <span class="nav-text">3. 确保备份已启用</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%B6%E6%AE%B51-%E5%88%9B%E5%BB%BA%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2"><span class="nav-number">1.4.</span> <span class="nav-text">阶段1: 创建蓝绿部署</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%91%BD%E4%BB%A4"><span class="nav-number">1.4.1.</span> <span class="nav-text">命令</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E"><span class="nav-number">1.4.2.</span> <span class="nav-text">参数说明</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%94%E5%9B%9E%E7%A4%BA%E4%BE%8B"><span class="nav-number">1.4.3.</span> <span class="nav-text">返回示例</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%B6%E6%AE%B52-%E7%9B%91%E6%8E%A7%E9%83%A8%E7%BD%B2%E8%BF%9B%E5%BA%A6"><span class="nav-number">1.5.</span> <span class="nav-text">阶段2: 监控部署进度</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9F%A5%E7%9C%8B%E9%83%A8%E7%BD%B2%E7%8A%B6%E6%80%81"><span class="nav-number">1.5.1.</span> <span class="nav-text">查看部署状态</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%BB%E5%8A%A1%E7%8A%B6%E6%80%81%E8%AF%B4%E6%98%8E"><span class="nav-number">1.5.2.</span> <span class="nav-text">任务状态说明</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%8A%B6%E6%80%81%E6%B5%81%E8%BD%AC"><span class="nav-number">1.5.3.</span> <span class="nav-text">状态流转</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9F%A5%E7%9C%8B%E7%BB%BF%E7%8E%AF%E5%A2%83%E5%AE%9E%E4%BE%8B%E8%AF%A6%E6%83%85"><span class="nav-number">1.5.4.</span> <span class="nav-text">查看绿环境实例详情</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%B6%E6%AE%B53-%E6%89%A7%E8%A1%8C%E5%88%87%E6%8D%A2-Switchover"><span class="nav-number">1.6.</span> <span class="nav-text">阶段3: 执行切换 (Switchover)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%89%8D%E7%BD%AE%E6%A3%80%E6%9F%A5"><span class="nav-number">1.6.1.</span> <span class="nav-text">前置检查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%89%A7%E8%A1%8C%E5%88%87%E6%8D%A2%E5%91%BD%E4%BB%A4"><span class="nav-number">1.6.2.</span> <span class="nav-text">执行切换命令</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E-1"><span class="nav-number">1.6.3.</span> <span class="nav-text">参数说明</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%87%E6%8D%A2%E8%BF%87%E7%A8%8B%E8%AF%A6%E8%A7%A3"><span class="nav-number">1.6.4.</span> <span class="nav-text">切换过程详解</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%87%E6%8D%A2%E6%9C%9F%E9%97%B4%E7%9A%84%E5%AE%9E%E4%BE%8B%E5%90%8D%E7%A7%B0%E5%8F%98%E5%8C%96"><span class="nav-number">1.6.5.</span> <span class="nav-text">切换期间的实例名称变化</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%B6%E6%AE%B54-%E9%AA%8C%E8%AF%81%E5%8D%87%E7%BA%A7%E7%BB%93%E6%9E%9C"><span class="nav-number">1.7.</span> <span class="nav-text">阶段4: 验证升级结果</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%A3%80%E6%9F%A5%E5%88%87%E6%8D%A2%E7%8A%B6%E6%80%81"><span class="nav-number">1.7.1.</span> <span class="nav-text">检查切换状态</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E6%96%B0%E7%89%88%E6%9C%AC"><span class="nav-number">1.7.2.</span> <span class="nav-text">验证新版本</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%9E%E6%8E%A5%E9%AA%8C%E8%AF%81"><span class="nav-number">1.7.3.</span> <span class="nav-text">连接验证</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%98%B6%E6%AE%B55-%E6%B8%85%E7%90%86%E8%B5%84%E6%BA%90"><span class="nav-number">1.8.</span> <span class="nav-text">阶段5: 清理资源</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%A0%E9%99%A4%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2-%E4%BF%9D%E7%95%99%E6%97%A7%E5%AE%9E%E4%BE%8B"><span class="nav-number">1.8.1.</span> <span class="nav-text">删除蓝绿部署 (保留旧实例)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%A0%E9%99%A4%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2-%E5%90%8C%E6%97%B6%E5%88%A0%E9%99%A4%E6%97%A7%E5%AE%9E%E4%BE%8B"><span class="nav-number">1.8.2.</span> <span class="nav-text">删除蓝绿部署 (同时删除旧实例)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%89%8B%E5%8A%A8%E5%88%A0%E9%99%A4%E6%97%A7%E5%AE%9E%E4%BE%8B-%E5%A6%82%E9%9C%80%E8%A6%81"><span class="nav-number">1.8.3.</span> <span class="nav-text">手动删除旧实例 (如需要)</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9E%E6%BB%9A%E6%96%B9%E6%A1%88"><span class="nav-number">1.9.</span> <span class="nav-text">回滚方案</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%96%B9%E6%B3%951-%E5%88%87%E6%8D%A2%E5%9B%9E%E6%97%A7%E5%AE%9E%E4%BE%8B-%E6%8E%A8%E8%8D%90"><span class="nav-number">1.9.1.</span> <span class="nav-text">方法1: 切换回旧实例 (推荐)</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%96%B9%E6%B3%952-%E4%BB%8E%E5%BF%AB%E7%85%A7%E6%81%A2%E5%A4%8D"><span class="nav-number">1.9.2.</span> <span class="nav-text">方法2: 从快照恢复</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%9E%E6%B5%8B%E6%80%A7%E8%83%BD%E6%95%B0%E6%8D%AE"><span class="nav-number">1.10.</span> <span class="nav-text">实测性能数据</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E9%85%8D%E7%BD%AE"><span class="nav-number">1.10.1.</span> <span class="nav-text">测试配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94"><span class="nav-number">1.10.2.</span> <span class="nav-text">性能对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%88%87%E6%8D%A2%E5%BD%B1%E5%93%8D"><span class="nav-number">1.10.3.</span> <span class="nav-text">切换影响</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5"><span class="nav-number">1.11.</span> <span class="nav-text">最佳实践</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-%E6%97%B6%E9%97%B4%E9%80%89%E6%8B%A9"><span class="nav-number">1.11.1.</span> <span class="nav-text">1. 时间选择</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-%E7%9B%91%E6%8E%A7%E5%87%86%E5%A4%87"><span class="nav-number">1.11.2.</span> <span class="nav-text">2. 监控准备</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-%E5%BA%94%E7%94%A8%E9%80%82%E9%85%8D"><span class="nav-number">1.11.3.</span> <span class="nav-text">3. 应用适配</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-%E5%9B%9E%E6%BB%9A%E5%87%86%E5%A4%87"><span class="nav-number">1.11.4.</span> <span class="nav-text">4. 回滚准备</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-%E9%80%9A%E7%9F%A5%E6%9C%BA%E5%88%B6"><span class="nav-number">1.11.5.</span> <span class="nav-text">5. 通知机制</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98"><span class="nav-number">1.12.</span> <span class="nav-text">常见问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Q1-%E8%93%9D%E7%BB%BF%E9%83%A8%E7%BD%B2%E5%88%9B%E5%BB%BA%E5%A4%B1%E8%B4%A5"><span class="nav-number">1.12.1.</span> <span class="nav-text">Q1: 蓝绿部署创建失败</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q2-%E5%88%87%E6%8D%A2%E8%B6%85%E6%97%B6"><span class="nav-number">1.12.2.</span> <span class="nav-text">Q2: 切换超时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q3-%E5%88%87%E6%8D%A2%E5%90%8E%E5%BA%94%E7%94%A8%E8%BF%9E%E6%8E%A5%E5%A4%B1%E8%B4%A5"><span class="nav-number">1.12.3.</span> <span class="nav-text">Q3: 切换后应用连接失败</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8F%82%E8%80%83%E5%91%BD%E4%BB%A4%E6%B1%87%E6%80%BB"><span class="nav-number">1.13.</span> <span class="nav-text">参考命令汇总</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">190</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">282</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="AWS RDS MySQL 蓝绿部署升级完整指南 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          AWS RDS MySQL 蓝绿部署升级完整指南
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2025-10-25 17:30:03" itemprop="dateCreated datePublished" datetime="2025-10-25T17:30:03+08:00">2025-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-02-06 13:53:24" itemprop="dateModified" datetime="2026-02-06T13:53:24+08:00">2026-02-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="阅读次数" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">阅读次数：</span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="AWS-RDS-MySQL-蓝绿部署升级完整指南"><a href="#AWS-RDS-MySQL-蓝绿部署升级完整指南" class="headerlink" title="AWS RDS MySQL 蓝绿部署升级完整指南"></a>AWS RDS MySQL 蓝绿部署升级完整指南</h1><h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>本文档基于实际测试记录，详细介绍AWS RDS MySQL从5.7升级到8.0的蓝绿部署全过程。</p>
+<p><strong>测试环境:</strong></p>
+<ul>
+<li>源版本: MySQL 5.7.44-rds.20251212</li>
+<li>目标版本: MySQL 8.0.40</li>
+<li>实例类型: db.m5.large (2vCPU, 8GB)</li>
+<li>Multi-AZ: 启用</li>
+<li>区域: ap-southeast-1</li>
+</ul>
+<h2 id="蓝绿部署流程图"><a href="#蓝绿部署流程图" class="headerlink" title="蓝绿部署流程图"></a>蓝绿部署流程图</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────────────────────┐</span><br><span class="line">│                         蓝绿部署升级完整流程                                  │</span><br><span class="line">├─────────────────────────────────────────────────────────────────────────────┤</span><br><span class="line">│                                                                             │</span><br><span class="line">│  阶段1              阶段2              阶段3              阶段4              │</span><br><span class="line">│  创建读副本          版本升级            配置备份            执行切换           │</span><br><span class="line">│  ┌─────────┐       ┌─────────┐       ┌─────────┐       ┌─────────┐        │</span><br><span class="line">│  │蓝环境    │       │绿环境    │       │绿环境    │       │绿环境    │        │</span><br><span class="line">│  │MySQL5.7 │──复制─▶│MySQL5.7 │──升级─▶│MySQL8.0 │──切换─▶│MySQL8.0│        │</span><br><span class="line">│  │(生产)    │       │(副本)   │        │(就绪)   │       │(新生产)  │        │</span><br><span class="line">│  └─────────┘       └─────────┘       └─────────┘       └─────────┘        │</span><br><span class="line">│       │                 │                 │                 ▲              │</span><br><span class="line">│       │                 │                 │                 │              │</span><br><span class="line">│       └─────────────────┴─────────────────┴─────────────────┘              │</span><br><span class="line">│                        持续数据同步                                         │</span><br><span class="line">│                                                                             │</span><br><span class="line">│  耗时: 10-20分钟      耗时: 10-20分钟    耗时: 几分钟      耗时: 1-5分钟     	   │</span><br><span class="line">│  业务影响: 零         业务影响: 零       业务影响: 零      业务影响: 短暂     		  │</span><br><span class="line">└─────────────────────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="前置条件"><a href="#前置条件" class="headerlink" title="前置条件"></a>前置条件</h2><h3 id="1-检查当前实例状态"><a href="#1-检查当前实例状态" class="headerlink" title="1. 检查当前实例状态"></a>1. 检查当前实例状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion,MultiAZ:MultiAZ&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-确认可升级的目标版本"><a href="#2-确认可升级的目标版本" class="headerlink" title="2. 确认可升级的目标版本"></a>2. 确认可升级的目标版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-engine-versions \</span><br><span class="line">    --engine mysql \</span><br><span class="line">    --engine-version 5.7 \</span><br><span class="line">    --query <span class="string">&#x27;DBEngineVersions[0].ValidUpgradeTarget[?IsMajorVersionUpgrade==`true`].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-确保备份已启用"><a href="#3-确保备份已启用" class="headerlink" title="3. 确保备份已启用"></a>3. 确保备份已启用</h3><p>蓝绿部署要求源实例启用自动备份 (BackupRetentionPeriod &gt; 0)</p>
+<hr>
+<h2 id="阶段1-创建蓝绿部署"><a href="#阶段1-创建蓝绿部署" class="headerlink" title="阶段1: 创建蓝绿部署"></a>阶段1: 创建蓝绿部署</h2><h3 id="命令"><a href="#命令" class="headerlink" title="命令"></a>命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name mysql-57-to-80-upgrade \</span><br><span class="line">    --<span class="built_in">source</span> arn:aws:rds:XXXX:db:mysql-test-57 \</span><br><span class="line">    --target-engine-version 8.0.40 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明"><a href="#参数说明" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-name</code></td>
+<td>部署名称，用于标识</td>
+</tr>
+<tr>
+<td><code>--source</code></td>
+<td>源实例的ARN</td>
+</tr>
+<tr>
+<td><code>--target-engine-version</code></td>
+<td>目标MySQL版本</td>
+</tr>
+</tbody></table>
+<h3 id="返回示例"><a href="#返回示例" class="headerlink" title="返回示例"></a>返回示例</h3><figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;BlueGreenDeployment&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;BlueGreenDeploymentIdentifier&quot;</span><span class="punctuation">:</span> <span class="string">&quot;bgd-xen1mlsjdt6hlt8r&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PROVISIONING&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Tasks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CREATING_READ_REPLICA_OF_SOURCE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;DB_ENGINE_VERSION_UPGRADE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CONFIGURE_BACKUPS&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段2-监控部署进度"><a href="#阶段2-监控部署进度" class="headerlink" title="阶段2: 监控部署进度"></a>阶段2: 监控部署进度</h2><h3 id="查看部署状态"><a href="#查看部署状态" class="headerlink" title="查看部署状态"></a>查看部署状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="任务状态说明"><a href="#任务状态说明" class="headerlink" title="任务状态说明"></a>任务状态说明</h3><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>说明</th>
+<th>预计耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CREATING_READ_REPLICA_OF_SOURCE</td>
+<td>创建源实例的读副本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>DB_ENGINE_VERSION_UPGRADE</td>
+<td>升级绿环境到目标版本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>CONFIGURE_BACKUPS</td>
+<td>配置备份策略</td>
+<td>几分钟</td>
+</tr>
+</tbody></table>
+<h3 id="状态流转"><a href="#状态流转" class="headerlink" title="状态流转"></a>状态流转</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">PROVISIONING → AVAILABLE → SWITCHOVER_IN_PROGRESS → SWITCHOVER_COMPLETED</span><br></pre></td></tr></table></figure>
+
+<h3 id="查看绿环境实例详情"><a href="#查看绿环境实例详情" class="headerlink" title="查看绿环境实例详情"></a>查看绿环境实例详情</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 绿环境实例名称格式: &#123;源实例名&#125;-green-&#123;随机字符&#125;</span></span><br><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57-green-b66gdf \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段3-执行切换-Switchover"><a href="#阶段3-执行切换-Switchover" class="headerlink" title="阶段3: 执行切换 (Switchover)"></a>阶段3: 执行切换 (Switchover)</h2><h3 id="前置检查"><a href="#前置检查" class="headerlink" title="前置检查"></a>前置检查</h3><p>确保部署状态为 <code>AVAILABLE</code>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].Status&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="执行切换命令"><a href="#执行切换命令" class="headerlink" title="执行切换命令"></a>执行切换命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --switchover-timeout 300 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明-1"><a href="#参数说明-1" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-identifier</code></td>
+<td>蓝绿部署ID</td>
+</tr>
+<tr>
+<td><code>--switchover-timeout</code></td>
+<td>切换超时时间(秒)，默认300</td>
+</tr>
+</tbody></table>
+<h3 id="切换过程详解"><a href="#切换过程详解" class="headerlink" title="切换过程详解"></a>切换过程详解</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">切换时间线 (实测数据):</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">08:33:35  切换开始，TPS正常 (~263)</span><br><span class="line">08:33:51  TPS开始下降，出现错误 (err/s: 142)</span><br><span class="line">08:33:52  TPS=0，写入完全阻塞</span><br><span class="line">08:36:47  连接完全中断 (QPS=0)</span><br><span class="line">08:37:00  DNS切换完成</span><br><span class="line">08:37:30  切换完成，连接恢复</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">总切换时间: ~4分钟</span><br><span class="line">完全断连时间: ~28秒</span><br></pre></td></tr></table></figure>
+
+<h3 id="切换期间的实例名称变化"><a href="#切换期间的实例名称变化" class="headerlink" title="切换期间的实例名称变化"></a>切换期间的实例名称变化</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">切换前:</span><br><span class="line">  mysql-test-57          → MySQL 5.7 (生产)</span><br><span class="line">  mysql-test-57-green-xxx → MySQL 8.0 (绿环境)</span><br><span class="line"></span><br><span class="line">切换后:</span><br><span class="line">  mysql-test-57          → MySQL 8.0 (新生产，原绿环境)</span><br><span class="line">  mysql-test-57-old1     → MySQL 5.7 (原生产，可用于回滚)</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段4-验证升级结果"><a href="#阶段4-验证升级结果" class="headerlink" title="阶段4: 验证升级结果"></a>阶段4: 验证升级结果</h2><h3 id="检查切换状态"><a href="#检查切换状态" class="headerlink" title="检查切换状态"></a>检查切换状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].&#123;Status:Status,StatusDetails:StatusDetails&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="验证新版本"><a href="#验证新版本" class="headerlink" title="验证新版本"></a>验证新版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="连接验证"><a href="#连接验证" class="headerlink" title="连接验证"></a>连接验证</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql -h mysql-test-57.XXX.rds.amazonaws.com \</span><br><span class="line">    -P 3306 -u admin -p -e <span class="string">&quot;SELECT VERSION();&quot;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段5-清理资源"><a href="#阶段5-清理资源" class="headerlink" title="阶段5: 清理资源"></a>阶段5: 清理资源</h2><h3 id="删除蓝绿部署-保留旧实例"><a href="#删除蓝绿部署-保留旧实例" class="headerlink" title="删除蓝绿部署 (保留旧实例)"></a>删除蓝绿部署 (保留旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="删除蓝绿部署-同时删除旧实例"><a href="#删除蓝绿部署-同时删除旧实例" class="headerlink" title="删除蓝绿部署 (同时删除旧实例)"></a>删除蓝绿部署 (同时删除旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --delete-target \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="手动删除旧实例-如需要"><a href="#手动删除旧实例-如需要" class="headerlink" title="手动删除旧实例 (如需要)"></a>手动删除旧实例 (如需要)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57-old1 \</span><br><span class="line">    --skip-final-snapshot \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="回滚方案"><a href="#回滚方案" class="headerlink" title="回滚方案"></a>回滚方案</h2><p>如果升级后发现问题，可以快速回滚:</p>
+<h3 id="方法1-切换回旧实例-推荐"><a href="#方法1-切换回旧实例-推荐" class="headerlink" title="方法1: 切换回旧实例 (推荐)"></a>方法1: 切换回旧实例 (推荐)</h3><p>在删除蓝绿部署前，旧实例 (mysql-test-57-old1) 仍然可用:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 修改应用连接字符串指向旧实例</span></span><br><span class="line"><span class="comment"># mysql-test-57-old1.XXXX.amazonaws.com</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="方法2-从快照恢复"><a href="#方法2-从快照恢复" class="headerlink" title="方法2: 从快照恢复"></a>方法2: 从快照恢复</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds restore-db-instance-from-db-snapshot \</span><br><span class="line">    --db-instance-identifier mysql-test-57-restored \</span><br><span class="line">    --db-snapshot-identifier &lt;snapshot-id&gt; \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="实测性能数据"><a href="#实测性能数据" class="headerlink" title="实测性能数据"></a>实测性能数据</h2><h3 id="测试配置"><a href="#测试配置" class="headerlink" title="测试配置"></a>测试配置</h3><ul>
+<li>sysbench oltp_read_write</li>
+<li>16表 × 100,000行</li>
+<li>8并发线程</li>
+</ul>
+<h3 id="性能对比"><a href="#性能对比" class="headerlink" title="性能对比"></a>性能对比</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>MySQL 5.7</th>
+<th>MySQL 8.0</th>
+<th>变化</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS</td>
+<td>263</td>
+<td>288</td>
+<td>+9.5%</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>5,284</td>
+<td>5,760</td>
+<td>+9.0%</td>
+</tr>
+<tr>
+<td>95%延迟</td>
+<td>35ms</td>
+<td>35ms</td>
+<td>持平</td>
+</tr>
+</tbody></table>
+<h3 id="切换影响"><a href="#切换影响" class="headerlink" title="切换影响"></a>切换影响</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>蓝绿部署总耗时</td>
+<td>42分钟</td>
+</tr>
+<tr>
+<td>切换总耗时</td>
+<td>4分钟</td>
+</tr>
+<tr>
+<td>完全断连时间</td>
+<td>28秒</td>
+</tr>
+<tr>
+<td>数据丢失</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="最佳实践"><a href="#最佳实践" class="headerlink" title="最佳实践"></a>最佳实践</h2><h3 id="1-时间选择"><a href="#1-时间选择" class="headerlink" title="1. 时间选择"></a>1. 时间选择</h3><ul>
+<li>选择业务低峰期执行切换</li>
+<li>预留足够的监控和回滚时间</li>
+</ul>
+<h3 id="2-监控准备"><a href="#2-监控准备" class="headerlink" title="2. 监控准备"></a>2. 监控准备</h3><ul>
+<li>提前配置CloudWatch告警</li>
+<li>准备实时监控脚本</li>
+</ul>
+<h3 id="3-应用适配"><a href="#3-应用适配" class="headerlink" title="3. 应用适配"></a>3. 应用适配</h3><ul>
+<li>确保应用支持MySQL 8.0语法</li>
+<li>测试连接池的重连机制</li>
+<li>配置合理的连接超时</li>
+</ul>
+<h3 id="4-回滚准备"><a href="#4-回滚准备" class="headerlink" title="4. 回滚准备"></a>4. 回滚准备</h3><ul>
+<li>保留旧实例至少24小时</li>
+<li>准备回滚脚本和流程</li>
+</ul>
+<h3 id="5-通知机制"><a href="#5-通知机制" class="headerlink" title="5. 通知机制"></a>5. 通知机制</h3><ul>
+<li>提前通知相关团队</li>
+<li>准备故障升级流程</li>
+</ul>
+<hr>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><h3 id="Q1-蓝绿部署创建失败"><a href="#Q1-蓝绿部署创建失败" class="headerlink" title="Q1: 蓝绿部署创建失败"></a>Q1: 蓝绿部署创建失败</h3><p><strong>原因</strong>: 源实例未启用自动备份<br><strong>解决</strong>: </p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds modify-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --backup-retention-period 7 \</span><br><span class="line">    --apply-immediately</span><br></pre></td></tr></table></figure>
+
+<h3 id="Q2-切换超时"><a href="#Q2-切换超时" class="headerlink" title="Q2: 切换超时"></a>Q2: 切换超时</h3><p><strong>原因</strong>: 数据同步延迟过大<br><strong>解决</strong>: 增加 <code>--switchover-timeout</code> 值，或等待复制追平</p>
+<h3 id="Q3-切换后应用连接失败"><a href="#Q3-切换后应用连接失败" class="headerlink" title="Q3: 切换后应用连接失败"></a>Q3: 切换后应用连接失败</h3><p><strong>原因</strong>: DNS缓存或连接池未刷新<br><strong>解决</strong>: 重启应用或刷新连接池</p>
+<hr>
+<h2 id="参考命令汇总"><a href="#参考命令汇总" class="headerlink" title="参考命令汇总"></a>参考命令汇总</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 创建蓝绿部署</span></span><br><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name &lt;name&gt; \</span><br><span class="line">    --<span class="built_in">source</span> &lt;source-arn&gt; \</span><br><span class="line">    --target-engine-version &lt;version&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 查看部署状态</span></span><br><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 执行切换</span></span><br><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt; \</span><br><span class="line">    --switchover-timeout 300</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 删除部署</span></span><br><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br></pre></td></tr></table></figure>
+
+
+<p><em>基于实际测试环境: AWS ap-southeast-1, Account XXXX</em></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/aws/" rel="tag"># aws</a>
+              <a href="/tags/upgrade/" rel="tag"># upgrade</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2025/01/29/%E8%B7%A8Die%E7%83%AD%E8%BF%81%E7%A7%BB%E8%BF%81%E7%A7%BB/" rel="prev" title="跨 Die 热迁移迁移导致的性能问题">
+                  <i class="fa fa-angle-left"></i> 跨 Die 热迁移迁移导致的性能问题
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2025/11/05/MySQL_PreparedStatement_Performance_Issue_Reproduction/" rel="next" title="MySQL PreparedStatement 性能问题重现">
+                  MySQL PreparedStatement 性能问题重现 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="总访客量">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="总访问量">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
