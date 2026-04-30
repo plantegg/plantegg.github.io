@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="一次 Sysbench opening tables 卡慢的分析过程背景用 Sysbench 随便跑个压力，然后我用如下命令起压力，只达到了我预期的性能的 10% 1sysbench --mysql-user&#x3D;root --mysql-password&#x3D;123 --mysql-db&#x3D;sbtest --mysql-host&#x3D;e237 --mysql-port&#x3D;3306 --tables&#x3D;64 --t">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一次 Sysbench opening tables 卡慢的分析过程">
+<meta property="og:url" content="https://plantegg.github.io/2024/12/29/%E4%B8%80%E6%AC%A1%20Sysbench%20opening%20tables%20%E5%8D%A1%E6%85%A2%E7%9A%84%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="一次 Sysbench opening tables 卡慢的分析过程背景用 Sysbench 随便跑个压力，然后我用如下命令起压力，只达到了我预期的性能的 10% 1sysbench --mysql-user&#x3D;root --mysql-password&#x3D;123 --mysql-db&#x3D;sbtest --mysql-host&#x3D;e237 --mysql-port&#x3D;3306 --tables&#x3D;64 --t">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20241022175210162.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20241023104502834.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20241023101835801.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240324161113874-5525694.png">
+<meta property="article:published_time" content="2024-12-29T09:30:03.000Z">
+<meta property="article:modified_time" content="2026-04-06T09:56:48.034Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="opening tables">
+<meta property="article:tag" content="performance">
+<meta property="article:tag" content="trubleshooting">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20241022175210162.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2024/12/29/%E4%B8%80%E6%AC%A1%20Sysbench%20opening%20tables%20%E5%8D%A1%E6%85%A2%E7%9A%84%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2024/12/29/%E4%B8%80%E6%AC%A1%20Sysbench%20opening%20tables%20%E5%8D%A1%E6%85%A2%E7%9A%84%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B/","path":"2024/12/29/一次 Sysbench opening tables 卡慢的分析过程/","title":"一次 Sysbench opening tables 卡慢的分析过程"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>一次 Sysbench opening tables 卡慢的分析过程 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%80%E6%AC%A1-Sysbench-opening-tables-%E5%8D%A1%E6%85%A2%E7%9A%84%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B"><span class="nav-number">1.</span> <span class="nav-text">一次 Sysbench opening tables 卡慢的分析过程</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">1.2.</span> <span class="nav-text">分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%A2%B0%E5%88%B0%E8%BF%99%E7%A7%8D%E9%97%AE%E9%A2%98%E6%80%8E%E4%B9%88%E5%8A%9E%EF%BC%9F"><span class="nav-number">1.2.1.</span> <span class="nav-text">碰到这种问题怎么办？</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">1.3.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BB%B6%E4%BC%B8"><span class="nav-number">1.4.</span> <span class="nav-text">延伸</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%A6%82%E6%9E%9C%E4%BD%A0%E8%A7%89%E5%BE%97%E7%9C%8B%E5%AE%8C%E5%AF%B9%E4%BD%A0%E5%BE%88%E6%9C%89%E5%B8%AE%E5%8A%A9%E5%8F%AF%E4%BB%A5%E9%80%9A%E8%BF%87%E5%A6%82%E4%B8%8B%E6%96%B9%E5%BC%8F%E6%89%BE%E5%88%B0%E6%88%91"><span class="nav-number">1.5.</span> <span class="nav-text">如果你觉得看完对你很有帮助可以通过如下方式找到我</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">204</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">18</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">305</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/12/29/%E4%B8%80%E6%AC%A1%20Sysbench%20opening%20tables%20%E5%8D%A1%E6%85%A2%E7%9A%84%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="一次 Sysbench opening tables 卡慢的分析过程 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          一次 Sysbench opening tables 卡慢的分析过程
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2024-12-29 17:30:03" itemprop="dateCreated datePublished" datetime="2024-12-29T17:30:03+08:00">2024-12-29</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-04-06 17:56:48" itemprop="dateModified" datetime="2026-04-06T17:56:48+08:00">2026-04-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="阅读次数" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">阅读次数：</span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="一次-Sysbench-opening-tables-卡慢的分析过程"><a href="#一次-Sysbench-opening-tables-卡慢的分析过程" class="headerlink" title="一次 Sysbench opening tables 卡慢的分析过程"></a>一次 Sysbench opening tables 卡慢的分析过程</h1><h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p>用 Sysbench 随便跑个压力，然后我用如下命令起压力，只达到了我预期的性能的 10%</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sysbench --mysql-user=root --mysql-password=123 --mysql-db=sbtest --mysql-host=e237 --mysql-port=3306 --tables=64 --threads=256 --table-size=2000000 --range-size=5 --db-ps-mode=disable --skip-trx=on --mysql-ignore-errors=all --time=1200 --report-interval=1 --histogram=off oltp_point_select run</span><br></pre></td></tr></table></figure>
+
+
+<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>看了下 MySQL 的进程状态，<strong>CPU 消耗很低</strong>，再看 processlist 都是 Opening tables，这问题我熟啊，table_open_cache 设置太小，直接干大 10 倍，悲催的是性能依然没有任何变化看了下 MySQL 的进程状态，CPU 消耗很低，再看 processlist 都是 Opening tables，这问题我熟啊，table_open_cache 设置太小，直接干大 10 倍，悲催的是性能依然没有任何变化</p>
+<p><img src="/images/951413iMgBlog/image-20241022175210162.png" alt="image-20241022175210162"></p>
+<p><img src="/images/951413iMgBlog/image-20241023104502834.png" alt="image-20241023104502834"></p>
+<p>难道还有别的地方限制了？我去查了下 status 发现 Table_open_cache_overflows 一直是 0，从状态来看 table_open_cache 肯定够了：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line">#mysql -he237 -P3306 -uroot -p123 -e &quot;show global status like &#x27;%open%&#x27; &quot;</span><br><span class="line">mysql: [Warning] Using a password on the command line interface can be insecure.</span><br><span class="line">+----------------------------+---------+</span><br><span class="line">| Variable_name              | Value   |</span><br><span class="line">+----------------------------+---------+</span><br><span class="line">| Com_ha_open                | 0       |</span><br><span class="line">| Com_show_open_tables       | 0       |</span><br><span class="line">| Innodb_num_open_files      | 48      |</span><br><span class="line">| Open_files                 | 14      |</span><br><span class="line">| Open_streams               | 0       |</span><br><span class="line">| Open_table_definitions     | 159     |</span><br><span class="line">| Open_tables                | 1161    |</span><br><span class="line">| Opened_files               | 173     |</span><br><span class="line">| Opened_table_definitions   | 138     |</span><br><span class="line">| Opened_tables              | 1168    |</span><br><span class="line">| Slave_open_temp_tables     | 0       |</span><br><span class="line">| Table_open_cache_hits      | 8125315 |</span><br><span class="line">| Table_open_cache_misses    | 1168    |</span><br><span class="line">| Table_open_cache_overflows | 0       |</span><br><span class="line">+----------------------------+---------+</span><br><span class="line"></span><br><span class="line">#mysql -he237 -P3306 -uroot -p123 -e &quot;show global status like &#x27;%Table_open%&#x27; &quot;</span><br><span class="line">mysql: [Warning] Using a password on the command line interface can be insecure.</span><br><span class="line">+----------------------------+---------+</span><br><span class="line">| Variable_name              | Value   |</span><br><span class="line">+----------------------------+---------+</span><br><span class="line">| Table_open_cache_hits      | 9039467 |</span><br><span class="line">| Table_open_cache_misses    | 1170    |</span><br><span class="line">| Table_open_cache_overflows | 0       |</span><br><span class="line">+----------------------------+---------+</span><br><span class="line"></span><br><span class="line">#mysql -he237 -P3306 -uroot -p123 -e &quot;show global variables like &#x27;%Table_open%&#x27; &quot;</span><br><span class="line">mysql: [Warning] Using a password on the command line interface can be insecure.</span><br><span class="line">+----------------------------+-------+</span><br><span class="line">| Variable_name              | Value |</span><br><span class="line">+----------------------------+-------+</span><br><span class="line">| table_open_cache           | 8192  |</span><br><span class="line">| table_open_cache_instances | 16    |</span><br><span class="line">+----------------------------+-------+</span><br></pre></td></tr></table></figure>
+
+<p>这些有点难绷，因为我用的别人的 sysbench, 于是自己编译了一个重压性能一下就正常了，于是我开始 dump 别人的 sysbench 完整参数，最后发现是我使用的时候配置错误将：–tables&#x3D;32 设置成了 –tables&#x3D;64 也就是我的 database 总共只有 32 张表，而我压测的时候写成了 64 张，还有 32 张表不存在导致。</p>
+<p>而别人的 sysbench 默认添加了：–mysql-ignore-errors&#x3D;all  也就是把报错信息都忽略了，导致控制台看不到异常信息</p>
+<h3 id="碰到这种问题怎么办？"><a href="#碰到这种问题怎么办？" class="headerlink" title="碰到这种问题怎么办？"></a>碰到这种问题怎么办？</h3><p>我们经常碰到业务代码把报错信息吃掉了(类似设置了 –mysql-ignore-errors&#x3D;all )，同时 SQL 里面拼错了表明或者写错了 Database 名也导致表不存在</p>
+<p>所以这里的必杀技(银弹) 抓包(或者堆栈热点分析)：</p>
+<p><img src="/images/951413iMgBlog/image-20241023101835801.png" alt="image-20241023101835801"></p>
+<p>上图中只要不是 1146 的都是表明正确的请求，可以看到 RT 是 0.1-0.2 毫秒之间；但是 response Error 1146 报错的 RT 就很大了，同时抓包里 1146 也给出了错误原因</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+-------+------+---------------------------------------+</span><br><span class="line">| Level | Code | Message                               |</span><br><span class="line">+-------+------+---------------------------------------+</span><br><span class="line">| Error | 1146 | Table &#x27;sbtest.sbtest42&#x27; doesn&#x27;t exist |</span><br><span class="line">+-------+------+---------------------------------------+</span><br></pre></td></tr></table></figure>
+
+<p>正常时 50 万 QPS 的 RT：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">	 time								port	avg_rt	svc_rt  up_rt    QPS  	drop	rtt</span><br><span class="line">2024-10-23 10:14:57    P3306    227 	 228 	 0 	 532688 	 0 	 34</span><br><span class="line">2024-10-23 10:14:58    P3306    227 	 228 	 0 	 533439 	 0 	 34</span><br></pre></td></tr></table></figure>
+
+<p>异常时 5 万 QPS 的 RT：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">	 time								port	avg_rt	svc_rt  up_rt    QPS  	drop	rtt</span><br><span class="line">2024-10-23 10:13:56    P3306    2201 	 2201 	 0 	 58910 	 0 	 34</span><br><span class="line">2024-10-23 10:13:57    P3306    2195 	 2195 	 0 	 59141 	 0 	 34</span><br><span class="line">2024-10-23 10:13:58    P3306    2203 	 2203 	 0 	 58923 	 0 	 34</span><br><span class="line">2024-10-23 10:13:59    P3306    2190 	 2191 	 0 	 59266 	 0 	 34</span><br><span class="line">2024-10-23 10:14:00    P3306    2198 	 2198 	 0 	 59018 	 0 	 34</span><br><span class="line">2024-10-23 10:14:01    P3306    2242 	 2242 	 0 	 57926 	 0 	 34</span><br></pre></td></tr></table></figure>
+
+<p>从 RT 确实可以看出来是 3306 端口返回&#x2F;响应慢了，我在 MySQLD 的日志里也搜索了，应该是没有记录这种 1146 错误</p>
+<p>如果多看几次 processlist 的话还会发现 Opening table 的 SQL 对应的表明都是大于 31 的，表名小的 SQL 就不会出现 Opening table </p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这个问题我第一时间没有想到抓包，显示根据经验 Opening tables 就是打开表慢了，然后调大 cache 参数，还不好用就觉得超出我的理解有点慌！</p>
+<p>然后想到去比较参数&#x2F;版本的差异，运气好发现了参数的差异；如果运气不好我重新编译然后复制白屏的命令参数估计还是发现不了。</p>
+<p>所以我在想有什么更好的办法能识别这种问题，最后的结论居然还是抓个包看看，并且真管用，正好和这篇方法论呼应一下：<a target="_blank" rel="noopener" href="https://articles.zsxq.com/id_mnp5z56gl0wi.html">https://articles.zsxq.com/id_mnp5z56gl0wi.html</a> </p>
+<h2 id="延伸"><a href="#延伸" class="headerlink" title="延伸"></a>延伸</h2><p>很多时候开发很坑人，把业务异常堆栈吃了不输出，就拿这个例子来说也有业务写错表名，然后报错又不输出就会出现和问题一样的问题，导致分析问题的时候发现很奇怪好好的系统就是慢，这个时候除了抓包还可以通过 perf&#x2F;jstack 去看看堆栈，抓下热点</p>
+<p>推上也有一些讨论，可以参考下别人的思路：<a target="_blank" rel="noopener" href="https://x.com/plantegg/status/1851066206163521712">https://x.com/plantegg/status/1851066206163521712</a> </p>
+<h2 id="如果你觉得看完对你很有帮助可以通过如下方式找到我"><a href="#如果你觉得看完对你很有帮助可以通过如下方式找到我" class="headerlink" title="如果你觉得看完对你很有帮助可以通过如下方式找到我"></a>如果你觉得看完对你很有帮助可以通过如下方式找到我</h2><p>find me on twitter: <a target="_blank" rel="noopener" href="https://twitter.com/plantegg">@plantegg</a></p>
+<p>知识星球：<a target="_blank" rel="noopener" href="https://t.zsxq.com/0cSFEUh2J">https://t.zsxq.com/0cSFEUh2J</a></p>
+<p>开了一个星球，在里面讲解一些案例、知识、学习方法，肯定没法让大家称为顶尖程序员(我自己都不是)，只是希望用我的方法、知识、经验、案例作为你的垫脚石，帮助你快速、早日成为一个基本合格的程序员。</p>
+<p>争取在星球内：</p>
+<ul>
+<li>养成基本动手能力</li>
+<li>拥有起码的分析推理能力–按我接触的程序员，大多都是没有逻辑的</li>
+<li>知识上教会你几个关键的知识点</li>
+</ul>
+<img src="/images/951413iMgBlog/image-20240324161113874-5525694.png" alt="image-20240324161113874" style="zoom:50%;" />
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/performance/" rel="tag"># performance</a>
+              <a href="/tags/opening-tables/" rel="tag"># opening tables</a>
+              <a href="/tags/trubleshooting/" rel="tag"># trubleshooting</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2024/12/09/%E4%B8%80%E6%AC%A1%E7%BD%91%E7%BB%9C%E8%BF%9E%E6%8E%A5%E6%AE%8B%E7%95%99%E7%9A%84%E5%88%86%E6%9E%90/" rel="prev" title="一次网络连接残留的分析">
+                  <i class="fa fa-angle-left"></i> 一次网络连接残留的分析
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2024/12/29/net.ipv4.tcp_tw_recycle/" rel="next" title="为什么你的 SYN 包被丢 net.ipv4.tcp_tw_recycle">
+                  为什么你的 SYN 包被丢 net.ipv4.tcp_tw_recycle <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="总访客量">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="总访问量">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
