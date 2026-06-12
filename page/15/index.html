@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">207</span>
+          <span class="site-state-item-count">208</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">311</span>
+        <span class="site-state-item-count">313</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,437 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2019/09/28/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E6%80%A7%E8%83%BD%E5%92%8C%E5%8F%91%E9%80%81%E6%8E%A5%E6%94%B6Buffer%E7%9A%84%E5%85%B3%E7%B3%BB/" class="post-title-link" itemprop="url">TCP性能和发送接收窗口、Buffer的关系</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-09-28 12:30:03" itemprop="dateCreated datePublished" datetime="2019-09-28T12:30:03+08:00">2019-09-28</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>本文希望解析清楚，当我们在代码中写下 socket.setSendBufferSize 和 sysctl 看到的rmem&#x2F;wmem系统参数以及最终我们在TCP常常谈到的接收发送窗口的关系，以及他们怎样影响TCP传输的性能，同时如何通过图形来展示哪里是传输瓶颈。</p>
+<p>拥塞窗口相关文章比较多，他们跟带宽紧密相关，所以大家比较好判断，反而是接收、发送窗口一旦出现瓶颈，就没这么好判断了。</p>
+<p>先明确一下：<strong>文章标题中所说的Buffer指的是sysctl中的 rmem或者wmem，如果是代码中指定的话对应着SO_SNDBUF或者SO_RCVBUF，从TCP的概念来看对应着发送窗口或者接收窗口</strong></p>
+<p>最后补充各种场景下的传输案例，一站式将影响传输速度的各种原因都拿下，值得收藏。</p>
+<p>本文主要分析rt、buffer如何影响TCP的传输性能，更多其他因素影响TCP性能的案例见：<a href="/2021/01/15/TCP%E4%BC%A0%E8%BE%93%E9%80%9F%E5%BA%A6%E6%A1%88%E4%BE%8B%E5%88%86%E6%9E%90/">TCP传输速度案例分析</a></p>
+<h1 id="TCP性能和发送接收Buffer的关系"><a href="#TCP性能和发送接收Buffer的关系" class="headerlink" title="TCP性能和发送接收Buffer的关系"></a>TCP性能和发送接收Buffer的关系</h1><p>先从碰到的一个实际问题看起：</p>
+<blockquote>
+<p>应用通过专线跨网络访问云上的服务，专线100M，时延20ms，一个SQL查询了22M数据，结果花了大概25秒，这太慢了，不正常。</p>
+<p>如果通过云上client访问云上服务执行这个SQL那么1-2秒就返回了（不跨网络服务是正常的，说明服务本身没有问题）。</p>
+<p>如果通过http或者scp从云下向云上传输这22M的数据大概两秒钟也传送完毕了（说明网络带宽不是瓶颈），</p>
+<p>所以这里问题的原因基本上是我们的服务在这种网络条件下有性能问题，需要找出为什么。</p>
+</blockquote>
+<h2 id="抓包分析-tcpdump-wireshark"><a href="#抓包分析-tcpdump-wireshark" class="headerlink" title="抓包分析 tcpdump+wireshark"></a>抓包分析 tcpdump+wireshark</h2><p>抓包分析这22M的数据传输，如下图（wireshark 时序图），横轴是时间，纵轴是sequence number：</p>
+<p><img src="/images/oss/d188530df31712e8341f5687a960743a.png" alt="image.png"></p>
+<p>粗一看没啥问题，因为时间太长掩盖了问题。把这个图形放大，只看中间50ms内的传输情况（横轴是时间，纵轴是sequence number，一个点代表一个包）</p>
+<img src="/images/oss/e177d59ecb886daef5905ed80a84dfd2.png" alt="image.png" style="zoom: 80%;" />
+
+<p>可以看到传输过程总有一个20ms的等待平台，这20ms没有发送任何包，换个角度，看看窗口尺寸图形：</p>
+<p><img src="/images/oss/7ae26e844629258de173a05d5ad595f9.png" alt="image.png"></p>
+<p>从bytes in flight也大致能算出来总的传输速度 16K*1000&#x2F;20&#x3D;800Kb&#x2F;秒</p>
+<p>我们的应用代码中会默认设置 socketSendBuffer 为16K:</p>
+<blockquote>
+<p>socket.setSendBufferSize(16*1024) &#x2F;&#x2F;16K send buffer </p>
+</blockquote>
+<h2 id="原理解析"><a href="#原理解析" class="headerlink" title="原理解析"></a>原理解析</h2><p>如果tcp发送buffer也就是SO_SNDBUF只有16K的话，这些包很快都发出去了，但是这16K的buffer不能立即释放出来填新的内容进去，因为tcp要保证可靠，万一中间丢包了呢。只有等到这16K中的某些包ack了，才会填充一些新包进来然后继续发出去。由于这里rt基本是20ms，也就是16K发送完毕后，等了20ms才收到一些ack，在这等ack的20ms 的时间内应用、内核什么都不能做，所以就是如前面第二个图中的大概20ms的等待平台。这块请参考[这篇文章][7]</p>
+<p>比如下图，wmem大小是8，发出1-8后，buffer不能释放，等到收到ack1-4后，释放1-4，buffer也就是释放了一半，这一半可以填充新的发送数据进来了。 上面的问题在于ack花了很久，导致buffer一直不能释放。</p>
+<p><img src="/images/oss/3d9e77f8c9b0cab1484c870d2c0d2473.png" alt="image.png"></p>
+<p><strong>sendbuffer相当于发送仓库的大小，仓库的货物都发走后，不能立即腾出来发新的货物，而是要等对方确认收到了(ack)才能腾出来发新的货物。 传输速度取决于发送仓库（sendbuffer）、接收仓库（recvbuffer）、路宽（带宽）的大小，如果发送仓库（sendbuffer）足够大了之后接下来的瓶颈就会是高速公路了（带宽、拥塞窗口）。而实际上这个案例中带宽够、接收仓库也够，但是发送仓库太小了，导致发送过程断断续续，所以非常慢。</strong></p>
+<p>如果是UDP，就没有可靠的概念，有数据统统发出去，根本不关心对方是否收到，也就不需要ack和这个发送buffer了。</p>
+<h2 id="几个发送buffer相关的内核参数"><a href="#几个发送buffer相关的内核参数" class="headerlink" title="几个发送buffer相关的内核参数"></a>几个发送buffer相关的内核参数</h2><pre><code>$sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1 //
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456  //最小值  默认值  最大值
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp这种就自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+vm.lowmem_reserve_ratio = 256   256     32
+</code></pre>
+<p>net.ipv4.tcp_wmem 默认就是16K，而且内核是能够动态调整的，只不过我们代码中这块的参数是很多年前从 Cobar 中继承过来的，初始指定了sendbuffer的大小。代码中设置了这个参数后就关闭了内核的动态调整功能，这就是为什么http或者scp都很快，因为他们的send buffer是动态调整的。</p>
+<p>接收buffer是有开关可以动态控制的，发送buffer没有开关默认就是开启，关闭只能在代码层面来控制</p>
+<blockquote>
+<p>net.ipv4.tcp_moderate_rcvbuf</p>
+</blockquote>
+<h2 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h2><p>调整 socketSendBuffer 到256K，查询时间从25秒下降到了4秒多，但是比理论带宽所需要的时间略高</p>
+<p>继续查看系统 net.core.wmem_max 参数默认最大是130K，所以即使我们代码中设置256K实际使用的也是130K，继续调大这个系统参数后整个网络传输时间大概2秒(跟100M带宽匹配了，scp传输22M数据也要2秒），整体查询时间2.8秒。测试用的mysql client短连接，如果代码中的是长连接的话会块300-400ms（消掉了握手和慢启动阶段），这基本上是理论上最快速度了</p>
+<p><img src="/images/oss/3dcfd469fe1e2f7e1d938a5289b83826.png" alt="image.png"></p>
+<p>如果调用setsockopt()设置了socket选项SO_SNDBUF，将关闭发送端缓冲的自动调节机制，tcp_wmem将被忽略，SO_SNDBUF的最大值由net.core.wmem_max限制。</p>
+<h2 id="这个案例关于wmem的结论"><a href="#这个案例关于wmem的结论" class="headerlink" title="这个案例关于wmem的结论"></a>这个案例关于wmem的结论</h2><p>默认情况下Linux系统会自动调整这个buffer（net.ipv4.tcp_wmem）, 也就是不推荐程序中主动去设置SO_SNDBUF，除非明确知道设置的值是最优的。</p>
+<p>从这里我们可以看到，有些理论知识点虽然我们知道，但是在实践中很难联系起来，也就是常说的无法学以致用，最开始看到抓包结果的时候比较怀疑发送、接收窗口之类的，没有直接想到send buffer上，理论跟实践没联系上。</p>
+<h2 id="BDP-Bandwidth-Delay-Product-带宽时延积"><a href="#BDP-Bandwidth-Delay-Product-带宽时延积" class="headerlink" title="BDP(Bandwidth-Delay Product) 带宽时延积"></a>BDP(<a target="_blank" rel="noopener" href="https://hpbn.co/building-blocks-of-tcp/#bandwidth-delay-product">Bandwidth-Delay Product</a>) 带宽时延积</h2><p>BDP&#x3D;rtt*(带宽&#x2F;8)</p>
+<p>这个 buffer 调到1M测试没有帮助，从理论计算BDP（带宽时延积） 0.02秒*(100Mb&#x2F;8)&#x3D;250KB  所以 *<strong>SO_SNDBUF为256Kb的时候基本能跑满带宽了，再大也没有什么实际意义了</strong> 。也就是前面所说的仓库足够后瓶颈在带宽上了。</p>
+<p>因为这里根据带宽、rtt计算得到的BDP是250K，BDP跑满后拥塞窗口（带宽、接收窗口和rt决定的）即将成为新的瓶颈，所以调大buffer没意义了。</p>
+<blockquote>
+<p>Bandwidth-delay product (BDP)</p>
+<p>Product of data link’s capacity and its end-to-end delay. The result is the maximum amount of unacknowledged data that can be in flight at any point in time.</p>
+</blockquote>
+<p><img src="/images/951413iMgBlog/b08fb4ce2162927bf9b6ce02cdc64ab0.svg" alt="Figure 2-7. Transmission gaps due to low congestion window size"></p>
+<h2 id="接下来看看接收buffer-rmem-和接收窗口的关系"><a href="#接下来看看接收buffer-rmem-和接收窗口的关系" class="headerlink" title="接下来看看接收buffer(rmem)和接收窗口的关系"></a>接下来看看接收buffer(rmem)和接收窗口的关系</h2><p>用这样一个案例下来验证接收窗口的作用：</p>
+<blockquote>
+<p>有一个batch insert语句，整个一次要插入5532条记录，所有记录大小总共是376K，也就是这个sql语句本身是376K。</p>
+</blockquote>
+<h2 id="SO-RCVBUF很小的时候并且rtt很大对性能的影响"><a href="#SO-RCVBUF很小的时候并且rtt很大对性能的影响" class="headerlink" title="SO_RCVBUF很小的时候并且rtt很大对性能的影响"></a>SO_RCVBUF很小的时候并且rtt很大对性能的影响</h2><p>如果rtt是40ms，总共需要5-6秒钟：</p>
+<p><img src="/images/oss/4af4765c045e9eed2e36d9760d4a2aba.png" alt="image.png"></p>
+<p>基本可以看到server一旦空出来点窗口，client马上就发送数据，由于这点窗口太小，rtt是40ms，也就是一个rtt才能传3456字节的数据，整个带宽才用到80-90K，完全没跑满。</p>
+<p><img src="/images/oss/1984258c0300921799476777f5f0a38a.png" alt="image.png"></p>
+<p>比较明显间隔 40ms 一个等待台阶，台阶之间两个包大概3K数据，总的传输效率如下：</p>
+<p><img src="/images/oss/5ec50ecf25444e96d81fab975b5a79e6.png" alt="image.png"></p>
+<p><strong>斜线越陡表示速度越快，从上图看整体SQL上传花了5.5秒，执行0.5秒。</strong></p>
+<p>此时对应的窗口尺寸：</p>
+<p><img src="/images/oss/05d6357ed53c1c16f0dd0454251916ef.png" alt="image.png"></p>
+<p>窗口由最开始28K(20个1448）很快降到了不到4K的样子，然后基本游走在即将满的边缘，虽然读取慢，幸好rtt也大，导致最终也没有满。（这个是3.1的Linux，应用SO_RCVBUF设置的是8K，用一半来做接收窗口）</p>
+<h2 id="SO-RCVBUF很小的时候并且rtt很小对性能的影响"><a href="#SO-RCVBUF很小的时候并且rtt很小对性能的影响" class="headerlink" title="SO_RCVBUF很小的时候并且rtt很小对性能的影响"></a>SO_RCVBUF很小的时候并且rtt很小对性能的影响</h2><p>如果同样的语句在 rtt 是0.1ms的话</p>
+<p><img src="/images/oss/67f280a1cf499ae388fc44d6418869a7.png" alt="image.png"></p>
+<p>虽然明显看到接收窗口经常跑满，但是因为rtt很小，一旦窗口空出来很快就通知到对方了，所以整个过小的接收窗口也没怎么影响到整体性能</p>
+<p><img src="/images/oss/15b7d6852e44fc179d60d76f322695c7.png" alt="image.png"></p>
+<p>如上图11.4秒整个SQL开始，到11.41秒SQL上传完毕，11.89秒执行完毕（执行花了0.5秒），上传只花了0.01秒</p>
+<p>接收窗口情况：</p>
+<p><img src="/images/oss/0f3050cd98db40a352410a11a521e8b2.png" alt="image.png"></p>
+<p>如图，接收窗口由最开始的28K降下来，然后一直在5880和满了之间跳动</p>
+<p><img src="/images/oss/0db5c3684a9314907f9158ac15b6ac71.png" alt="image.png"></p>
+<p>从这里可以得出结论，接收窗口的大小对性能的影响，rtt越大影响越明显，当然这里还需要应用程序配合，如果应用程序一直不读走数据即使接收窗口再大也会堆满的。</p>
+<h2 id="SO-RCVBUF和tcp-window-full的坏case"><a href="#SO-RCVBUF和tcp-window-full的坏case" class="headerlink" title="SO_RCVBUF和tcp window full的坏case"></a>SO_RCVBUF和tcp window full的坏case</h2><p><img src="/images/oss/55cf9875d24d76a077c442327d54fa34.png" alt="image.png"></p>
+<p>上图中红色平台部分，停顿了大概6秒钟没有发任何有内容的数据包，这6秒钟具体在做什么如下图所示，可以看到这个时候接收方的TCP Window Full，同时也能看到接收方（3306端口）的TCP Window Size是8192（8K），发送方（27545端口）是20480.</p>
+<p><img src="/images/oss/da48878ce0c01bcdedb1e6d6a6cc6d1c.png" alt="image.png"></p>
+<p>这个状况跟前面描述的recv buffer太小不一样，8K是很小，但是因为rtt也很小，所以server总是能很快就ack收到了，接收窗口也一直不容易达到full状态，但是一旦接收窗口达到了full状态，居然需要惊人的6秒钟才能恢复，这等待的时间有点太长了。这里应该是应用读取数据太慢导致了耗时6秒才恢复，所以最终这个请求执行会非常非常慢（时间主要耗在了上传SQL而不是执行SQL）.</p>
+<p>实际原因不知道，从读取TCP数据的逻辑来看这里没有明显的block，可能的原因：</p>
+<ul>
+<li>request的SQL太大，Server（3306端口上的服务）从TCP读取SQL需要放到一块分配好的内存，内存不够的时候需要扩容，扩容有可能触发fgc，从图形来看，第一次满就卡顿了，而且每次满都卡顿，不像是这个原因</li>
+<li>request请求一次发过来的是多个SQL，应用读取SQL后，将SQL分成多个，然后先执行第一个，第一个执行完后返回response，再读取第二个。图形中卡顿前没有response返回，所以也不是这个原因</li>
+<li>……其它未知原因</li>
+</ul>
+<h2 id="接收方不读取数据导致的接收窗口满同时有丢包发生"><a href="#接收方不读取数据导致的接收窗口满同时有丢包发生" class="headerlink" title="接收方不读取数据导致的接收窗口满同时有丢包发生"></a>接收方不读取数据导致的接收窗口满同时有丢包发生</h2><p>服务端返回数据到client端，TCP协议栈ack这些包，但是应用层没读走包，这个时候 SO_RCVBUF 堆积满，client的TCP协议栈发送 ZeroWindow 标志给服务端。也就是接收端的 buffer 堆满了（但是服务端这个时候看到的bytes in fly是0，因为都ack了），这时服务端不能继续发数据，要等 ZeroWindow 恢复。</p>
+<p>那么接收端上层应用不读走包可能的原因：</p>
+<ul>
+<li>应用代码卡顿、GC等等</li>
+<li>应用代码逻辑上在做其它事情（比如Server将SQL分片到多个DB上，Server先读取第一个分片，如果第一个分片数据很大很大，处理也慢，那么即使第二个分片数据都返回到了TCP 的recv buffer，应用也没去读取其它分片的结果集，直到第一个分片读取完毕。如果SQL带排序，那么Server会轮询读取多个分片，造成这种卡顿的概率小了很多）</li>
+</ul>
+<p><img src="/images/oss/49e2635a7c4025d44b915a1f17dd272a.png" alt="image.png"></p>
+<p>上图这个流因为应用层不读取TCP数据，导致TCP接收Buffer满，进而接收窗口为0，server端不能再发送数据而卡住，但是ZeroWindow的探测包，client都有正常回复，所以1903秒之后接收方窗口不为0后（window update）传输恢复。</p>
+<p><img src="/images/oss/2e493d8dc32bb63f2126375de6675351.png" alt="image.png"></p>
+<p>这个截图和前一个类似，是在Server上(3003端口)抓到的包，不同的是接收窗口为0后，server端多次探测（Server上抓包能看到），但是client端没有回复 ZeroWindow（也有可能是回复了，但是中间环节把ack包丢了,或者这个探测包client没收到），造成server端认为client死了、不可达之类，进而反复重传，重传超过15次之后，server端认为这个连接死了，粗暴单方面断开（没有reset和fin,因为没必要，server认为网络连通性出了问题）。</p>
+<p>等到1800秒后，client的接收窗口恢复了，发个window update给server，这个时候server认为这个连接已经断开了，只能回复reset</p>
+<p>网络不通，重传超过一定的时间（tcp_retries2)然后断开这个连接是正常的，这里的问题是：</p>
+<ol>
+<li>为什么这种场景下丢包了，而且是针对某个stream一直丢包</li>
+</ol>
+<p>可能是因为这种场景下触发了中间环节的流量管控，故意丢包了（比如proxy、slb、交换机都有可能做这种选择性的丢包）</p>
+<p>这里server认为连接断开，没有发reset和fin,因为没必要，server认为网络连通性出了问题。client还不知道server上这个连接清理掉了，等client回复了一个window update，server早就认为这个连接早断了，突然收到一个update，莫名其妙，只能reset</p>
+<h2 id="接收窗口和SO-RCVBUF的关系"><a href="#接收窗口和SO-RCVBUF的关系" class="headerlink" title="接收窗口和SO_RCVBUF的关系"></a>接收窗口和SO_RCVBUF的关系</h2><h3 id="ss-查看socket-buffer大小"><a href="#ss-查看socket-buffer大小" class="headerlink" title="ss 查看socket buffer大小"></a>ss 查看socket buffer大小</h3><p>初始接收窗口一般是 <strong>mss乘以初始cwnd（为了和慢启动逻辑兼容，不想一下子冲击到网络）</strong>，如果没有设置SO_RCVBUF，那么会根据 net.ipv4.tcp_rmem 动态变化，如果设置了SO_RCVBUF，那么接收窗口要向下面描述的值靠拢。</p>
+<p><a target="_blank" rel="noopener" href="https://access.redhat.com/discussions/3624151">初始cwnd可以大致通过查看到</a>： </p>
+<pre><code>ss -itmpn dst &quot;10.81.212.8&quot;
+State      Recv-Q Send-Q Local Address:Port  Peer Address:Port
+ESTAB      0      0      10.xx.xx.xxx:22     10.yy.yy.yyy:12345  users:((&quot;sshd&quot;,pid=1442,fd=3))
+         skmem:(r0,rb369280,t0,tb87040,f4096,w0,o0,bl0,d92)
+
+Here we can see this socket has Receive Buffer 369280 bytes, and Transmit Buffer 87040 bytes.Keep in mind the kernel will double any socket buffer allocation for overhead. 
+So a process asks for 256 KiB buffer with setsockopt(SO_RCVBUF) then it will get 512 KiB buffer space. This is described on man 7 tcp. 
+</code></pre>
+<p>初始窗口计算的代码逻辑，重点在17行： </p>
+<pre><code>    /* TCP initial congestion window as per rfc6928 */
+    #define TCP_INIT_CWND           10
+    /* 3. Try to fixup all. It is made immediately after connection enters
+
+       established state.
+             */
+            void tcp_init_buffer_space(struct sock *sk)
+            {
+          int tcp_app_win = sock_net(sk)-&gt;ipv4.sysctl_tcp_app_win;
+          struct tcp_sock *tp = tcp_sk(sk);
+          int maxwin;
+        
+        if (!(sk-&gt;sk_userlocks &amp; SOCK_SNDBUF_LOCK))
+                tcp_sndbuf_expand(sk);
+
+		//初始最大接收窗口计算过程
+        tp-&gt;rcvq_space.space = min_t(u32, tp-&gt;rcv_wnd, TCP_INIT_CWND * tp-&gt;advmss);
+        tcp_mstamp_refresh(tp);
+        tp-&gt;rcvq_space.time = tp-&gt;tcp_mstamp;
+        tp-&gt;rcvq_space.seq = tp-&gt;copied_seq;
+
+        maxwin = tcp_full_space(sk);
+
+        if (tp-&gt;window_clamp &gt;= maxwin) {
+                tp-&gt;window_clamp = maxwin;
+
+                if (tcp_app_win &amp;&amp; maxwin &gt; 4 * tp-&gt;advmss)
+                        tp-&gt;window_clamp = max(maxwin -
+                                               (maxwin &gt;&gt; tcp_app_win),
+                                               4 * tp-&gt;advmss);
+        }
+
+        /* Force reservation of one segment. */
+        if (tcp_app_win &amp;&amp;
+            tp-&gt;window_clamp &gt; 2 * tp-&gt;advmss &amp;&amp;
+            tp-&gt;window_clamp + tp-&gt;advmss &gt; maxwin)
+                tp-&gt;window_clamp = max(2 * tp-&gt;advmss, maxwin - tp-&gt;advmss);
+
+        tp-&gt;rcv_ssthresh = min(tp-&gt;rcv_ssthresh, tp-&gt;window_clamp);
+        tp-&gt;snd_cwnd_stamp = tcp_jiffies32;
+}
+</code></pre>
+<p>传输过程中，最大接收窗口会动态调整，当指定了SO_RCVBUF后，实际buffer是两倍SO_RCVBUF，但是要分出一部分（2^net.ipv4.tcp_adv_win_scale)来作为乱序报文缓存以及metadata</p>
+<blockquote>
+<ol>
+<li>net.ipv4.tcp_adv_win_scale &#x3D; 2  &#x2F;&#x2F;2.6内核，3.1中这个值默认是1</li>
+</ol>
+</blockquote>
+<p>如果SO_RCVBUF是8K，总共就是16K，然后分出2^2分之一，也就是4分之一，还剩12K当做接收窗口；如果设置的32K，那么接收窗口是48K（64-16） </p>
+<p>​    static inline int tcp_win_from_space(const struct sock <em>sk, int space)<br>​    {&#x2F;&#x2F;space 传入的时候就已经是 2</em>SO_RCVBUF了<br>​            int tcp_adv_win_scale &#x3D; sock_net(sk)-&gt;ipv4.sysctl_tcp_adv_win_scale;    </p>
+<pre><code>        return tcp_adv_win_scale &lt;= 0 ?
+                (space&gt;&gt;(-tcp_adv_win_scale)) :
+                space - (space&gt;&gt;tcp_adv_win_scale); //sysctl参数tcp_adv_win_scale 
+}
+</code></pre>
+<p>tcp_adv_win_scale 的取值</p>
+<table>
+<thead>
+<tr>
+<th align="center">tcp_adv_win_scale</th>
+<th align="center">TCP window size</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">4</td>
+<td align="center">15&#x2F;16 * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">3</td>
+<td align="center">⅞ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">2</td>
+<td align="center">¾ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">1</td>
+<td align="center">½ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">0</td>
+<td align="center">available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-1</td>
+<td align="center">½ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-2</td>
+<td align="center">¼ * available memory in receive buffer</td>
+</tr>
+<tr>
+<td align="center">-3</td>
+<td align="center">⅛ * available memory in receive buffer</td>
+</tr>
+</tbody></table>
+<p>接收窗口有最大接收窗口和当前可用接收窗口。</p>
+<p>一般来说一次中断基本都会将 buffer 中的包都取走。</p>
+<p><img src="/images/oss/d7d3af2c03653e6cf8ae2befa0022832.png" alt="image.png"></p>
+<p>绿线是最大接收窗口动态调整的过程，最开始是1460*10，握手完毕后略微调整到1472*10（可利用body增加了12），随着数据的传输开始跳涨</p>
+<p><img src="/images/oss/d0e12e8bad8764385549f9b391c62ab0.png" alt="image.png"></p>
+<p>上图是四个batch insert语句，可以看到绿色接收窗口随着数据的传输越来越大，图中蓝色竖直部分基本表示SQL上传，两个蓝色竖直条的间隔代表这个insert在服务器上真正的执行时间。这图非常陡峭，表示上传没有任何瓶颈.</p>
+<h3 id="设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本"><a href="#设置-SO-RCVBUF-后通过wireshark观察到的接收窗口基本" class="headerlink" title="设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本"></a>设置 SO_RCVBUF 后通过wireshark观察到的接收窗口基本</h3><p>下图是设置了 SO_RCVBUF 为8192的实际情况：</p>
+<p><img src="/images/oss/d0e12e8bad8764385549f9b391c62ab0.png" alt="image.png"></p>
+<p>从最开始的14720，执行第一个create table语句后降到14330，到真正执行batch insert就降到了8192*1.5. 然后一直保持在这个值</p>
+<h2 id="实验：分别改小server-wmem-client-rmem-来对比对速度的影响"><a href="#实验：分别改小server-wmem-client-rmem-来对比对速度的影响" class="headerlink" title="实验：分别改小server wmem&#x2F;client rmem 来对比对速度的影响"></a>实验：分别改小server wmem&#x2F;client rmem 来对比对速度的影响</h2><blockquote>
+<p>server 设置 wmem&#x3D;4096, client curl get server的文件，速度60mbps, 两边的rtt都很好 </p>
+<p>client 设置 rmem&#x3D;4096，client curl get server的文件，速度6mbps, 为什么速度差别这么大？</p>
+</blockquote>
+<p>为什么server 设置 wmem&#x3D;4096后速度还是很快，因为server 每次收到ack，立即释放wmem来发新的网络包(内存级别的时延)，但如果rmem比较小当rmem满了到应用读走rmem，rmem有空闲后需要rtt时间反馈到server端server才会继续发包（网络级时延比内存级时延高几个数量级）。一句话总结：就是rmem从有空到包进来会有很大的间隔(rtt), wmem有空到写包进来没有时延</p>
+<p><img src="/images/951413iMgBlog/image-20230414092751721.png" alt="image-20230414092751721"></p>
+<p><img src="/images/951413iMgBlog/1460000039103606.png" alt="img"></p>
+<h1 id="从kernel来看buffer相关信息"><a href="#从kernel来看buffer相关信息" class="headerlink" title="从kernel来看buffer相关信息"></a>从kernel来看buffer相关信息</h1><h2 id="kernel相关参数"><a href="#kernel相关参数" class="headerlink" title="kernel相关参数"></a>kernel相关参数</h2><pre><code>sudo sysctl -a | egrep &quot;rmem|wmem|tcp_mem|adv_win|moderate&quot;
+net.core.rmem_default = 212992
+net.core.rmem_max = 212992
+net.core.wmem_default = 212992 //core是给所有的协议使用的,
+net.core.wmem_max = 212992
+net.ipv4.tcp_adv_win_scale = 1
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_rmem = 4096	87380	6291456
+net.ipv4.tcp_wmem = 4096	16384	4194304 //tcp有自己的专用选项就不用 core 里面的值了
+net.ipv4.udp_rmem_min = 4096
+net.ipv4.udp_wmem_min = 4096
+vm.lowmem_reserve_ratio = 256	256	32
+net.ipv4.tcp_mem = 88560        118080  177120
+</code></pre>
+<p>发送buffer系统比较好自动调节，依靠发送数据大小和rt延时大小，可以相应地进行调整；但是接受buffer就不一定了，接受buffer的使用取决于收到的数据快慢和应用读走数据的速度，只能是OS根据系统内存的压力来调整接受buffer。系统内存的压力取决于 net.ipv4.tcp_mem.</p>
+<p>需要特别注意：<strong>tcp_wmem 和 tcp_rmem 的单位是字节，而 tcp_mem 的单位的页面</strong></p>
+<p><img src="/images/oss/ea04e40acda986675bf0ad0ea7b9b8ff.png" alt="image.png"></p>
+<h2 id="kernel相关源码"><a href="#kernel相关源码" class="headerlink" title="kernel相关源码"></a>kernel相关源码</h2><p>从内核代码来看如果应用代码设置了sndbuf(比如java代码中：socket.setOption(sndbuf, socketSendBuffer))那么实际会分配socketSendBuffer*2的大小出来</p>
+<p><img src="/images/oss/1de3f2916346e390be55263d59f5730d.png" alt="image.png"></p>
+<p>比如应用代码有如下设置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">protected int socketRecvBuffer = 32 * 1024;   //接收32K</span><br><span class="line">protected int socketSendBuffer = 64 * 1024;   //发送64K，实际会分配128K</span><br><span class="line"></span><br><span class="line">     // If bufs set 0, using &#x27;/etc/sysctl.conf&#x27; system settings on default</span><br><span class="line">     // refer: net.ipv4.tcp_wmem / net.ipv4.tcp_rmem</span><br><span class="line">     if (socketRecvBuffer &gt; 0) &#123;</span><br><span class="line">         socket.setReceiveBufferSize(socketRecvBuffer);</span><br><span class="line">     &#125;</span><br><span class="line">     if (socketSendBuffer &gt; 0) &#123;</span><br><span class="line">         socket.setSendBufferSize(socketSendBuffer);</span><br><span class="line">     &#125;</span><br></pre></td></tr></table></figure>
+
+<p><a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man8/ss.8.html">实际会看到这样</a>的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">tcp ESTAB 45 0 10.0.186.140:3306 10.0.186.70:26494 skmem:(r768,rb65536,t0,tb131072,f3328,w0,o0,bl0,d0)</span><br><span class="line">tcp ESTAB 0 0 10.0.186.140:3306 10.0.186.70:26546 skmem:(r0,rb65536,t0,tb131072,f4096,w0,o0,bl0,d0)</span><br></pre></td></tr></table></figure>
+
+<p>为什么kernel要double 接收和发送buffer可以<a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/socket.7.html">参考man7中的socket帮助信息</a></p>
+<p><img src="/images/oss/4e2b2e12c754f01a2f99f9f47dd5fd8e.png" alt="image.png"></p>
+<h2 id="tcp包发送流程"><a href="#tcp包发送流程" class="headerlink" title="tcp包发送流程"></a>tcp包发送流程</h2><p><img src="/images/oss/d385a7dad76ec4031dfb6c096bca434b.png" alt="image.png"></p>
+<h2 id="用tc构造延时和带宽限制的模拟重现环境"><a href="#用tc构造延时和带宽限制的模拟重现环境" class="headerlink" title="用tc构造延时和带宽限制的模拟重现环境"></a>用tc构造延时和带宽限制的模拟重现环境</h2><pre><code>sudo tc qdisc del dev eth0 root netem delay 20ms
+sudo tc qdisc add dev eth0 root tbf rate 500kbit latency 50ms burst 15kb
+</code></pre>
+<h2 id="内核观测tcp-mem是否不足"><a href="#内核观测tcp-mem是否不足" class="headerlink" title="内核观测tcp_mem是否不足"></a>内核观测tcp_mem是否不足</h2><p>因 tcp_mem 达到限制而无法发包或者产生抖动的问题，我们也是可以观测到的。为了方便地观测这类问题，Linux 内核里面预置了静态观测点：sock_exceed_buf_limit（需要 4.16+ 的内核版本）。</p>
+<blockquote>
+<p>$ echo 1 &gt; &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;sock&#x2F;sock_exceed_buf_limit&#x2F;enable</p>
+</blockquote>
+<p>然后去看是否有该事件发生：</p>
+<blockquote>
+<p> $ cat &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;trace_pipe</p>
+</blockquote>
+<p>如果有日志输出（即发生了该事件），就意味着你需要调大 tcp_mem 了，或者是需要断开一些 TCP 连接了。</p>
+<h2 id="或者通过systemtap来观察"><a href="#或者通过systemtap来观察" class="headerlink" title="或者通过systemtap来观察"></a>或者通过systemtap来观察</h2><p>如下是tcp_sendmsg流程，sk_stream_wait_memory就是tcp_wmem不够的时候触发等待：</p>
+<p><img src="/images/oss/ff025f076a4a2bc2b1b13d11f32a97d3.png" alt="image.png"></p>
+<p>如果sendbuffer不够就会卡在上图中的第一步 sk_stream_wait_memory, 通过systemtap脚本可以验证：</p>
+<pre><code> #!/usr/bin/stap
+    # Simple probe to detect when a process is waiting for more socket send
+    # buffer memory. Usually means the process is doing writes larger than the
+    # socket send buffer size or there is a slow receiver at the other side.
+    # Increasing the socket&#39;s send buffer size might help decrease application
+    # latencies, but it might also make it worse, so buyer beware.
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;)
+{
+    printf(&quot;%u: %s(%d) blocked on full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+probe kernel.function(&quot;sk_stream_wait_memory&quot;).return
+{
+    printf(&quot;%u: %s(%d) recovered from full send buffern&quot;,
+        gettimeofday_us(), execname(), pid())
+}
+
+# Typical output: timestamp in microseconds: procname(pid) event
+#
+# 1218230114875167: python(17631) blocked on full send buffer
+# 1218230114876196: python(17631) recovered from full send buffer
+# 1218230114876271: python(17631) blocked on full send buffer
+# 1218230114876479: python(17631) recovered from full send buffer
+</code></pre>
+<h1 id="其它案例分析"><a href="#其它案例分析" class="headerlink" title="其它案例分析"></a>其它案例分析</h1><p>从如下案例可以看到在时延5ms和1ms的时候，分别执行相同的SQL，SQL查询结果13M，耗时分别为4.6和0.8秒</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">$time mysql  -h127.1  -e &quot;select * from test;&quot; &gt;/tmp/result.txt</span><br><span class="line">real    0m3.078s</span><br><span class="line">user    0m0.273s</span><br><span class="line">sys     0m0.028s</span><br><span class="line"></span><br><span class="line">$ping -c 1 127.0.0.1</span><br><span class="line">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=5.01 ms</span><br><span class="line"></span><br><span class="line">--- 127.0.0.1 ping statistics ---</span><br><span class="line">1 packets transmitted, 1 received, 0% packet loss, time 0ms</span><br><span class="line">rtt min/avg/max/mdev = 5.018/5.018/5.018/0.000 ms</span><br><span class="line"></span><br><span class="line">$ls -lh /tmp/result.txt</span><br><span class="line">-rw-rw-r-- 1 admin admin 13M Mar 12 12:51 /tmp/result.txt</span><br><span class="line"></span><br><span class="line">//减小时延后继续测试</span><br><span class="line">$ping 127.0.0.1</span><br><span class="line">PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=1.01 ms</span><br><span class="line">64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=1.02 ms</span><br><span class="line">^C</span><br><span class="line">--- 127.0.0.1 ping statistics ---</span><br><span class="line">2 packets transmitted, 2 received, 0% packet loss, time 1001ms</span><br><span class="line">rtt min/avg/max/mdev = 1.016/1.019/1.022/0.003 ms</span><br><span class="line"></span><br><span class="line">$time mysql  -h127.1  -e &quot;select * from test;&quot; &gt;/tmp/result.txt</span><br><span class="line">real    0m0.838s</span><br><span class="line">user    0m0.271s</span><br><span class="line">sys     0m0.030s</span><br><span class="line"></span><br><span class="line">//通过ss可以看到这个连接的buffer 大小相关信息，3306端口socket的send buffer为32K；</span><br><span class="line">//7226为客户端，发送buffer为128K，OS默认参数 </span><br><span class="line">tcp ESTAB 0 0 127.0.0.1:7226 127.0.0.1:3306 skmem:(r0,rb131072,t2,tb2626560,f24576,w0,o0,bl0,d0)</span><br><span class="line">tcp ESTAB 0 20480 127.0.0.1:3306 127.0.0.1:7226 skmem:(r0,rb16384,t0,tb32768,f1792,w26880,o0,bl0,d0)</span><br></pre></td></tr></table></figure>
+
+<p>在这个案例中 send buffer为32K（代码中设置的16K，内核会再翻倍，所以是32K），如果时延5毫秒时，一秒钟最多执行200次来回，也就是一秒钟能传输：200*32K&#x3D;6.4M，总大小为13M，也就是最快需要2秒钟才能传输行完，另外MySQL innodb执行耗时0.5ms，也就是极限速度也就是2.5秒+了。</p>
+<p>这个场景下想要快得减少rt或者增加send buffer， 增加接收端的buffer没有意义，比如如下代码增加client的 –net-buffer-length&#x3D;163840000  没有任何帮助</p>
+<blockquote>
+<p>time mysql –net-buffer-length&#x3D;163840000  -h127.1  -e “select * from test;” &gt;&#x2F;tmp&#x2F;result.txt</p>
+</blockquote>
+<h2 id="在2-MiB-buffer下rt和-throughput的关系"><a href="#在2-MiB-buffer下rt和-throughput的关系" class="headerlink" title="在2 MiB buffer下rt和 throughput的关系"></a>在2 MiB buffer下rt和 throughput的关系</h2><p><img src="/images/951413iMgBlog/image10-5.png" alt="img"></p>
+<h2 id="wmem-和send-buffer的关系"><a href="#wmem-和send-buffer的关系" class="headerlink" title="wmem 和send_buffer的关系"></a><a target="_blank" rel="noopener" href="https://unix.stackexchange.com/questions/551444/what-is-the-difference-between-sock-sk-wmem-alloc-and-sock-sk-wmem-queued">wmem 和send_buffer的关系</a></h2><p>设置 net.ipv4.tcp_wmem&#x3D;4096 4096 4096（单位是bytes），目的是想控制wmem很小，实际测试发现bytes in flight(发走还没有ack的数据）超过了4096，那么tcp_wmem和 send_buffer&#x2F;bytes in flight 到底是什么关系呢？</p>
+<p><img src="/images/951413iMgBlog/lQLPJwQZZ7TDbHrNBTTNBdCwIxliw-QP0oQEMVPcZwCyAA_1488_1332.png" alt="img"></p>
+<p>应用write-&gt;wmem&#x2F;snd_buffer-&gt;wmem_queued(在这里等ack，ack没来queued不释放)-&gt;client</p>
+<p><img src="/images/951413iMgBlog/image-20231007152649201.png" alt="image-20231007152649201"></p>
+<p>skmem:(r0,rb369280,t0,tb4096,f6000,w157840,o0,bl0</p>
+<p>w157840–这个对应我们理解的send buffer. 也就是wmem 不负责等ack，send完就释放，wmem_queued负责等</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>一般来说绝对不要在程序中手工设置SO_SNDBUF和SO_RCVBUF，内核自动调整比你做的要好；</li>
+<li>SO_SNDBUF一般会比发送滑动窗口要大，因为发送出去并且ack了的才能从SO_SNDBUF中释放；</li>
+<li>代码中设置的SO_SNDBUF和SO_RCVBUF在内核中会翻倍分配；</li>
+<li>TCP接收窗口跟SO_RCVBUF关系很复杂；</li>
+<li>SO_RCVBUF太小并且rtt很大的时候会严重影响性能；</li>
+<li>接收窗口比发送窗口复杂多了；</li>
+<li>发送窗口&#x2F;SO_SNDBUF–发送仓库，带宽&#x2F;拥塞窗口–马路通畅程度，接收窗口&#x2F;SO_RCVBUF–接收仓库；</li>
+<li>发送仓库、马路宽度、长度（rt）、接收仓库一起决定了传输速度–类比一下快递过程。</li>
+</ul>
+<p><strong>总之记住一句话：不要设置socket的SO_SNDBUF和SO_RCVBUF</strong></p>
+<p>关于传输速度的总结：窗口要足够大，包括发送、接收、拥塞窗口等，自然就能将BDP跑满</p>
+<h1 id="相关和参考文章"><a href="#相关和参考文章" class="headerlink" title="相关和参考文章"></a>相关和参考文章</h1><p>2024 Netflix： <a target="_blank" rel="noopener" href="https://netflixtechblog.medium.com/investigation-of-a-cross-regional-network-performance-issue-422d6218fdf1">Investigation of a Cross-regional Network Performance Issue</a>  因为内核升级去掉了内核参数 sysctl_tcp_adv_win_scale，换了一个新的计算方式，导致原来30秒 内能传输完毕的请求在新内核机制下传输不完，从而导致了业务端的请求超时  <a target="_blank" rel="noopener" href="https://lore.kernel.org/netdev/20230717152917.751987-1-edumazet@google.com/T/">This commit</a> obsoleted <em>sysctl_tcp_adv_win_scale</em> and introduced a <em>scaling_ratio</em> that can more accurately calculate the overhead or window size, which is the right thing to do. With the change, the window size is now <em>rcvbuf * scaling_ratio</em>. 简而言之，内核升级后，接收缓存大小减半。因此，吞吐量也减半，导致数据传输时间翻倍。</p>
+<p>Netflix 这次业务问题是Kafka， 其代码里不应该设置TCP 接收buffer 大小，而是要让kernel来自动调节</p>
+<p>2022 <a target="_blank" rel="noopener" href="https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think">https://blog.cloudflare.com/when-the-window-is-not-fully-open-your-tcp-stack-is-doing-more-than-you-think</a> 你设置的rmem 不会全部用来存放数据，每个包还有一些meta数据需要存放，元数据的大小会有很大的差异，导致内核需要来保守预估</p>
+<blockquote>
+<p>receive window is not fully opened immediately. Linux keeps the receive window small, as it tries to predict the metadata cost and avoid overshooting the memory budget, therefore hitting TCP collapse. By default, with the net.ipv4.tcp_adv_win_scale&#x3D;1, the upper limit for the advertised window is 50% of “free” memory. rcv_ssthresh starts up with 64KiB and grows linearly up to that limit.</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/dog250/article/details/113020804">用stap从内核角度来分析buffer、rt和速度</a></p>
+<p>[The story of one latency spike][<a target="_blank" rel="noopener" href="https://blog.cloudflare.com/the-story-of-one-latency-spike/]">https://blog.cloudflare.com/the-story-of-one-latency-spike/]</a> : 应用偶发性出现了rt 很高的时延，通过两个差量 ping 来定位具体节点</p>
+<blockquote>
+<p>Using a large chunk of receive buffer space for the metadata is not really what the programmer wants. To counter that, when the socket is under memory pressure complex logic is run with the intention of freeing some space. One of the operations is <code>tcp_collapse</code> and it will merge adjacent TCP packets into one larger <code>sk_buff</code>. This behavior is pretty much a garbage collection (GC)—and as everyone knows, when the garbage collection kicks in, the latency must spike.</p>
+</blockquote>
+<p>原因：将 tcp_rmem 最大值设置得太大，在内存压力场景下触发了GC（tcp_collapse），将 tcp_rmem 调小后（32M-&gt;2M）不再有偶发性 rt 很高的延时</p>
+<p>从 net_rx_action 追到 tcp_collapse 的逻辑没太理解（可能是对内核足够了解） </p>
+<p>[What is rcv_space in the ‘ss –info’ output, and why it’s value is larger than net.core.rmem_max][28]</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2729,177 +3160,6 @@ dip： destination
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/2019/07/19/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1--%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E5%92%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%9D%87%E8%A1%A1/">LVS 20倍的负载不均衡，原来是内核的这个Bug</a></p>
 <p><a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/52752">章文嵩(正明)博士和他背后的负载均衡(LOAD BANLANCER)帝国</a></p>
 <p><a target="_blank" rel="noopener" href="https://yizhi.ren/2019/05/03/lvs/">https://yizhi.ren/2019/05/03/lvs/</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2019/06/09/%E4%B8%80%E6%96%87%E6%90%9E%E6%87%82%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E7%9B%B8%E5%85%B3%E9%97%AE%E9%A2%98/" class="post-title-link" itemprop="url">就是要你懂DNS--一文搞懂域名解析相关问题</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2019-06-09 10:30:03" itemprop="dateCreated datePublished" datetime="2019-06-09T10:30:03+08:00">2019-06-09</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/DNS/" itemprop="url" rel="index"><span itemprop="name">DNS</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="一文搞懂域名解析DNS相关问题"><a href="#一文搞懂域名解析DNS相关问题" class="headerlink" title="一文搞懂域名解析DNS相关问题"></a>一文搞懂域名解析DNS相关问题</h1><blockquote>
-<p>本文希望通过一篇文章解决所有域名解析中相关的问题 </p>
-<p>最后会通过实际工作中碰到的不同场景下几个DNS问题的分析过程来理解DNS</p>
-</blockquote>
-<p>这几个Case描述如下：</p>
-<ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<p>因为这些问题都不一样，但是都跟DNS服务相关所以打算分四篇文章挨个介绍，希望看完后能加深对DNS原理的理解并独立解决任何DNS问题。</p>
-<p>下面我们就先开始介绍下DNS解析原理和流程。</p>
-<h2 id="Linux下域名解析流程"><a href="#Linux下域名解析流程" class="headerlink" title="Linux下域名解析流程"></a>Linux下域名解析流程</h2><ul>
-<li>DNS域名解析的时候先根据 &#x2F;etc&#x2F;host.conf、&#x2F;etc&#x2F;nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 &#x2F;etc&#x2F;hosts ； dns 代表 &#x2F;etc&#x2F;resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
-<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig &#x2F;displaydns ipconfig &#x2F;flushdns </li>
-<li>如果 &#x2F;etc&#x2F;resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-</ul>
-<p><img src="/images/oss/b7458f344de1d1b10c2a6f6ee7f1c501.png" alt="image.png"></p>
-<p>上述描述主要是阐述的图中 stub resolver部分的详细流程。这部分流程出问题才是程序员实际中更多碰到的场景</p>
-<p><a target="_blank" rel="noopener" href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/">所以默认的nsswitch流程是</a>：</p>
-<p><img src="/images/oss/82489e801d8f7bd455053315d760614b.png" alt="image.png"></p>
-<p>以下是一个 &#x2F;etc&#x2F;nsswitch.conf</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># cat /etc/nsswitch.conf |grep -v &quot;^#&quot; |grep -v &quot;^$&quot;</span><br><span class="line">passwd:     files sss</span><br><span class="line">shadow:     files sss</span><br><span class="line">group:      files sss</span><br><span class="line">hosts:      files dns myhostname  &lt;&lt;&lt;&lt;&lt; 重点是这一行三个值的顺序</span><br><span class="line">bootparams: nisplus [NOTFOUND=return] files</span><br><span class="line">ethers:     files</span><br><span class="line">netmasks:   files</span><br><span class="line">networks:   files</span><br><span class="line">protocols:  files</span><br><span class="line">rpc:        files</span><br><span class="line">services:   files sss</span><br><span class="line">netgroup:   nisplus sss</span><br><span class="line">publickey:  nisplus</span><br><span class="line">automount:  files nisplus sss</span><br><span class="line">aliases:    files nisplus</span><br></pre></td></tr></table></figure>
-
-<p>这个配置中的解析顺序是：files-&gt;dns-&gt;myhostname, 这个顺序可以调整和配置。</p>
-<h2 id="Linux下域名解析流程需要注意的地方"><a href="#Linux下域名解析流程需要注意的地方" class="headerlink" title="Linux下域名解析流程需要注意的地方"></a>Linux下域名解析流程需要注意的地方</h2><ul>
-<li>如果 &#x2F;etc&#x2F;resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">但是因为底层库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
-<li>如果被解析的域名不是以 “.” 结尾,那么解释失败后还会尝试resolv.conf中search追加到后面，<a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/58028">resolv.conf最多支持6个search域</a></li>
-<li>ping 调用的是 glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch，nslookup 不是.所以你会经常看到其中一个可以另一个不可以，那么就要按第一部分讲解的流程来排查了。</li>
-</ul>
-<h2 id="Linux下域名解析诊断工具"><a href="#Linux下域名解析诊断工具" class="headerlink" title="Linux下域名解析诊断工具"></a>Linux下域名解析诊断工具</h2><ul>
-<li>ping</li>
-<li>nslookup (nslookup domain @dns-server-ip)</li>
-<li><a target="_blank" rel="noopener" href="https://jvns.ca/blog/2021/12/04/how-to-use-dig/">dig</a> (dig +trace domain)</li>
-<li>tcpdump (tcpdump -i eth0 host server-ip and port 53 and udp)</li>
-<li>strace</li>
-</ul>
-<p><img src="/images/951413iMgBlog/dig.png" alt="img"></p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">//指定本地 ip 端口：192.168.0.201#20202，将 dns 解析任务发送给 172.21.0.10 </span><br><span class="line">dig +retry=0 -b192.168.0.201#20202 aliyun.com @172.21.0.10</span><br></pre></td></tr></table></figure>
-
-
-
-<h3 id="案例"><a href="#案例" class="headerlink" title="案例"></a><a target="_blank" rel="noopener" href="https://shawyeok.github.io/article/ping-issue.html">案例</a></h3><p>如下，向 &#x2F;etc&#x2F;hosts 中添加两条记录，一条是test.unknow.host 无法解析到，但是另一条 test.localhost 可以解析到，为啥呢？</p>
-<pre><code>$head -2 /etc/hosts
-127.0.0.1　 test.unknow.host
-127.0.0.1   test.localhost
-$ping test.unknow.host
-ping: unknown host test.unknow.host
-$ping -c 1 test.localhost
-PING test.localhost (127.0.0.1) 56(84) bytes of data.
-64 bytes from test.localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.016 ms
-</code></pre>
-<p>为什么 test.unknow.host 没法解析到？ 可能有哪些因素导致这种现象？尝试 ping -c 1 test.localhost 的目的是做什么？</p>
-<p>看完前面的理论我的猜测是两种可能导致这种情况：</p>
-<ul>
-<li>&#x2F;etc&#x2F;hosts 没有启用</li>
-<li>有本地缓存记录了一个unknow host记录</li>
-</ul>
-<h4 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h4><pre><code>strace -e trace=open -f ping -c 1 test.localhost
-</code></pre>
-<p>可以通，说明 &#x2F;etc&#x2F;hosts 是在起作用的，所以最好验证 &#x2F;etc&#x2F;hosts 在起作用的方法是往其中添加一条新纪录，然后验证一下</p>
-<p>那接下来只能看本地有没有启动 nscd 这样的缓存了，见后发现也没有，这个时候就可以上 strace 追踪ping的流程了<br><img src="/images/oss/1560992498945-66445687-3184-4c7d-9fbd-764552025041.png" alt="undefined"> </p>
-<p>从上图可以清晰地看到读取了 &#x2F;etc&#x2F;host.conf, 然后读了 &#x2F;etc&#x2F;hosts, 再然后读取到我们添加的那条记录，似乎没问题，仔细看这应该是 ip地址后面带的是一个中文字符的空格，这就是问题所在。</p>
-<p>到这里可能的情况要追加第三种了：</p>
-<ul>
-<li>&#x2F;etc&#x2F;hosts 中添加的记录没生效(比如中文符号）</li>
-</ul>
-<h3 id="dhcp"><a href="#dhcp" class="headerlink" title="dhcp"></a>dhcp</h3><p>如果启用了dhcp，那么dhclient会更新在Network Manager启动的时候更新 &#x2F;etc&#x2F;resolv.conf</p>
-<h3 id="dnsmasq"><a href="#dnsmasq" class="headerlink" title="dnsmasq"></a>dnsmasq</h3><p>一般会在127.0.0.1:53上启动dns server服务，配置文件对应在：&#x2F;run&#x2F;dnsmasq&#x2F;resolv.conf。集团内部的vipclient就是类似这个原理。</p>
-<h2 id="微服务下的域名解析、负载均衡"><a href="#微服务下的域名解析、负载均衡" class="headerlink" title="微服务下的域名解析、负载均衡"></a>微服务下的域名解析、负载均衡</h2><p>微服务中多个服务之间一般都是通过一个vip或者域名之类的来做服务发现和负载均衡、弹性伸缩，所以这里也需要域名解析（一个微服务申请一个域名）</p>
-<h3 id="域名解析通过jar、lib包"><a href="#域名解析通过jar、lib包" class="headerlink" title="域名解析通过jar、lib包"></a>域名解析通过jar、lib包</h3><p>基本与上面的逻辑没什么关系，jar包会去通过特定的协议联系server，解析出域名对应的多个ip、机房、权重等</p>
-<h3 id="域名解析通过dns-server"><a href="#域名解析通过dns-server" class="headerlink" title="域名解析通过dns server"></a>域名解析通过dns server</h3><p>跟前面介绍逻辑一致，一般是&#x2F;etc&#x2F;resolv.conf中配置的第一个nameserver负责解析微服务的域名，解析不到的（如baidu.com)再转发给上一级通用的dns server，解析到了说明是微服务自定义的域名，就可以返回来了</p>
-<p>如果这种情况下&#x2F;etc&#x2F;resolv.conf中配置的第一个nameserver是127.0.0.1,意味着本地跑了一个dns server, 这个服务使用dns协议监听本地udp 53端口</p>
-<p>验证方式： nslookup 域名 @127.0.0.1 看看能否解析到你想要的地址</p>
-<h2 id="kubernetes-和-docker中的域名解析"><a href="#kubernetes-和-docker中的域名解析" class="headerlink" title="kubernetes 和 docker中的域名解析"></a>kubernetes 和 docker中的域名解析</h2><p>一般是通过iptables配置转发规则来实现，这种用iptables和tcpdump基本都可以看清楚。如果是集群内部的话可以通过CoreDNS来实现，通过K8S动态向CoreDNS增删域名，增删ip，所以这种域名肯定只能在k8s集群内部使用</p>
-<h2 id="nginx-中的域名解析"><a href="#nginx-中的域名解析" class="headerlink" title="nginx 中的域名解析"></a>nginx 中的域名解析</h2><p>nginx可以自定义resolver，也可以通过读取 &#x2F;etc&#x2F;resolv.conf转换而来，要注意对 &#x2F;etc&#x2F;resolv.conf中 注释的<a target="_blank" rel="noopener" href="https://serverfault.com/questions/638822/nginx-resolver-address-from-etc-resolv-conf">兼容</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/blacklabelops-legacy/nginx/issues/36">https://github.com/blacklabelops-legacy/nginx/issues/36</a>  可能是nginx读取 &#x2F;etc&#x2F;resolv.conf没有处理好 # 注释的问题</p>
-<h2 id="进一步的Case学习："><a href="#进一步的Case学习：" class="headerlink" title="进一步的Case学习："></a>进一步的Case学习：</h2><ol>
-<li><a href="/2019/01/09/nslookup-OK-but-ping-fail/">一批ECS nslookup 域名结果正确，但是 ping 域名 返回 unknown host</a></li>
-<li><a href="/2019/01/12/Docker%E4%B8%AD%E7%9A%84DNS%E8%A7%A3%E6%9E%90%E8%BF%87%E7%A8%8B/">Docker容器中的域名解析过程和原理</a></li>
-<li><a href="/2019/01/13/%E4%B8%AD%E9%97%B4%E4%BB%B6%E7%9A%84%E8%87%AA%E5%B7%B1%E7%9A%84DNS%E6%9C%8D%E5%8A%A1%E5%9C%A8alios7%E4%B8%8A%E5%9F%9F%E5%90%8D%E8%A7%A3%E6%9E%90%E5%A4%B1%E8%B4%A5/">中间件的VipClient服务在centos7上域名解析失败</a></li>
-<li><a href="/2019/01/10/windows7%E7%9A%84wifi%E6%80%BB%E6%98%AF%E6%8A%A5DNS%E5%9F%9F%E5%90%8D%E5%BC%82%E5%B8%B8%E6%97%A0%E6%B3%95%E4%B8%8A%E7%BD%91/">在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）</a></li>
-</ol>
-<h2 id="参考文章："><a href="#参考文章：" class="headerlink" title="参考文章："></a>参考文章：</h2><p><a target="_blank" rel="noopener" href="https://blog.bruceding.me/516.html">GO DNS 原理解析</a></p>
-<p><a target="_blank" rel="noopener" href="https://blog.arstercz.com/linux-%E7%B3%BB%E7%BB%9F%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86%E5%90%8D%E7%A7%B0%E8%A7%A3%E6%9E%90">Linux 系统如何处理名称解析</a></p>
-<p><a target="_blank" rel="noopener" href="https://zwischenzugs.com/2018/06/08/anatomy-of-a-linux-dns-lookup-part-i/">Anatomy of a Linux DNS Lookup – Part I</a></p>
 
       
     </div>
