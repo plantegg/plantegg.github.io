@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计一句话结论我们把 6 个 RDS MySQL 集群迁到 EC2 自建，年省 $151,425（76%）。这不是什么黑科技，就是把云厂商帮你装好的 MySQL 自己装了一遍。  云数据库的定价逻辑RDS 的本质是：在 EC2 上跑一个开源数据库，加一层管控面板，然后把价格翻一倍往外卖。 以 ap-east-1 区域 db.m5d">
+<meta property="og:type" content="article">
+<meta property="og:title" content="开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计">
+<meta property="og:url" content="https://plantegg.github.io/2026/08/03/rds-to-ec2-blog/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计一句话结论我们把 6 个 RDS MySQL 集群迁到 EC2 自建，年省 $151,425（76%）。这不是什么黑科技，就是把云厂商帮你装好的 MySQL 自己装了一遍。  云数据库的定价逻辑RDS 的本质是：在 EC2 上跑一个开源数据库，加一层管控面板，然后把价格翻一倍往外卖。 以 ap-east-1 区域 db.m5d">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-08-03T09:30:03.000Z">
+<meta property="article:modified_time" content="2026-08-12T14:13:01.254Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="AWS">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="RDS">
+<meta property="article:tag" content="aliyun">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2026/08/03/rds-to-ec2-blog/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2026/08/03/rds-to-ec2-blog/","path":"2026/08/03/rds-to-ec2-blog/","title":"开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BC%80%E6%BA%90%E4%BB%A3%E7%A0%81%E5%8A%A0%E4%B8%AA%E5%A3%B3%EF%BC%8C%E5%B9%B4%E6%94%B6%E4%BD%A0-15-%E4%B8%87%E7%BE%8E%E9%87%91%E2%80%94%E2%80%94%E4%B8%80%E6%AC%A1-RDS-%E8%BF%81%E7%A7%BB%E8%87%AA%E5%BB%BA%E7%9A%84%E6%88%90%E6%9C%AC%E5%AE%A1%E8%AE%A1"><span class="nav-number">1.</span> <span class="nav-text">开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E5%8F%A5%E8%AF%9D%E7%BB%93%E8%AE%BA"><span class="nav-number">1.1.</span> <span class="nav-text">一句话结论</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%91%E6%95%B0%E6%8D%AE%E5%BA%93%E7%9A%84%E5%AE%9A%E4%BB%B7%E9%80%BB%E8%BE%91"><span class="nav-number">1.2.</span> <span class="nav-text">云数据库的定价逻辑</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%AE%A1%E6%8E%A7%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9A%E6%94%B6%E9%92%B1%E7%9A%84%E8%87%AA%E5%8A%A8%E5%8C%96"><span class="nav-number">1.3.</span> <span class="nav-text">管控做了什么：收钱的自动化</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%9E%E6%88%98%EF%BC%9A6-%E4%B8%AA%E9%9B%86%E7%BE%A4%E7%9A%84%E8%BF%81%E7%A7%BB%E8%B4%A6%E6%9C%AC"><span class="nav-number">1.4.</span> <span class="nav-text">实战：6 个集群的迁移账本</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8E%9F%E5%A7%8B%E9%85%8D%E7%BD%AE"><span class="nav-number">1.4.1.</span> <span class="nav-text">原始配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%81%E7%A7%BB%E5%90%8E%E5%AE%9E%E9%99%85-EC2-%E9%85%8D%E7%BD%AE"><span class="nav-number">1.4.2.</span> <span class="nav-text">迁移后实际 EC2 配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%88%90%E6%9C%AC%E5%88%86%E6%9E%90"><span class="nav-number">1.4.3.</span> <span class="nav-text">成本分析</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%9C%81%E9%92%B1%E7%9A%84%E4%B8%89%E4%B8%AA%E5%B1%82%E6%AC%A1"><span class="nav-number">1.5.</span> <span class="nav-text">省钱的三个层次</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%AC%AC%E4%B8%80%E5%B1%82%EF%BC%9A%E5%B9%B3%E7%A7%BB%E6%9B%BF%E6%8D%A2%EF%BC%88%E7%9C%81-50-60-%EF%BC%89"><span class="nav-number">1.5.1.</span> <span class="nav-text">第一层：平移替换（省 50-60%）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%AC%AC%E4%BA%8C%E5%B1%82%EF%BC%9A%E5%9F%BA%E4%BA%8E%E7%9B%91%E6%8E%A7%E9%99%8D%E9%85%8D%EF%BC%88%E5%86%8D%E7%9C%81-15-20-%EF%BC%89"><span class="nav-number">1.5.2.</span> <span class="nav-text">第二层：基于监控降配（再省 15-20%）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%AC%AC%E4%B8%89%E5%B1%82%EF%BC%9A%E6%80%BB%E7%BB%93"><span class="nav-number">1.5.3.</span> <span class="nav-text">第三层：总结</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BF%99%E5%8F%AA%E6%98%AF%E5%86%B0%E5%B1%B1%E4%B8%80%E8%A7%92"><span class="nav-number">1.6.</span> <span class="nav-text">这只是冰山一角</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9B%B4%E8%BF%9B%E4%B8%80%E6%AD%A5%EF%BC%9AEC2-%E5%88%B0-IDC-%E8%87%AA%E5%BB%BA"><span class="nav-number">1.7.</span> <span class="nav-text">更进一步：EC2 到 IDC 自建</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%B7%A5%E7%A8%8B%E5%B8%88%E7%9A%84%E4%BB%B7%E5%80%BC"><span class="nav-number">1.8.</span> <span class="nav-text">工程师的价值</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#AI-%E6%89%8D%E6%98%AF%E7%9C%9F%E6%AD%A3%E7%9A%84%E9%99%8D%E6%9C%AC%E5%A2%9E%E6%95%88%E5%B7%A5%E5%85%B7"><span class="nav-number">1.9.</span> <span class="nav-text">AI 才是真正的降本增效工具</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#AI-%E5%9C%A8%E8%BF%99%E6%AC%A1%E8%BF%81%E7%A7%BB%E4%B8%AD%E5%85%B7%E4%BD%93%E5%B9%B2%E4%BA%86%E4%BB%80%E4%B9%88"><span class="nav-number">1.9.1.</span> <span class="nav-text">AI 在这次迁移中具体干了什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BE%88%E5%A4%9A%E5%85%AC%E5%8F%B8-AI-%E2%80%9C%E7%83%A7-token-%E7%9C%8B%E4%B8%8D%E5%88%B0%E6%95%88%E6%9E%9C%E2%80%9D"><span class="nav-number">1.9.2.</span> <span class="nav-text">为什么很多公司 AI “烧 token 看不到效果”</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#ROI-%E5%AF%B9%E6%AF%94"><span class="nav-number">1.9.3.</span> <span class="nav-text">ROI 对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%BB%99%E7%AE%A1%E7%90%86%E8%80%85%E7%9A%84%E5%BB%BA%E8%AE%AE"><span class="nav-number">1.9.4.</span> <span class="nav-text">给管理者的建议</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%93%E8%AF%AD"><span class="nav-number">1.10.</span> <span class="nav-text">结语</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">209</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">317</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2026/08/03/rds-to-ec2-blog/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2026-08-03 17:30:03" itemprop="dateCreated datePublished" datetime="2026-08-03T17:30:03+08:00">2026-08-03</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-08-12 22:13:01" itemprop="dateModified" datetime="2026-08-12T22:13:01+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Cloud/" itemprop="url" rel="index"><span itemprop="name">Cloud</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="阅读次数" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">阅读次数：</span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="开源代码加个壳，年收你-15-万美金——一次-RDS-迁移自建的成本审计"><a href="#开源代码加个壳，年收你-15-万美金——一次-RDS-迁移自建的成本审计" class="headerlink" title="开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计"></a>开源代码加个壳，年收你 15 万美金——一次 RDS 迁移自建的成本审计</h1><h2 id="一句话结论"><a href="#一句话结论" class="headerlink" title="一句话结论"></a>一句话结论</h2><p>我们把 6 个 RDS MySQL 集群迁到 EC2 自建，<strong>年省 $151,425（76%）</strong>。这不是什么黑科技，就是把云厂商帮你装好的 MySQL 自己装了一遍。</p>
+<hr>
+<h2 id="云数据库的定价逻辑"><a href="#云数据库的定价逻辑" class="headerlink" title="云数据库的定价逻辑"></a>云数据库的定价逻辑</h2><p>RDS 的本质是：<strong>在 EC2 上跑一个开源数据库，加一层管控面板，然后把价格翻一倍往外卖。</strong></p>
+<p>以 ap-east-1 区域 db.m5d.xlarge（4C 16G）为例：</p>
+<table>
+<thead>
+<tr>
+<th>部署方式</th>
+<th>小时单价</th>
+<th>倍率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>EC2 同配置裸机</td>
+<td>$0.277&#x2F;hr</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>RDS Single-AZ</td>
+<td>$0.638&#x2F;hr</td>
+<td>2.3×</td>
+</tr>
+<tr>
+<td>RDS Multi-AZ（2 节点）</td>
+<td>$1.276&#x2F;hr</td>
+<td>4.6×</td>
+</tr>
+<tr>
+<td>RDS Multi-AZ DB Cluster（3 节点）</td>
+<td>$1.768&#x2F;hr</td>
+<td>6.4×</td>
+</tr>
+</tbody></table>
+<p>存储更离谱。同样的 gp3 磁盘：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>EBS 直接挂载</th>
+<th>RDS 存储（3 节点集群）</th>
+<th>倍率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容量</td>
+<td>$0.1056&#x2F;GB-month</td>
+<td>$0.45&#x2F;GB-month</td>
+<td>4.3×</td>
+</tr>
+<tr>
+<td>IOPS（超基线）</td>
+<td>$0.0066&#x2F;IOPS-month</td>
+<td>$0.078&#x2F;IOPS-month</td>
+<td><strong>11.8×</strong></td>
+</tr>
+<tr>
+<td>吞吐（超基线）</td>
+<td>$0.0528&#x2F;MiBps-month</td>
+<td>$0.313&#x2F;MiBps-month</td>
+<td><strong>5.9×</strong></td>
+</tr>
+</tbody></table>
+<p>你没看错——同一块硬盘、同一个 IOPS，挂在 RDS 上比挂在 EC2 上贵 <strong>12 倍</strong>。</p>
+<p>那管控面板值这个差价吗？</p>
+<hr>
+<h2 id="管控做了什么：收钱的自动化"><a href="#管控做了什么：收钱的自动化" class="headerlink" title="管控做了什么：收钱的自动化"></a>管控做了什么：收钱的自动化</h2><p>RDS 管控提供的核心能力：</p>
+<ol>
+<li><strong>自动备份</strong> —— 一个 cron + mysqldump&#x2F;xtrabackup 的事</li>
+<li><strong>自动故障切换</strong> —— 开源社区 orchestrator&#x2F;MHA 免费且更灵活</li>
+<li><strong>自动小版本升级</strong> —— 这不是优点，这是灾难（下面细说）</li>
+<li><strong>监控</strong> —— Performance Insights 还要额外收费，基础 CloudWatch 指标连 QPS 都看不到</li>
+<li><strong>参数管理</strong> —— 一个 my.cnf 的事，还不让你改一半参数</li>
+</ol>
+<p><strong>真正恶心的是强制升级。</strong></p>
+<p>MySQL 8.0 社区还在维护，RDS 直接宣布 EOL，逼你升 8.4。理由？”降低我们的运维成本”。从来不考虑：</p>
+<ul>
+<li>你的 ORM 框架兼不兼容</li>
+<li>你的 CDC 组件（Canal&#x2F;Debezium）测过没有</li>
+<li>你的 SQL 在新优化器下会不会回退</li>
+</ul>
+<p>云厂商嘴上说”客户第一”，实际做的每一个决策都是”降低自己的运维成本，把风险转嫁给客户”。一个 Terraform apply 就把你几百个集群的引擎版本全换了，你连说不的机会都没有。</p>
+<hr>
+<h2 id="实战：6-个集群的迁移账本"><a href="#实战：6-个集群的迁移账本" class="headerlink" title="实战：6 个集群的迁移账本"></a>实战：6 个集群的迁移账本</h2><h3 id="原始配置"><a href="#原始配置" class="headerlink" title="原始配置"></a>原始配置</h3><table>
+<thead>
+<tr>
+<th>#</th>
+<th>RDS 规格</th>
+<th>节点数</th>
+<th>存储</th>
+<th>IOPS</th>
+<th>月费</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>db.m5d.4xlarge (16C 64G)</td>
+<td>3</td>
+<td>500GB gp3</td>
+<td>12,000</td>
+<td>$6,208</td>
+</tr>
+<tr>
+<td>2</td>
+<td>db.m5d.2xlarge (8C 32G)</td>
+<td>3</td>
+<td>500GB gp3</td>
+<td>12,000</td>
+<td>$3,626</td>
+</tr>
+<tr>
+<td>3</td>
+<td>db.m5d.2xlarge (8C 32G)</td>
+<td>3</td>
+<td>500GB gp3</td>
+<td>12,000</td>
+<td>$3,626</td>
+</tr>
+<tr>
+<td>4</td>
+<td>db.m5d.xlarge (4C 16G)</td>
+<td>3</td>
+<td>400GB gp3</td>
+<td>12,000</td>
+<td>$2,290</td>
+</tr>
+<tr>
+<td>5</td>
+<td>db.m5d.large (2C 8G)</td>
+<td>3</td>
+<td>200GB gp3</td>
+<td>3,000</td>
+<td>$735</td>
+</tr>
+<tr>
+<td>6</td>
+<td>db.t3.small (2C 2G)</td>
+<td>2</td>
+<td>100GB gp2</td>
+<td>—</td>
+<td>$114</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><strong>$16,598&#x2F;月</strong></td>
+</tr>
+</tbody></table>
+<h3 id="迁移后实际-EC2-配置"><a href="#迁移后实际-EC2-配置" class="headerlink" title="迁移后实际 EC2 配置"></a>迁移后实际 EC2 配置</h3><table>
+<thead>
+<tr>
+<th>#</th>
+<th>EC2 规格</th>
+<th>节点数</th>
+<th>存储</th>
+<th>IOPS</th>
+<th>月费</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>m7i.xlarge (4C 16G)</td>
+<td>3</td>
+<td>350GB gp3</td>
+<td>3,000</td>
+<td>$734</td>
+</tr>
+<tr>
+<td>2</td>
+<td>m6i.2xlarge (8C 32G)</td>
+<td>3</td>
+<td>350GB gp3</td>
+<td>3,000</td>
+<td>$1,283</td>
+</tr>
+<tr>
+<td>3</td>
+<td>r6i.xlarge (4C 32G)</td>
+<td>3</td>
+<td>350GB gp3</td>
+<td>3,000</td>
+<td>$858</td>
+</tr>
+<tr>
+<td>4</td>
+<td>m7i.xlarge (4C 16G)</td>
+<td>3</td>
+<td>350GB gp3</td>
+<td>3,000</td>
+<td>$734</td>
+</tr>
+<tr>
+<td>5</td>
+<td>c7i.large (2C 4G)</td>
+<td>3</td>
+<td>100GB gp3</td>
+<td>3,000</td>
+<td>$296</td>
+</tr>
+<tr>
+<td>6</td>
+<td>规划 t3.small</td>
+<td>2</td>
+<td>100GB gp3</td>
+<td>3,000</td>
+<td>$74</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><strong>$3,979&#x2F;月</strong></td>
+</tr>
+</tbody></table>
+<h3 id="成本分析"><a href="#成本分析" class="headerlink" title="成本分析"></a>成本分析</h3><p><strong>RDS 年费：$199,174</strong><br><strong>EC2 年费：$47,749</strong><br><strong>年省：$151,425（76%）</strong></p>
+<hr>
+<h2 id="省钱的三个层次"><a href="#省钱的三个层次" class="headerlink" title="省钱的三个层次"></a>省钱的三个层次</h2><h3 id="第一层：平移替换（省-50-60-）"><a href="#第一层：平移替换（省-50-60-）" class="headerlink" title="第一层：平移替换（省 50-60%）"></a>第一层：平移替换（省 50-60%）</h3><p>单纯把 RDS 换成同规格 EC2 自建 MySQL，不做任何优化。省钱来源：</p>
+<ul>
+<li>去掉 RDS 的”管控溢价”（计算 2-3 倍）</li>
+<li>去掉存储的”托管溢价”（IOPS 12 倍）</li>
+<li>使用 gp3 基线 3000 IOPS 免费额度（RDS 要额外收钱）</li>
+</ul>
+<h3 id="第二层：基于监控降配（再省-15-20-）"><a href="#第二层：基于监控降配（再省-15-20-）" class="headerlink" title="第二层：基于监控降配（再省 15-20%）"></a>第二层：基于监控降配（再省 15-20%）</h3><p>拉取 48 小时监控后发现：</p>
+<table>
+<thead>
+<tr>
+<th>集群</th>
+<th>CPU Avg</th>
+<th>存储 IOPS 实际使用</th>
+<th>配置 IOPS</th>
+<th>利用率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>集群 1（16C 64G）</td>
+<td><strong>2.5%</strong></td>
+<td>20</td>
+<td>12,000</td>
+<td>0.17%</td>
+</tr>
+<tr>
+<td>集群 5（2C 8G）</td>
+<td>17.5%</td>
+<td>0.7</td>
+<td>3,000</td>
+<td>0.02%</td>
+</tr>
+<tr>
+<td>集群 6（2C 2G）</td>
+<td>4.3%</td>
+<td>0.8</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>集群 1 尤其荒唐</strong>：RDS 上跑着 16C 64G 的大实例，实际 CPU 平均 2.5%，存储 IOPS 日常仅 20。我们直接降到 4C 16G，<strong>一个集群就省了 $65,687&#x2F;年</strong>。</p>
+<p>这不是什么高难度操作——拉个 CloudWatch 指标谁都会。但如果你用着 RDS，你永远不会去想”我要不要降配”，因为：</p>
+<ol>
+<li>RDS 没有直观的利用率告警（连 QPS 都不给你看，要开 Performance Insights 再付钱）</li>
+<li>修改实例规格需要重启，Multi-AZ 切换有风险</li>
+<li>反正不是自己的钱，KPI 不考核基础设施成本</li>
+</ol>
+<h3 id="第三层：总结"><a href="#第三层：总结" class="headerlink" title="第三层：总结"></a>第三层：总结</h3><table>
+<thead>
+<tr>
+<th>层次</th>
+<th>动作</th>
+<th>节省比例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平移替换</td>
+<td>RDS → EC2 同规格</td>
+<td>50-60%</td>
+</tr>
+<tr>
+<td>监控降配</td>
+<td>基于实际负载缩减规格</td>
+<td>+15-20%</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td></td>
+<td><strong>~76%</strong></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="这只是冰山一角"><a href="#这只是冰山一角" class="headerlink" title="这只是冰山一角"></a>这只是冰山一角</h2><p>上面 6 个集群的 RDS 年费不到 20 万美金。在我们整个基础设施账单里，这连 5% 都不到。</p>
+<p>如果把所有托管服务（RDS、ElastiCache、MSK、OpenSearch……）全部迁移自建，按同样的比例估算，<strong>年省百万美金量级</strong>不是梦话。</p>
+<p>而在国内互联网行业，很多公司一年在云上花几千万甚至几个亿人民币。按我们实测的 76% 节省比例，<strong>实际可能只需要 20-30% 的预算就能跑同样的业务</strong>。剩下的钱去哪了？去了云厂商的毛利率报表里。</p>
+<hr>
+<h2 id="更进一步：EC2-到-IDC-自建"><a href="#更进一步：EC2-到-IDC-自建" class="headerlink" title="更进一步：EC2 到 IDC 自建"></a>更进一步：EC2 到 IDC 自建</h2><p>如果 RDS 到 EC2 能省 76%，那 EC2 到自建 IDC 呢？</p>
+<p>EC2 本身也有”云溢价”。同样一台 4C 16G 的服务器：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>月成本估算</th>
+<th>相对 EC2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>EC2 On-Demand</td>
+<td>$202&#x2F;月</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>EC2 1年 Savings Plan</td>
+<td>$140&#x2F;月</td>
+<td>0.7×</td>
+</tr>
+<tr>
+<td>IDC 自建（含托管+带宽+折旧）</td>
+<td>$60-80&#x2F;月</td>
+<td>0.3-0.4×</td>
+</tr>
+</tbody></table>
+<p><strong>经验法则</strong>：当你的年云支出超过 <strong>1000 万人民币</strong>（约 $140 万美金），就应该认真评估自建 IDC 或混合架构了。在这个规模下：</p>
+<ul>
+<li>你已经有足够的运维团队</li>
+<li>服务器采购有议价空间</li>
+<li>网络带宽成本可以通过 BGP 直连大幅降低</li>
+<li>3 年折旧后硬件几乎是”免费”的</li>
+</ul>
+<hr>
+<h2 id="工程师的价值"><a href="#工程师的价值" class="headerlink" title="工程师的价值"></a>工程师的价值</h2><p><strong>$151,425&#x2F;年</strong>。</p>
+<p>这是一个 DBA 花两周时间做迁移评估 + 执行带来的年化收益。这笔钱：</p>
+<ul>
+<li>在北京够招一个资深工程师</li>
+<li>在二线城市够招两个</li>
+<li>比 90% 的”降本增效”项目 ROI 都高</li>
+</ul>
+<p>而且这还只是”小试牛刀”——6 个中小规格集群。</p>
+<p>别忘了，这原本 20 万刀的开支上面，云厂商还要再收 <strong>8% 的企业支持服务费</strong>（Enterprise Support）。$199,174 × 8% &#x3D; <strong>$15,934&#x2F;年</strong>，又是一个工程师的工资。</p>
+<p>放大到整个公司：如果你一年在云上花 1000 万人民币，8% 就是 80 万——<strong>够养一个 3-4 人的专职运维团队了</strong>。而云厂商的”支持服务”给你什么？一个工单系统、一个响应 SLA、偶尔帮你提个 limit。你自己的工程师调个参数 5 分钟搞定的事，走工单要等 24 小时。</p>
+<p>如果你是多云架构，情况更糟：</p>
+<ul>
+<li>每家云都要交一份支持费</li>
+<li>每家的 API&#x2F;控制台&#x2F;计费模型都不一样，运维工具要写多套</li>
+<li>跨云网络打通本身就是成本（专线、VPN、流量费）</li>
+<li>出了问题两家互相甩锅，你夹在中间当传话筒</li>
+</ul>
+<p><strong>如果你已经有了 IDC 自建能力，云上的托管服务就是在给云厂商交智商税。</strong> 同样的 MySQL、同样的 Redis、同样的 Kafka——跑在你自己机房的服务器上，性能更好、延迟更低、成本是云上的 1&#x2F;5。</p>
+<p>云厂商的销售会告诉你”自建运维成本高””要招人要管理”。但他们不会告诉你：</p>
+<ul>
+<li>他们的托管服务本身就是你花钱让别人招了个运维</li>
+<li>这个运维收费是市场价的 5-10 倍</li>
+<li>这个运维还会强制你升级、限制你改配置、监控还要额外付费</li>
+<li>你交的 8% 支持费，换来的是一个工单系统和一句”建议您升级到最新版本”</li>
+</ul>
+<hr>
+<h2 id="AI-才是真正的降本增效工具"><a href="#AI-才是真正的降本增效工具" class="headerlink" title="AI 才是真正的降本增效工具"></a>AI 才是真正的降本增效工具</h2><p>很多人问：自建听起来好，但你哪来的人力做迁移评估、写管控脚本、搞高可用切换？</p>
+<p>答案是：<strong>AI。</strong></p>
+<p>这次 6 个集群的迁移评估，从拉取 RDS 配置、查询 CMDB 元数据、获取 EC2 实际规格、抓取 AWS 官方定价 JSON、计算成本对比、生成汇总报告——全程由 AI Agent 完成。一个 DBA 坐在终端前给指令，AI 负责执行。<strong>整个成本审计过程不到 2 小时。</strong></p>
+<p>传统做法？开会讨论 → 安排人力 → 写脚本拉数据 → Excel 算半天 → 做 PPT 汇报 → 领导审批。一个月能出结果算快的。</p>
+<h3 id="AI-在这次迁移中具体干了什么"><a href="#AI-在这次迁移中具体干了什么" class="headerlink" title="AI 在这次迁移中具体干了什么"></a>AI 在这次迁移中具体干了什么</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>AI 完成的工作</th>
+<th>替代的传统人力</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>配置审计</td>
+<td>批量调用 AWS CLI 拉取 6 个集群的 RDS&#x2F;EC2 规格、存储、IOPS</td>
+<td>运维工程师手动登录控制台逐个记录</td>
+</tr>
+<tr>
+<td>价格计算</td>
+<td>从 AWS Bulk Pricing JSON（几百 MB）中精确提取区域定价</td>
+<td>打开 N 个定价页面手动比对</td>
+</tr>
+<tr>
+<td>CMDB 关联</td>
+<td>SSH 跳板机查询内部元数据库，关联 RDS 与 EC2 实例</td>
+<td>运维人员人肉翻 CMDB</td>
+</tr>
+<tr>
+<td>监控分析</td>
+<td>批量拉 CloudWatch 48h 数据，识别降配机会</td>
+<td>人工看图、拍脑袋</td>
+</tr>
+<tr>
+<td>报告生成</td>
+<td>直接输出结构化 Markdown&#x2F;飞书文档</td>
+<td>写 Word、排版、发邮件</td>
+</tr>
+<tr>
+<td>迁移工具</td>
+<td>生成数据校验脚本、切换 checklist、回滚方案</td>
+<td>高级 DBA 手写</td>
+</tr>
+</tbody></table>
+<h3 id="为什么很多公司-AI-“烧-token-看不到效果”"><a href="#为什么很多公司-AI-“烧-token-看不到效果”" class="headerlink" title="为什么很多公司 AI “烧 token 看不到效果”"></a>为什么很多公司 AI “烧 token 看不到效果”</h3><p>每月花几万块 token 费，产出是什么？让员工用 ChatGPT 润色周报、用 Copilot 补全几行代码、开会用 AI 做纪要。这些场景有价值吗？有。但 ROI 约等于零——因为省的是”5 分钟”，不是”5 万美金”。</p>
+<p><strong>AI 降本增效的正确姿势：让 AI 去做那些”能做但没人力做”的事。</strong></p>
+<p>成本审计就是典型。每个公司都知道云上可能有浪费，但：</p>
+<ul>
+<li>没人有空去逐个实例拉监控</li>
+<li>没人愿意花一周时间算 Excel</li>
+<li>算完了还不一定能推动执行</li>
+</ul>
+<p>AI 把这个成本降到接近零。<strong>一次对话 &#x3D; 一次完整审计 &#x3D; 发现 $15 万&#x2F;年的节省机会。</strong> 这次对话消耗的 token 费？不到 $5。</p>
+<h3 id="ROI-对比"><a href="#ROI-对比" class="headerlink" title="ROI 对比"></a>ROI 对比</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>投入</th>
+<th>年化产出</th>
+<th>ROI</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AI 润色周报&#x2F;邮件</td>
+<td>$100&#x2F;月 token</td>
+<td>省 10 小时人力 ≈ $500</td>
+<td>5×</td>
+</tr>
+<tr>
+<td>AI 辅助写代码</td>
+<td>$200&#x2F;月 token</td>
+<td>省 20% 开发时间 ≈ $2,000</td>
+<td>10×</td>
+</tr>
+<tr>
+<td><strong>AI 做基础设施成本审计</strong></td>
+<td><strong>$5 token</strong></td>
+<td><strong>$151,425&#x2F;年</strong></td>
+<td><strong>30,000×</strong></td>
+</tr>
+</tbody></table>
+<p>差距不是 AI 本身的问题，是<strong>你让 AI 做什么</strong>的问题。</p>
+<p>让 AI 帮你写”尊敬的领导，现将本周工作汇报如下”——这不叫降本增效，这叫浪费电。让 AI 帮你查明白每年有 15 万美金在被云厂商白拿——这才叫降本增效。</p>
+<h3 id="给管理者的建议"><a href="#给管理者的建议" class="headerlink" title="给管理者的建议"></a>给管理者的建议</h3><ol>
+<li><strong>别让 AI 去做”锦上添花”的事</strong>，让它去做”本来没人力做”的事</li>
+<li><strong>基础设施成本审计</strong>是最容易落地的高 ROI 场景——数据结构化、API 可调用、结果可量化</li>
+<li><strong>把 AI 当成一个 7×24 的初级运维</strong>，给它明确的指令和工具权限，它能干的活比你想象的多</li>
+<li><strong>衡量 AI 投入的标准不是”省了多少时间”，而是”做了多少原来做不了的事”</strong></li>
+</ol>
+<hr>
+<h2 id="结语"><a href="#结语" class="headerlink" title="结语"></a>结语</h2><p>云厂商不是做慈善的。RDS 的商业模式就是：</p>
+<blockquote>
+<p>把 MySQL 官网免费下载的二进制文件装到你本来就在付费的 EC2 上，加一个 Web 控制台，然后跟你收 <strong>2-12 倍的溢价</strong>。</p>
+</blockquote>
+<p>这门生意的毛利率，做梦都能笑醒。</p>
+<p>而你只需要一个懂 MySQL 的工程师、一套开源高可用方案（orchestrator + ProxySQL）、一个备份脚本——就能省下 75% 的钱，还能获得更大的灵活性。</p>
+<p><strong>不是所有上云都是降本。绝大多时候，下云才是。</strong></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/AWS/" rel="tag"># AWS</a>
+              <a href="/tags/aliyun/" rel="tag"># aliyun</a>
+              <a href="/tags/RDS/" rel="tag"># RDS</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2026/06/12/%E4%BA%91%E8%AE%A1%E7%AE%97%E6%9E%81%E8%87%B4%E5%BC%B9%E6%80%A7%E7%9A%84%E9%AA%97%E5%B1%80/" rel="prev" title="云计算极致弹性的骗局">
+                  <i class="fa fa-angle-left"></i> 云计算极致弹性的骗局
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2117/06/07/%E5%85%B3%E4%BA%8E%E6%9C%AC%E5%8D%9A/" rel="next" title="关于本博">
+                  关于本博 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="总访客量">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="总访问量">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
