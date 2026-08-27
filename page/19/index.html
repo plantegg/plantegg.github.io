@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">209</span>
+          <span class="site-state-item-count">210</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">317</span>
+        <span class="site-state-item-count">318</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,164 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2018/05/07/%E5%B0%B1%E6%98%AF%E8%A6%81%E4%BD%A0%E6%87%82TCP--%E9%80%9A%E8%BF%87%E6%A1%88%E4%BE%8B%E6%9D%A5%E5%AD%A6%E4%B9%A0MSS%E3%80%81MTU/" class="post-title-link" itemprop="url">通过案例来理解MSS、MTU等相关TCP概念</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2018-05-07 12:30:03" itemprop="dateCreated datePublished" datetime="2018-05-07T12:30:03+08:00">2018-05-07</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="就是要你懂TCP–通过案例来学习MSS、MTU"><a href="#就是要你懂TCP–通过案例来学习MSS、MTU" class="headerlink" title="就是要你懂TCP–通过案例来学习MSS、MTU"></a>就是要你懂TCP–通过案例来学习MSS、MTU</h1><h2 id="问题的描述"><a href="#问题的描述" class="headerlink" title="问题的描述"></a>问题的描述</h2><ul>
+<li>最近要通过Docker的方式把产品部署到客户机房， 过程中需要部署一个hbase集群，hbase总是部署失败（在我们自己的环境没有问题）</li>
+<li>发现hbase卡在同步文件，人工登上hbase 所在的容器中看到在hbase节点之间scp同步一些文件的时候，同样总是失败（稳定重现） </li>
+<li>手工尝试scp那些文件，发现总是在传送某个文件的时候scp卡死了</li>
+<li>尝试单独scp这个文件依然卡死</li>
+<li>在这个容器上scp其它文件没问题(小文件)</li>
+<li>换一个容器scp这个文件没问题</li>
+</ul>
+<h2 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h2><blockquote>
+<p>实在很难理解为什么单单这个文件在这个容器上scp就卡死了，既然scp网络传输卡死，那么就同时在两个容器上tcpdump抓包，想看看为什么传不动了</p>
+</blockquote>
+<h4 id="在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）"><a href="#在客户端抓包如下：（33端口是服务端的sshd端口，10-16-11-108是客户端ip）" class="headerlink" title="在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）"></a>在客户端抓包如下：（33端口是服务端的sshd端口，10.16.11.108是客户端ip）</h4><p><img src="/images/951413iMgBlog/image-20240506090810608.png" alt="image-20240506090810608"></p>
+<h4 id="从抓包中可以得到这样一些结论："><a href="#从抓包中可以得到这样一些结论：" class="headerlink" title="从抓包中可以得到这样一些结论："></a>从抓包中可以得到这样一些结论：</h4><ul>
+<li>从抓包中可以明显知道scp之所以卡死是因为丢包了，客户端一直在重传，图中绿框</li>
+<li>图中篮框显示时间间隔，时间都是花在在丢包重传等待的过程</li>
+<li>奇怪的问题是图中橙色框中看到的，网络这时候是联通的，客户端跟服务端在这个会话中依然有些包能顺利到达（Keep-Alive包）</li>
+<li>同时注意到重传的包长是1442，包比较大了，看了一下tcp建立连接的时候MSS是1500，应该没有问题</li>
+<li>查看了scp的两个容器的网卡mtu都是1500，正常</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">基本上看到这里，能想到是因为丢包导致的scp卡死，因为两个容器mtu都正常，包也小于mss，那只能是网络路由上某个环节mtu太小导致这个1442的包太大过不去，所以一直重传，看到的现状就是scp卡死了</span><br></pre></td></tr></table></figure>
+
+<h2 id="接下来分析网络传输链路"><a href="#接下来分析网络传输链路" class="headerlink" title="接下来分析网络传输链路"></a>接下来分析网络传输链路</h2><h4 id="scp传输的时候实际路由大概是这样的"><a href="#scp传输的时候实际路由大概是这样的" class="headerlink" title="scp传输的时候实际路由大概是这样的"></a>scp传输的时候实际路由大概是这样的</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">容器A---&gt; 宿主机1 ---&gt; ……中间的路由设备 …… ---&gt; 宿主机2 ---&gt; 容器B  </span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>前面提过其它容器scp同一个文件到容器B没问题，所以我认为中间的路由设备没问题，问题出在两台宿主机上</li>
+<li>在宿主机1上抓包发现抓不到丢失的那个长度为 1442 的包，也就是问题出在了  容器A—&gt; 宿主机1 上</li>
+</ul>
+<h2 id="查看宿主机1的dmesg看到了这样一些信息"><a href="#查看宿主机1的dmesg看到了这样一些信息" class="headerlink" title="查看宿主机1的dmesg看到了这样一些信息"></a>查看宿主机1的dmesg看到了这样一些信息</h2><pre><code>2016-08-08T08:15:27.125951+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+2016-08-08T08:15:27.536517+00:00 server kernel: openvswitch: ens2f0.627: dropped over-mtu packet: 1428 &gt; 1400
+</code></pre>
+<h2 id="验证方法"><a href="#验证方法" class="headerlink" title="验证方法"></a>验证方法</h2><blockquote>
+<p>-D      Set the Don’t Fragment bit.<br>-s packetsize<br>             Specify the number of data bytes to be sent.  The default is 56, which translates into 64<br>             ICMP data bytes when combined with the 8 bytes of ICMP header data.  This option cannot be<br>             used with ping sweeps.</p>
+</blockquote>
+<p>ping 测试</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1500 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1500 data bytes</span><br><span class="line">ping: sendto: Message too long</span><br><span class="line">^C</span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 0 packets received, 100.0% packet loss</span><br><span class="line"> ✘ ren@mac  ~/Downloads  ping -c 1 -D -s 1400 www.baidu.com</span><br><span class="line">PING www.a.shifen.com (110.242.68.4): 1400 data bytes</span><br><span class="line">1408 bytes from 110.242.68.4: icmp_seq=0 ttl=49 time=21.180 ms</span><br><span class="line"></span><br><span class="line">--- www.a.shifen.com ping statistics ---</span><br><span class="line">1 packets transmitted, 1 packets received, 0.0% packet loss</span><br><span class="line">round-trip min/avg/max/stddev = 21.180/21.180/21.180/0.000 ms</span><br><span class="line"> ren@mac  ~/Downloads </span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="一些结论"><a href="#一些结论" class="headerlink" title="一些结论"></a>一些结论</h2><p> <strong>到这里问题已经很明确了 openvswitch 收到了 一个1428大小的包因为比mtu1400要大，所以扔掉了，接着查看宿主机1的网卡mtu设置果然是1400，悲催，马上修改mtu到1500，问题解决。</strong></p>
+<p>正常分片是ip层来操作，路由器工作在3层，有分片能力，从容器到宿主机走的是bridge，没有进行分片，或者是因为收到这个IP包的时候里面带了 Don’t Fragment标志，路由器就不进行分片了，那为什么IP包要带这个标志呢？当然是为了有更好的性能，都经过TCP握手协商出了一个MSS，就不要再进行分片了。</p>
+<p>当然这里TCP协商MSS的时候应该经过 <a target="_blank" rel="noopener" href="http://en.wikipedia.org/wiki/Path_MTU_Discovery">PMTUD（ This process is called “Path MTU discovery”.）</a> 来确认整个路由上的所有最小MTU，但是有些路由器会因为安全的原因过滤掉ICMP，导致PMTUD不可靠，所以这里的PMTUD形同虚设，比如在我们的三次握手中会协商一个MSS，这只是基于Client和Server两方的MTU来确定的，链路上如果还有比Client和Server的MTU更小的那么就会出现包超过MTU的大小，同时设置了DF标志而不再进行分片被丢掉。</p>
+<p>centos或者ubuntu下：</p>
+<pre><code>$cat /proc/sys/net/ipv4/tcp_mtu_probing //1 表示开启路径mtu检测
+0
+
+$sudo sysctl -a |grep -i pmtu
+net.ipv4.ip_forward_use_pmtu = 0
+net.ipv4.ip_no_pmtu_disc = 0 //默认似乎是没有启用PMTUD
+net.ipv4.route.min_pmtu = 552
+</code></pre>
+<p><a target="_blank" rel="noopener" href="https://medium.com/@fcamel/tcp-maximum-segment-size-%E6%98%AF%E4%BB%80%E9%BA%BC%E4%BB%A5%E5%8F%8A%E6%98%AF%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A%E7%9A%84-b5fd9005702e">IPv4规定路由器至少要能处理576bytes的包，Ethernet规定的是1500 bytes，所以一般都是假设链路上MTU不小于1500</a></p>
+<p><a target="_blank" rel="noopener" href="https://medium.com/@fcamel/%E7%94%A8-systemtap-%E6%89%BE%E5%87%BA-tcp-%E5%A6%82%E4%BD%95%E6%B1%BA%E5%AE%9A-mss-%E7%9A%84%E5%80%BC-4b6b7a969d04">TCP中的MSS总是在SYN包中设置成下一站的MTU减去HeaderSize（40）。</a></p>
+<p><img src="/images/oss/23df36d95295c839722627b5d63bac48.png" alt="image.png"></p>
+<p>一般终端只有收到PATH MTU 调整报文才会去调整mss报文大小，PATH MTU是封装在ICMP报文里面。所以重新在ECS上抓包，抓取数据交互报文和ICMP报文。 </p>
+<p><img src="/images/951413iMgBlog/image-20221125133218008.png" alt="image-20221125133218008"></p>
+<p>上图可以看到当服务端(3717端口)发送1460 payload的报文的时候，中间链路上的ECS会返回一个ICMP报文，此ICMP报文作用是告诉服务端，ECS的链路MTU只有1476，当服务端收到这个ICMP报文的时候，服务端就会知道中间链路只能允许payload 1436的报文通过，自然就会缩小发送的mss大小。</p>
+<p>这个ICMP包在链路上有可能会被丢掉，比如：</p>
+<p>Intel网卡驱动老版本RSS使用的是vxlan外层报文, 在新版本切到了内层RSS; 用的外层RSS, 对于GRE代理访问模式没有问题; 新版本用的内层RSS, 看到的源地址是192.168.0.64, 但实际发icmp包的是gre那台ecs-ip, 所以icmp跟session按内层rss策略落不到一个核去了，所以后端服务器无法收到ICMP报文，从而无法自动调整报文MSS大小。<br>简单说, 就是gre代理回icmp的这种场景, 在内层rss版本上不支持了。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>因为这是客户给的同一批宿主机默认想当然的认为他们的配置到一样，尤其是mtu这种值，只要不是故意捣乱就不应该乱修改才对，我只检查了两个容器的mtu，没看宿主机的mtu，导致诊断中走了一些弯路</li>
+<li>通过这个案例对mtu&#x2F;mss等有了进一步的了解</li>
+<li>从这个案例也理解了vlan模式下容器、宿主机、交换机之间的网络传输链路</li>
+<li>其实抓包还发现了比1500大得多的包顺利通过，反而更小的包无法通过，这是因为网卡基本都有拆包的功能了</li>
+<li>设置由<a target="_blank" rel="noopener" href="https://sysctl-explorer.net/net/ipv4/ip_no_pmtu_disc/">系统主动允许分片的参数</a> sysctl -w net.ipv4.ip_no_pmtu_disc&#x3D;1  可以解决这种问题</li>
+</ul>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><p>Q: 传输的包超过MTU后表现出来的症状？<br>A：卡死，比如scp的时候不动了，或者其他更复杂操作的时候不动了，卡死的状态。</p>
+<p>Q: mtu 如何配置<br>ifconfig eth1 mtu 9000 up<br>vi &#x2F;etc&#x2F;sysconfig&#x2F;network-scripts&#x2F;ifcfg-eth0</p>
+<p>Q： 为什么我的MTU是1500，但是抓包看到有个包2700，没有卡死？<br>A： 有些网卡有拆包的能力，具体可以Google：LSO、TSO，这样可以减轻CPU拆包的压力，节省CPU资源。</p>
+<p>Q: 到哪里可以设置MSS</p>
+<p>A: 网卡配置–ifconfig；ip route在路由上指定；iptables中限制</p>
+<blockquote>
+<p># Add rules<br>$ sudo iptables -I OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48<br># delete rules<br>$ sudo iptables -D OUTPUT -p tcp -m tcp –tcp-flags SYN,RST SYN -j TCPMSS –set-mss 48</p>
+<p># show router information<br>$ route -ne<br>$ ip route show<br>192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100<br># modify route table<br>$ sudo ip route change 192.168.11.0&#x2F;24 dev ens33 proto kernel scope link src 192.168.11.111 metric 100 advmss 48</p>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1788,204 +1946,6 @@ ProxyCommand ssh -l root 2.2.2.2 exec /usr/bin/nc %h %p
 - 其他业务代码的优化(比如异常、agent等）         (优化后：4200-&gt;5400TPS)
 </code></pre>
 <p><img src="/images/oss/2be2799d1eef982d77e5c0a5c896a0e9.png" alt="image.png"></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/01/01/%E9%80%9A%E8%BF%87tcpdump%E5%AF%B9Unix%20Socket%20%E8%BF%9B%E8%A1%8C%E6%8A%93%E5%8C%85%E8%A7%A3%E6%9E%90/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2018/01/01/%E9%80%9A%E8%BF%87tcpdump%E5%AF%B9Unix%20Socket%20%E8%BF%9B%E8%A1%8C%E6%8A%93%E5%8C%85%E8%A7%A3%E6%9E%90/" class="post-title-link" itemprop="url">通过tcpdump对Unix Domain Socket 进行抓包解析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2018-01-01 16:30:03" itemprop="dateCreated datePublished" datetime="2018-01-01T16:30:03+08:00">2018-01-01</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/tcpdump/" itemprop="url" rel="index"><span itemprop="name">tcpdump</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="通过tcpdump对Unix-domain-Socket-进行抓包解析"><a href="#通过tcpdump对Unix-domain-Socket-进行抓包解析" class="headerlink" title="通过tcpdump对Unix domain Socket 进行抓包解析"></a>通过tcpdump对Unix domain Socket 进行抓包解析</h1><h2 id="背景介绍"><a href="#背景介绍" class="headerlink" title="背景介绍"></a>背景介绍</h2><p>大多时候我们可以通过tcpdump对网络抓包分析请求、响应数据来排查问题。但是如果程序是通过Unix Domain Socket方式来访问的那么tcpdump就看不到Unix Domain Socket里面具体流淌的内容了，本文希望找到一种方法达到如同抓包查看网卡内容一样来抓包查看Unix Domain Socket上具体的请求、响应数据。</p>
-<h2 id="socat工具"><a href="#socat工具" class="headerlink" title="socat工具"></a>socat工具</h2><p>类似nc，但是是个超级增强版的nc，<a target="_blank" rel="noopener" href="https://payloads.online/tools/socat">主要用作两个独立数据通道之间的双向数据传输的继电器（或者说代理）</a></p>
-<p>基本原理，通过socat在Unix-Socket和TCP&#x2F;UDP port之间建立一个代理，然后对代理上的端口进行抓包。</p>
-<p>以下案例通过对 docker.sock 抓包来分析方案。大多时候我们都可以通过curl 来将http post请求发送到docker deamon所监听的端口，这些请求和响应都可以通过tcpdump抓包分析得到。但是我们通过 docker ps &#x2F; docker run 将命令发给本地 docker-deamon的时候就是将请求翻译成 http请求发给了 docker.sock, 这个时候如果需要排查问题就没法用tcpdump来分析http内容了。</p>
-<h2 id="通过socat-启动一个tcp端口来代理Unix-Domain-Socket"><a href="#通过socat-启动一个tcp端口来代理Unix-Domain-Socket" class="headerlink" title="通过socat 启动一个tcp端口来代理Unix Domain Socket"></a>通过socat 启动一个tcp端口来代理Unix Domain Socket</h2><p>启动本地8080端口，将docker.sock映射到8080端口,8080收到的东西都会转给docker.sock，docker.sock收到的东西都通过抓8080的包看到,但是要求应用访问8080而不是docker.sock。</p>
-<pre><code>socat -d -d TCP-LISTEN:8080,fork,bind=127.0.0.1 UNIX:/var/run/docker.sock
-</code></pre>
-<p><strong>缺点：需要修改客户端的访问方式</strong></p>
-<pre><code>sudo curl --unix-socket /var/run/docker.sock http://localhost/images/json
-</code></pre>
-<p>上面的访问方式对8080抓包还是抓不到，因为绕过了我们的代理。</p>
-<p>只能通过如下方式访问8080端口，然后请求通过socat代理转发给docker.sock，整个结果跟访问–unix-socket是一样的，这个时候通过8080端口抓包能看到–unix-socket的工作数据</p>
-<pre><code>sudo curl http://localhost:8080/images/json
-</code></pre>
-<h2 id="通过socat启动另外一个Unix-Domain-Socket代理，但是不是tcpdump抓包"><a href="#通过socat启动另外一个Unix-Domain-Socket代理，但是不是tcpdump抓包" class="headerlink" title="通过socat启动另外一个Unix Domain Socket代理，但是不是tcpdump抓包"></a>通过socat启动另外一个Unix Domain Socket代理，但是不是tcpdump抓包</h2><pre><code>sudo mv /var/run/docker.sock /var/run/docker.sock.original
-sudo socat -t100 -d -x -v UNIX-LISTEN:/var/run/docker.sock,mode=777,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock.original
-</code></pre>
-<p>优点：客户端访问方式不变，还是直接访问–unix-socket<br>缺点：输出的数据不如tcpdump方便，也就不能用wireshark来分析了</p>
-<p>本质也还是socat代理，只是不是用的一个tcp端口来代理了，而是通过一个unix-socet代理了另外一个unix-socket，直接在代理上输出所有收发的数据</p>
-<h2 id="完美的办法，客户端不用改访问方式，tcpdump也能抓到数据"><a href="#完美的办法，客户端不用改访问方式，tcpdump也能抓到数据" class="headerlink" title="完美的办法，客户端不用改访问方式，tcpdump也能抓到数据"></a>完美的办法，客户端不用改访问方式，tcpdump也能抓到数据</h2><pre><code>sudo mv /var/run/docker.sock /var/run/docker.sock.original
-sudo socat TCP-LISTEN:8089,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock.original
-sudo socat UNIX-LISTEN:/var/run/docker.sock,fork TCP-CONNECT:127.0.0.1:8089
-</code></pre>
-<p>然后客户端还是直接访问–unix-socket	<br>	sudo curl –unix-socket &#x2F;var&#x2F;run&#x2F;docker.sock <a target="_blank" rel="noopener" href="http://localhost/images/json">http://localhost/images/json</a></p>
-<p>这个时候通过tcpdump在8089端口上就能抓到数据了</p>
-<pre><code>sudo tcpdump -i lo -netvv port 8089
-</code></pre>
-<p>实际是结合前面两种方法，做了两次代理，先将socket映射到8089端口上，然后再将8089端口映射到一个新的socket上，最后client访问这个新的socket。</p>
-<p>实际流程如下： client -&gt; 新socket -&gt; 8089 -&gt; 原来的socket  这个时候对8089可以任意抓包了</p>
-<p>参考来源：<a target="_blank" rel="noopener" href="https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/">https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/</a>	
-	</p>
-<h2 id="一些socat的其它用法"><a href="#一些socat的其它用法" class="headerlink" title="一些socat的其它用法"></a>一些socat的其它用法</h2><p> 把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的&#x2F;var&#x2F;run&#x2F;mysqld.temp.sock, 这样就可以用mysql -S &#x2F;var&#x2F;run&#x2F;mysqld&#x2F;mysqld.sock来访问远程主机的mysql服务了。</p>
-<pre><code>socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;
-</code></pre>
-<p> 还可以用下面的命令把12.34.56.78上的mysql映射到本地的5500端口，然后使用mysql -p 5500命令访问。</p>
-<pre><code>socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
-</code></pre>
-<p> 把12.34.56.78的udp 161端口映射到本地的1611端口</p>
-<pre><code>socat udp-listen:1611 system:&#39;ssh root@12.34.56.78 &quot;socat stdio udp-connect:remotetarget:161&quot;&#39;	
-</code></pre>
-<p> 通过socat启动server，带有各种参数，比nc更灵活</p>
-<pre><code>Server: socat -dd tcp-listen:2000,keepalive,keepidle=10,keepcnt=2,reuseaddr,keepintvl=1 -
-Client: socat -dd - tcp:localhost:2000,keepalive,keepidle=10,keepcnt=2,keepintvl=1
-
-Drop Connection (Unplug Cable, Shut down Link(WiFi/Interface)): sudo iptables -A INPUT -p tcp --dport 2000 -j DROP
-</code></pre>
-<p>启动本地8080端口，将docker.sock映射到8080端口(docker.sock收到的东西都通过抓8080的包看到)。 8080收到的东西都会转给docker.sock</p>
-<pre><code>socat -d -d TCP-LISTEN:8080,fork,bind=99.13.252.208 UNIX:/var/run/docker.sock
-</code></pre>
-<h3 id="用socat远程Unix-Domain-Socket映射"><a href="#用socat远程Unix-Domain-Socket映射" class="headerlink" title="用socat远程Unix Domain Socket映射"></a>用socat远程Unix Domain Socket映射</h3><p>除了将我们本地服务通过端口映射提供给其它人访问，我们还可以通过端口转发玩一些更high的。比如下面这条命令，它把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的&#x2F;var&#x2F;run&#x2F;mysqld.temp.sock，这样，小明就可以用mysql -S &#x2F;var&#x2F;run&#x2F;mysqld&#x2F;mysqld.temp.sock来访问远程主机的mysql服务了。</p>
-<pre><code>socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT\:/var/run/mysqld/mysqld.sock&quot;
-</code></pre>
-<p>当然，小明如果不喜欢本地Unix Domain Socket，他还可以用下面的命令把12.34.56.78上的mysql映射到本地的5500端口，然后使用mysql -p 5500命令访问。</p>
-<pre><code>socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
-
-# 把监听在远程主机12.34.56.78上的mysql服务Unix Domain Socket映射到本地的/var/run/mysqld.temp.sock, 这样就可以用mysql -S /var/run/mysqld/mysqld.sock来访问远程主机的mysql服务了。
-socat &quot;UNIX-LISTEN:/var/run/mysqld.temp.sock,reuseaddr,fork&quot; EXEC:&quot;ssh root@12.34.56.78 socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;
-# 还可以用下面的命令把12.34.56.78上的mysql映射到本地
-# 的5500端口，然后使用mysql -p 5500命令访问。
-socat TCP-LISTEN:5500 EXEC:&#39;ssh root@12.34.56.78 &quot;socat STDIO UNIX-CONNECT:/var/run/mysqld/mysqld.sock&quot;&#39;
-# 把12.34.56.78的udp 161端口映射到本地的1611端口：
-socat udp-listen:1611 system:&#39;ssh root@12.34.56.78 &quot;socat stdio udp-connect:remotetarget:161&quot;&#39;
-</code></pre>
-<h2 id="socat启动网络服务"><a href="#socat启动网络服务" class="headerlink" title="socat启动网络服务"></a>socat启动网络服务</h2><p>在一个窗口中启动 <code>socat</code> 作为服务端，监听在 1000 端口：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta prompt_"># </span><span class="language-bash">start a TCP listener at port 1000, and <span class="built_in">echo</span> back the received data</span></span><br><span class="line"><span class="meta prompt_">$ </span><span class="language-bash"><span class="built_in">sudo</span> socat TCP4-LISTEN:1000,fork <span class="built_in">exec</span>:<span class="built_in">cat</span></span></span><br></pre></td></tr></table></figure>
-
-<p>另一个窗口用 <code>nc</code> 作为客户端来访问服务端，建立 socket：</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta prompt_"># </span><span class="language-bash">connect to the <span class="built_in">local</span> TCP listener at port 1000</span></span><br><span class="line"><span class="meta prompt_">$ </span><span class="language-bash">nc localhost 1000</span></span><br></pre></td></tr></table></figure>
-
-<h2 id="curl-7-57版本可以直接访问-–unix-socket"><a href="#curl-7-57版本可以直接访问-–unix-socket" class="headerlink" title="curl 7.57版本可以直接访问 –unix-socket"></a>curl 7.57版本可以直接访问 –unix-socket</h2><p>7.57之后的版本才支持curl –unix-socket，大大方便了我们的测试</p>
-<pre><code>//Leave 测试断开一个网络
-curl -H &quot;Content-Type: application/json&quot; -X POST -d &#39;{&quot;NetworkID&quot;:&quot;47866b0071e3df7e8053b9c8e499986dfe5c9c4947012db2d963c66ca971ed4b&quot;,&quot;EndpointID&quot;:&quot;3d716436e629701d3ce8650e7a85c133b0ff536aed173c624e4f62a381656862&quot;}&#39; --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.Leave
-
-//取镜像列表
-sudo curl --unix-socket /var/run/docker.sock http://localhost/images/json
-
-curl 11.239.155.97:2376/debug/pprof/goroutine?debug=2
-echo -e &quot;GET /debug/pprof/goroutine?debug=2 HTTP/1.1\r\n&quot; | sudo nc -U /run/docker/plugins/vlan.sock
-echo -e &quot;GET /debug/pprof/goroutine?debug=2 HTTP/1.1\r\n&quot; | sudo nc -U /var/run/docker.sock
-//升级curl到7.57后支持 --unix-socket
-sudo curl --unix-socket /var/run/docker.sock http://localh卡路里ost/images/json
-sudo curl --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.GetCapabilities
-//Leave
-curl -H &quot;Content-Type: application/json&quot; -X POST -d &#39;{&quot;NetworkID&quot;:&quot;47866b0071e3df7e8053b9c8e499986dfe5c9c4947012db2d963c66ca971ed4b&quot;,&quot;EndpointID&quot;:&quot;3d716436e629701d3ce8650e7a85c133b0ff536aed173c624e4f62a381656862&quot;}&#39; --unix-socket /run/docker/plugins/vlan.sock http://localhost/NetworkDriver.Leave
-
-sudo curl --no-buffer -XGET --unix-socket /var/run/docker.sock http://localhost/events
-</code></pre>
-<h2 id="Unix-Domain-Socket工作原理"><a href="#Unix-Domain-Socket工作原理" class="headerlink" title="Unix Domain Socket工作原理"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/fHzKYlW0WMhP2jxh2H_59A">Unix Domain Socket工作原理</a></h2><p>接收connect 请求的时候，会申请一个新 socket 给 server 端将来使用，和自己的 socket 建立好连接关系以后，就放到服务器正在监听的 socket 的接收队列中。这个时候，服务器端通过 accept 就能获取到和客户端配好对的新 socket 了。</p>
-<p><img src="/images/951413iMgBlog/640-0054201." alt="Image"></p>
-<p>主要的连接操作都是在这个函数中完成的。和我们平常所见的 TCP 连接建立过程，这个连接过程简直是太简单了。没有三次握手，也没有全连接队列、半连接队列，更没有啥超时重传。</p>
-<p>直接就是将两个 socket 结构体中的指针互相指向对方就行了。就是 unix_peer(newsk) &#x3D; sk 和 unix_peer(sk) &#x3D; newsk 这两句。</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">unix_stream_connect</span><span class="params">(<span class="keyword">struct</span> socket *sock, <span class="keyword">struct</span> sockaddr *uaddr,</span></span><br><span class="line"><span class="params">          <span class="type">int</span> addr_len, <span class="type">int</span> flags)</span></span><br><span class="line">&#123;</span><br><span class="line"> <span class="class"><span class="keyword">struct</span> <span class="title">sockaddr_un</span> *<span class="title">sunaddr</span> =</span> (<span class="keyword">struct</span> sockaddr_un *)uaddr;</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 1. 为服务器侧申请一个新的 socket 对象</span></span><br><span class="line"> newsk = unix_create1(sock_net(sk), <span class="literal">NULL</span>);</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 2. 申请一个 skb，并关联上 newsk</span></span><br><span class="line"> skb = sock_wmalloc(newsk, <span class="number">1</span>, <span class="number">0</span>, GFP_KERNEL);</span><br><span class="line"> ...</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 3. 建立两个 sock 对象之间的连接</span></span><br><span class="line"> unix_peer(newsk) = sk;</span><br><span class="line"> newsk-&gt;sk_state  = TCP_ESTABLISHED;</span><br><span class="line"> newsk-&gt;sk_type  = sk-&gt;sk_type;</span><br><span class="line"> ...</span><br><span class="line"> sk-&gt;sk_state = TCP_ESTABLISHED;</span><br><span class="line"> unix_peer(sk) = newsk;</span><br><span class="line"></span><br><span class="line"> <span class="comment">// 4. 把连接中的一头（新 socket）放到服务器接收队列中</span></span><br><span class="line"> __skb_queue_tail(&amp;other-&gt;sk_receive_queue, skb);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//file: net/unix/af_unix.c</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> unix_peer(sk) (unix_sk(sk)-&gt;peer)</span></span><br></pre></td></tr></table></figure>
-
-<p>收发包过程和复杂的 TCP 发送接收过程相比，这里的发送逻辑简单简单到令人发指。申请一块内存（skb），把数据拷贝进去。根据 socket 对象找到另一端，<strong>直接把 skb 给放到对端的接收队列里了</strong></p>
-<p><img src="/images/951413iMgBlog/640-20211221105837677" alt="Image"></p>
-<p>Unix Domain Socket和127.0.0.1通信相比，如果包的大小是1K以内，那么性能会有一倍以上的提升，包变大后性能的提升相对会小一些。</p>
-<h2 id="tcpdump原理"><a href="#tcpdump原理" class="headerlink" title="tcpdump原理"></a>tcpdump原理</h2><p><img src="/images/oss/0923eefc85c1bf87f47591222532f1f2.png" alt="image.png"></p>
-<p>tcpdump 抓包使用的是 libpcap 这种机制。它的大致原理是：在收发包时，如果该包符合 tcpdump 设置的规则（BPF filter），那么该网络包就会被拷贝一份到 tcpdump 的内核缓冲区，然后以 PACKET_MMAP 的方式将这部分内存映射到 tcpdump 用户空间，解析后就会把这些内容给输出了。</p>
-<p>通过上图你也可以看到，在收包的时候，如果网络包已经被网卡丢弃了，那么 tcpdump 是抓不到它的；在发包的时候，如果网络包在协议栈里被丢弃了，比如因为发送缓冲区满而被丢弃，tcpdump 同样抓不到它。我们可以将 tcpdump 的能力范围简单地总结为：网卡以内的问题可以交给 tcpdump 来处理；对于网卡以外（包括网卡上）的问题，tcpdump 可能就捉襟见肘了。这个时候，你需要在对端也使用 tcpdump 来抓包。</p>
-<h3 id="tcpdump-技巧"><a href="#tcpdump-技巧" class="headerlink" title="tcpdump 技巧"></a>tcpdump 技巧</h3><blockquote>
-<p>tcpdump -B&#x2F;**–buffer-size&#x3D;<strong>*buffer_size:*Set the operating system capture buffer size to <em>buffer_size</em>, in units of KiB (1024 bytes). tcpdump 丢包，造成这种丢包的原因是由于libcap抓到包后，tcpdump上层没有及时的取出，导致libcap缓冲区溢出，从而覆盖了未处理包，此处即显示为**dropped by kernel</strong>，注意，这里的kernel并不是说是被linux内核抛弃的，而是被tcpdump的内核，即 libcap 抛弃掉的</p>
-</blockquote>
-<h3 id="获取接口设备列表"><a href="#获取接口设备列表" class="headerlink" title="获取接口设备列表"></a>获取接口设备列表</h3><p>tcpdump的<code>-D</code>获取接口设备列表。看到此列表后，可以决定要在哪个接口上捕获流量。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">#tcpdump -D</span><br><span class="line">1.eth0</span><br><span class="line">2.bond0</span><br><span class="line">3.docker0</span><br><span class="line">4.nflog (Linux netfilter log (NFLOG) interface)</span><br><span class="line">5.nfqueue (Linux netfilter queue (NFQUEUE) interface)</span><br><span class="line">6.eth1</span><br><span class="line">7.usbmon1 (USB bus number 1)</span><br><span class="line">8.usbmon2 (USB bus number 2)</span><br><span class="line">9.veth6f2ee76</span><br><span class="line">10.veth8cb61c2</span><br><span class="line">11.veth9d9d363</span><br><span class="line">12.veth16c25ac</span><br><span class="line">13.veth190f0fc</span><br><span class="line">14.veth07103d7</span><br><span class="line">15.veth09119c0</span><br><span class="line">16.veth9770e1a</span><br><span class="line">17.any (Pseudo-device that captures on all interfaces)</span><br><span class="line">18.lo [Loopback]</span><br><span class="line"></span><br><span class="line"># tcpdump -X //解析内容</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="TCP-疑难问题的轻量级分析手段：TCP-Tracepoints"><a href="#TCP-疑难问题的轻量级分析手段：TCP-Tracepoints" class="headerlink" title="TCP 疑难问题的轻量级分析手段：TCP Tracepoints"></a>TCP 疑难问题的轻量级分析手段：TCP Tracepoints</h2><p>Tracepoint 是我分析问题常用的手段之一，在遇到一些疑难问题时，我通常都会把一些相关的 Tracepoint 打开，把 Tracepoint 输出的内容保存起来，然后再在线下环境中分析。通常，我会写一些 Python 脚本来分析这些内容，毕竟 Python 在数据分析上还是很方便的。</p>
-<p>对于 TCP 的相关问题，我也习惯使用这些 TCP Tracepoints 来分析问题。要想使用这些 Tracepoints，你的内核版本需要为 <strong>4.16</strong> 及以上。这些常用的 TCP Tracepoints 路径位于 &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;tcp&#x2F; 和 &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;events&#x2F;sock&#x2F;，它们的作用如下表所示：</p>
-<p><img src="/images/oss/32f29686127beb5a3279e630259903ae.png" alt="image.png"></p>
-<h2 id="参考资料："><a href="#参考资料：" class="headerlink" title="参考资料："></a>参考资料：</h2><p><a target="_blank" rel="noopener" href="https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/">https://mivehind.net/2018/04/20/sniffing-unix-domain-sockets/</a>	</p>
-<p><a target="_blank" rel="noopener" href="https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump">https://superuser.com/questions/484671/can-i-monitor-a-local-unix-domain-socket-like-tcpdump</a></p>
-<p><a target="_blank" rel="noopener" href="https://payloads.online/tools/socat">https://payloads.online/tools/socat</a></p>
-<p><a target="_blank" rel="noopener" href="https://gaia.cs.umass.edu/kurose_ross/wireshark.php">计算机网络</a>（Computer Networking: A Top-Down Approach）</p>
 
       
     </div>
