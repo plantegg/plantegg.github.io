@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">210</span>
+          <span class="site-state-item-count">212</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">318</span>
+        <span class="site-state-item-count">321</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,346 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2019/04/21/netstat%E5%AE%9A%E4%BD%8D%E6%80%A7%E8%83%BD%E6%A1%88%E4%BE%8B/" class="post-title-link" itemprop="url">netstat定位性能案例</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-04-21 17:30:03" itemprop="dateCreated datePublished" datetime="2019-04-21T17:30:03+08:00">2019-04-21</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/TCP/" itemprop="url" rel="index"><span itemprop="name">TCP</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="netstat定位性能案例"><a href="#netstat定位性能案例" class="headerlink" title="netstat定位性能案例"></a>netstat定位性能案例</h1><p>netstat 和 ss 都是小工具，但是在网络性能、异常的窥探方面真的是神器。<a href="/2016/10/12/ss%E7%94%A8%E6%B3%95%E5%A4%A7%E5%85%A8/">ss用法见这里</a></p>
+<p>下面的案例通过netstat很快就发现为什么系统总是压不上去了（主要是快速定位到一个长链条的服务调用体系中哪个节点碰到瓶颈了）</p>
+<h2 id="netstat-命令"><a href="#netstat-命令" class="headerlink" title="netstat 命令"></a>netstat 命令</h2><p>netstat跟ss命令一样也能看到Send-Q、Recv-Q这些状态信息，不过如果这个连接不是<strong>Listen状态</strong>的话，Recv-Q就是指收到的数据还在缓存中，还没被进程读取，这个值就是还没被进程读取的 bytes；而 Send 则是发送队列中没有被远程主机确认的 bytes 数</p>
+<pre><code>$netstat -tn  
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address   Foreign Address State  
+tcp0  0 server:8182  client-1:15260 SYN_RECV   
+tcp0 28 server:22    client-1:51708  ESTABLISHED
+tcp0  0 server:2376  client-1:60269 ESTABLISHED
+</code></pre>
+<p> netstat -tn 看到的 Recv-Q 跟全连接半连接没有关系，这里特意拿出来说一下是因为容易跟 ss -lnt 的 Recv-Q 搞混淆。</p>
+<h3 id="Recv-Q-和-Send-Q-的说明"><a href="#Recv-Q-和-Send-Q-的说明" class="headerlink" title="Recv-Q 和 Send-Q 的说明"></a>Recv-Q 和 Send-Q 的说明</h3><blockquote>
+<p>Recv-Q<br>Established: The count of bytes not copied by the user program connected to this socket.<br>Listening: Since Kernel 2.6.18 this column contains the current syn backlog.</p>
+<p>Send-Q<br>Established: The count of bytes not acknowledged by the remote host.<br>Listening: Since Kernel 2.6.18 this column contains the maximum size of the syn backlog. </p>
+</blockquote>
+<h2 id="通过-netstat-发现问题的案例"><a href="#通过-netstat-发现问题的案例" class="headerlink" title="通过 netstat 发现问题的案例"></a>通过 netstat 发现问题的案例</h2><h4 id="自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："><a href="#自身太慢，比如如下netstat-t-看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：" class="headerlink" title="自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的："></a>自身太慢，比如如下netstat -t 看到的Recv-Q有大量数据堆积，那么一般是CPU处理不过来导致的：</h4><p><img src="/images/oss/77ed9ba81f70f7940546f0a22dabf010.png" alt="image.png"></p>
+<h4 id="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口"><a href="#下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen-9108端口" class="headerlink" title="下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)"></a>下面的case是接收方太慢，从应用机器的netstat统计来看，也是client端回复太慢（本机listen 9108端口)</h4><img src="/images/oss/1579241362064-807d8378-6c54-4a2c-a888-ff2337df817c.png" alt="image.png" style="zoom:80%;" />
+
+<p>send-q表示回复从9108发走了，没收到对方的ack，<strong>基本可以推断client端到9108之间有瓶颈</strong></p>
+<p>实际确实是前端到9108之间的带宽被打满了，调整带宽后问题解决</p>
+<h2 id="netstat-s-统计数据"><a href="#netstat-s-统计数据" class="headerlink" title="netstat -s 统计数据"></a>netstat -s 统计数据</h2><p>所有统计信息基本都有</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2019/01/24/Linux%20Module/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2019/01/24/Linux%20Module/" class="post-title-link" itemprop="url">Linux Module and make debug</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2019-01-24 17:30:03" itemprop="dateCreated datePublished" datetime="2019-01-24T17:30:03+08:00">2019-01-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="Linux-Module-and-make-debug"><a href="#Linux-Module-and-make-debug" class="headerlink" title="Linux Module and make debug"></a>Linux Module and make debug</h1><h2 id="Makefile-中的-tab-键"><a href="#Makefile-中的-tab-键" class="headerlink" title="Makefile 中的 tab 键"></a>Makefile 中的 tab 键</h2><pre><code>$sudo make
+Makefile:4: *** missing separator.  Stop.
+</code></pre>
+<p>Makefile 中每个指令前面必须是tab(不能是4个空格）！</p>
+<h2 id="pwd"><a href="#pwd" class="headerlink" title="pwd"></a>pwd</h2><pre><code>$sudo make
+make -C /lib/modules/4.19.48-002.ali4000.test.alios7.x86_64/build M= modules
+make[1]: Entering directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&#39;
+make[2]: *** No rule to make target `arch/x86/entry/syscalls/syscall_32.tbl&#39;, needed by `arch/x86/include/generated/asm/syscalls_32.h&#39;.  Stop.
+make[1]: *** [archheaders] Error 2
+make[1]: Leaving directory `/usr/src/kernels/4.19.48-002.ali4000.test.alios7.x86_64&#39;
+make: *** [all] Error 2
+</code></pre>
+<p>Makefile中的：<br>	make -C &#x2F;lib&#x2F;modules&#x2F;$(shell uname -r)&#x2F;build M&#x3D;$(pwd) modules</p>
+<p>$(pwd) 需要修改成：$(shell pwd)</p>
+<h2 id="makefile调试的法宝"><a href="#makefile调试的法宝" class="headerlink" title="makefile调试的法宝"></a>makefile调试的法宝</h2><h3 id="makefile调试的法宝1"><a href="#makefile调试的法宝1" class="headerlink" title="makefile调试的法宝1"></a>makefile调试的法宝1</h3><pre><code>$ make --debug=a,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 可以获取make过程最完整debug信息
+$ make --debug=v,m SHELL=&quot;bash -x&quot; &gt; make.log  2&gt;&amp;1                # 一个相对精简版，推荐使用这个命令
+$ make --debug=v  &gt; make.log  2&gt;&amp;1                                 # 再精简一点的版本
+$ make --debug=b  &gt; make.log  2&gt;&amp;1                                 # 最精简的版本
+
+推荐版本(会输出执行的具体命令)：
+make --debug=b SHELL=&quot;bash -x&quot;  &gt; make.log.simple  2&gt;&amp;1
+or
+make V=1
+</code></pre>
+<h3 id="makefile调试的法宝2"><a href="#makefile调试的法宝2" class="headerlink" title="makefile调试的法宝2"></a>makefile调试的法宝2</h3><p>上面的法宝1更多的还是在整体工程的makefile结构、makefile读取和makefile内部的rule之间的关系方面有很好的帮助作用。但是对于makefile中rule部分之前的变量部分的引用过程则表现的不是很充分。在这里，我们有另外一个法宝，可以把变量部分的引用过程给出一个比较好的调试信息。具体命令如下。</p>
+<pre><code>$ make -p 2&gt;&amp;1 | grep -A 1 &#39;^# makefile&#39; | grep -v &#39;^--&#39; | awk &#39;/# makefile/&amp;&amp;/line/{getline n;print $0,&quot;;&quot;,n}&#39; | LC_COLLATE=C sort -k 4 -k 6n &gt; variable.log
+$ cat variable.log
+# makefile (from `Makefile&#39;, line 1) ; aa := 11
+# makefile (from `Makefile&#39;, line 3) ; cc := 11
+# makefile (from `Makefile&#39;, line 4) ; bb := 9999
+# makefile (from `cfg_makefile&#39;, line 1) ; MAKEFILE_LIST :=  Makefile cfg_makefile
+# makefile (from `cfg_makefile&#39;, line 1) ; xx := 4444
+# makefile (from `cfg_makefile&#39;, line 2) ; yy := 4444
+# makefile (from `cfg_makefile&#39;, line 3) ; zz := 4444
+# makefile (from `sub_makefile&#39;, line 1) ; MAKEFILE_LIST :=  sub_makefile
+# makefile (from `sub_makefile&#39;, line 1) ; aaaa := 222222
+# makefile (from `sub_makefile&#39;, line 2) ; bbbb := 222222
+# makefile (from `sub_makefile&#39;, line 3) ; cccc := 222222
+</code></pre>
+<h3 id="makefile调试的法宝3"><a href="#makefile调试的法宝3" class="headerlink" title="makefile调试的法宝3"></a>makefile调试的法宝3</h3><p>法宝2可以把makefile文件中每个变量的最终值清晰的展现出来，但是对于这些变量引用过程中的中间值却没有展示。此时，我们需要依赖法宝3来帮助我们。</p>
+<pre><code>$(warning $(var123))
+</code></pre>
+<p>很多人可能都知道这个warning语句。我们可以在makefile文件中的变量引用阶段的任何两行之间，添加这个语句打印关键变量的引用过程。</p>
+<h2 id="make-时ld报找不到lib"><a href="#make-时ld报找不到lib" class="headerlink" title="make 时ld报找不到lib"></a>make 时ld报找不到lib</h2><p>make总是报找不到libc，但实际我执行 ld -lc –verbose 从debug信息看又能够正确找到libc，<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary">debug方法</a></p>
+<p><img src="/images/oss/f76b841375bb5ed5c5a946614fe494e1.png" alt="image.png"></p>
+<p><img src="/images/oss/19e493900f7d1ae1937d27366129e8aa.png" alt="image.png"></p>
+<p>实际原因是make的时候最后有一个参数 -static，这要求得装 ***-static lib库，可以去掉 -static</p>
+<h2 id="依赖错误"><a href="#依赖错误" class="headerlink" title="依赖错误"></a>依赖错误</h2><p>编译报错缺少的组件需要yum install一下(bison&#x2F;flex)</p>
+<h2 id="hping3"><a href="#hping3" class="headerlink" title="hping3"></a>hping3</h2><p>构造半连接：</p>
+<pre><code>sudo hping3 -i u100 -S -p 3306 10.0.186.79
+</code></pre>
+<h2 id="tcp-sk-state"><a href="#tcp-sk-state" class="headerlink" title="tcp sk_state"></a>tcp sk_state</h2><pre><code>enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING,    /* Now a valid state */
+
+    TCP_MAX_STATES  /* Leave at the end! */
+};
+</code></pre>
+<h2 id="kdump"><a href="#kdump" class="headerlink" title="kdump"></a><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzAxODI5ODMwOA==&mid=2666565525&idx=2&sn=f5adc9ad8f192dac9d1d46f6c2140749">kdump</a></h2><p>启动kdump(kexec-tools), 系统崩溃的时候dump 内核(&#x2F;var&#x2F;crash)</p>
+<pre><code>sudo systemctl start kdump
+</code></pre>
+<p>参考：<a target="_blank" rel="noopener" href="https://blog.arstercz.com/brief-intro-to-linux-kernel-crash-analyze/">Linux 系统内核崩溃分析处理简介</a></p>
+<p>Kdump 的概念出现在 2005 左右，是迄今为止最可靠的内核转存机制，已经被主要的 linux™ 厂商选用。kdump是一种先进的基于 kexec 的内核崩溃转储机制。当系统崩溃时，kdump 使用 kexec 启动到第二个内核。第二个内核通常叫做捕获内核，以很小的内存启动以捕获转储镜像。</p>
+<p>第一个内核保留了内存的一部分给第二个内核启动用。由于 kdump 利用 kexec 启动捕获内核，绕过了 BIOS，所以第一个内核的内存得以保留。这是内核崩溃转储的本质。</p>
+<p>kdump 需要两个不同目的的内核，生产内核和捕获内核。生产内核是捕获内核服务的对象。捕获内核会在生产内核崩溃时启动起来，与相应的 ramdisk 一起组建一个微环境，用以对生产内核下的内存进行收集和转存。</p>
+<h3 id="什么是-kexec-？"><a href="#什么是-kexec-？" class="headerlink" title="什么是 kexec ？"></a>什么是 kexec ？</h3><p>Kexec 是实现 kdump 机制的关键，它包括 2 一是组成部分：一是内核空间的系统调用 kexec_load，负责在生产内核（production kernel 或 first kernel）启动时将捕获内核（capture kernel 或 sencond kernel）加载到指定地址。二是用户空间的工具 kexec-tools，他将捕获内核的地址传递给生产内核，从而在系统崩溃的时候能够找到捕获内核的地址并运行。</p>
+<p>没有 kexec 就没有 kdump。先有 kexec 实现了在一个内核中可以启动另一个内核，才让 kdump 有了用武之地。kexec 原来的目的是为了节省时间 kernel 开发人员重启系统的时间，谁能想到这个“偷懒”的技术却孕育了最成功的内存转存机制呢？</p>
+<h2 id="crash"><a href="#crash" class="headerlink" title="crash"></a>crash</h2><pre><code>sudo yum install crash -y
+//手动触发crash
+#echo 1 &gt; /proc/sys/kernel/sysrq
+#echo c &gt; /proc/sysrq-trigger
+//系统crash，然后重启，重启后分析：
+sudo crash /usr/lib/debug/lib/modules/4.19.57-15.1.al7.x86_64/vmlinux /var/crash/127.0.0.1-2020-04-02-14\:40\:45/vmcore
+</code></pre>
+<p>可以触发dump但是系统没有crash, 以下两个命令都可以</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux /proc/kcore</span><br><span class="line">sudo crash /usr/lib/debug/usr/lib/modules/4.19.91-19.1.al7.x86_64/vmlinux  /dev/mem</span><br><span class="line"></span><br><span class="line">写内存hack内核，那就在crash命令执行前，先执行下面的命令：</span><br><span class="line">stap -g -e &#x27;probe kernel.function(&quot;devmem_is_allowed&quot;).return &#123; $return = 1 &#125;&#x27;</span><br></pre></td></tr></table></figure>
+
+<h2 id="内核函数替换"><a href="#内核函数替换" class="headerlink" title="内核函数替换"></a>内核函数替换</h2><p><img src="/images/951413iMgBlog/c41363dae054baa6d7f79d03376c57cb.png" alt="image.png"></p>
+<pre><code>static int __init hotfix_init(void)
+{
+  unsigned char e8_call[POKE_LENGTH];
+  s32 offset, i;
+
+  addr = (void *)kallsyms_lookup_name(&quot;tcp_reset&quot;);
+  if (!addr) {
+    printk(&quot;一切还没有准备好！请先加载tcp_reset模块。\n&quot;);
+    return -1;
+  }
+
+  _text_poke_smp = (void *)kallsyms_lookup_name(&quot;text_poke&quot;);
+  _text_mutex = (void *)kallsyms_lookup_name(&quot;text_mutex&quot;);
+
+  stub = (void *)test_stub1;
+
+  offset = (s32)((long)stub - (long)addr - FTRACE_SIZE);
+
+  e8_call[0] = 0xe8;
+  (*(s32 *)(&amp;e8_call[1])) = offset;
+  for (i = 5; i &lt; POKE_LENGTH; i++) {
+    e8_call[i] = 0x90;
+  }
+  get_online_cpus();
+  mutex_lock(_text_mutex);
+  _text_poke_smp(&amp;addr[POKE_OFFSET], e8_call, POKE_LENGTH);
+  mutex_unlock(_text_mutex);
+  put_online_cpus();
+
+  return 0;
+}
+
+void test_stub1(void)
+{
+  struct sock *sk = NULL;
+  unsigned long sk_addr = 0;
+  char buf[MAX_BUF_SIZE];
+  int size=0;
+  asm (&quot;push %rdi&quot;);
+
+  asm ( &quot;mov %%rdi, %0;&quot; :&quot;=m&quot;(sk_addr) : :);
+  sk = (struct sock *)sk_addr;
+
+  printk(&quot;aaaaaaaa yes :%d  dest:%X  source:%X\n&quot;,
+      sk-&gt;sk_state,
+      sk-&gt;sk_rcv_saddr,
+      sk-&gt;sk_daddr);
+/*
+  size = snprintf(buf, MAX_BUF_SIZE-1, &quot;rst %lu %d %pI4:%u-&gt;%pI4:%u \n&quot;,
+                     get_seconds(),
+                     sk-&gt;sk_state,
+                     &amp;(inet_sk(sk)-&gt;inet_saddr),
+                     ntohs(inet_sk(sk)-&gt;inet_sport),
+                     ntohs(inet_sk(sk)-&gt;inet_dport),
+                     &amp;(inet_sk(sk)-&gt;inet_daddr));
+*/
+//  tcp_rt_log_output(buf,size,1);
+
+  asm (&quot;pop %rdi&quot;);
+}
+</code></pre>
+<h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><p><a target="_blank" rel="noopener" href="https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234">https://blog.sourcerer.io/writing-a-simple-linux-kernel-module-d9dc3762c234</a></p>
+<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary">https://stackoverflow.com/questions/16710047/usr-bin-ld-cannot-find-lnameofthelibrary</a></p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/dog250/article/details/105394840">Linux系统中如何彻底隐藏一个TCP连接</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1394,394 +1734,8 @@ end
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/10/24/%E7%96%91%E9%9A%BE%E9%97%AE%E9%A2%98%E6%B1%87%E6%80%BB/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2018/10/24/%E7%96%91%E9%9A%BE%E9%97%AE%E9%A2%98%E6%B1%87%E6%80%BB/" class="post-title-link" itemprop="url">疑难问题汇总</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2018-10-24 17:30:03" itemprop="dateCreated datePublished" datetime="2018-10-24T17:30:03+08:00">2018-10-24</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-04-06 17:56:48" itemprop="dateModified" datetime="2026-04-06T17:56:48+08:00">2026-04-06</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="疑难问题汇总"><a href="#疑难问题汇总" class="headerlink" title="疑难问题汇总"></a>疑难问题汇总</h1><h2 id="一网通客户-vxlan-网络始终不通，宿主机能抓到发出去的包，但是抓不到回复包。对端容器所在的宿主机抓不到进来的包"><a href="#一网通客户-vxlan-网络始终不通，宿主机能抓到发出去的包，但是抓不到回复包。对端容器所在的宿主机抓不到进来的包" class="headerlink" title="一网通客户 vxlan 网络始终不通，宿主机能抓到发出去的包，但是抓不到回复包。对端容器所在的宿主机抓不到进来的包"></a>一网通客户 vxlan 网络始终不通，宿主机能抓到发出去的包，但是抓不到回复包。对端容器所在的宿主机抓不到进来的包</h2><blockquote>
-<p>一定是网络上把这个包扔掉了</p>
-</blockquote>
-<h4 id="证明问题"><a href="#证明问题" class="headerlink" title="证明问题"></a>证明问题</h4><ul>
-<li>先选择两台宿主机，停掉上面的 ovs 容器(腾出4789端口)</li>
-<li>一台宿主机上执行： nc -l -u 4789 &#x2F;&#x2F;在4789端口上启动udp服务</li>
-<li>另外一台主机上执行： nc -u 第一台宿主机的IP 4789 &#x2F;&#x2F;从第二台宿主机连第一台的4789端口 nc -u -z -v ip 4789</li>
-<li>从两边都发送一些内容看看，看是否能到达对方</li>
-</ul>
-<p><strong>如果通过nc发送的东西也无法到达对方（跟方舟没有关系了）那么就是链路上的问题</strong></p>
-<hr>
-<h2 id="一网通客户-vxlan-网络能通，但是pca容器初始化的时候失败"><a href="#一网通客户-vxlan-网络能通，但是pca容器初始化的时候失败" class="headerlink" title="一网通客户 vxlan 网络能通，但是pca容器初始化的时候失败"></a>一网通客户 vxlan 网络能通，但是pca容器初始化的时候失败</h2><p>通过报错信息发现pca容器访问数据库SocketTimeout，同时看到异常信息都是Timeout大于15分钟以上了。</p>
-<h4 id="需找问题"><a href="#需找问题" class="headerlink" title="需找问题"></a>需找问题</h4><ul>
-<li>先在 pca容器和数据库容器互相 ping 证明网络没有问题，能够互通</li>
-<li>在 pca 容器中通过mysql 命令行连上 mysql，并创建table，insert一些记录，结果也没有问题</li>
-<li>抓包发现pca容器访问数据库的时候在重传包（以往经验）</li>
-</ul>
-<p><img src="http://img4.tbcdn.cn/L1/461/1/1d010b9937198aee9e798bb02913603874f19ddc" alt="screenshot"></p>
-<h4 id="细化证明问题"><a href="#细化证明问题" class="headerlink" title="细化证明问题"></a>细化证明问题</h4><ul>
-<li>ping -s -M 尝试发送1460大小的包</li>
-<li>检查宿主机、容器MTU设置</li>
-</ul>
-<p><strong>确认问题在宿主机网卡MTU设置为1350</strong>，从而导致容器发出的包被宿主机网卡丢掉</p>
-<h2 id="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名"><a href="#新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping-这个域名能通，但是nslookup解析不了这个域名" class="headerlink" title="新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名"></a>新零售客户通过vpn部署好中间件后，修改笔记本的dns设置后通过浏览器来访问中间件的console，但是报找不到server。同时在cmd中ping 这个域名能通，但是nslookup解析不了这个域名</h2><p>ping 这个域名能通，但是nslookup不行，基本可以确认网络没有大问题，之所以ping可以nslookup不行，是因为他们底层取dns server的逻辑不一样。</p>
-<p>先检查dns设置：</p>
-<p><img src="/images/oss/d4634f74c0b0b38f784a1657864d5089.png" alt="image.png"><br>如上图，配置的填写</p>
-<p><img src="/images/oss/d4a9cddf56d23059f98850c7c0bcf067.png" alt="image.png"></p>
-<p>多出来一个127.0.0.1肯定有问题，明明配置的时候只填了114.114.114.114. nslookup、浏览器默认把域名解析丢给了127.0.0.1，但是 ping丢给了114.114.114.114，所以看到如上描述的结果。</p>
-<p>经过思考发现应该是本机同时运行了easyconnect（vpn软件），127.0.0.1 是他强行塞进来的。马上停掉easyconnect再ipconfig &#x2F;all 验证一下这个时候的dns server，果然127.0.0.1不见了, nslookup 也正常了。</p>
-<h2 id="某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out"><a href="#某航空客户-windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns-server-ip-但是nslookup-解析不了域名，显示request-time-out" class="headerlink" title="某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out"></a>某航空客户 windows下通过方舟dns域名解析不了方舟域名，但是宿主机上可以。windows机器能ping通dns server ip, 但是nslookup 解析不了域名，显示request time out</h2><p><img src="/images/oss/548975c04a8587e0fb33b5722b1a38f2.png" alt="image.png"></p>
-<p>能ping通说明网络能通，但是dns域名要能解析依赖于：</p>
-<ul>
-<li>网络能通</li>
-<li>dns server上有dns服务（53udp端口）</li>
-<li>中间的防火墙对这个udp53端口限制了</li>
-</ul>
-<p>如上图，这里的问题非常明显是中间的防火墙没放行 udp 53端口</p>
-<h2 id="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通"><a href="#方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping-域名不通，但是nslookup能通" class="headerlink" title="方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通"></a>方舟环境在ECS底座上DNS会继承rotate模式，导致域名解析不正常，ping 域名不通，但是nslookup能通</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/93688">nslookup 域名结果正确，但是 ping 域名失败</a></p>
-<h2 id="某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"><a href="#某银行-POC-环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包" class="headerlink" title="某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包"></a>某银行 POC 环境物理机搬迁到新机房后网络不通，通过在物理机上抓包，抓不到任何容器的包</h2><p><img src="/images/oss/896f8f14d3be725515f192ed64542cb0.png" alt="image.png"></p>
-<p><strong>如图所示容器中发了 arp包（IP 10.100.2.2 寻找10.100.2.1 的mac地址），这个包从bond0 网卡发出去了，也是带的正确的 vlanid 1011，但是交换机没有回复，那么就一定是交换机上vlan配置不对，需要找分配这个vlan的网工来检查交换机的配置</strong></p>
-<p><font color=red size=4><strong>能抓到进出的容器包–外部环境正确，方舟底座的问题</strong></font></p>
-<p><font color=red size=4><strong>不能抓到出去的容器包–方舟底座的问题</strong></font></p>
-<p><font color=red size=4><strong>能抓到出去的容器包，抓不到回来的包–外部环境的问题</strong></font></p>
-<p>所以这里是方舟底座的问题。检查ovs、vlan插件一切都正常，见鬼了</p>
-<p>检查宿主机网卡状态，发现没插网线，<strong>如果容器所用的宿主机网卡没有插网线，那么ovs就不会转发任何包到宿主机网卡</strong>。</p>
-<h2 id="一台应用服务器无法访问部分drds-server"><a href="#一台应用服务器无法访问部分drds-server" class="headerlink" title="一台应用服务器无法访问部分drds-server"></a><a target="_blank" rel="noopener" href="https://aone.alibaba-inc.com/task/9753887">一台应用服务器无法访问部分drds-server</a></h2><p>应用机器： 10.100.10.201 这台机器抛502异常比较多，进一步诊断发现 ping youku.tddl.tbsite.net 的时候解析到 10.100.53.15&#x2F;16就不通</p>
-<p>直接ping 10.100.53.15&#x2F;16 也不通，经过诊断发现是交换机上记录了两个 10.100.10.201的mac地址导致网络不通。</p>
-<p><img src="/images/oss/9deff3045e3213df81c3ad785cfddefa.gif" alt="youku-mac-ip.gif"></p>
-<p><strong>上图是不通的IP，下图是正常IP</strong></p>
-<p>经过调查发现是土豆业务也用了10.100.10.201这个IP导致交换机的ARP mac table冲突，土豆删除这个IP后故障就恢复了。</p>
-<h3 id="当时交换机上发现的两条记录："><a href="#当时交换机上发现的两条记录：" class="headerlink" title="当时交换机上发现的两条记录："></a>当时交换机上发现的两条记录：</h3><pre><code>00:18:51:38:b1:cd 10.100.10.201 
-8c:dc:d4:b3:af:14 10.100.10.201
-</code></pre>
-<h2 id="某个客户默认修改了umask导致黑屏脚本权限不够，部署中途不断卡壳，直接在黑屏脚本中修复了admin这个用户的umask"><a href="#某个客户默认修改了umask导致黑屏脚本权限不够，部署中途不断卡壳，直接在黑屏脚本中修复了admin这个用户的umask" class="headerlink" title="某个客户默认修改了umask导致黑屏脚本权限不够，部署中途不断卡壳，直接在黑屏脚本中修复了admin这个用户的umask"></a>某个客户默认修改了umask导致黑屏脚本权限不够，部署中途不断卡壳，直接在黑屏脚本中修复了admin这个用户的umask</h2><ol>
-<li>客户环境的 umask 是 0027 会导致所有copy文件的权限都不对了</li>
-<li>因为admin没权限执行 &#x2F;bin&#x2F;jq 导致daemon.json是空的</li>
-<li>&#x2F;etc&#x2F;docker&#x2F;daemon.json 文件是空的，docker启动报错</li>
-</ol>
-<h2 id="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"><a href="#修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复" class="headerlink" title="修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复"></a>修复centos下udp和批量处理脚本因为环境变量的确实不能执行modprobe和ping等等命令的问题，同时将alios的这块修复逻辑放到了方舟安装脚本中，init的时候会先把这个问题修复</h2><p><a target="_blank" rel="noopener" href="https://www.atatech.org/articles/105673">Linux环境变量问题汇总</a></p>
-<h2 id="Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf"><a href="#Centos系统重启后-etc-resolv-conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新-etc-resolv-conf" class="headerlink" title="Centos系统重启后 &#x2F;etc&#x2F;resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 &#x2F;etc&#x2F;resolv.conf"></a>Centos系统重启后 &#x2F;etc&#x2F;resolv.conf总是被还原，开始以为是系统Bug，研究后发现是可以配置的，dhcp默认会每次重启后拉取DNS自动更新 &#x2F;etc&#x2F;resolv.conf</h2><h2 id="MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"><a href="#MonkeyKing-burn-cpu-mkt-burncpu-sh-脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。" class="headerlink" title="MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。"></a>MonkeyKing burn cpu:  mkt-burncpu.sh 脚本在方舟服务器上运行一段时间后，进程不见了，MK团队认为是方舟杀掉了他们。</h2><p>好奇心迫使我去看代码、<strong>看openssl测试输出日志</strong>（MonkeyKing burn cpu内部调用 openssl speed 测试cpu的速度），这个测试一轮跑完了opessl就结束了，本身就不是死循环一直跑, 不是方舟杀掉的。</p>
-<p>另外说明这个问题一直存在开发、测试MonkeyKing功能的团队就没有发现，或者之前一直只需要跑不到10分钟就自己主动把它杀掉让出CPU。</p>
-<p><img src="/images/oss/7860a67e52c0de0febd7ec944a4b1517.png" alt="image.png"></p>
-<h2 id="某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"><a href="#某汽车客户-部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常" class="headerlink" title="某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常"></a>某汽车客户 部署过程中愚公不能正常启动，怀疑是依赖的zk问题，zk网络访问正常</h2><p>尝试telnet zk发现不通，客户现场安装了kerberos导致telnet测试有问题（telnet被kerberos替换过）,换一个其他环境的telnet 二进制文件就可以了（md5sum、telnet –help）</p>
-<h2 id="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"><a href="#开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器" class="headerlink" title="开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器"></a><a target="_blank" rel="noopener" href="https://aone.alibaba-inc.com/issue/10403085">开发反应两个容器之间的网络不稳定，偶尔报连不上某些容器</a></h2><p>主要是出现在tlog-console访问hbase容器的时候报连接异常</p>
-<ol>
-<li>在 task_1114_g0_tlog-console_tlog_1（10.16.11.131） 的56789 端口上启动了一个简单的http服务，然后从 task_1114_g0_tlog-hbase_tlog（10.16.11.108） 每秒钟去访问一下10.16.11.131:56789 , 如果丢包率很高的时候服务 10.16.11.131:56789 也很慢或者访问不到就是网络问题，否则就有可能是hbase服务不响应导致的丢包、网络不通（仅仅是影响hbase服务） </li>
-<li>反过来在hbase上同样启动http服务，tlog-console不停地去get</li>
-<li>整个过程我的http服务响应非常迅速稳定，从没出现过异常</li>
-<li>在重现问题侯，贺飞发现 是tlog线程数目先增多，retran才逐渐增高的， retran升高，并没有影响在那台机器上ping 或者telnet hbase的服务</li>
-<li>通过以上方式证明跟容器、网络无关，是应用本身的问题，交由产品开发继续解决</li>
-</ol>
-<h4 id="最终开发确认网络没有问题后一门心思闷头自查得出结论："><a href="#最终开发确认网络没有问题后一门心思闷头自查得出结论：" class="headerlink" title="最终开发确认网络没有问题后一门心思闷头自查得出结论："></a>最终开发确认网络没有问题后一门心思闷头自查得出结论：</h4><p>信息更新：</p>
-<p>问题：<br>tlog-console进程线程数多，卡在连接hbase上的问题</p>
-<p>直接原因：</p>
-<ol>
-<li>tlog-console有巡检程序，每m分钟会检查运行超过n秒的线程，并且中断这个线程； 这个操作直接导致hbase客户端在等待hbaseserver返回数据的时候被中断，这种中断会经常发生，累积久了，就会打爆tlog-console服务的线程数目，这时候，tlogconsole机器的retran就会变多，连接hbaseserver就会出问题， 具体的机理不明</li>
-</ol>
-<p>解决问题的有效操作：</p>
-<ol>
-<li>停止对tlog-console的巡检程序后，问题没有发生过</li>
-</ol>
-<p>其他潜在问题，这些问题是检查问题的时候，发现的其他潜在问题，已经反馈给tlog团队：</p>
-<ol>
-<li>Htable实例不是线程安全,有逻辑多线程使用相同的htable实例</li>
-<li>程序中有new HTable 不close的路径</li>
-</ol>
-<h2 id="某化工私有云DRDS扩容总是报资源不足，主要是因为有些drds-server容器指定了–cpu-shares-128-相当于4Core–1024-物理核数-等于每个核对应的cpu-shares-导致物理机CPU不够。现场将所有容器的–cpu-shares改成2后修复这个问题，但是最终需要产品方"><a href="#某化工私有云DRDS扩容总是报资源不足，主要是因为有些drds-server容器指定了–cpu-shares-128-相当于4Core–1024-物理核数-等于每个核对应的cpu-shares-导致物理机CPU不够。现场将所有容器的–cpu-shares改成2后修复这个问题，但是最终需要产品方" class="headerlink" title="某化工私有云DRDS扩容总是报资源不足，主要是因为有些drds-server容器指定了–cpu-shares&#x3D;128(相当于4Core–1024&#x2F;物理核数 等于每个核对应的cpu-shares ), 导致物理机CPU不够。现场将所有容器的–cpu-shares改成2后修复这个问题，但是最终需要产品方"></a>某化工私有云DRDS扩容总是报资源不足，主要是因为有些drds-server容器指定了–cpu-shares&#x3D;128(相当于4Core–1024&#x2F;物理核数 等于每个核对应的cpu-shares ), 导致物理机CPU不够。现场将所有容器的–cpu-shares改成2后修复这个问题，但是最终需要产品方</h2><p>主要是swarm对cpu-shares的判断上有错误，swarm默认认定每台机器的总cpu-shares是1024，也就是 1024&#x2F;物理核数 等于每个核对应的cpu-shares</p>
-<p>如果需要精细化CPU控制，cpu-shares比cpu-set之类的要精确，利用率更高。但是也更容易出现问题</p>
-<h2 id="mq-diamond的异常日志总是打爆磁盘。mq-diamond-容器一天输出500G日志的问题，本质是调用的依赖不可用了，导致mq-diamond-频繁输出日志，两天就用掉了1T磁盘"><a href="#mq-diamond的异常日志总是打爆磁盘。mq-diamond-容器一天输出500G日志的问题，本质是调用的依赖不可用了，导致mq-diamond-频繁输出日志，两天就用掉了1T磁盘" class="headerlink" title="mq-diamond的异常日志总是打爆磁盘。mq-diamond 容器一天输出500G日志的问题，本质是调用的依赖不可用了，导致mq-diamond 频繁输出日志，两天就用掉了1T磁盘."></a>mq-diamond的异常日志总是打爆磁盘。mq-diamond 容器一天输出500G日志的问题，本质是调用的依赖不可用了，导致mq-diamond 频繁输出日志，两天就用掉了1T磁盘.</h2><p>这里有两个问题需要处理：</p>
-<ol>
-<li>mq-diamond 依赖的服务可用； </li>
-<li>mq-diamond 自身保护，不要被自己的日志把磁盘撑爆了</li>
-</ol>
-<p>对于问题二修改log4j来保护；对于问题1查看异常内容，mq-diamond尝试连接server：ip1,ip2,ip3 正常这里应该是一个ip而不是三个ip放一起。判断是mq-diamond从mq-cai获取diamond iplist有问题，这个iplist应该放在三行，但是实际被放到了1行，用逗号隔开</p>
-<p>手工修改这个文件，放到三行，问题没完，还是异常，我自己崩溃没管。最后听mq-diamond的开发讲他们取iplist的url比较特殊，是自己定义的，所以我修改的地方不起作用。<strong>反思，为什么修改不起作用的时候不去看看Nginx的access日志？ 这样可以证明我修改的文件实际没有被使用，同时还能找到真正被使用的配置文件</strong></p>
-<h2 id="内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）"><a href="#内核migration进程bug导致宿主机Load非常高，同时CPU-idle也很高（两者矛盾）" class="headerlink" title="内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）"></a>内核migration进程bug导致宿主机Load非常高，同时CPU idle也很高（两者矛盾）</h2><p><a target="_blank" rel="noopener" href="https://aone.alibaba-inc.com/issue/12510664">内核migration进程bug导致对应的CPU核卡死</a>（图一），这个核上的所有进程得不到执行（Load高，CPU没有任何消耗， 图二），直到内核进程 watchdog 发现这个问题并恢复它。</p>
-<p>出现这个bug后的症状，通过top命令看到CPU没有任何消耗但是Load偏高，如果应用进程恰好被调度到这个出问题的CPU核上，那么这个进程会卡住（大概20秒）没有任何响应，比如 ping 进程（图三图四），watchdog恢复这个问题后，多个网络包在同一时间全部通。其实所影响的不仅仅是网络卡顿，中间件容器里面的服务如果调度到这个CPU核上同样得不到执行，从外面就是感觉容器不响应了</p>
-<p><img src="/images/oss/f4843725cf82e257fa14fd3742c2f9ce.png" alt="image.png"></p>
-<p><img src="/images/oss/11d6db76c6de822385c0f63d2bf6eb03.png" alt="image.png"></p>
-<p><img src="/images/oss/ac9e2eb1b01976cefa1b74dcddd23885.png" alt="image.png"></p>
-<p><img src="/images/oss/371870b7db916e3edf515beec3a80bda.png" alt="image.png"></p>
-<p>拿如上证据求助内核开发</p>
-<p>关键信息在这里：<br>代码第297行<br>2017-09-15T06:52:37.820783+00:00 ascliveedas4.sgdc kernel: [598346.499872] WARNING: at net&#x2F;sched&#x2F;sch_generic.c:297 dev_watchdog+0x270&#x2F;0x280()<br>2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499873] NETDEV WATCHDOG: ens2f0 (ixgbe): transmit queue 28 timed out</p>
-<p>kernel version: kernel-3.10.0-327.22.2.el7.src.rpm</p>
-<pre><code>265 static void dev_watchdog(unsigned long arg)
-266 {
-267 struct net_device *dev = (struct net_device *)arg;
-268
-269 netif_tx_lock(dev);
-270 if (!qdisc_tx_is_noop(dev)) {
-271 if (netif_device_present(dev) &amp;&amp;
-272 netif_running(dev) &amp;&amp;
-273 netif_carrier_ok(dev)) {
-274 int some_queue_timedout = 0;
-275 unsigned int i;
-276 unsigned long trans_start;
-277
-278 for (i = 0; i &lt; dev-&gt;num_tx_queues; i++) {
-279 struct netdev_queue *txq;
-280
-281 txq = netdev_get_tx_queue(dev, i);
-282 /*
-283  * old device drivers set dev-&gt;trans_start
-284  */
-285 trans_start = txq-&gt;trans_start ? : dev-&gt;trans_start;
-286 if (netif_xmit_stopped(txq) &amp;&amp;
-287 time_after(jiffies, (trans_start +
-288  dev-&gt;watchdog_timeo))) {
-289 some_queue_timedout = 1;
-290 txq-&gt;trans_timeout++;
-291 break;
-292 }
-293 }
-294
-295 if (some_queue_timedout) {
-296 WARN_ONCE(1, KERN_INFO &quot;NETDEV WATCHDOG: %s (%s): transmit queue %u timed out\n&quot;,
-297dev-&gt;name, netdev_drivername(dev), i);
-298 dev-&gt;netdev_ops-&gt;ndo_tx_timeout(dev);
-299 }
-300 if (!mod_timer(&amp;dev-&gt;watchdog_timer,
-301round_jiffies(jiffies +
-302  dev-&gt;watchdog_timeo)))
-303 dev_hold(dev);
-304 }
-
-
-
-$ cat  kernel_log.0915
-2017-09-15T02:19:55.975310+00:00 ascliveedas4.sgdc kernel: [582026.288227] openvswitch: netlink: Key type 62 is out of range max 22
-2017-09-15T03:49:41.312168+00:00 ascliveedas4.sgdc kernel: [587409.546584] md: md0: data-check interrupted.
-2017-09-15T06:52:37.820782+00:00 ascliveedas4.sgdc kernel: [598346.499865] ------------[ cut here ]------------
-2017-09-15T06:52:37.820783+00:00 ascliveedas4.sgdc kernel: [598346.499872] WARNING: at net/sched/sch_generic.c:297 dev_watchdog+0x270/0x280()
-2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499873] NETDEV WATCHDOG: ens2f0 (ixgbe): transmit queue 28 timed out
-2017-09-15T06:52:37.820784+00:00 ascliveedas4.sgdc kernel: [598346.499916] Modules linked in: 8021q garp mrp xt_nat veth xt_addrtype ipt_MASQUERADE nf_nat_masquerade_ipv4 iptable_nat nf_conntrack_ipv4 nf_defrag_ipv4 nf_nat_ipv4 iptable_filter xt_conntrack nf_nat nf_conntrack bridge stp llc tcp_diag udp_diag inet_diag binfmt_misc overlay() vfat fat intel_powerclamp coretemp intel_rapl kvm_intel kvm crc32_pclmul ghash_clmulni_intel aesni_intel lrw gf128mul glue_helper ablk_helper cryptd raid10 ipmi_devintf iTCO_wdt iTCO_vendor_support sb_edac lpc_ich hpwdt edac_core hpilo i2c_i801 ipmi_si sg mfd_core pcspkr ioatdma ipmi_msghandler acpi_power_meter shpchp wmi pcc_cpufreq openvswitch libcrc32c nfsd auth_rpcgss nfs_acl lockd grace sunrpc ip_tables ext4 mbcache jbd2 sd_mod crc_t10dif crct10dif_generic mgag200 syscopyarea sysfillrect sysimgblt drm_kms_helper ixgbe crct10dif_pclmul ahci ttm crct10dif_common igb crc32c_intel mdio libahci ptp drm pps_core i2c_algo_bit libata i2c_core dca dm_mirror dm_region_hash dm_log dm_mod
-2017-09-15T06:52:37.820786+00:00 ascliveedas4.sgdc kernel: [598346.499928] CPU: 10 PID: 123 Comm: migration/10 Tainted: G L ------------ T 3.10.0-327.22.2.el7.x86_64#1
-2017-09-15T06:52:37.820787+00:00 ascliveedas4.sgdc kernel: [598346.499929] Hardware name: HP ProLiant DL160 Gen9/ProLiant DL160 Gen9, BIOS U20 12/27/2015
-2017-09-15T06:52:37.820788+00:00 ascliveedas4.sgdc kernel: [598346.499935]  ffff88207fc43d88 000000001cdfb0f1 ffff88207fc43d40 ffffffff816360fc
-2017-09-15T06:52:37.820789+00:00 ascliveedas4.sgdc kernel: [598346.499939]  ffff88207fc43d78 ffffffff8107b200 000000000000001c ffff881024660000
-2017-09-15T06:52:37.820790+00:00 ascliveedas4.sgdc kernel: [598346.499942]  ffff881024654f40 0000000000000040 000000000000000a ffff88207fc43de0
-2017-09-15T06:52:37.820791+00:00 ascliveedas4.sgdc kernel: [598346.499943] Call Trace:
-2017-09-15T06:52:37.820792+00:00 ascliveedas4.sgdc kernel: [598346.499952]  &lt;IRQ&gt;  [&lt;ffffffff816360fc&gt;] dump_stack+0x19/0x1b
-2017-09-15T06:52:37.820794+00:00 ascliveedas4.sgdc kernel: [598346.499956]  [&lt;ffffffff8107b200&gt;] warn_slowpath_common+0x70/0xb0
-2017-09-15T06:52:37.820795+00:00 ascliveedas4.sgdc kernel: [598346.499959]  [&lt;ffffffff8107b29c&gt;] warn_slowpath_fmt+0x5c/0x80
-2017-09-15T06:52:37.820795+00:00 ascliveedas4.sgdc kernel: [598346.499964]  [&lt;ffffffff8154d4f0&gt;] dev_watchdog+0x270/0x280
-2017-09-15T06:52:37.820796+00:00 ascliveedas4.sgdc kernel: [598346.499966]  [&lt;ffffffff8154d280&gt;] ? dev_graft_qdisc+0x80/0x80
-2017-09-15T06:52:37.820797+00:00 ascliveedas4.sgdc kernel: [598346.499972]  [&lt;ffffffff8108b0a6&gt;] call_timer_fn+0x36/0x110
-2017-09-15T06:52:37.820798+00:00 ascliveedas4.sgdc kernel: [598346.499974]  [&lt;ffffffff8154d280&gt;] ? dev_graft_qdisc+0x80/0x80
-2017-09-15T06:52:37.820799+00:00 ascliveedas4.sgdc kernel: [598346.499977]  [&lt;ffffffff8108dd97&gt;] run_timer_softirq+0x237/0x340
-2017-09-15T06:52:37.820800+00:00 ascliveedas4.sgdc kernel: [598346.499980]  [&lt;ffffffff81084b0f&gt;] __do_softirq+0xef/0x280
-2017-09-15T06:52:37.820801+00:00 ascliveedas4.sgdc kernel: [598346.499985]  [&lt;ffffffff81103360&gt;] ? cpu_stop_should_run+0x50/0x50
-2017-09-15T06:52:37.820801+00:00 ascliveedas4.sgdc kernel: [598346.499988]  [&lt;ffffffff8164819c&gt;] call_softirq+0x1c/0x30
-2017-09-15T06:52:37.820802+00:00 ascliveedas4.sgdc kernel: [598346.499994]  [&lt;ffffffff81016fc5&gt;] do_softirq+0x65/0xa0
-2017-09-15T06:52:37.820803+00:00 ascliveedas4.sgdc kernel: [598346.499996]  [&lt;ffffffff81084ea5&gt;] irq_exit+0x115/0x120
-2017-09-15T06:52:37.820804+00:00 ascliveedas4.sgdc kernel: [598346.499999]  [&lt;ffffffff81648e15&gt;] smp_apic_timer_interrupt+0x45/0x60
-2017-09-15T06:52:37.820805+00:00 ascliveedas4.sgdc kernel: [598346.500003]  [&lt;ffffffff816474dd&gt;] apic_timer_interrupt+0x6d/0x80
-2017-09-15T06:52:37.820813+00:00 ascliveedas4.sgdc kernel: [598346.500007]  &lt;EOI&gt;  [&lt;ffffffff811033df&gt;] ? multi_cpu_stop+0x7f/0xf0
-2017-09-15T06:52:37.820815+00:00 ascliveedas4.sgdc kernel: [598346.500010]  [&lt;ffffffff81103666&gt;] cpu_stopper_thread+0x96/0x170
-</code></pre>
-<h2 id="某银行客户RAID阵列坏掉，导致物理机重启后容器的net-alias域名解析不到"><a href="#某银行客户RAID阵列坏掉，导致物理机重启后容器的net-alias域名解析不到" class="headerlink" title="某银行客户RAID阵列坏掉，导致物理机重启后容器的net-alias域名解析不到"></a>某银行客户RAID阵列坏掉，导致物理机重启后容器的net-alias域名解析不到</h2><p>docker daemon 的endpoint用的容器名存在zk中，如果创建一个重复名字的容器，那么会失败，然后回滚，回滚动作会把zk中别人的endpoint删掉，从而导致域名不通。</p>
-<p>物理机异常后，我们的调度程序会在其它物理机重新调度生成这个容器，但是当原来的物理机回来后，这里有两个一样的容器会自动删掉宕机的物理机上的这个容器，从而误删net-alias，进而域名无法解析</p>
-<h2 id="某快递客户PHP短连接访问DRDS会导致极低概率出现连接被reset、货运快递客户事务没生效导致数据库写入的金额对不上账"><a href="#某快递客户PHP短连接访问DRDS会导致极低概率出现连接被reset、货运快递客户事务没生效导致数据库写入的金额对不上账" class="headerlink" title="某快递客户PHP短连接访问DRDS会导致极低概率出现连接被reset、货运快递客户事务没生效导致数据库写入的金额对不上账"></a><a target="_blank" rel="noopener" href="https://aone.alibaba-inc.com/task/10409778">某快递客户PHP短连接</a>访问DRDS会导致极低概率出现连接被reset、货运快递客户事务没生效导致数据库写入的金额对不上账</h2><h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzU5Mzc0NDUyNg==&mid=2247483793&idx=1&sn=c7b4ec96d186dd74689482077522337f&scene=21#wechat_redirect">https://mp.weixin.qq.com/s?__biz=MzU5Mzc0NDUyNg==&amp;mid=2247483793&amp;idx=1&amp;sn=c7b4ec96d186dd74689482077522337f&amp;scene=21#wechat_redirect</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2018/09/26/high_load/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2018/09/26/high_load/" class="post-title-link" itemprop="url">Load很高，CPU使用率很低</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2018-09-26 16:30:03" itemprop="dateCreated datePublished" datetime="2018-09-26T16:30:03+08:00">2018-09-26</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/troubleshooting/" itemprop="url" rel="index"><span itemprop="name">troubleshooting</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Load很高，CPU使用率很低"><a href="#Load很高，CPU使用率很低" class="headerlink" title="Load很高，CPU使用率很低"></a>Load很高，CPU使用率很低</h1><blockquote>
-<p>第一次碰到这种Case：物理机的Load很高，CPU使用率很低</p>
-</blockquote>
-<h3 id="先看CPU、Load情况"><a href="#先看CPU、Load情况" class="headerlink" title="先看CPU、Load情况"></a>先看CPU、Load情况</h3><p>如图一：<br>vmstat显示很有多任务等待排队执行（r）top都能看到Load很高，但是CPU idle 95%以上<br><img src="/images/oss/046077102b3a0fd89e53f62cf32874c0.png" alt="image.png"><br><img src="/images/oss/d905abc4576e0c6ac952c71005696131.png" alt="image.png"></p>
-<p>这个现象不太合乎常规，也许是在等磁盘IO、也许在等网络返回会导致CPU利用率很低而Load很高</p>
-<p>贴个vmstat 说明文档（图片来源于网络N年了，找不到出处）<br><img src="/images/oss/9a0c040b24699d4128bbecae1af08b1d.png" alt="image.png"></p>
-<h3 id="检查磁盘状态，很正常（vmstat-第二列也一直为0）"><a href="#检查磁盘状态，很正常（vmstat-第二列也一直为0）" class="headerlink" title="检查磁盘状态，很正常（vmstat 第二列也一直为0）"></a>检查磁盘状态，很正常（vmstat 第二列也一直为0）</h3><p><img src="/images/oss/19d7d02c9472ddb2b057a4d09b497463.png" alt="image.png"></p>
-<h3 id="再看Load是在5号下午15：50突然飙起来的："><a href="#再看Load是在5号下午15：50突然飙起来的：" class="headerlink" title="再看Load是在5号下午15：50突然飙起来的："></a>再看Load是在5号下午15：50突然飙起来的：</h3><p><img src="/images/oss/71127256e8e33a716770f74cb563a1b6.png" alt="image.png"></p>
-<h3 id="同一时间段的网络流量、TCP连接相关数据很平稳："><a href="#同一时间段的网络流量、TCP连接相关数据很平稳：" class="headerlink" title="同一时间段的网络流量、TCP连接相关数据很平稳："></a>同一时间段的网络流量、TCP连接相关数据很平稳：</h3><p><img src="/images/oss/8f7ff0bf2f313409f521f6863f2375aa.png" alt="image.png"></p>
-<p>所以分析到此，可以得出：<strong>Load高跟磁盘、网络、压力都没啥关系</strong></p>
-<h3 id="物理机上是跑的Docker，分析了一下CPUSet情况："><a href="#物理机上是跑的Docker，分析了一下CPUSet情况：" class="headerlink" title="物理机上是跑的Docker，分析了一下CPUSet情况："></a>物理机上是跑的Docker，分析了一下CPUSet情况：</h3><p><img src="/images/oss/e7996a82da2c140594835e3264c6ef4b.png" alt="image.png"></p>
-<p><strong>发现基本上所有容器都绑定在CPU1上（感谢 @辺客 发现这个问题）</strong></p>
-<h3 id="进而检查top每个核的状态，果然CPU1-的idle一直为0"><a href="#进而检查top每个核的状态，果然CPU1-的idle一直为0" class="headerlink" title="进而检查top每个核的状态，果然CPU1 的idle一直为0"></a>进而检查top每个核的状态，果然CPU1 的idle一直为0</h3><p><img src="/images/oss/2b32adb2071b3fdb334e0735db899a2e.png" alt="image.png"></p>
-<p>看到这里大致明白了，虽然CPU整体很闲但是因为很多进程都绑定在CPU1上，导致CPU1上排队很长，看前面tsar的–load负载截图的 等待运行进程排队长度（runq）确实也很长。</p>
-<blockquote>
-<p>物理机有32个核，如果100个任务同时进来，Load大概是3，这是正常的。如果这100个任务都跑在CPU1上，Load还是3（因为Load是所有核的平均值）。但是如果有源源不断的100个任务进来，前面100个还没完后面又来了100个，这个时候CPU1前面队列很长，其它31个核没事做，这个时候整体Load就是6了，时间一长很快Load就能到几百。</p>
-<p>这是典型的瓶颈导致积压进而高Load。</p>
-</blockquote>
-<h3 id="为什么会出现这种情况"><a href="#为什么会出现这种情况" class="headerlink" title="为什么会出现这种情况"></a>为什么会出现这种情况</h3><p>检查Docker系统日志，发现同一时间点所有物理机同时批量执行docker update 把几百个容器都绑定到CPU1上，导致这个核忙死了，其它核闲得要死（所以看到整体CPU不忙，最忙的那个核被平均掩盖掉了），但是Load高（CPU1上排队太长，即使平均到32个核，这个队列还是长，这就是瓶颈啊）。</p>
-<p>如下Docker日志，Load飙升的那个时间点有人批量调docker update 把所有容器都绑定到CPU1上：<br><img src="/images/oss/f4925c698c9fd4edb56fcfc2ebb9f625.png" alt="image.png"></p>
-<p>检查Docker集群Swarm的日志，发现Swarm没有发起这样的update操作，似乎是每个Docker Daemon自己的行为，谁触发了这个CPU的绑定过程的原因还没找到，求指点。</p>
-<h3 id="手动执行docker-update-把容器打散到不同的cpu核上，恢复正常："><a href="#手动执行docker-update-把容器打散到不同的cpu核上，恢复正常：" class="headerlink" title="手动执行docker update, 把容器打散到不同的cpu核上，恢复正常："></a>手动执行docker update, 把容器打散到不同的cpu核上，恢复正常：</h3><p><img src="/images/oss/9e1adae472cf0b4f95af83390adaead9.png" alt="image.png"></p>
-<h2 id="关于这个Case的总结"><a href="#关于这个Case的总结" class="headerlink" title="关于这个Case的总结"></a>关于这个Case的总结</h2><ul>
-<li>技术拓展商业边界，同样技能、熟练能力能拓展解决问题的能力。 开始我注意到了Swarm集群显示的CPU绑定过多，同时也发现有些容器绑定在CPU1上。所以我尝试通过API： GET &#x2F;containers&#x2F;json 拿到了所有容器的参数，然后搜索里面的CPUSet，结果这个API返回来的参数不包含CPUSet，那我只能挨个 GET &#x2F;containers&#x2F;id&#x2F;json, 要写个循环，偷懒没写，所以没发现这个问题。</li>
-<li>这种多个进程绑定到同一个核然后导致Load过高的情况确实很少见，也算是个教训</li>
-<li>自己观察top 单核的时候不够仔细，只是看到CPU1 的US 60%，没留意idle，同时以为这个60%就是偶尔一个进程在跑，耐心不够（主要也是没意识到这种极端情况，疏忽了）</li>
-</ul>
-<h2 id="关于Load高的总结"><a href="#关于Load高的总结" class="headerlink" title="关于Load高的总结"></a>关于Load高的总结</h2><ul>
-<li>Load高一般对应着CPU高，就是CPU负载过大，检查CPU具体执行任务是否合理</li>
-<li>如果Load高，CPU使用率不高的检查一下IO、网络等是否比较慢</li>
-<li>如果是虚拟机，检查是否物理机超卖或者物理机其它ECS抢占CPU、IO导致的</li>
-<li>如果两台一样的机器一样的流量，Load有一台偏高的话检查硬件信息，比如CPU被降频了，QPI，内存效率等等（<a target="_blank" rel="noopener" href="https://www.atatech.org/articles/12201%EF%BC%89%EF%BC%8C%E8%BF%99%E4%B8%AA%E6%97%B6%E5%80%99%E5%8F%AF%E8%83%BD%E9%9C%80%E8%A6%81%E7%A1%AC%E4%BB%B6%E7%9B%B8%E5%85%B3%E5%90%8C%E5%AD%A6%E5%8A%A0%E5%85%A5%E4%B8%80%E8%B5%B7%E6%8E%92%E6%9F%A5%E4%BA%86%EF%BC%8C%E5%BD%93%E7%84%B6%E7%89%9B%E9%80%BC%E7%9A%84%E5%B7%A5%E7%A8%8B%E5%B8%88%E8%83%BD%E6%8A%8A%E8%BF%99%E5%9D%97%E4%B9%9FCover%E4%BA%86%E6%8E%92%E6%9F%A5%E6%95%88%E7%8E%87%E8%87%AA%E7%84%B6%E6%9B%B4%E9%AB%98">https://www.atatech.org/articles/12201），这个时候可能需要硬件相关同学加入一起排查了，当然牛逼的工程师能把这块也Cover了排查效率自然更高</a></li>
-<li>load计算是看TASK_RUNNING(R)或者TASK_UNINTERRUPTIBLE(D–不可中断的睡眠进程)的数量，R肯定会占用CPU，但是D一般就不占用CPU了</li>
-</ul>
-<p>Linux 下load 高主要是因为<a target="_blank" rel="noopener" href="http://oliveryang.net/2017/12/linux-high-loadavg-analysis-1">R&#x2F;D 两个状态的线程多了</a>，排查套路：</p>
-<p><img src="/images/951413iMgBlog/format,webp-1273209." alt="img"></p>
-<h2 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h2><p><a target="_blank" rel="noopener" href="http://oliveryang.net/2017/12/linux-high-loadavg-analysis-1">浅谈 Linux 高负载的系统化分析</a> </p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="上一页" aria-label="上一页" href="/page/16/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/16/">16</a><span class="page-number current">17</span><a class="page-number" href="/page/18/">18</a><span class="space">&hellip;</span><a class="page-number" href="/page/21/">21</a><a class="extend next" rel="next" title="下一页" aria-label="下一页" href="/page/18/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="上一页" aria-label="上一页" href="/page/16/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/16/">16</a><span class="page-number current">17</span><a class="page-number" href="/page/18/">18</a><span class="space">&hellip;</span><a class="page-number" href="/page/22/">22</a><a class="extend next" rel="next" title="下一页" aria-label="下一页" href="/page/18/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
