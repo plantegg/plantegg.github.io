@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">212</span>
+          <span class="site-state-item-count">213</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">321</span>
+        <span class="site-state-item-count">324</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,300 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/" class="post-title-link" itemprop="url">AWS RDS MySQL 蓝绿部署升级完整指南</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2025-10-25 17:30:03" itemprop="dateCreated datePublished" datetime="2025-10-25T17:30:03+08:00">2025-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-02-06 13:53:24" itemprop="dateModified" datetime="2026-02-06T13:53:24+08:00">2026-02-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="AWS-RDS-MySQL-蓝绿部署升级完整指南"><a href="#AWS-RDS-MySQL-蓝绿部署升级完整指南" class="headerlink" title="AWS RDS MySQL 蓝绿部署升级完整指南"></a>AWS RDS MySQL 蓝绿部署升级完整指南</h1><h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>本文档基于实际测试记录，详细介绍AWS RDS MySQL从5.7升级到8.0的蓝绿部署全过程。</p>
+<p><strong>测试环境:</strong></p>
+<ul>
+<li>源版本: MySQL 5.7.44-rds.20251212</li>
+<li>目标版本: MySQL 8.0.40</li>
+<li>实例类型: db.m5.large (2vCPU, 8GB)</li>
+<li>Multi-AZ: 启用</li>
+<li>区域: ap-southeast-1</li>
+</ul>
+<h2 id="蓝绿部署流程图"><a href="#蓝绿部署流程图" class="headerlink" title="蓝绿部署流程图"></a>蓝绿部署流程图</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────────────────────┐</span><br><span class="line">│                         蓝绿部署升级完整流程                                  │</span><br><span class="line">├─────────────────────────────────────────────────────────────────────────────┤</span><br><span class="line">│                                                                             │</span><br><span class="line">│  阶段1              阶段2              阶段3              阶段4              │</span><br><span class="line">│  创建读副本          版本升级            配置备份            执行切换           │</span><br><span class="line">│  ┌─────────┐       ┌─────────┐       ┌─────────┐       ┌─────────┐        │</span><br><span class="line">│  │蓝环境    │       │绿环境    │       │绿环境    │       │绿环境    │        │</span><br><span class="line">│  │MySQL5.7 │──复制─▶│MySQL5.7 │──升级─▶│MySQL8.0 │──切换─▶│MySQL8.0│        │</span><br><span class="line">│  │(生产)    │       │(副本)   │        │(就绪)   │       │(新生产)  │        │</span><br><span class="line">│  └─────────┘       └─────────┘       └─────────┘       └─────────┘        │</span><br><span class="line">│       │                 │                 │                 ▲              │</span><br><span class="line">│       │                 │                 │                 │              │</span><br><span class="line">│       └─────────────────┴─────────────────┴─────────────────┘              │</span><br><span class="line">│                        持续数据同步                                         │</span><br><span class="line">│                                                                             │</span><br><span class="line">│  耗时: 10-20分钟      耗时: 10-20分钟    耗时: 几分钟      耗时: 1-5分钟     	   │</span><br><span class="line">│  业务影响: 零         业务影响: 零       业务影响: 零      业务影响: 短暂     		  │</span><br><span class="line">└─────────────────────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="前置条件"><a href="#前置条件" class="headerlink" title="前置条件"></a>前置条件</h2><h3 id="1-检查当前实例状态"><a href="#1-检查当前实例状态" class="headerlink" title="1. 检查当前实例状态"></a>1. 检查当前实例状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion,MultiAZ:MultiAZ&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-确认可升级的目标版本"><a href="#2-确认可升级的目标版本" class="headerlink" title="2. 确认可升级的目标版本"></a>2. 确认可升级的目标版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-engine-versions \</span><br><span class="line">    --engine mysql \</span><br><span class="line">    --engine-version 5.7 \</span><br><span class="line">    --query <span class="string">&#x27;DBEngineVersions[0].ValidUpgradeTarget[?IsMajorVersionUpgrade==`true`].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-确保备份已启用"><a href="#3-确保备份已启用" class="headerlink" title="3. 确保备份已启用"></a>3. 确保备份已启用</h3><p>蓝绿部署要求源实例启用自动备份 (BackupRetentionPeriod &gt; 0)</p>
+<hr>
+<h2 id="阶段1-创建蓝绿部署"><a href="#阶段1-创建蓝绿部署" class="headerlink" title="阶段1: 创建蓝绿部署"></a>阶段1: 创建蓝绿部署</h2><h3 id="命令"><a href="#命令" class="headerlink" title="命令"></a>命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name mysql-57-to-80-upgrade \</span><br><span class="line">    --<span class="built_in">source</span> arn:aws:rds:XXXX:db:mysql-test-57 \</span><br><span class="line">    --target-engine-version 8.0.40 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明"><a href="#参数说明" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-name</code></td>
+<td>部署名称，用于标识</td>
+</tr>
+<tr>
+<td><code>--source</code></td>
+<td>源实例的ARN</td>
+</tr>
+<tr>
+<td><code>--target-engine-version</code></td>
+<td>目标MySQL版本</td>
+</tr>
+</tbody></table>
+<h3 id="返回示例"><a href="#返回示例" class="headerlink" title="返回示例"></a>返回示例</h3><figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;BlueGreenDeployment&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;BlueGreenDeploymentIdentifier&quot;</span><span class="punctuation">:</span> <span class="string">&quot;bgd-xen1mlsjdt6hlt8r&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PROVISIONING&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Tasks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CREATING_READ_REPLICA_OF_SOURCE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;DB_ENGINE_VERSION_UPGRADE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CONFIGURE_BACKUPS&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段2-监控部署进度"><a href="#阶段2-监控部署进度" class="headerlink" title="阶段2: 监控部署进度"></a>阶段2: 监控部署进度</h2><h3 id="查看部署状态"><a href="#查看部署状态" class="headerlink" title="查看部署状态"></a>查看部署状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="任务状态说明"><a href="#任务状态说明" class="headerlink" title="任务状态说明"></a>任务状态说明</h3><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>说明</th>
+<th>预计耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CREATING_READ_REPLICA_OF_SOURCE</td>
+<td>创建源实例的读副本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>DB_ENGINE_VERSION_UPGRADE</td>
+<td>升级绿环境到目标版本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>CONFIGURE_BACKUPS</td>
+<td>配置备份策略</td>
+<td>几分钟</td>
+</tr>
+</tbody></table>
+<h3 id="状态流转"><a href="#状态流转" class="headerlink" title="状态流转"></a>状态流转</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">PROVISIONING → AVAILABLE → SWITCHOVER_IN_PROGRESS → SWITCHOVER_COMPLETED</span><br></pre></td></tr></table></figure>
+
+<h3 id="查看绿环境实例详情"><a href="#查看绿环境实例详情" class="headerlink" title="查看绿环境实例详情"></a>查看绿环境实例详情</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 绿环境实例名称格式: &#123;源实例名&#125;-green-&#123;随机字符&#125;</span></span><br><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57-green-b66gdf \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段3-执行切换-Switchover"><a href="#阶段3-执行切换-Switchover" class="headerlink" title="阶段3: 执行切换 (Switchover)"></a>阶段3: 执行切换 (Switchover)</h2><h3 id="前置检查"><a href="#前置检查" class="headerlink" title="前置检查"></a>前置检查</h3><p>确保部署状态为 <code>AVAILABLE</code>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].Status&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="执行切换命令"><a href="#执行切换命令" class="headerlink" title="执行切换命令"></a>执行切换命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --switchover-timeout 300 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明-1"><a href="#参数说明-1" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-identifier</code></td>
+<td>蓝绿部署ID</td>
+</tr>
+<tr>
+<td><code>--switchover-timeout</code></td>
+<td>切换超时时间(秒)，默认300</td>
+</tr>
+</tbody></table>
+<h3 id="切换过程详解"><a href="#切换过程详解" class="headerlink" title="切换过程详解"></a>切换过程详解</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">切换时间线 (实测数据):</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">08:33:35  切换开始，TPS正常 (~263)</span><br><span class="line">08:33:51  TPS开始下降，出现错误 (err/s: 142)</span><br><span class="line">08:33:52  TPS=0，写入完全阻塞</span><br><span class="line">08:36:47  连接完全中断 (QPS=0)</span><br><span class="line">08:37:00  DNS切换完成</span><br><span class="line">08:37:30  切换完成，连接恢复</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">总切换时间: ~4分钟</span><br><span class="line">完全断连时间: ~28秒</span><br></pre></td></tr></table></figure>
+
+<h3 id="切换期间的实例名称变化"><a href="#切换期间的实例名称变化" class="headerlink" title="切换期间的实例名称变化"></a>切换期间的实例名称变化</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">切换前:</span><br><span class="line">  mysql-test-57          → MySQL 5.7 (生产)</span><br><span class="line">  mysql-test-57-green-xxx → MySQL 8.0 (绿环境)</span><br><span class="line"></span><br><span class="line">切换后:</span><br><span class="line">  mysql-test-57          → MySQL 8.0 (新生产，原绿环境)</span><br><span class="line">  mysql-test-57-old1     → MySQL 5.7 (原生产，可用于回滚)</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段4-验证升级结果"><a href="#阶段4-验证升级结果" class="headerlink" title="阶段4: 验证升级结果"></a>阶段4: 验证升级结果</h2><h3 id="检查切换状态"><a href="#检查切换状态" class="headerlink" title="检查切换状态"></a>检查切换状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].&#123;Status:Status,StatusDetails:StatusDetails&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="验证新版本"><a href="#验证新版本" class="headerlink" title="验证新版本"></a>验证新版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="连接验证"><a href="#连接验证" class="headerlink" title="连接验证"></a>连接验证</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql -h mysql-test-57.XXX.rds.amazonaws.com \</span><br><span class="line">    -P 3306 -u admin -p -e <span class="string">&quot;SELECT VERSION();&quot;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段5-清理资源"><a href="#阶段5-清理资源" class="headerlink" title="阶段5: 清理资源"></a>阶段5: 清理资源</h2><h3 id="删除蓝绿部署-保留旧实例"><a href="#删除蓝绿部署-保留旧实例" class="headerlink" title="删除蓝绿部署 (保留旧实例)"></a>删除蓝绿部署 (保留旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="删除蓝绿部署-同时删除旧实例"><a href="#删除蓝绿部署-同时删除旧实例" class="headerlink" title="删除蓝绿部署 (同时删除旧实例)"></a>删除蓝绿部署 (同时删除旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --delete-target \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="手动删除旧实例-如需要"><a href="#手动删除旧实例-如需要" class="headerlink" title="手动删除旧实例 (如需要)"></a>手动删除旧实例 (如需要)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57-old1 \</span><br><span class="line">    --skip-final-snapshot \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="回滚方案"><a href="#回滚方案" class="headerlink" title="回滚方案"></a>回滚方案</h2><p>如果升级后发现问题，可以快速回滚:</p>
+<h3 id="方法1-切换回旧实例-推荐"><a href="#方法1-切换回旧实例-推荐" class="headerlink" title="方法1: 切换回旧实例 (推荐)"></a>方法1: 切换回旧实例 (推荐)</h3><p>在删除蓝绿部署前，旧实例 (mysql-test-57-old1) 仍然可用:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 修改应用连接字符串指向旧实例</span></span><br><span class="line"><span class="comment"># mysql-test-57-old1.XXXX.amazonaws.com</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="方法2-从快照恢复"><a href="#方法2-从快照恢复" class="headerlink" title="方法2: 从快照恢复"></a>方法2: 从快照恢复</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds restore-db-instance-from-db-snapshot \</span><br><span class="line">    --db-instance-identifier mysql-test-57-restored \</span><br><span class="line">    --db-snapshot-identifier &lt;snapshot-id&gt; \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="实测性能数据"><a href="#实测性能数据" class="headerlink" title="实测性能数据"></a>实测性能数据</h2><h3 id="测试配置"><a href="#测试配置" class="headerlink" title="测试配置"></a>测试配置</h3><ul>
+<li>sysbench oltp_read_write</li>
+<li>16表 × 100,000行</li>
+<li>8并发线程</li>
+</ul>
+<h3 id="性能对比"><a href="#性能对比" class="headerlink" title="性能对比"></a>性能对比</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>MySQL 5.7</th>
+<th>MySQL 8.0</th>
+<th>变化</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS</td>
+<td>263</td>
+<td>288</td>
+<td>+9.5%</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>5,284</td>
+<td>5,760</td>
+<td>+9.0%</td>
+</tr>
+<tr>
+<td>95%延迟</td>
+<td>35ms</td>
+<td>35ms</td>
+<td>持平</td>
+</tr>
+</tbody></table>
+<h3 id="切换影响"><a href="#切换影响" class="headerlink" title="切换影响"></a>切换影响</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>蓝绿部署总耗时</td>
+<td>42分钟</td>
+</tr>
+<tr>
+<td>切换总耗时</td>
+<td>4分钟</td>
+</tr>
+<tr>
+<td>完全断连时间</td>
+<td>28秒</td>
+</tr>
+<tr>
+<td>数据丢失</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="最佳实践"><a href="#最佳实践" class="headerlink" title="最佳实践"></a>最佳实践</h2><h3 id="1-时间选择"><a href="#1-时间选择" class="headerlink" title="1. 时间选择"></a>1. 时间选择</h3><ul>
+<li>选择业务低峰期执行切换</li>
+<li>预留足够的监控和回滚时间</li>
+</ul>
+<h3 id="2-监控准备"><a href="#2-监控准备" class="headerlink" title="2. 监控准备"></a>2. 监控准备</h3><ul>
+<li>提前配置CloudWatch告警</li>
+<li>准备实时监控脚本</li>
+</ul>
+<h3 id="3-应用适配"><a href="#3-应用适配" class="headerlink" title="3. 应用适配"></a>3. 应用适配</h3><ul>
+<li>确保应用支持MySQL 8.0语法</li>
+<li>测试连接池的重连机制</li>
+<li>配置合理的连接超时</li>
+</ul>
+<h3 id="4-回滚准备"><a href="#4-回滚准备" class="headerlink" title="4. 回滚准备"></a>4. 回滚准备</h3><ul>
+<li>保留旧实例至少24小时</li>
+<li>准备回滚脚本和流程</li>
+</ul>
+<h3 id="5-通知机制"><a href="#5-通知机制" class="headerlink" title="5. 通知机制"></a>5. 通知机制</h3><ul>
+<li>提前通知相关团队</li>
+<li>准备故障升级流程</li>
+</ul>
+<hr>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><h3 id="Q1-蓝绿部署创建失败"><a href="#Q1-蓝绿部署创建失败" class="headerlink" title="Q1: 蓝绿部署创建失败"></a>Q1: 蓝绿部署创建失败</h3><p><strong>原因</strong>: 源实例未启用自动备份<br><strong>解决</strong>: </p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds modify-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --backup-retention-period 7 \</span><br><span class="line">    --apply-immediately</span><br></pre></td></tr></table></figure>
+
+<h3 id="Q2-切换超时"><a href="#Q2-切换超时" class="headerlink" title="Q2: 切换超时"></a>Q2: 切换超时</h3><p><strong>原因</strong>: 数据同步延迟过大<br><strong>解决</strong>: 增加 <code>--switchover-timeout</code> 值，或等待复制追平</p>
+<h3 id="Q3-切换后应用连接失败"><a href="#Q3-切换后应用连接失败" class="headerlink" title="Q3: 切换后应用连接失败"></a>Q3: 切换后应用连接失败</h3><p><strong>原因</strong>: DNS缓存或连接池未刷新<br><strong>解决</strong>: 重启应用或刷新连接池</p>
+<hr>
+<h2 id="参考命令汇总"><a href="#参考命令汇总" class="headerlink" title="参考命令汇总"></a>参考命令汇总</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 创建蓝绿部署</span></span><br><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name &lt;name&gt; \</span><br><span class="line">    --<span class="built_in">source</span> &lt;source-arn&gt; \</span><br><span class="line">    --target-engine-version &lt;version&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 查看部署状态</span></span><br><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 执行切换</span></span><br><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt; \</span><br><span class="line">    --switchover-timeout 300</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 删除部署</span></span><br><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br></pre></td></tr></table></figure>
+
+
+<p><em>基于实际测试环境: AWS ap-southeast-1, Account XXXX</em></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1310,155 +1604,6 @@
 <li>或者让客户在他们的网卡上加 30ms模拟抖动从50ms加到80ms，看会不会触发新建几百个连接，如果没有触发新建说明RT 这个幅度的上涨不会触发新建连接</li>
 </ol>
 <p>不知道我解释清楚了没有</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/10/11/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2024/10/11/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86/" class="post-title-link" itemprop="url">为什么你的连接不均衡了？</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2024-10-11 17:30:03" itemprop="dateCreated datePublished" datetime="2024-10-11T17:30:03+08:00">2024-10-11</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-04-06 17:56:48" itemprop="dateModified" datetime="2026-04-06T17:56:48+08:00">2026-04-06</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/LVS/" itemprop="url" rel="index"><span itemprop="name">LVS</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="为什么你的连接不均衡了？"><a href="#为什么你的连接不均衡了？" class="headerlink" title="为什么你的连接不均衡了？"></a>为什么你的连接不均衡了？</h1><h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p>假如你有两个Redis 服务，挂载在一个LVS 下，然后客户端使用的Jedis，Jedis 配置的最大连接池是200个连接，最小是100个(也就是超过100个，当闲置一段时间后就释放掉)。然后过一阵假设来了一个访问高峰，把连接数打到200，过一会高峰过去连接就会释放到100，客户端每次取连接然后随便 get 以下就归还连接</p>
-<p><strong>场景构造小提示</strong>：</p>
-<ol>
-<li>用Jedis；</li>
-<li>构造流量一波一波，就是有流量高峰(触发新建连接)、有流量低峰(触发连接释放)，如此反复</li>
-<li>不需要太大流量把Redis 节点打到出现瓶颈</li>
-</ol>
-<p>如下图：</p>
-<p><img src="/images/951413iMgBlog/image-20240618202012463.png" alt="image-20240618202012463"></p>
-<p>期待场景：在这个过程中，Jedis 每次取一个连接随便get 一个key 就行了，无论怎么折腾两个Redis Service 的连接数基本是均衡的，实际也确实是这样</p>
-<p>比如可以这样设置Jedis 参数(你也可以随便改)，也可以用你们生产环境</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">JedisPoolConfig config = new JedisPoolConfig();</span><br><span class="line">config.setMaxIdle(100);</span><br><span class="line">config.setMaxTotal(200);</span><br><span class="line">config.setMinEvictableIdleTimeMillis(3000);</span><br><span class="line">config.setTimeBetweenEvictionRunsMillis(1000);</span><br><span class="line">config.setTestOnBorrow(false);</span><br><span class="line">config.setTestOnReturn(false);</span><br><span class="line">config.setTestWhileIdle(false);</span><br><span class="line">config.setTestOnCreate(false);</span><br></pre></td></tr></table></figure>
-
-<p>验证代码</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br></pre></td><td class="code"><pre><span class="line">import com.taobao.eagleeye.redis.clients.jedis.Jedis;</span><br><span class="line">import com.taobao.eagleeye.redis.clients.jedis.JedisPool;</span><br><span class="line">import com.taobao.eagleeye.redis.clients.jedis.JedisPoolConfig;</span><br><span class="line"></span><br><span class="line">public class JedisPoolTest &#123;</span><br><span class="line">    // 初始化连接超时时间</span><br><span class="line">    private static final int DEFAULT_CONNECTION_TIMEOUT = 5000;</span><br><span class="line">    // 查询超时时间</span><br><span class="line">    private static final int DEFAULT_SO_TIMEOUT = 2000;</span><br><span class="line">    private static final JedisPoolConfig config = new JedisPoolConfig();</span><br><span class="line">    private static JedisPool jedisPool = null;</span><br><span class="line"></span><br><span class="line">    public static void main(String args[]) &#123;</span><br><span class="line">        // 代理连接地址，用控制台上的&quot;代理地址&quot;。</span><br><span class="line">        String host = &quot;redis&quot;;</span><br><span class="line">        int port = 6379;</span><br><span class="line">        //String password = &quot;1234&quot;;</span><br><span class="line"></span><br><span class="line">        // 设置参考上面</span><br><span class="line">        config.setMaxTotal(xx);</span><br><span class="line">        config.setMaxIdle(xx);</span><br><span class="line">        config.setMinIdle(xx);</span><br><span class="line">        </span><br><span class="line"></span><br><span class="line">        // 只需要初始化一次</span><br><span class="line">        try &#123;</span><br><span class="line">            jedisPool = new JedisPool(config, host, port, </span><br><span class="line">            DEFAULT_CONNECTION_TIMEOUT, DEFAULT_SO_TIMEOUT, password, 0, null);</span><br><span class="line">            try (Jedis jedis = jedisPool.getResource()) &#123;</span><br><span class="line">                if (!&quot;PONG&quot;.equals(jedis.ping())) &#123;</span><br><span class="line">                    throw new RuntimeException(&quot;Init Failed&quot;);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; catch (Exception e) &#123;</span><br><span class="line">            // 如果有exception，说明初始化失败。</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        // 每次 API 查询都像下面这么写</span><br><span class="line">        Jedis jedis = null;</span><br><span class="line">        try &#123;</span><br><span class="line">            jedis = jedisPool.getResource(); // 查询前获取一个连接</span><br><span class="line">            String ret = jedis.set(&quot;key&quot;, &quot;value&quot;);</span><br><span class="line">            if (&quot;OK&quot;.equals(ret)) &#123;</span><br><span class="line">                System.out.println(ret);</span><br><span class="line">                // SET success</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; catch (Exception e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">            // 连接错误，超时等情况</span><br><span class="line">        &#125; finally &#123;</span><br><span class="line">            if (jedis != null) &#123;</span><br><span class="line">                // 查询结束后还回连接池，不是销毁连接</span><br><span class="line">                // 必须尽快还回，否则会导致连接池资源不够</span><br><span class="line">                jedis.close(); </span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        // 只需要最后程序退出时调用一次，不需要每次查询完之后都调用</span><br><span class="line">        jedisPool.close();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>运行如上代码，应该看到一个负载均衡正常环境——符合预期</p>
-<h2 id="不均衡重现"><a href="#不均衡重现" class="headerlink" title="不均衡重现"></a>不均衡重现</h2><p>背景里描述的是完全符合预期的，假设实际使用中两个 Redis中的一个节点的CPU有一个降频了&#x2F;争抢&#x2F;温度高 等种种原因，导致这个节点处理更慢了</p>
-<p>如何模拟其中一个节点突然慢了(这些手段在之前的星球案例重现里都反复使用过了)</p>
-<ol>
-<li>你可以把Redis 进程绑到一个核上，然后在这这个核上跑一个死循环故意让；</li>
-<li>或者，也可以在这个节点上给网络延迟加200ms 进去</li>
-</ol>
-<p>这个时候你再重新跑背景描述里的代码，一段时间后你会看到下图中红线对应的 Redis 节点上的连接数越来越高，QPS 越来越高(别用太大的压力，导致这个节点的访问超时哈)</p>
-<p><img src="/images/951413iMgBlog/image-20240618203121532.png" alt="image-20240618203121532"></p>
-<p>到这里就算是问题重现出来了</p>
-<p><strong>重现确认注意：</strong></p>
-<p>如果只是看到瞬间连接数不均衡这应该没有重现出来，因为节点慢了所以 active 要变高才会维系住同样的QPS，这是符合预期的。</p>
-<p>期望的是长期运行后慢的节点上统计意义上的<strong>连接数越来越多、QPS 越来越大</strong></p>
-<p>比如下图是重现过程中的连接数监控，可以看到橙色线对应的Redis 节点上的连接越来越多：</p>
-<p><img src="/images/951413iMgBlog/FqdkiFCrWvrfNTY3CtmRSZNpa9Ju.jpeg" alt="img"></p>
-<p>下图是对应的QPS 监控，问题Redis 节点(黄色线)的QPS 比另外一个节点大很多，长期下去会导致问题节点成为瓶颈：</p>
-<p><img src="/images/951413iMgBlog/Fk0WyAcGQeTrlhcgZzlF9wJP9Ria.jpeg" alt="img"></p>
-<h2 id="重现脚本和代码"><a href="#重现脚本和代码" class="headerlink" title="重现脚本和代码"></a>重现脚本和代码</h2><p>以下涉及的脚本、代码提交到 github，这些脚本、手段在我们之前的实验、案例都反复出现过了，我就不给了</p>
-<p>参考星球里扒老师的操作(不含客户端Java代码)：<a target="_blank" rel="noopener" href="https://malleable-elbow-b9f.notion.site/redis-f7dfcecb7f7441e1ba96f4da3ca8aee8?pvs=4">https://malleable-elbow-b9f.notion.site/redis-f7dfcecb7f7441e1ba96f4da3ca8aee8?pvs=4</a> </p>
-<p>星球里橘橘球用python 3.8 实现了一个python 版本的：<a target="_blank" rel="noopener" href="https://github.com/gongyisheng/playground/blob/dev/network/lvs_case/readme.md">https://github.com/gongyisheng/playground/blob/dev/network/lvs_case/readme.md</a> </p>
-<p>好奇同学用Java&#x2F;Jedis 和Go两个版本(Go 版本是没有Jedis，也能重现问题)的实现代码：<a target="_blank" rel="noopener" href="https://github.com/haoqixu/case-reproduction-240618">https://github.com/haoqixu/case-reproduction-240618</a> </p>
-<h3 id="docker"><a href="#docker" class="headerlink" title="docker"></a>docker</h3><p>用 docker起两个Redis 节点</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">//这里提供Redis docker run脚本</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-
-
-<h3 id="ipvsadm"><a href="#ipvsadm" class="headerlink" title="ipvsadm"></a>ipvsadm</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">//创建一个 LVS，将上面的两个Redis 加入到负载均衡里面</span><br></pre></td></tr></table></figure>
-
-
-
-<h3 id="Java-客户端代码"><a href="#Java-客户端代码" class="headerlink" title="Java 客户端代码"></a>Java 客户端代码</h3><p>完整代码应该很简单，就是一个Java + Jedis 的HelloWorld 上传到 github，别人下载代码后，自己配置一个 LVS + Redis 的负载均衡环境就能重现以上问题</p>
-<h3 id="tc-qdisc"><a href="#tc-qdisc" class="headerlink" title="tc qdisc"></a>tc qdisc</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">//给其中的一个 节点构造 200ms 的延时 </span><br></pre></td></tr></table></figure>
-
-<p>也可以跑死循环抢 CPU </p>
-<h2 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h2><p>原因：Jedis 连接池使用的是 <a target="_blank" rel="noopener" href="https://github.com/apache/commons-pool">apache commons-pool</a> 这个组件，默认从连接池取连接使用的是 LIFO(last in first out) ，如果两个节点负载正常两个节点上的连接基本能保持在队列里交叉均衡；如果连接闲置久了释放的时候就是均衡释放的</p>
-<p>但如果有一个节点处理慢了，那么这个节点的连接被取出来使用的时候必然需要更多的时间在连接池外面处理请求，用完归还的时候就会更高概率出现在队列的顶部，导致下次首先被取出来使用，长期下去就会出现快的节点上的连接慢慢被释放，慢的节点的连接越来越多，进而慢的节点的QPS 越来越高，最后这个节点崩了</p>
-<h3 id="泛化问题"><a href="#泛化问题" class="headerlink" title="泛化问题"></a>泛化问题</h3><p>针对这个问题就一定是Jedis 和 Redis 才有吗？本质是我们没法期望所有节点一样快，导致连接归还一定有慢的，进而只要是取连接用 LIFO(last in first out)  就会有这个问题，Jedis&#x2F;Lettuce&#x2F;MySQL dbcp 都用了 <a target="_blank" rel="noopener" href="https://github.com/apache/commons-pool">apache commons-pool</a> 这个组件来实现连接池功能，而  apache commons-pool 默认就是 LIFO ，所以这些组件全部中枪。应该是用的 LinkedBlockingDeque 队列，它有有 FIFO 和 FILO 两种策略</p>
-<p>那么没有用 apache-commons-pools 的就安全吗？也不一定，得看取连接的逻辑，一般都是 LIFO，比如 Druid 连接池的实现用的 stack ，也就是 stack 顶部的几个连接被反复使用，可能底部连接完全用不到的情况。 且Druid 还不提供接口去设置是不是 stack&#x2F;queue（LIFO&#x2F;FIFO)</p>
-<p>你们的微服务只要是用连接池大概率也会有同样的问题</p>
-<p>那么有什么好办法来解决类似的问题吗？<a target="_blank" rel="noopener" href="https://github.com/alibaba/druid/wiki/DruidDataSource%E9%85%8D%E7%BD%AE%E5%B1%9E%E6%80%A7%E5%88%97%E8%A1%A8">Druid 有个设置</a> phyTimeoutMillis 和 phyMaxUseCount (就是一个长连接用多久、或者执行了多少次SQL ) 来将长连接主动断开，这就有概率修复这个问题；</p>
-<p>另外如果LVS 用的 WLC 均衡算法也可以fix 这个问题，见参考资料。</p>
-<p>php听说有个功能，进程跑一段时间后自行销毁重建；担心内存泄漏啥的 —— 是不是很像遇到问题就重启，又不是不work，不优雅但是管用，有点像通信基站半夜重启</p>
-<h4 id="内核-epoll-的线程也是-FILO"><a href="#内核-epoll-的线程也是-FILO" class="headerlink" title="内核 epoll 的线程也是 FILO"></a>内核 epoll 的线程也是 FILO</h4><p>参考：<a target="_blank" rel="noopener" href="https://blog.cloudflare.com/the-sad-state-of-linux-socket-balancing/">Why does one NGINX worker take all the load?</a> (链接里提供完整的最简测试重现代码)</p>
-<p>唤醒时容易最是唤醒最后几个线程(一般一个线程对应一个核)，在并发压力不大时某几个线程总是被唤醒-&gt;归还-&gt;唤醒(再次取出分配执行任务)</p>
-<p>epoll的accept模型为LIFO，倾向于唤醒最活跃的进程。多进程场景下：默认的accept是FIFO，进程加入到监听socket等待队列的尾部，唤醒时从头部开始唤醒；epoll的accept是LIFO，在epoll_wait时把进程加入到监听socket等待队列的头部，唤醒时从头部开始唤醒。</p>
-<p>影响：当并发数较小时，只有最后几个进程会被唤醒，它们使用的CPU时间会远高于其它进程。当并发数较大时，所有的进程都有机会被唤醒，各个进程之间的差距不大。内核社区中关于epoll accept是使用LIFO还是RR有过讨论，在4.9内核和最新版本中使用的都是LIFO。</p>
-<p><img src="/images/951413iMgBlog/6551777f24be3da9d2b41ceb20a2b040-3405213.png" alt="image.png"></p>
-<p>你看虽然是一次 Jedis 客户端在某些条件下导致的问题，只要你去通用化问题的本质就可以发现很容易地跳出来看到各个不同场景下同样会引起的问题，无招胜有招啊</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="https://plantegg.github.io/categories/LVS">https://plantegg.github.io/categories/LVS/</a>  强调下这次的不均衡和我这个链接里的两篇文章描述的毫无关系，只是接着这个机会可以重温一下导致不均衡的其它原因，做个汇总</p>
 
       
     </div>
