@@ -140,18 +140,18 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">213</span>
+          <span class="site-state-item-count">214</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
           <a href="/categories/">
-        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-count">20</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">324</span>
+        <span class="site-state-item-count">327</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,119 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022/05/05/Netty%E5%92%8CDisruptor%E7%9A%84cache_line%E5%AF%B9%E9%BD%90%E5%AE%9E%E8%B7%B5/" class="post-title-link" itemprop="url">Netty和Disruptor的cache_line对齐实践</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-05-05 18:20:03" itemprop="dateCreated datePublished" datetime="2022-05-05T18:20:03+08:00">2022-05-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/CPU/" itemprop="url" rel="index"><span itemprop="name">CPU</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="Netty和Disruptor的cache-line对齐实践"><a href="#Netty和Disruptor的cache-line对齐实践" class="headerlink" title="Netty和Disruptor的cache_line对齐实践"></a>Netty和Disruptor的cache_line对齐实践</h1><p>原理先看这篇：<a href="https://plantegg.github.io/2021/05/16/CPU_Cache_Line%E5%92%8C%E6%80%A7%E8%83%BD/">CPU 性能和Cache Line</a></p>
+<p>写这篇文章的起因是这个 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/vkCskOVSpzxt3Umzc_GYrQ">记一次 Netty PR 的提交</a>，然后我去看了下这次提交，发现Netty的这部分代码有问题、这次提交也有问题</p>
+<h2 id="什么是-cache-line"><a href="#什么是-cache-line" class="headerlink" title="什么是 cache_line"></a>什么是 cache_line</h2><p>CPU从内存中读取数据的时候是一次读一个cache_line到 cache中以提升效率，一般情况下cache_line的大小是64 byte，也就是每次读取64byte到CPU cache中，按照热点逻辑这个cache line中的数据大概率会被访问到。</p>
+<h3 id="cache-失效"><a href="#cache-失效" class="headerlink" title="cache 失效"></a>cache 失效</h3><p>假设CPU的两个核 A 和 B, 都在各自本地 Cache Line 里有同一个变量1的拷贝时，此时该 Cache Line 处于 Shared 状态。当 核A 在本地修改了变量2，除去把本地变量所属的 Cache Line 置为 Modified 状态以外，还必须在另一个 核B 读另一个变量2前，对该变量所在的 B 处理器本地 Cache Line 发起 Invaidate 操作，标记 B 处理器的那条 Cache Line 为 Invalidate 状态。随后，若处理器 B 在对变量做读写操作时，如果遇到这个标记为 Invalidate 的状态的 Cache Line，即会引发 Cache Miss，从而将内存中最新的数据拷贝到 Cache Line 里，然后处理器 B 再对此 Cache Line 对变量做读写操作。</p>
+<p>上面这个过程也叫false-share, 即伪共享，因为变量1、2不是真的关联共享，本来变量1失效不应该导致变量2失效，但是因为cache line机制的存在导致 变量2也失效了，所以这里变量1、2叫false-share</p>
+<h2 id="Disruptor中对cache-line的使用"><a href="#Disruptor中对cache-line的使用" class="headerlink" title="Disruptor中对cache_line的使用"></a>Disruptor中对cache_line的使用</h2><p>Disruptor中为了保护下面的那几个final 成员变量，前后都加了 p1-p7就是为了避免这4个final成员不要和别的变量放到同一个cache line中。</p>
+<p>重点留意下面代码中的p1-p7这几个没有用的long变量，实际使用来占位，占住实际变量前后的位置，这样避免这些变量被其他变量的修改而失效。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">abstract class RingBufferPad</span><br><span class="line">&#123;</span><br><span class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</span><br><span class="line">&#125;</span><br><span class="line">  </span><br><span class="line">abstract class RingBufferFields&lt;E&gt; extends RingBufferPad</span><br><span class="line">&#123;</span><br><span class="line">    ......    </span><br><span class="line">    private final long indexMask;</span><br><span class="line">    private final Object[] entries;</span><br><span class="line">    protected final int bufferSize;</span><br><span class="line">    protected final Sequencer sequencer;</span><br><span class="line">    ......    </span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">public final class RingBuffer&lt;E&gt; extends RingBufferFields&lt;E&gt; implements Cursored, EventSequencer&lt;E&gt;, EventSink&lt;E&gt;</span><br><span class="line">&#123;</span><br><span class="line">    ......    </span><br><span class="line">    protected long p1, p2, p3, p4, p5, p6, p7;</span><br><span class="line">    ......</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果如下图所示绿色部分很好地被保护起来一定是独占一个cache line，本来绿色部分都是final，也就是你理解成只读的，不会更改了，这样不会因为共享cache line的变量被修改导致他们所在的cache失效（完全没必要）</p>
+<p><img src="/images/951413iMgBlog/1620984677390-81694fd0-0323-4052-98d1-32be39a02248-4505908.png" alt="image.png"></p>
+<p>队列大部分时候都是空的（head挨着tail），也就导致head 和 tail在一个cache line中，读和写会造成没必要的cache ping-pong，一般可以通过将head 和 tail 中间填充其它内容来实现错开到不同的cache line中</p>
+<p><img src="/images/951413iMgBlog/1577093636588-6b58c36c-1617-4f2c-aba9-156c52972689-1744256.png" alt="image"></p>
+<p>数组(RingBuffer)基本能保证元素在内存中是连续的，但是Queue（链表）就不一定了，连续的话更利于CPU cache</p>
+<h2 id="Netty中cache-line的对齐"><a href="#Netty中cache-line的对齐" class="headerlink" title="Netty中cache line的对齐"></a>Netty中cache line的对齐</h2><p><a target="_blank" rel="noopener" href="https://github.com/arthur-zhang/netty/blob/e8250372cafe4cf5435a1dbc4c8e400072fb9791/common/src/main/java/io/netty/util/internal/InternalThreadLocalMap.java">注意下图12行</a>的代码，重点也请注意下11行的注释</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">// String-related thread-locals</span><br><span class="line">private StringBuilder stringBuilder;</span><br><span class="line">private Map&lt;Charset, CharsetEncoder&gt; charsetEncoderCache;</span><br><span class="line">private Map&lt;Charset, CharsetDecoder&gt; charsetDecoderCache;</span><br><span class="line"></span><br><span class="line">// ArrayList-related thread-locals</span><br><span class="line">private ArrayList&lt;Object&gt; arrayList;</span><br><span class="line"></span><br><span class="line">private BitSet cleanerFlags;</span><br><span class="line"></span><br><span class="line">/** @deprecated These padding fields will be removed in the future. */</span><br><span class="line">public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8;</span><br><span class="line"></span><br><span class="line">static &#123;</span><br><span class="line">    STRING_BUILDER_INITIAL_SIZE =</span><br><span class="line">            SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.initialSize&quot;, 1024);</span><br><span class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.initialSize: &#123;&#125;&quot;, STRING_BUILDER_INITIAL_SIZE);</span><br><span class="line"></span><br><span class="line">    STRING_BUILDER_MAX_SIZE = SystemPropertyUtil.getInt(&quot;io.netty.threadLocalMap.stringBuilder.maxSize&quot;, 1024 * 4);</span><br><span class="line">    logger.debug(&quot;-Dio.netty.threadLocalMap.stringBuilder.maxSize: &#123;&#125;&quot;, STRING_BUILDER_MAX_SIZE);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>一看这里也和Disruptor一样想保护某个变量尽量少失效，可是这个实现我看不出来想要保护哪个变量，因为这种保护办法只对齐了一边，还有一边是和别的变量共享cache line。</p>
+<p>另外这个代码之前是9个long rp来对齐，这个<a target="_blank" rel="noopener" href="https://github.com/netty/netty/pull/12309">PR</a>改成了8个，9个就实在是迷惑了（9个long占72bytes了）对齐也是64bytes就好了</p>
+<p>还是按照11行注释所说去掉这个对齐的rp吧，要不明确要保护哪些变量，前后夹击真正保护起来，并且做好对比测试</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Netty的这段代码纸上谈兵更多一点，Donald E. Knuth 告诉我们不要提前优化</p>
+<h2 id="系列文章"><a href="#系列文章" class="headerlink" title="系列文章"></a>系列文章</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
+<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
+<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
+<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
+<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
+<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
+<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
+<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2929,192 +3042,6 @@
 <p><img src="/images/951413iMgBlog/image-20210802161410524-1011377.png" alt="image-20210802161410524"></p>
 <p>这个故事你觉得我想说啥，辛苦帮我在评论里总结下</p>
 <h2 id="其他想说的"><a href="#其他想说的" class="headerlink" title="其他想说的"></a>其他想说的</h2><p>看完故事升华一下方法论：<a href="https://plantegg.github.io/2018/05/23/%E5%A6%82%E4%BD%95%E5%9C%A8%E5%B7%A5%E4%BD%9C%E4%B8%AD%E5%AD%A6%E4%B9%A0/">如何在工作中学习</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021/11/26/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%AE%A1%E7%AE%97%E5%90%91%E9%87%8F%E5%8C%96/" class="post-title-link" itemprop="url">数据库计算向量化</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-11-26 17:30:03" itemprop="dateCreated datePublished" datetime="2021-11-26T17:30:03+08:00">2021-11-26</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-29 15:11:18" itemprop="dateModified" datetime="2025-11-29T15:11:18+08:00">2025-11-29</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="数据库计算向量化"><a href="#数据库计算向量化" class="headerlink" title="数据库计算向量化"></a>数据库计算向量化</h1><p>前面我们通过一系列的CPU原理来学习了CPU的结构，以及怎么样让CPU跑得更快，那么我们有没有很好的案例来实战让CPU跑得更快呢。接下来我们通过数据库领域的向量化计算是如何利用CPU这些特性来让CPU更快地帮我们处理数据(SQL)</p>
-<p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
-<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
-<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
-<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
-<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
-<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
-<p><a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
-<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
-<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
-<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
-<p>在做向量化之前数据库一直用的是volcano模型来处理SQL</p>
-<h2 id="volcano火山模型"><a href="#volcano火山模型" class="headerlink" title="volcano火山模型"></a>volcano火山模型</h2><p>对于如下一条SQL, 数据库会将它解析成一颗树，这棵树每个节点就是一个operator(简单理解就是一个函数，进行一次计算处理)</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> pv.siteId, user.nickame</span><br><span class="line"><span class="keyword">FROM</span> pv <span class="keyword">JOIN</span> <span class="keyword">user</span></span><br><span class="line"><span class="keyword">ON</span> pv.siteId <span class="operator">=</span> user.siteId <span class="keyword">AND</span> pv.userId <span class="operator">=</span> user.id</span><br><span class="line"><span class="keyword">WHERE</span> pv.siteId <span class="operator">=</span> <span class="number">123</span>;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/images/951413iMgBlog/relation-algebra.png" alt="Relation Algebra"></p>
-<p>可以看到火山模型实现简单，只需要根据不同的计算提供一堆算子(operator)就可以了，然后根据不同的SQL只需要将operator进行组装（类似搭积木一样），就能得到一个递归调用结构（火山模型），每行数据按照这个调用逻辑经过每个operator进行嵌套处理就得到最终结果。</p>
-<p>火山模型不但实现简单，框架结构性也非常好容易扩展。</p>
-<p>但是火山模型效率不高: </p>
-<ol>
-<li>每个operator拆分必须到最小粒度，导致嵌套调用过多过深；</li>
-<li>嵌套都是虚函数无法内联；</li>
-<li>这个处理逻辑整体对CPU流水线不友好，CPU希望你不停地给我数据我按一个固定的逻辑(流程)来处理，而不是在不同的算子中间跳来跳去。</li>
-</ol>
-<h2 id="向量化加速的CPU原理"><a href="#向量化加速的CPU原理" class="headerlink" title="向量化加速的CPU原理"></a>向量化加速的CPU原理</h2><p>向量化加速的CPU原理:</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://topic.atatech.org/articles/210128">内存访问比CPU计算慢两个数量级</a></li>
-<li><a target="_blank" rel="noopener" href="https://ata.alibaba-inc.com/articles/214221">cpu按cache_line从内存取数据，取一个数据和取多个数据代价一样</a></li>
-<li>以及数据局部性原理</li>
-</ul>
-<p>如下图，表示的是for循环每次跳K个int，在K小于16的时候虽然循环次数逐渐减少到原来的1&#x2F;16, 但是总时间没变，因为一直是访问的同一个cache里面的数据。 到16个之后就会产生突变（跨了cache_line），再后面32、64、128的时间减少来源于循环次数的减少，因为如论如何每次循环都需要访问内存加载数据到cache_line中. </p>
-<p>Cache_line大小是64，正好16个int，也就是存取1个或者16个int的代价基本是一样的。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">for (int i = 0; i &lt; arr.Length; i += K) arr[i] *= 3;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/images/951413iMgBlog/image6.png" alt="running times of this loop for different step values (&#x2F;images&#x2F;951413iMgBlog&#x2F;image6.png)"></p>
-<p>另外 一个大家耳熟能详的案例是对一个二维数组<strong>逐行遍历</strong>和<strong>逐列遍历</strong>的时间差异，循环次数一样，但是因为二维数组按行保存，所以逐行遍历对cache line 更友好，最终按行访问效率更高:</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">const</span> <span class="type">int</span> row = <span class="number">1024</span>;</span><br><span class="line"><span class="type">const</span> <span class="type">int</span> col = <span class="number">512</span></span><br><span class="line"><span class="type">int</span> matrix[row][col];</span><br><span class="line"><span class="comment">//逐行遍历耗时0.081ms</span></span><br><span class="line"><span class="type">int</span> sum_row=<span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span>(<span class="type">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++) &#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++)&#123;</span><br><span class="line">        sum_row += matrix[_r][_c];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">//逐列遍历耗时1.069ms</span></span><br><span class="line"><span class="type">int</span> sum_col=<span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span>(<span class="type">int</span> _c=<span class="number">0</span>; _c&lt;col; _c++) &#123;</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> _r=<span class="number">0</span>; _r&lt;row; _r++)&#123;</span><br><span class="line">        sum_col += matrix[_r][_c];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-
-<p>了解了以上CPU运算的原理我们再来看向量化就很简单了</p>
-<h2 id="向量化"><a href="#向量化" class="headerlink" title="向量化"></a>向量化</h2><p>向量化执行的思想就是不再像火山模型一样调用一个算子一次处理一行数据，而是一次处理一批数据来均摊开销：这个开销很明显会因为一次处理一个数据没用利用好cache_line以及局部性原理，导致CPU在切换算子的时候要stall在取数据上，表现出来的结果就是IPC很低，cache miss、branch prediction失败都会增加。</p>
-<p>举例来说，对于一个实现两个 int 相加的 expression，在向量化之前，其实现可能是这样的：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">ExpressionIntAdd</span> extends Expression &#123;</span><br><span class="line">        <span class="function">Datum <span class="title">eval</span><span class="params">(Row input)</span> </span>&#123;</span><br><span class="line">                <span class="type">int</span> left = input.<span class="built_in">getInt</span>(leftIndex);</span><br><span class="line">                <span class="type">int</span> right = input.<span class="built_in">getInt</span>(rightIndex);</span><br><span class="line">                <span class="keyword">return</span> <span class="keyword">new</span> <span class="built_in">Datum</span>(left+right);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>在向量化之后，其实现可能会变为这样：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">VectorExpressionIntAdd</span> extends VectorExpression &#123;</span><br><span class="line">        <span class="type">int</span>[] <span class="built_in">eval</span>(<span class="type">int</span>[] left, <span class="type">int</span>[] right) &#123;</span><br><span class="line">                <span class="type">int</span>[] ret = <span class="keyword">new</span> <span class="type">int</span>[input.length];</span><br><span class="line">                <span class="keyword">for</span>(<span class="type">int</span> i = <span class="number">0</span>; i &lt; input.length; i++) &#123;</span><br><span class="line">                  <span class="comment">//利用cache局部性原理一次取多个数据和取一个代价一样</span></span><br><span class="line">                  ret[i] = <span class="keyword">new</span> <span class="built_in">Datum</span>(left[i] + right[i]);</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">return</span> ret;</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>很明显对比向量化之前的版本，向量化之后的版本不再是每次只处理一条数据，而是每次能处理一批数据，而且这种向量化的计算模式在计算过程中也具有更好的数据局部性。</p>
-<p>向量化–Vector、批量化（一次处理一批数据）。向量化核心是利用数据局部性原理，一次取一个和取一批的时延基本是同样的。volcanno模型每次都是取一个处理一个，跳转到别的算子；而向量化是取一批处理一批后再跳转。整个过程中最耗时是取数据（访问内存比CPU计算慢两个数量级）</p>
-<p><strong>如果把向量化计算改成批量化处理应该就好理解多了，但是low，向量化多玄乎啊</strong></p>
-<p>为了支持这种批量处理数据的需求，CPU设计厂家又搞出了SIMD这种大杀器</p>
-<h3 id="SIMD-Single-Instruction-Multiple-Data，单指令多数据"><a href="#SIMD-Single-Instruction-Multiple-Data，单指令多数据" class="headerlink" title="SIMD (Single Instruction Multiple Data，单指令多数据)"></a><a href="https://plantegg.github.io/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">SIMD (Single Instruction Multiple Data，单指令多数据)</a></h3><p>SIMD指令的作用是向量化执行(Vectorized Execution)，中文通常翻译成向量化，但是这个词并不是很好，更好的翻译是数组化执行，表示一次指令操作数组中的多个数据，而不是一次处理一个数据；向量则代表有数值和方向，显然在这里的意义用数组更能准确的表达。</p>
-<p>在操作SIMD指令时，一次性把多条数据从内存加载到宽寄存器中，通过一条并行指令同时完成多条数据的计算。例如一个操作32字节(256位)的指令，可以同时操作8个int类型，获得8倍的加速。同时利用SIMD减少循环次数，大大减少了循环跳转指令，也能获得加速。SIMD指令可以有0个参数、1个数组参数、2个数组参数。如果有一个数组参数，指令计算完数组中的每个元素后，分别把结果写入对应位置；如果是有两个参数，则两个参数对应的位置分别完成指定操作，写入到对应位置。</p>
-<p><img src="/images/951413iMgBlog/image-20220627165706516.png" alt="image-20220627165706516"></p>
-<p>如上图所示：SIMD指令同时操作A和B中4对数字，产生4个结果存放到C中</p>
-<p>以如下代码为例，对4个float计算平方：</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">squre</span><span class="params">( <span class="type">float</span>* ptr )</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">for</span>( <span class="type">int</span> i = <span class="number">0</span>; i &lt; <span class="number">4</span>; i++ )</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="type">const</span> <span class="type">float</span> f = ptr[ i ];</span><br><span class="line">      ptr[ i ] = f * f;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上述代码转写成SIMD指令，则可以删除循环，用三条指令即可完成计算，分别是加载到寄存器，计算平方，结果写回内存:</p>
-<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">squre</span><span class="params">(<span class="type">float</span> * ptr)</span></span><br><span class="line">&#123;</span><br><span class="line">    __m128 f = _mm_loadu_ps( ptr ); </span><br><span class="line">    f = _mm_mul_ps( f, f ); </span><br><span class="line">    _mm_storeu_ps( ptr, f );</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-<p>简单理解SIMD就是相对于之前一个指令(一般是一个时钟周期)操作一个数据，但现在有了SIMD就可以在一个时钟周期操作一批数据，这个批如果是64，那么性能就提升了64倍。</p>
-<p>英特尔在1996年率先引入了MMX（Multi Media eXtensions）多媒体扩展指令集，也开创了<strong>SIMD</strong>（Single Instruction Multiple Data，单指令多数据）指令集之先河，即在一个周期内一个指令可以完成多个数据操作，MMX指令集的出现让当时的MMX Pentium处理器大出风头。</p>
-<p><strong>SSE</strong>（Streaming SIMD Extensions，流式单指令多数据扩展）指令集是1999年英特尔在Pentium III处理器中率先推出的，并将矢量处理能力从64位扩展到了128位。</p>
-<p>AVX 所代表的单指令多数据（Single Instruction Multi Data，SIMD）指令集，是近年来 CPU 提升 IPC（每时钟周期指令数）上为数不多的重要革新。随着每次数据宽度的提升，CPU 的性能都会大幅提升，但同时晶体管数量和能耗也会有相应的提升。因此在对功耗有较高要求的场景，如笔记本电脑或服务器中，CPU 运行 AVX 应用时需要降低频率从而降低功耗。</p>
-<p>向量化当然也非常希望利用SIMD(跟GPU为什么挖矿比CPU快是一样的道理)</p>
-<p>这里可以参考为什么这20年CPU主频基本都在2G-3G附近不再提升但是性能仍然遵循摩尔定律在提升。</p>
-<h3 id="如何生成SIMD指令呢？"><a href="#如何生成SIMD指令呢？" class="headerlink" title="如何生成SIMD指令呢？"></a>如何生成SIMD指令呢？</h3><p>有几种方式：</p>
-<ol>
-<li>编译器自动向量化： <ul>
-<li>静态编译（代码满足一定的范；编译选项 -O3 or  -mavx2 -march&#x3D;native -ftree-vectorize）</li>
-<li>即时编译（JIT）</li>
-</ul>
-</li>
-<li>可以手写SIMD指令，比如JDK17 开始提供Vector API，也就是应用Java 代码中可以通过这个API 直接调用 SIMD 指令</li>
-</ol>
-<h3 id="向量化的代码要求"><a href="#向量化的代码要求" class="headerlink" title="向量化的代码要求"></a>向量化的代码要求</h3><ul>
-<li>循环次数可计算 </li>
-<li>简单计算，不包含函数调用、switch&#x2F;if&#x2F;return 等</li>
-<li>在循环在内层</li>
-<li>访问连续的内存空间（才可以通过simd指令从内存加载数据到寄存器）</li>
-<li>数据无依赖</li>
-<li>使用数组而不是指针</li>
-</ul>
-<h2 id="向量化的问题"><a href="#向量化的问题" class="headerlink" title="向量化的问题"></a>向量化的问题</h2><p>向量化的前提是L3 cache够用，在L3不够用的时候，向量化的收益是负的，国内大部分文章都是为了PR而讲向量化。并发稍微高点，向量化立马就没足够的加速效果了。L2的一次miss就足够让向量化收益清零了，都轮不到 L3 Miss。</p>
-<p>比如 avx512，向量化基本是用8倍的带宽，换取2-3倍的延迟，还要降频（指令复杂了）。所以 skylake 开始，intel砍了L3，加了L2。</p>
-<p>大部分向量化引擎的收益是来自向量化后被迫做了列存（或者说列存做向量化更加简单，所以大家工程上会选择向量化），这天然带来了数据密度更高，不是向量化导致了性能好。</p>
-<p>SIMD 的代码对流水线要求很高的，如何写出流水线层面不stall的代码很难，主要问题是大部分SIMD都不是编译器生成的，需要开发者自己去做指令的调度，但是大部分开发者并没有微架构的知识，所以这玩意很难写好。</p>
-<p>SIMD 适合解决计算瓶颈的问题，而不是数据库的内存瓶颈。计算瓶颈和内存瓶颈是完全的2个概念，只是大部分时候，我们会把内存瓶颈和计算瓶颈合起来叫做 CPU 瓶颈，但是db 90%以上场景，确实是内存而不是计算瓶颈…尤其是AP领域对同一份数据多次重复运算的， 那才叫做计算瓶颈。</p>
-<p>向量化的本质不是 SIMD，是内存密度，SIMD 从头到尾就是一个骗局，用来PR的。</p>
-<p>向量化最成功的Case 是字符大小写转换(可惜这个场景不多)，有几十倍的性能提升，因为原来一个个字符处理，现在如果128 的SIMD 指令一次可以出来 16个 Char，性能简单理解就是能提升16倍</p>
-<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p><a href="/2021/06/01/CPU%E7%9A%84%E5%88%B6%E9%80%A0%E5%92%8C%E6%A6%82%E5%BF%B5/">CPU的制造和概念</a></p>
-<p>[Perf IPC以及CPU性能](&#x2F;2021&#x2F;05&#x2F;16&#x2F;Perf IPC以及CPU利用率&#x2F;)</p>
-<p><a href="https://plantegg.github.io/2021/07/19/CPU%E6%80%A7%E8%83%BD%E5%92%8CCACHE/">CPU性能和CACHE</a></p>
-<p>[CPU 性能和Cache Line](&#x2F;2021&#x2F;05&#x2F;16&#x2F;CPU Cache Line 和性能&#x2F;)</p>
-<p><a href="/2021/05/14/%E5%8D%81%E5%B9%B4%E5%90%8E%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%98%E6%98%AF%E4%B8%8D%E6%95%A2%E6%8B%A5%E6%8A%B1NUMA/">十年后数据库还是不敢拥抱NUMA？</a></p>
-<p>[Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的](&#x2F;2019&#x2F;12&#x2F;16&#x2F;Intel PAUSE指令变化是如何影响自旋锁以及MySQL的性能的&#x2F;)</p>
-<p><a href="/2021/08/13/AMD_Zen_CPU%E6%9E%B6%E6%9E%84/">AMD Zen CPU 架构 以及 AMD、海光、Intel、鲲鹏的性能对比</a></p>
-<p><a href="/2021/06/18/%E5%87%A0%E6%AC%BECPU%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94/">Intel、海光、鲲鹏920、飞腾2500 CPU性能对比</a></p>
-<p><a href="/2021/03/07/%E4%B8%80%E6%AC%A1%E6%B5%B7%E5%85%89%E7%89%A9%E7%90%86%E6%9C%BA%E8%B5%84%E6%BA%90%E7%AB%9E%E4%BA%89%E5%8E%8B%E6%B5%8B%E7%9A%84%E8%AE%B0%E5%BD%95/">一次海光物理机资源竞争压测的记录</a></p>
-<p><a href="/2021/05/15/%E9%A3%9E%E8%85%BEARM%E8%8A%AF%E7%89%87-FT2500%E7%9A%84%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/">飞腾ARM芯片(FT2500)的性能测试</a></p>
 
       
     </div>

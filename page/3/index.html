@@ -140,18 +140,18 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">213</span>
+          <span class="site-state-item-count">214</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
           <a href="/categories/">
-        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-count">20</span>
         <span class="site-state-item-name">分类</span></a>
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">324</span>
+        <span class="site-state-item-count">327</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,429 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/11/05/MySQL_PreparedStatement_Performance_Issue_Reproduction/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2025/11/05/MySQL_PreparedStatement_Performance_Issue_Reproduction/" class="post-title-link" itemprop="url">MySQL PreparedStatement 性能问题重现</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2025-11-05 17:30:03" itemprop="dateCreated datePublished" datetime="2025-11-05T17:30:03+08:00">2025-11-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-05-26 09:33:39" itemprop="dateModified" datetime="2026-05-26T09:33:39+08:00">2026-05-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="MySQL-PreparedStatement-性能问题重现"><a href="#MySQL-PreparedStatement-性能问题重现" class="headerlink" title="MySQL PreparedStatement 性能问题重现"></a>MySQL PreparedStatement 性能问题重现</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>在生产环境中发现，当使用 <code>useServerPrepStmts=true</code> 参数时，包含大量参数的 PreparedStatement 查询性能极差。通过系统测试发现，<strong>SQL 格式和长度对性能有巨大影响</strong>。</p>
+<p>只需要一个空表就能稳定重现这个问题，可以给官方提交 bug 了</p>
+<h2 id="环境信息"><a href="#环境信息" class="headerlink" title="环境信息"></a>环境信息</h2><ul>
+<li><strong>MySQL版本</strong>: 5.7.29</li>
+<li><strong>JDBC驱动</strong>: mysql-connector-j-8.0.33</li>
+<li><strong>测试场景</strong>: 5万个大整数参数的 IN 查询</li>
+<li><strong>参数格式</strong>: 15位大整数（如 176302640511975）</li>
+<li><strong>重现代码</strong>: <a target="_blank" rel="noopener" href="https://github.com/plantegg/MySQLPrepared">https://github.com/plantegg/MySQLPrepared</a></li>
+</ul>
+<h2 id="核心发现"><a href="#核心发现" class="headerlink" title="核心发现"></a>核心发现</h2><h3 id="🔥-SQL-格式对性能的巨大影响"><a href="#🔥-SQL-格式对性能的巨大影响" class="headerlink" title="🔥 SQL 格式对性能的巨大影响"></a>🔥 SQL 格式对性能的巨大影响</h3><p>我们发现 <strong>SQL 字符串的格式和长度</strong> 是影响服务器端预编译性能的关键因素：</p>
+<table>
+<thead>
+<tr>
+<th>SQL格式</th>
+<th>SQL长度</th>
+<th>false平均时间</th>
+<th>true平均时间</th>
+<th>性能差异</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>紧凑格式</strong> (?,?,?)</td>
+<td><strong>100KB</strong></td>
+<td><strong>35ms</strong></td>
+<td><strong>645ms</strong></td>
+<td><strong>慢18倍</strong> ⭐ 最优</td>
+</tr>
+<tr>
+<td>带换行格式</td>
+<td>2.1MB</td>
+<td>47ms</td>
+<td>9,128ms</td>
+<td>慢194倍</td>
+</tr>
+<tr>
+<td>带换行+空格 (128)</td>
+<td>6.5MB</td>
+<td>52ms</td>
+<td>27,839ms</td>
+<td>慢535倍</td>
+</tr>
+<tr>
+<td>带换行+大量空格 (128)</td>
+<td>8.5MB</td>
+<td>62ms</td>
+<td>44,521ms</td>
+<td>慢712倍 🔥 最差</td>
+</tr>
+</tbody></table>
+<p><strong>关键结论</strong>: </p>
+<ul>
+<li>✅ <strong>最优化的紧凑格式</strong> 可以将服务器端性能提升 <strong>14倍</strong>（9,128ms → 645ms）</li>
+<li>⚠️ 即使优化后，客户端预编译（35ms）仍比服务器端（645ms）快 <strong>18倍</strong></li>
+</ul>
+<h2 id="重现步骤"><a href="#重现步骤" class="headerlink" title="重现步骤"></a>重现步骤</h2><h3 id="1-环境准备"><a href="#1-环境准备" class="headerlink" title="1. 环境准备"></a>1. 环境准备</h3><p>创建测试表：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql -h your-host -P your-port -u your-user -p your-database &lt; create_table.sql</span><br></pre></td></tr></table></figure>
+
+<p><code>create_table.sql</code> 内容：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">DROP</span> <span class="keyword">TABLE</span> IF <span class="keyword">EXISTS</span> `large_table`;</span><br><span class="line"></span><br><span class="line"><span class="keyword">CREATE TABLE</span> `large_table` (</span><br><span class="line">  `id` <span class="type">int</span>(<span class="number">11</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  `col1` <span class="type">varchar</span>(<span class="number">50</span>) <span class="keyword">COLLATE</span> utf8_unicode_ci <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  `col2` <span class="type">varchar</span>(<span class="number">50</span>) <span class="keyword">COLLATE</span> utf8_unicode_ci <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  <span class="comment">-- ... col3-col19 ...</span></span><br><span class="line">  `col20` <span class="type">varchar</span>(<span class="number">50</span>) <span class="keyword">COLLATE</span> utf8_unicode_ci <span class="keyword">DEFAULT</span> <span class="keyword">NULL</span>,</span><br><span class="line">  <span class="keyword">PRIMARY KEY</span> (`id`)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB <span class="keyword">DEFAULT</span> CHARSET<span class="operator">=</span>utf8 <span class="keyword">COLLATE</span><span class="operator">=</span>utf8_unicode_ci;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-运行测试"><a href="#2-运行测试" class="headerlink" title="2. 运行测试"></a>2. 运行测试</h3><h4 id="使用脚本（推荐）"><a href="#使用脚本（推荐）" class="headerlink" title="使用脚本（推荐）"></a>使用脚本（推荐）</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 最优配置（紧凑格式）</span></span><br><span class="line">./run_test.sh --host localhost --port 3306 --database <span class="built_in">test</span> \</span><br><span class="line">  --user root --password mypass --spaces 0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 测试不同空格配置的影响</span></span><br><span class="line">./run_test.sh --host localhost --port 3306 --database <span class="built_in">test</span> \</span><br><span class="line">  --user root --password mypass --spaces 128</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看帮助</span></span><br><span class="line">./run_test.sh --<span class="built_in">help</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="使用-Maven"><a href="#使用-Maven" class="headerlink" title="使用 Maven"></a>使用 Maven</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">mvn compile <span class="built_in">exec</span>:java \</span><br><span class="line">    -Dexec.mainClass=<span class="string">&quot;com.test.PreparedStatementPerformanceTest&quot;</span> \</span><br><span class="line">    -Ddb.host=localhost \</span><br><span class="line">    -Ddb.port=3306 \</span><br><span class="line">    -Ddb.name=<span class="built_in">test</span> \</span><br><span class="line">    -Ddb.user=root \</span><br><span class="line">    -Ddb.password=mypassword \</span><br><span class="line">    -Dparam.spaces=0</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-参数说明"><a href="#3-参数说明" class="headerlink" title="3. 参数说明"></a>3. 参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--spaces</code></td>
+<td>128</td>
+<td>参数之间的空格数量，0&#x3D;最紧凑格式</td>
+</tr>
+<tr>
+<td><code>--rounds</code></td>
+<td>2</td>
+<td>测试轮次</td>
+</tr>
+</tbody></table>
+<h2 id="详细测试结果"><a href="#详细测试结果" class="headerlink" title="详细测试结果"></a>详细测试结果</h2><h3 id="测试-1-紧凑格式-spaces-0-⭐-推荐"><a href="#测试-1-紧凑格式-spaces-0-⭐-推荐" class="headerlink" title="测试 1: 紧凑格式 (spaces&#x3D;0) ⭐ 推荐"></a>测试 1: 紧凑格式 (spaces&#x3D;0) ⭐ 推荐</h3><p><strong>SQL 示例</strong>: <code>WHERE id IN (?,?,?,?,...)</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">配置: useServerPrepStmts=false</span><br><span class="line">SQL长度: 100,151 字符 (~100KB)</span><br><span class="line">平均执行时间: 35.0ms</span><br><span class="line">Com_stmt_prepare: 0</span><br><span class="line"></span><br><span class="line">配置: useServerPrepStmts=true  </span><br><span class="line">SQL长度: 100,151 字符 (~100KB)</span><br><span class="line">平均执行时间: 645.5ms</span><br><span class="line">Com_stmt_prepare: 1</span><br><span class="line"></span><br><span class="line">性能差异: 慢 18 倍</span><br></pre></td></tr></table></figure>
+
+<h3 id="测试-2-带换行格式-旧版本"><a href="#测试-2-带换行格式-旧版本" class="headerlink" title="测试 2: 带换行格式 (旧版本)"></a>测试 2: 带换行格式 (旧版本)</h3><p><strong>SQL 示例</strong>: </p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">WHERE</span> id <span class="keyword">IN</span> (?</span><br><span class="line">                  ,</span><br><span class="line">                    ?</span><br><span class="line">                  ,</span><br><span class="line">                    ?</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">配置: useServerPrepStmts=false</span><br><span class="line">SQL长度: 2,100,111 字符 (~2.1MB)</span><br><span class="line">平均执行时间: 47.0ms</span><br><span class="line">Com_stmt_prepare: 0</span><br><span class="line"></span><br><span class="line">配置: useServerPrepStmts=true</span><br><span class="line">SQL长度: 2,100,111 字符 (~2.1MB)</span><br><span class="line">平均执行时间: 9,128.5ms</span><br><span class="line">Com_stmt_prepare: 1</span><br><span class="line"></span><br><span class="line">性能差异: 慢 194 倍</span><br></pre></td></tr></table></figure>
+
+<h3 id="测试-3-带空格格式-spaces-128"><a href="#测试-3-带空格格式-spaces-128" class="headerlink" title="测试 3: 带空格格式 (spaces&#x3D;128)"></a>测试 3: 带空格格式 (spaces&#x3D;128)</h3><p><strong>SQL 示例</strong>: <code>WHERE id IN (?,&lt;128 spaces&gt;?,&lt;128 spaces&gt;?,...)</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">配置: useServerPrepStmts=false</span><br><span class="line">SQL长度: 6,500,023 字符 (~6.5MB)</span><br><span class="line">平均执行时间: 52.0ms</span><br><span class="line">Com_stmt_prepare: 0</span><br><span class="line"></span><br><span class="line">配置: useServerPrepStmts=true</span><br><span class="line">SQL长度: 6,500,023 字符 (~6.5MB)</span><br><span class="line">平均执行时间: 27,839.5ms</span><br><span class="line">Com_stmt_prepare: 1</span><br><span class="line"></span><br><span class="line">性能差异: 慢 535 倍</span><br></pre></td></tr></table></figure>
+
+<h3 id="测试-4-带换行-大量空格-极端情况"><a href="#测试-4-带换行-大量空格-极端情况" class="headerlink" title="测试 4: 带换行+大量空格 (极端情况)"></a>测试 4: 带换行+大量空格 (极端情况)</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">配置: useServerPrepStmts=false</span><br><span class="line">SQL长度: 8,499,983 字符 (~8.5MB)</span><br><span class="line">平均执行时间: 62.5ms</span><br><span class="line">Com_stmt_prepare: 0</span><br><span class="line"></span><br><span class="line">配置: useServerPrepStmts=true</span><br><span class="line">SQL长度: 8,499,983 字符 (~8.5MB)</span><br><span class="line">平均执行时间: 44,521.5ms</span><br><span class="line">Com_stmt_prepare: 1</span><br><span class="line"></span><br><span class="line">性能差异: 慢 712 倍</span><br></pre></td></tr></table></figure>
+
+<h2 id="性能分析"><a href="#性能分析" class="headerlink" title="性能分析"></a>性能分析</h2><h3 id="1-SQL-长度与性能的线性关系"><a href="#1-SQL-长度与性能的线性关系" class="headerlink" title="1. SQL 长度与性能的线性关系"></a>1. SQL 长度与性能的线性关系</h3><p>服务器端预编译性能随 SQL 长度线性恶化：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">100KB  SQL → 645ms    (基准)</span><br><span class="line">2.1MB  SQL → 9,128ms  (14倍恶化)</span><br><span class="line">6.5MB  SQL → 27,839ms (43倍恶化)</span><br><span class="line">8.5MB  SQL → 44,521ms (69倍恶化)</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-客户端预编译的稳定性"><a href="#2-客户端预编译的稳定性" class="headerlink" title="2. 客户端预编译的稳定性"></a>2. 客户端预编译的稳定性</h3><p>客户端预编译几乎不受 SQL 长度影响：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">100KB  SQL → 35-47ms</span><br><span class="line">8.5MB  SQL → 62ms</span><br><span class="line">变化幅度: 仅 77%</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-问题根因"><a href="#3-问题根因" class="headerlink" title="3. 问题根因"></a>3. 问题根因</h3><p>根据 <code>pstack</code> 分析，服务器端预编译在处理大 SQL 时：</p>
+<ol>
+<li><p><strong>大量内存重分配</strong>: </p>
+<ul>
+<li>50,000 次参数替换操作</li>
+<li>每次替换需要在大 SQL 字符串中定位和替换</li>
+<li><code>my_realloc</code> 和 <code>memmove</code> 频繁调用</li>
+</ul>
+</li>
+<li><p><strong>字符串操作复杂度</strong>: </p>
+<ul>
+<li>O(SQL长度) × 参数数量 &#x3D; 极高时间复杂度</li>
+<li>单线程 100% CPU 占用</li>
+</ul>
+</li>
+<li><p><strong>内存碎片化</strong>:</p>
+<ul>
+<li>频繁的大块内存分配和释放</li>
+<li>进一步降低性能</li>
+</ul>
+</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">Thread 1 (Thread 0x7feeb8043640 (LWP 2508284)):</span><br><span class="line">#0  0x00007ff302bb5515 in __memmove_avx512_unaligned_erms () from /lib64/libc.so.6</span><br><span class="line">#1  0x0000000000efffe6 in my_realloc (key=&lt;optimized out&gt;, ptr=0x7fee5e907380, size=7192160, flags=&lt;optimized out&gt;) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/mysys/my_malloc.c:112</span><br><span class="line">#2  0x0000000000d9a921 in String::mem_realloc (this=0x7feeb80424b0, alloc_length=7192155, force_on_heap=force_on_heap@entry=false) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql-common/sql_string.cc:128</span><br><span class="line">#3  0x0000000000d9b9d4 in String::replace (this=this@entry=0x7feeb80424b0, offset=7119079, arg_length=arg_length@entry=1, to=0x7fee5c3f5810 &quot;286381588518215&quot;, to_length=15) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql-common/sql_string.cc:804</span><br><span class="line">#4  0x0000000000d9ba81 in String::replace (this=this@entry=0x7feeb80424b0, offset=&lt;optimized out&gt;, arg_length=arg_length@entry=1, to=...) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql-common/sql_string.cc:783</span><br><span class="line">#5  0x0000000000d026e2 in Prepared_statement::insert_params (this=this@entry=0x7fee5c171fe0, null_array=null_array@entry=0x7fee5c45240a &quot;&quot;, read_pos=0x7fee5c4ccc05 &quot;\336\274y\206&quot;, &lt;incomplete sequence \303&gt;, read_pos@entry=0x7fee5c46c315 &quot;\016r\342\320\355\242\002&quot;, data_end=0x7fee5c4cdd95 &quot;&quot;, query=query@entry=0x7feeb80424b0) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_prepare.cc:924</span><br><span class="line">#6  0x0000000000d03db6 in Prepared_statement::set_parameters (this=this@entry=0x7fee5c171fe0, expanded_query=expanded_query@entry=0x7feeb80424b0, packet=0x7fee5c46c315 &quot;\016r\342\320\355\242\002&quot;, packet_end=&lt;optimized out&gt;) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_prepare.cc:3496</span><br><span class="line">#7  0x0000000000d0772f in Prepared_statement::execute_loop (this=0x7fee5c171fe0, expanded_query=0x7feeb80424b0, open_cursor=&lt;optimized out&gt;, packet=&lt;optimized out&gt;, packet_end=&lt;optimized out&gt;) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_prepare.cc:3559</span><br><span class="line">#8  0x0000000000d07aa4 in mysqld_stmt_execute (thd=thd@entry=0x7fee5c000b60, stmt_id=&lt;optimized out&gt;, flags=0, params=0x7fee5c45240a &quot;&quot;, params_length=506251) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_prepare.cc:2582</span><br><span class="line">#9  0x0000000000cdf6f5 in dispatch_command (thd=thd@entry=0x7fee5c000b60, com_data=com_data@entry=0x7feeb8042d40, command=COM_STMT_EXECUTE) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_parse.cc:1428</span><br><span class="line">#10 0x0000000000ce00c7 in do_command (thd=thd@entry=0x7fee5c000b60) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/sql_parse.cc:1032</span><br><span class="line">#11 0x0000000000d9cc08 in handle_connection (arg=arg@entry=0x1eb0a010) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/sql/conn_handler/connection_handler_per_thread.cc:313</span><br><span class="line">#12 0x00000000013fc4a4 in pfs_spawn_thread (arg=0x1ea71270) at /export/home/pb2/build/sb_0-37309218-1576676711.18/mysql-5.7.29/storage/perfschema/pfs.cc:2197</span><br><span class="line">#13 0x00007ff30305b3fb in start_thread () from /lib64/libpthread.so.0</span><br><span class="line">#14 0x00007ff302b0de83 in clone () from /lib64/libc.so.6</span><br></pre></td></tr></table></figure>
+
+<h3 id="监控数据"><a href="#监控数据" class="headerlink" title="监控数据"></a>监控数据</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"># top 监控</span><br><span class="line">PID     USER   %CPU  TIME+     COMMAND</span><br><span class="line">2554029 mysql  99.3  4:40.64   mysqld  // 单线程 100%</span><br><span class="line"></span><br><span class="line"># show processlist 观察</span><br><span class="line">Id  User  Command  Time  State     Info</span><br><span class="line">382 test  Execute  8     starting  NULL  // SQL 还在组装中</span><br></pre></td></tr></table></figure>
+
+<h2 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h2><h3 id="✅-方案-1-使用客户端预编译-紧凑格式（强烈推荐）"><a href="#✅-方案-1-使用客户端预编译-紧凑格式（强烈推荐）" class="headerlink" title="✅ 方案 1: 使用客户端预编译 + 紧凑格式（强烈推荐）"></a>✅ 方案 1: 使用客户端预编译 + 紧凑格式（强烈推荐）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// JDBC 连接串</span></span><br><span class="line"><span class="type">String</span> <span class="variable">url</span> <span class="operator">=</span> <span class="string">&quot;jdbc:mysql://host:port/database?useServerPrepStmts=false&quot;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 运行测试</span></span><br><span class="line">./run_test.sh --host localhost --port <span class="number">3306</span> --database test \</span><br><span class="line">  --user root --password mypass --spaces <span class="number">0</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>优点</strong>:</p>
+<ul>
+<li>✅ 性能最优：仅需 35ms</li>
+<li>✅ 不受 SQL 长度影响</li>
+<li>✅ 不受参数数量影响</li>
+<li>✅ 稳定可靠</li>
+</ul>
+<p><strong>缺点</strong>:</p>
+<ul>
+<li>⚠️ 无法享受服务器端查询计划缓存（但对 IN 查询意义不大）</li>
+</ul>
+<h3 id="🔄-方案-2-优化-SQL-格式（如果必须使用服务器端预编译）"><a href="#🔄-方案-2-优化-SQL-格式（如果必须使用服务器端预编译）" class="headerlink" title="🔄 方案 2: 优化 SQL 格式（如果必须使用服务器端预编译）"></a>🔄 方案 2: 优化 SQL 格式（如果必须使用服务器端预编译）</h3><p>如果由于某些原因必须使用 <code>useServerPrepStmts=true</code>，则务必优化 SQL 格式：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 使用最紧凑格式: ?,?,?,?</span></span><br><span class="line"><span class="comment">// 避免: ?\n  ,\n  ?</span></span><br><span class="line"></span><br><span class="line"><span class="type">String</span> <span class="variable">url</span> <span class="operator">=</span> <span class="string">&quot;jdbc:mysql://host:port/database?useServerPrepStmts=true&quot;</span>;</span><br><span class="line"><span class="comment">// 运行时使用 --spaces 0</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>性能</strong>: 645ms（相比未优化的 9,128ms 提升 14 倍）</p>
+<h3 id="🔧-方案-3-分批查询"><a href="#🔧-方案-3-分批查询" class="headerlink" title="🔧 方案 3: 分批查询"></a>🔧 方案 3: 分批查询</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 将 50,000 个参数拆分为 50 批，每批 1,000 个</span></span><br><span class="line"><span class="type">int</span> <span class="variable">batchSize</span> <span class="operator">=</span> <span class="number">1000</span>;</span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; ids.size(); i += batchSize) &#123;</span><br><span class="line">    List&lt;Long&gt; batch = ids.subList(i, Math.min(i + batchSize, ids.size()));</span><br><span class="line">    <span class="comment">// 执行查询</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="🗃️-方案-4-临时表方案"><a href="#🗃️-方案-4-临时表方案" class="headerlink" title="🗃️ 方案 4: 临时表方案"></a>🗃️ 方案 4: 临时表方案</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> TEMPORARY <span class="keyword">TABLE</span> temp_ids (id <span class="type">BIGINT</span>);</span><br><span class="line"><span class="keyword">INSERT INTO</span> temp_ids <span class="keyword">VALUES</span> (?), (?), ...;</span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> large_table <span class="keyword">WHERE</span> id <span class="keyword">IN</span> (<span class="keyword">SELECT</span> id <span class="keyword">FROM</span> temp_ids);</span><br><span class="line"><span class="keyword">DROP</span> TEMPORARY <span class="keyword">TABLE</span> temp_ids;</span><br></pre></td></tr></table></figure>
+
+<h2 id="最佳实践"><a href="#最佳实践" class="headerlink" title="最佳实践"></a>最佳实践</h2><h3 id="✅-推荐配置"><a href="#✅-推荐配置" class="headerlink" title="✅ 推荐配置"></a>✅ 推荐配置</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>useServerPrepStmts</th>
+<th>spaces</th>
+<th>预期性能</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>生产环境</strong></td>
+<td>false</td>
+<td>0</td>
+<td>35ms ⭐ 最优</td>
+</tr>
+<tr>
+<td>标准测试</td>
+<td>false</td>
+<td>0</td>
+<td>35-50ms</td>
+</tr>
+<tr>
+<td>必须服务器端预编译</td>
+<td>true</td>
+<td>0</td>
+<td>645ms</td>
+</tr>
+</tbody></table>
+<h3 id="❌-避免配置"><a href="#❌-避免配置" class="headerlink" title="❌ 避免配置"></a>❌ 避免配置</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>useServerPrepStmts</th>
+<th>SQL格式</th>
+<th>性能</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>❌ 带格式化</td>
+<td>true</td>
+<td>带换行&#x2F;缩进</td>
+<td>9,128ms 慢194倍</td>
+</tr>
+<tr>
+<td>❌ 大量空格</td>
+<td>true</td>
+<td>spaces &gt; 0</td>
+<td>27,839ms 慢535倍</td>
+</tr>
+<tr>
+<td>❌ 极端情况</td>
+<td>true</td>
+<td>大量换行+空格</td>
+<td>44,521ms 慢712倍</td>
+</tr>
+</tbody></table>
+<h3 id="🎯-实施建议"><a href="#🎯-实施建议" class="headerlink" title="🎯 实施建议"></a>🎯 实施建议</h3><ol>
+<li><p><strong>开发阶段</strong>:</p>
+<ul>
+<li>设置 <code>useServerPrepStmts=false</code></li>
+<li>使用 <code>--spaces 0</code> 测试</li>
+</ul>
+</li>
+<li><p><strong>测试阶段</strong>:</p>
+<ul>
+<li>对比不同配置的性能</li>
+<li>使用 <code>SHOW PROCESSLIST</code> 监控</li>
+</ul>
+</li>
+<li><p><strong>生产环境</strong>:</p>
+<ul>
+<li>强制使用客户端预编译</li>
+<li>避免大参数量 IN 查询</li>
+<li>如必须使用，考虑分批或临时表方案</li>
+</ul>
+</li>
+</ol>
+<h2 id="完整对比表"><a href="#完整对比表" class="headerlink" title="完整对比表"></a>完整对比表</h2><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>SQL格式</th>
+<th>SQL长度</th>
+<th>false平均</th>
+<th>true平均</th>
+<th>性能差异</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>最优</strong></td>
+<td>?,?,?</td>
+<td>100KB</td>
+<td>35ms</td>
+<td>645ms</td>
+<td>慢18倍 ⭐</td>
+</tr>
+<tr>
+<td>带换行</td>
+<td>?\n,\n?</td>
+<td>2.1MB</td>
+<td>47ms</td>
+<td>9,128ms</td>
+<td>慢194倍</td>
+</tr>
+<tr>
+<td>+空格128</td>
+<td>?,&lt;128&gt;?</td>
+<td>6.5MB</td>
+<td>52ms</td>
+<td>27,839ms</td>
+<td>慢535倍</td>
+</tr>
+<tr>
+<td>带换行+空格128</td>
+<td>?\n,\n&lt;128&gt;?</td>
+<td>8.5MB</td>
+<td>62ms</td>
+<td>44,521ms</td>
+<td>慢712倍 🔥</td>
+</tr>
+</tbody></table>
+<h2 id="性能改善总结"><a href="#性能改善总结" class="headerlink" title="性能改善总结"></a>性能改善总结</h2><p>通过 SQL 格式优化：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>优化前</th>
+<th>优化后</th>
+<th>改善幅度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SQL 长度</td>
+<td>2.1MB</td>
+<td>100KB</td>
+<td><strong>缩小 95%</strong></td>
+</tr>
+<tr>
+<td>服务器端性能</td>
+<td>9,128ms</td>
+<td>645ms</td>
+<td><strong>提升 14 倍</strong></td>
+</tr>
+<tr>
+<td>性能差异倍数</td>
+<td>194倍</td>
+<td>18倍</td>
+<td><strong>改善 10 倍</strong></td>
+</tr>
+</tbody></table>
+<p><strong>但最终建议</strong>: 使用客户端预编译（35ms）才是最佳方案！</p>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><ol>
+<li><p><strong>SQL 长度是服务器端预编译的致命弱点</strong></p>
+<ul>
+<li>长度增加 → 性能线性恶化</li>
+<li>从 100KB（645ms）到 8.5MB（44,521ms），性能下降 <strong>69 倍</strong></li>
+</ul>
+</li>
+<li><p><strong>SQL 格式优化很重要</strong></p>
+<ul>
+<li>移除换行和多余空格可提升性能 <strong>14 倍</strong></li>
+<li>使用 <code>--spaces 0</code> 获得最紧凑格式</li>
+</ul>
+</li>
+<li><p><strong>客户端预编译几乎不受影响</strong></p>
+<ul>
+<li>100KB SQL: 35ms</li>
+<li>8.5MB SQL: 62ms  </li>
+<li>性能稳定可靠</li>
+</ul>
+</li>
+<li><p><strong>生产环境强烈建议</strong></p>
+<ul>
+<li>✅ 使用 <code>useServerPrepStmts=false</code></li>
+<li>✅ 使用最紧凑的 SQL 格式（<code>--spaces 0</code>）</li>
+<li>✅ 避免大参数量 IN 查询，或使用分批&#x2F;临时表方案</li>
+</ul>
+</li>
+<li><p><strong>性能差异</strong></p>
+<ul>
+<li>最优配置（35ms）vs 最差配置（44,521ms）&#x3D; <strong>1,272 倍差异</strong>！</li>
+<li>这不是优化问题，而是架构选择问题</li>
+</ul>
+</li>
+</ol>
+<h2 id="测试代码仓库"><a href="#测试代码仓库" class="headerlink" title="测试代码仓库"></a>测试代码仓库</h2><ul>
+<li>GitHub: <a target="_blank" rel="noopener" href="https://github.com/plantegg/MySQLPrepared">https://github.com/plantegg/MySQLPrepared</a></li>
+<li>包含完整的测试代码、脚本和文档</li>
+<li>支持 <code>--spaces</code> 参数灵活测试不同 SQL 格式</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1496,114 +1919,6 @@
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line">&quot;Diagnose@diagnose-2-61&quot; #616 daemon prio=5 os_prio=0 tid=0x00007f7668ba6000 nid=0x2fc runnable [0x00007f75dbea8000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">    at java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)</span><br><span class="line">    at java.net.InetAddress$2.lookupAllHostAddr(InetAddress.java:870)</span><br><span class="line">    at java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1312)</span><br><span class="line">    at java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:818)</span><br><span class="line">    - locked &lt;0x0000000500340c10&gt; (a java.net.InetAddress$NameServiceAddresses)</span><br><span class="line">    at java.net.InetAddress.getAllByName0(InetAddress.java:1301)</span><br><span class="line">    at java.net.InetAddress.getAllByName0(InetAddress.java:1221)</span><br><span class="line">    at java.net.InetAddress.getHostFromNameService(InetAddress.java:640)</span><br><span class="line">    at java.net.InetAddress.getHostName(InetAddress.java:565)</span><br><span class="line">    at java.net.InetAddress.getHostName(InetAddress.java:537)</span><br><span class="line">    at java.net.InetSocketAddress$InetSocketAddressHolder.getHostName(InetSocketAddress.java:82)</span><br><span class="line">    at java.net.InetSocketAddress$InetSocketAddressHolder.access$600(InetSocketAddress.java:56)</span><br><span class="line">    at java.net.InetSocketAddress.getHostName(InetSocketAddress.java:345)</span><br><span class="line">    at io.grpc.internal.ProxyDetectorImpl.detectProxy(ProxyDetectorImpl.java:127)</span><br><span class="line">    at io.grpc.internal.ProxyDetectorImpl.proxyFor(ProxyDetectorImpl.java:118)</span><br><span class="line">    at io.grpc.internal.InternalSubchannel.startNewTransport(InternalSubchannel.java:207)</span><br><span class="line">    at io.grpc.internal.InternalSubchannel.obtainActiveTransport(InternalSubchannel.java:188)</span><br><span class="line">    - locked &lt;0x0000000500344d38&gt; (a java.lang.Object)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$SubchannelImpl.requestConnection(ManagedChannelImpl.java:1130)</span><br><span class="line">    at io.grpc.PickFirstBalancerFactory$PickFirstBalancer.handleResolvedAddressGroups(PickFirstBalancerFactory.java:79)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$NameResolverListenerImpl$1NamesResolved.run(ManagedChannelImpl.java:1032)</span><br><span class="line">    at io.grpc.internal.ChannelExecutor.drain(ChannelExecutor.java:73)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$4.get(ManagedChannelImpl.java:403)</span><br><span class="line">    at io.grpc.internal.ClientCallImpl.start(ClientCallImpl.java:238)</span><br><span class="line"></span><br><span class="line">&quot;Check@diagnose-1-107&quot; #849 daemon prio=5 os_prio=0 tid=0x00007f600ee44200 nid=0x3e5 runnable [0x00007f5f12545000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">        at java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)</span><br><span class="line">        at java.net.InetAddress$2.lookupAllHostAddr(InetAddress.java:870)</span><br><span class="line">        at java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1312)</span><br><span class="line">        at java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:818)</span><br><span class="line">        - locked &lt;0x000000063ee00098&gt; (a java.net.InetAddress$NameServiceAddresses)</span><br><span class="line">        at java.net.InetAddress.getAllByName0(InetAddress.java:1301)</span><br><span class="line">        at java.net.InetAddress.getAllByName(InetAddress.java:1154)</span><br><span class="line">        at java.net.InetAddress.getAllByName(InetAddress.java:1075)</span><br><span class="line">        at java.net.InetAddress.getByName(InetAddress.java:1025)</span><br><span class="line">        at *.*.*.*.*.check.Utils.isIPv6(Utils.java:59)</span><br><span class="line">        at *.*.*.*.*.check.checker.AbstractCustinsChecker.getVipCheckPoint(AbstractCustinsChecker.java:189)</span><br><span class="line">        at *.*.*.*.*.*.*.MySQLCustinsChecker.getVipCheckPoint(MySQLCustinsChecker.java:160)</span><br><span class="line">        at *.*.*.*.*.*.*.MySQLCustinsChecker.getCheckPoints(MySQLCustinsChecker.java:133)</span><br><span class="line">        at *.*.*.*.*.check.checker.AbstractCustinsChecker.checkNormal(AbstractCustinsChecker.java:314)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl.check(CheckExecutorImpl.java:186)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl.lambda$0(CheckExecutorImpl.java:118)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl$$Lambda$302/130696248.call(Unknown Source)</span><br><span class="line">        at com.google.common.util.concurrent.TrustedListenableFutureTask$TrustedFutureInterruptibleTask.runInterruptibly(TrustedListenableFutureTask.java:111)</span><br><span class="line">        at com.google.common.util.concurrent.InterruptibleTask.run(InterruptibleTask.java:58)</span><br><span class="line">        at com.google.common.util.concurrent.TrustedListenableFutureTask.run(TrustedListenableFutureTask.java:75)</span><br><span class="line">        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</span><br><span class="line">        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</span><br><span class="line">        at java.lang.Thread.run(Thread.java:879)</span><br></pre></td></tr></table></figure>
 
 <p>这里以后可以加更多的 DNS 解析卡顿&#x2F;网络卡顿导致的问题案例……</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/10/12/%E6%95%99%E7%A7%91%E4%B9%A6%E7%BA%A7%E7%9A%84%E6%A0%B9%E5%9B%A0%E6%8E%A8%E5%AF%BC%E2%80%94%E2%80%94%E5%BF%85%E5%81%9A%E9%A2%98/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2024/10/12/%E6%95%99%E7%A7%91%E4%B9%A6%E7%BA%A7%E7%9A%84%E6%A0%B9%E5%9B%A0%E6%8E%A8%E5%AF%BC%E2%80%94%E2%80%94%E5%BF%85%E5%81%9A%E9%A2%98/" class="post-title-link" itemprop="url">教科书级的根因推导——必做题</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2024-10-12 17:30:03" itemprop="dateCreated datePublished" datetime="2024-10-12T17:30:03+08:00">2024-10-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-04-06 17:56:48" itemprop="dateModified" datetime="2026-04-06T17:56:48+08:00">2026-04-06</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/performance/" itemprop="url" rel="index"><span itemprop="name">performance</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="教科书级的根因推导——必做题"><a href="#教科书级的根因推导——必做题" class="headerlink" title="教科书级的根因推导——必做题"></a>教科书级的根因推导——必做题</h1><h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>A服务访问 B 服务，突然在某个时间点有个访问毛刺，RT 从50 ms飙到了80 ms，如下图</p>
-<p><img src="/images/951413iMgBlog/image-20240607210416189.png" alt="image-20240607210416189"></p>
-<p>这个时候发现网络连接数也从10000 涨到了 11000</p>
-<p><img src="/images/951413iMgBlog/image-20240607210602281.png" alt="image-20240607210602281"></p>
-<p>当时的QPS 一直是 2万，没有任何明显变化，任何其它指标都没有变化</p>
-<h2 id="请回答问题"><a href="#请回答问题" class="headerlink" title="请回答问题"></a>请回答问题</h2><ol>
-<li>到底是 B服务慢了所以 RT 上涨，RT 上涨后触发了新建连接，还是突然大量新建导致 B服务慢了，请写出你的详细推导</li>
-<li>你如何在A 端来验证这个问题；你又如何在 B段来证明这个问题</li>
-</ol>
-<h2 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h2><p>首先是所有其他指标都正常，查下来看到的变化就是RT、总连接数同时抖了，所以以下分析都是基于在这个情形下，这两个指标到底谁是因、谁是果</p>
-<p>分析的基本原则就是星球里最重要的概念：<a target="_blank" rel="noopener" href="https://wx.zsxq.com/dweb2/index/topic_detail/814282542228452">QPS、并发、RT 的关系</a></p>
-<h3 id="为什么说连接数上涨是根因？"><a href="#为什么说连接数上涨是根因？" class="headerlink" title="为什么说连接数上涨是根因？"></a><strong>为什么说连接数上涨是根因？</strong></h3><p>抖动前 rt 50ms，QPS 2万，计算下来一个连接能扛的 QPS 是20( 1000ms&#x2F;50ms &#x3D;20 QPS   1秒等于1000ms)</p>
-<p>1000个活跃连接就可以扛住这 2万的QPS，而总连接数在抖动前是10000，也就是连接数的水位只需要10% 就够了。按照抖动时的rt 80ms 则这10000个连接是可以扛 12.5万QPS 才会触发连接数不够创建新连接(理想值，也就是在QPS 到12.5万的80% 之前触发连接数不够的概率极小极小)</p>
-<p>一个很关键的点：新建连接是业务端的行为，除非服务端太慢导致连接不够才会触发客户端新建，否则都是业务端的锅</p>
-<p>几个注意的地方：</p>
-<ul>
-<li>另外一个注意下抖动的时候也没有触发业务端有超时报错(80ms 只是平均值)，如果真有超时报错可能会丢掉老连接，创建或者取新连接重试</li>
-<li>实际上连接有总连接数、活跃连接数，总连接就是我们这里说的1万，活跃连接对应的就是 1000——也就是你随机去看业务状态，有1000个连接在忙着做业务处理&#x2F;查询，还有9000个连接在睡大觉</li>
-</ul>
-<h3 id="如何验证？"><a href="#如何验证？" class="headerlink" title="如何验证？"></a><strong>如何验证？</strong></h3><ol>
-<li>让客户建1000-2000 个新连接看看——应该会触发RT 飚一下，但不一定是充分条件，实际在同一个客户的其他实例上也有抖动的场景里没有触发新建连接——相当于间接验证</li>
-<li>或者让客户在他们的网卡上加 30ms模拟抖动从50ms加到80ms，看会不会触发新建几百个连接，如果没有触发新建说明RT 这个幅度的上涨不会触发新建连接</li>
-</ol>
-<p>不知道我解释清楚了没有</p>
 
       
     </div>
