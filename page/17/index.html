@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">327</span>
+        <span class="site-state-item-count">332</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -1625,7 +1625,7 @@ IPv4 路由表
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-16 19:58:49" itemprop="dateModified" datetime="2025-11-16T19:58:49+08:00">2025-11-16</time>
+      <time title="修改时间：2026-11-08 10:00:00" itemprop="dateModified" datetime="2026-11-08T10:00:00+08:00">2026-11-08</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1648,81 +1648,440 @@ IPv4 路由表
     
     <div class="post-body" itemprop="articleBody">
           <h1 id="nslookup-域名结果正确，但是-ping-域名-返回-unknown-host"><a href="#nslookup-域名结果正确，但是-ping-域名-返回-unknown-host" class="headerlink" title="nslookup 域名结果正确，但是 ping 域名 返回 unknown host"></a>nslookup 域名结果正确，但是 ping 域名 返回 unknown host</h1><blockquote>
-<p>2018-02 update : 最根本的原因 <a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">https://access.redhat.com/solutions/1426263</a></p>
+<p>原文写于 2019-01，记录 2018 年两次线上定位。<br>2026-11 在 Rocky 8.10（glibc 2.28 &#x2F; BIND 9.11.36 &#x2F; dnsmasq 2.89）上把全文的结论重做了一遍实测。</p>
+<p><strong>结论：原文的机制分析是准的</strong>，尤其是「nslookup 不读 <code>/etc/hosts</code>、不看 <code>nsswitch.conf</code>」这一核心判断，实测完全成立。<br>需要修正的只有一处（原文第 76 行”查不到域名就换下一台 nameserver”），其余是版本演进（rotate 的实现变了）和这几年的新情况（dnsmasq <code>hostsdir</code>、nscd 从 RHEL 8 移除、dig 补 search 域的坑）。<br>详见第三章「2026 复核」。</p>
 </blockquote>
-<h2 id="下面让我们来看看这个问题的定位过程"><a href="#下面让我们来看看这个问题的定位过程" class="headerlink" title="下面让我们来看看这个问题的定位过程"></a>下面让我们来看看这个问题的定位过程</h2><p>先Google一下: nslookup ok but ping fail, 这个关键词居然被Google自动提示了，看来碰到这个问题同学的好多</p>
-<p>Google到的帖子大概有如下原因：</p>
+<h2 id="TL-DR"><a href="#TL-DR" class="headerlink" title="TL;DR"></a>TL;DR</h2><p>同一台机器上，<code>nslookup</code> 能解析而 <code>ping</code> 不能，只有三种可能：<strong>走了不同的解析路径</strong>、<strong>用了不同的 nameserver</strong>、<strong>被本地缓存&#x2F;本地数据源盖住了</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>最可能的原因</th>
+<th>一句话验证</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>nslookup 有结果，ping&#x2F;getent 没有</td>
+<td>nslookup 不读 <code>/etc/hosts</code>、不看 <code>nsswitch.conf</code>，走的是纯 DNS</td>
+<td><code>strace -e trace=openat -f ping xxx</code> 看它有没有打开 <code>/etc/hosts</code></td>
+</tr>
+<tr>
+<td>同上，且 <code>getent</code> 也没有</td>
+<td>第一台 nameserver 对它返回 NXDOMAIN（<strong>NXDOMAIN 不换服务器</strong>）</td>
+<td>对第一台单独 <code>dig</code>，看 rcode</td>
+</tr>
+<tr>
+<td>同上，且 dig 和 nslookup 结果不一致</td>
+<td>只在 <code>/etc/hosts</code> 或 dnsmasq 本地数据里有，DNS 上没有</td>
+<td><code>dig @第一台</code> 与 <code>getent</code> 对比</td>
+</tr>
+<tr>
+<td>改完记录，<code>dig</code> 已经是新 IP，程序还是旧的</td>
+<td>nscd（固定 TTL）／JVM 缓存／连接池／dnsmasq 内存里的 hosts 快照</td>
+<td>逐层清：<code>nscd -i hosts</code> → 重启进程 → reload dnsmasq</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="一、问题的本质：三条不同的解析路径"><a href="#一、问题的本质：三条不同的解析路径" class="headerlink" title="一、问题的本质：三条不同的解析路径"></a>一、问题的本质：三条不同的解析路径</h2><p>这是整个问题的地基。<code>nslookup</code>、<code>dig</code>、<code>host</code> 是 BIND 带的自检工具，它们<strong>不是</strong>应用；而 <code>ping</code>、<code>curl</code>、<code>ssh</code>、数据库客户端、JVM 走的都是 C 库的解析入口。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">应用（ping / curl / ssh / mysql / JVM）</span><br><span class="line">        │</span><br><span class="line">        ▼</span><br><span class="line">   glibc: getaddrinfo()   ←—— getent 也在这条线上</span><br><span class="line">        │</span><br><span class="line">   /etc/nsswitch.conf   hosts:  files  dns  [myhostname]</span><br><span class="line">        │</span><br><span class="line">        ├─ files    /etc/hosts              实时读文件</span><br><span class="line">        ├─ dns      /etc/resolv.conf        search / ndots / rotate / attempts</span><br><span class="line">        ├─ myhostname  本机名字</span><br><span class="line">        ├─ resolve  systemd-resolved 127.0.0.53</span><br><span class="line">        ├─ sss      LDAP / AD</span><br><span class="line">        └─ mdns     .local</span><br><span class="line">   （nscd 可能在这条链路中间再挡一层缓存）</span><br><span class="line"></span><br><span class="line">nslookup ─┐</span><br><span class="line">          ├─→ 自己拼 DNS 报文 → resolv.conf 的 nameserver:53</span><br><span class="line">dig ──────┤   不读 /etc/hosts，不看 nsswitch.conf，不走 nscd</span><br><span class="line">host ─────┘</span><br></pre></td></tr></table></figure>
+
+<p>实测证据（<code>strace -f -e trace=openat</code>，同一台机器查同一个名字）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ping 打开的文件/模块:          nslookup 打开的文件/模块:</span><br><span class="line">  /etc/nsswitch.conf             /etc/resolv.conf</span><br><span class="line">  /etc/hosts</span><br><span class="line">  /etc/resolv.conf</span><br><span class="line">  nss_files.so.2</span><br><span class="line">  nss_dns.so.2</span><br></pre></td></tr></table></figure>
+
+<p>这正是原文总结里那句「nslookup 不会检查 &#x2F;etc&#x2F;hosts、&#x2F;etc&#x2F;nsswitch.conf，而是直接从 &#x2F;etc&#x2F;resolv.conf 中取 nameserver」——2026 年重做一遍，一字不差。</p>
+<p><strong>推论</strong>：<code>/etc/hosts</code> 里写死一条记录，本机程序会用这条，<code>nslookup</code> 完全看不到。这类”两边对不上”不是 DNS 坏了，是根本没问同一处。</p>
+<p>实测补充（glibc 2.28）：<code>/etc/hosts</code> 命中之后，<code>getent ahosts</code> &#x2F; <code>getent ahostsv4</code> &#x2F; <code>ping</code> &#x2F; <code>curl</code> <strong>一条 DNS 查询都不发</strong>，服务端日志和 strace 都确认了。所以 <code>/etc/hosts</code> 里一条过期的记录，能长期静默覆盖 DNS 的正确结果，而 <code>dig</code> 永远显示正确 —— 比 dnsmasq 的坑更深。</p>
+<p><code>getent ahosts</code> 在 <code>/etc/hosts</code> 命中、但 DNS 上有<strong>不同地址</strong>时，返回的只有 hosts 里那条。只有老的 <code>getent hosts</code>（走 <code>gethostbyname2</code>）在拿到 hosts 里的 IPv4 之后还会补发 AAAA 查询——这只影响它会多等一次超时，返回地址仍以 hosts 为准。</p>
+<h3 id="顺带纠正一个函数名"><a href="#顺带纠正一个函数名" class="headerlink" title="顺带纠正一个函数名"></a>顺带纠正一个函数名</h3><p>原文通篇说”ping 最终调 <code>gethostbyname()</code>“——注释里也标了”gethostbyname() 函数流程”。这在 2019 年就已经不准确了：现代 glibc 的 <code>ping</code> 用的是 <code>getaddrinfo()</code>（上面 strace 里出现 <code>nss_dns.so.2</code> 且要处理 A&#x2F;AAAA 就是这个原因）。</p>
+<p>原文第 83 段其实自己也写了”很多系统都已废弃 gethostbyname，使用 getaddrinfo 代替”，只是前半段的标题和结论没同步改过来。</p>
+<p>结论不受影响：两个函数都走 NSS 链路。但如果你要去读代码、抓栈，函数名错了会找错地方。</p>
+<hr>
+<h2 id="二、当年那两台机器到底出了什么事"><a href="#二、当年那两台机器到底出了什么事" class="headerlink" title="二、当年那两台机器到底出了什么事"></a>二、当年那两台机器到底出了什么事</h2><p>先记 Google 到的几类通用原因（这几条放今天依然成立）：</p>
 <ul>
-<li>域名最后没有加 . 然后被自动追加了 tbsite.net aliyun.com alidc.net，自然 ping不到了</li>
-<li>&#x2F;etc&#x2F;resolv.conf 配置的nameserver 要保证都是正常服务的</li>
-<li>&#x2F;etc&#x2F;nsswitch.conf 中的这行：hosts: files dns 配置成了 hosts: files mdns dns，而server不支持mdns</li>
-<li>域名是单标签的（domain 单标签； domain.com 多标签），单标签在windows下走的NBNS而不是DNS协议</li>
+<li>名字末尾没加点，被自动追加了 <code>search</code> 域</li>
+<li><code>resolv.conf</code> 里的 nameserver 有不通的</li>
+<li><code>nsswitch.conf</code> 被写成 <code>hosts: files mdns dns</code>，而 DNS 服务器不答 mDNS</li>
+<li>单标签名字（如 <code>db01</code>）在 Windows 上走 NBNS 而不是 DNS（<strong>未复核</strong>，与 Linux 无关）</li>
 </ul>
-<p>检查完我的环境不是上面描述的情况，比较悲催，居然碰到了一个Google不到的问题</p>
-<h3 id="抓包看为什么解析不了"><a href="#抓包看为什么解析不了" class="headerlink" title="抓包看为什么解析不了"></a>抓包看为什么解析不了</h3><blockquote>
-<p>DNS协议是典型的UDP应用，一来一回就搞定了查询，效率比TCP三次握手要高多了，DNS Server也支持TCP，不过一般不用TCP</p>
-</blockquote>
-<pre><code>sudo tcpdump -i eth0 udp and port 53 
-</code></pre>
-<p>抓包发现ping 不通域名的时候都是把域名丢到了 &#x2F;etc&#x2F;resolv.conf 中的第二台nameserver，或者根本没有发送 dns查询。</p>
-<p>这里要多解释一下我们的环境， &#x2F;etc&#x2F;resolv.conf 配置了2台 nameserver，第一台负责解析内部域名，另外一台负责解析其它域名，如果内部域名的解析请求丢到了第二台上自然会解析不到。</p>
-<p>所以这个问题的根本原因是挑选的nameserver 不对，按照 &#x2F;etc&#x2F;resolv.conf 的逻辑都是使用第一个nameserver，失败后才使用第二、第三个备用nameserver。</p>
-<p>比较奇怪，出问题的都是新申请到的一批ECS，仔细对比了一下正常的机器，发现有问题的 ECS &#x2F;etc&#x2F;resolv.conf 中放了一个词rotate，赶紧查了一下rotate的作用（轮询多个nameserver），然后把rotate去掉果然就好了。</p>
-<h3 id="风波再起"><a href="#风波再起" class="headerlink" title="风波再起"></a>风波再起</h3><p>本来以为问题彻底解决了，结果还是有一台机器ping仍然是unknow host，眼睛都看瞎了没发现啥问题，抓包发现总是把dns请求交给第二个nameserver，或者根本不发送dns请求，这就有意思了，跟我们理解的不太一样。</p>
-<p>看着像有cache之类的，于是在正常和不正常的机器上使用 strace ，果然发现了点不一样的东西：</p>
-<p><img src="/images/oss/ca466bb6430f1149958ceb41b9ffe591.png" alt="image.png"></p>
-<p>ping的过程中访问了 nscd(name service cache daemon） 同时发现 nscd返回值图中红框的 0，跟正常机器比较发现正常机器红框中是 -1，于是检查 &#x2F;var&#x2F;run&#x2F;nscd&#x2F; 下面的东西，kill 掉 nscd进程，然后删掉这个文件夹，再ping，一切都正常了。</p>
-<p><strong>从strace来看所有的ping都会尝试看看 nscd 是否在运行，在的话找nscd要域名解析结果，如果nscd没有运行，那么再找 &#x2F;etc&#x2F;resolv.conf中的nameserver做域名解析</strong></p>
-<p>而nslookup和dig这样的命令就不会尝试找nscd，所以没有这个问题。</p>
-<p>如下文字摘自网络：</p>
+<p>当年的环境是”两台 nameserver，第一台管内网，第二台管外网”。现象是 <code>ping</code> 把内网域名的查询丢给了第二台，自然解析不到。抓包确认：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">tcpdump -i eth0 udp and port 53</span><br></pre></td></tr></table></figure>
+
+<h3 id="第一层：resolv-conf-里的-rotate"><a href="#第一层：resolv-conf-里的-rotate" class="headerlink" title="第一层：resolv.conf 里的 rotate"></a>第一层：resolv.conf 里的 rotate</h3><p>出问题的都是新申请的一批机器，对比发现这些机器的 <code>/etc/resolv.conf</code> 多了 <code>options rotate</code>。去掉之后恢复。</p>
+<p>当年的解释引用了 RHEL 的一个 solution：<strong>开着 rotate 时，glibc 把第一个 nameserver 挪到最后，于是”总是用第二个”</strong>。</p>
+<h3 id="第二层：nscd-缓存了错误结果"><a href="#第二层：nscd-缓存了错误结果" class="headerlink" title="第二层：nscd 缓存了错误结果"></a>第二层：nscd 缓存了错误结果</h3><p>治了 rotate 之后还剩一台不通，抓包看它连查询都没发出去。<code>strace</code> 发现 <code>ping</code> 在访问 nscd 的 socket，返回值是 0（正常机器是 -1）；杀掉 nscd、删掉 <code>/var/run/nscd/</code> 之后正常。</p>
+<p>成因很典型：先为了排查 DNS 把 nscd 拉起来，nscd 把当时错误的结果缓存住了，导致后面改配置也不生效。</p>
+<h3 id="这两段的-2026-版结论"><a href="#这两段的-2026-版结论" class="headerlink" title="这两段的 2026 版结论"></a>这两段的 2026 版结论</h3><table>
+<thead>
+<tr>
+<th>原文说法</th>
+<th>复核结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>rotate 下”第二个总排第一”</td>
+<td><strong>老 glibc 上成立</strong>（2.17 的代码就是把队头挪到队尾，见 4.2 源码）。glibc 2.28 重写为进程内轮转 + 跨进程随机起点</td>
+</tr>
+<tr>
+<td>nscd 缓存 DNS 结果</td>
+<td>成立，且<strong>缓存时长不看 DNS TTL</strong>，由 <code>/etc/nscd.conf</code> 的 <code>positive-time-to-live</code> 决定（hosts 默认 3600s）</td>
+</tr>
+<tr>
+<td>nscd 是 glibc 组件</td>
+<td>成立，但 <strong>RHEL&#x2F;CentOS 8 起已不再提供 nscd</strong>，CentOS 6&#x2F;7 才是它的主要阵地</td>
+</tr>
+<tr>
+<td>清缓存方式</td>
+<td><code>nscd -i hosts</code> 即可，不必删目录</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="三、2026-复核：哪些仍然成立，哪些要改"><a href="#三、2026-复核：哪些仍然成立，哪些要改" class="headerlink" title="三、2026 复核：哪些仍然成立，哪些要改"></a>三、2026 复核：哪些仍然成立，哪些要改</h2><p>验证环境：Rocky 8.10 &#x2F; glibc 2.28-251.el8 &#x2F; BIND 9.11.36 &#x2F; dnsmasq 2.89，用网络命名空间起多个独立 DNS 实例观察真实 qname。原始脚本与日志见文末。</p>
+<table>
+<thead>
+<tr>
+<th>原文结论</th>
+<th>2026 复核</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>nslookup&#x2F;dig 不读 <code>/etc/hosts</code>、不看 <code>nsswitch.conf</code></td>
+<td><strong>成立</strong>，strace 实测一字不差</td>
+</tr>
+<tr>
+<td>多个 nameserver 默认用第一个</td>
+<td><strong>成立</strong></td>
+</tr>
+<tr>
+<td>「查不到域名就换后面的 nameserver」</td>
+<td><strong>不成立</strong>，NXDOMAIN 不换。见 3.3</td>
+</tr>
+<tr>
+<td>rotate 下”第二个总排第一”</td>
+<td>老 glibc 成立，2.28 已重写。见 4.2</td>
+</tr>
+<tr>
+<td>search 最多 6 个</td>
+<td>原文自己的注里就标了 RHEL7 已修，2.28 实测 40 个全用上。见 3.4</td>
+</tr>
+<tr>
+<td>nscd 会缓存、且会缓存错误结果</td>
+<td><strong>成立</strong>，且缓存时长不看 TTL</td>
+</tr>
+<tr>
+<td>bind 工具只问第一台</td>
+<td><strong>成立</strong>，rotate 下也不轮转。见 3.2</td>
+</tr>
+</tbody></table>
+<p>下面按重要性展开新发现的和要改的。</p>
+<h3 id="1-dig-默认会补-search-域-——-原文提到过，但容易被低估"><a href="#1-dig-默认会补-search-域-——-原文提到过，但容易被低估" class="headerlink" title="1. dig 默认会补 search 域 —— 原文提到过，但容易被低估"></a>1. <code>dig</code> 默认会补 search 域 —— 原文提到过，但容易被低估</h3><p>原文在 Google 到的原因里列了「域名最后没有加点，被自动追加了 search 域」，这一条是对的，而且是<strong>最高频</strong>的坑。我用 dig 亲自撞了一次：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ dig a.test @127.0.0.1        # resolv.conf 里有 search example.internal, ndots:2</span><br><span class="line">服务端日志实际收到:  query[A] a.test.example.internal</span><br></pre></td></tr></table></figure>
+
+<p><code>dig 9.11</code> 默认就带 <code>+search</code>。想按原样发：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">dig +nosearch a.test      <span class="comment"># 强制只查 a.test</span></span><br><span class="line">dig a.test.               <span class="comment"># 加尾点，等价于 FQDN</span></span><br></pre></td></tr></table></figure>
+
+<p>注意<strong>加尾点比 +nosearch 更保险</strong>：尾点还能防止名字里混入 search 域，在写脚本时尤其重要（我自己的第一版验证脚本就是全部查询都被补全成 <code>xxx.db.tiger.internal</code> 而全部落空）。</p>
+<p>对 <code>nslookup</code>、<code>host</code> 也一样，三者都会按 <code>search</code> + <code>ndots</code> 补全。<strong>这是排查时最容易自我欺骗的一步</strong>：你查 <code>db01</code>，看到的答案其实是 <code>db01.example.internal</code> 的，然后拿这个结论去解释应用的失败，方向就错了。</p>
+<h3 id="2-dig-nslookup-不认-rotate-——-用它们判断”服务器选择”会误判"><a href="#2-dig-nslookup-不认-rotate-——-用它们判断”服务器选择”会误判" class="headerlink" title="2. dig&#x2F;nslookup 不认 rotate —— 用它们判断”服务器选择”会误判"></a>2. <code>dig</code>&#x2F;<code>nslookup</code> 不认 rotate —— 用它们判断”服务器选择”会误判</h3><p>这一条原文没写，但它放大了原文那个 bug 的隐蔽性。三个 nameserver 都能答同一批名字，<code>options rotate</code> 下各查 12 次：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>ns1</th>
+<th>ns2</th>
+<th>ns3</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>getent ahosts</code>（走 glibc）</td>
+<td>4</td>
+<td>4</td>
+<td>4</td>
+</tr>
+<tr>
+<td><code>dig</code></td>
+<td><strong>12</strong></td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>nslookup</code></td>
+<td><strong>12</strong></td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td><strong>12</strong></td>
+<td>0</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p>glibc 会轮转，BIND 的三个工具<strong>永远只问第一台</strong>。所以：</p>
+<ul>
+<li>用 <code>dig</code> 验证”rotate 是否生效”→ 永远看不出效果</li>
+<li>用 <code>dig</code> 验证”第二台是否可用”→ 必须显式 <code>@第二台</code></li>
+<li>生产上开了 rotate 之后，<code>dig</code> 能通不代表 <code>ping</code> 能通，反过来也一样</li>
+</ul>
+<p>原文当年是用<strong>抓包</strong>（<code>tcpdump port 53</code>）发现查询落到了第二台的，没用 dig 去验证——这一点做对了。如果当时用 <code>dig</code> 判断，会得出完全相反的结论。</p>
+<h3 id="3-NXDOMAIN-不会触发换-nameserver-——-原文这里需要修正"><a href="#3-NXDOMAIN-不会触发换-nameserver-——-原文这里需要修正" class="headerlink" title="3. NXDOMAIN 不会触发换 nameserver —— 原文这里需要修正"></a>3. NXDOMAIN 不会触发换 nameserver —— 原文这里需要修正</h3><p>原文第 76 行写：</p>
 <blockquote>
-<p>NSCD(name service cache daemon)是GLIBC关于网络库的一个组件，服务基于glibc开发的各类网络服务，基本上来讲我们能见到的一些编程语言和开发框架最终均会调用到glibc的网络解析的函数（如GETHOSTBYNAME or GETHOSTBYADDR等），因此绝大部分程序能够使用NSCD提供的缓存服务。当然了如果是应用端自己用socker编写了一个网络client就无法使用NSCD提供的缓存服务，比如DNS领域常见的dig命令不会使用NSCD提供的缓存，而作为对比ping得到的DNS解析结果将使用NSCD提供的缓存</p>
+<p>如果 &#x2F;etc&#x2F;resolv.conf 中配置了多个 nameserver，默认使用第一个，只有第一个失败【<strong>如53端口不响应、查不到域名后再用后面的nameserver顶上</strong>】</p>
 </blockquote>
-<h4 id="connect函数返回值的说明："><a href="#connect函数返回值的说明：" class="headerlink" title="connect函数返回值的说明："></a>connect函数返回值的说明：</h4><pre><code>RETURN VALUE
-   If  the  connection or binding succeeds, zero is returned.  On error, -1 is returned,and errno is set appropriately.
-</code></pre>
-<p>Windows下客户端是默认有dns cache的，但是Linux Client上默认没有dns cache，DNS Server上是有cache的，所以忽视了这个问题。这个nscd是之前看ping不通，google到这么一个命令，但是应该没有搞明白它的作用，就执行了一个网上的命令，把nscd拉起来，然后ping 因为rotate的问题，还是不通，同时nscd cache了这个不通的结果，导致了新的问题</p>
-<h2 id="域名解析流程（或者说-glibc的-gethostbyname-函数流程–背后是NameServiceSwitch）"><a href="#域名解析流程（或者说-glibc的-gethostbyname-函数流程–背后是NameServiceSwitch）" class="headerlink" title="域名解析流程（或者说 glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch）"></a>域名解析流程（或者说 glibc的 gethostbyname() 函数流程–背后是NameServiceSwitch）</h2><ul>
-<li>DNS域名解析的时候先根据 &#x2F;etc&#x2F;nsswitch.conf 配置的顺序进行dns解析（name service switch），一般是这样配置：hosts: files dns 【files代表 &#x2F;etc&#x2F;hosts ； dns 代表 &#x2F;etc&#x2F;resolv.conf】(<strong>ping是这个流程，但是nslookup和dig不是</strong>)</li>
-<li>如果本地有DNS Client Cache，先走Cache查询，所以有时候看不到DNS网络包。Linux下nscd可以做这个cache，Windows下有 ipconfig &#x2F;displaydns ipconfig &#x2F;flushdns </li>
-<li>如果 &#x2F;etc&#x2F;resolv.conf 中配置了多个nameserver，默认使用第一个，只有第一个失败【如53端口不响应、查不到域名后再用后面的nameserver顶上】</li>
-<li>如果 &#x2F;etc&#x2F;resolv.conf 中配置了rotate，那么多个nameserver轮流使用. <a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">但是因为glibc库的原因用了rotate 会触发nameserver排序的时候第二个总是排在第一位</a></li>
+<p>前半句对（默认用第一个），括号里的内容把两种完全不同的情况混在了一起。实测（第一台用 Python 起了个可控应答器，第二台是正常 DNS）：</p>
+<table>
+<thead>
+<tr>
+<th>第一台的应答</th>
+<th>是否改问第二台</th>
+<th>getent 结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>超时（不响应）</td>
+<td><strong>是</strong></td>
+<td>成功</td>
+</tr>
+<tr>
+<td>REFUSED</td>
+<td><strong>是</strong></td>
+<td>成功</td>
+</tr>
+<tr>
+<td>SERVFAIL</td>
+<td><strong>是</strong></td>
+<td>成功</td>
+</tr>
+<tr>
+<td><strong>NXDOMAIN</strong></td>
+<td><strong>否</strong></td>
+<td>失败</td>
+</tr>
+<tr>
+<td>NOERROR 但无记录</td>
+<td><strong>否</strong></td>
+<td>失败</td>
+</tr>
+</tbody></table>
+<p>原因在 glibc 2.28 的 <code>resolv/res_send.c</code> 里写得很直白——<code>send_dg</code> 只在三种 rcode 上跳去问下一台，再加上一个特殊情况：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (anhp-&gt;rcode == SERVFAIL ||          <span class="comment">/* 1339-1341 */</span></span><br><span class="line">    anhp-&gt;rcode == NOTIMP ||</span><br><span class="line">    anhp-&gt;rcode == REFUSED) &#123;</span><br><span class="line">next_ns:                                <span class="comment">/* ← 换下一台 */</span></span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (anhp-&gt;rcode == NOERROR &amp;&amp; anhp-&gt;ancount == <span class="number">0</span>   <span class="comment">/* 1366-1368 */</span></span><br><span class="line">    &amp;&amp; anhp-&gt;aa == <span class="number">0</span> &amp;&amp; anhp-&gt;ra == <span class="number">0</span> &amp;&amp; anhp-&gt;arcount == <span class="number">0</span>) &#123;</span><br><span class="line">    <span class="keyword">goto</span> next_ns;                       <span class="comment">/* 全空的敷衍应答 */</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>列表里没有 NXDOMAIN。</strong> NXDOMAIN 拿到就原地返回。所以”查不到域名”（NXDOMAIN）不会让 glibc 去问下一台，”服务器坏了／拒绝服务／给个空壳应答”才会。</p>
+<p>（超时不在这段里：它是 <code>send_dg</code> 内重发耗尽后 <code>return 0</code>，上层 <code>goto next_ns</code>。）</p>
+<p>这条在排障上的意义：<strong>如果第一台 DNS 对某域名返回 NXDOMAIN（比如它没配这个 zone 的转发，直接把”不存在”甩给你），后面两台再正确也没用</strong>，而且抓包里看不到任何”尝试了第二台”的痕迹。这时 <code>nslookup 域名 第二台</code> 是通的——又一个”nslookup 正常、ping 不通”。</p>
+<p>至于原文那台机器的实际成因，它的现象是查询被<strong>发给了</strong>第二台（抓包可见），说明不是 NXDOMAIN 挡路（NXDOMAIN 的话根本不会有第二个包）。真正的原因是 rotate 改变了起始服务器，第二台对内网域名答不上来就被放弃了。两件事在原文里写在了一句描述里，但原文的结论（”挑选的 nameserver 不对”）是对的。</p>
+<h3 id="4-search-域数量：原文连自己都标了”已在-RHEL7-修复”"><a href="#4-search-域数量：原文连自己都标了”已在-RHEL7-修复”" class="headerlink" title="4. search 域数量：原文连自己都标了”已在 RHEL7 修复”"></a>4. <code>search</code> 域数量：原文连自己都标了”已在 RHEL7 修复”</h3><p>原文写「search 只能支持最多 6 个后缀（代码中写死了）」，但<strong>同一段的引用里就写着</strong> <code>resolved in RHEL7 glibc package versions at or exceeding glibc-2.17-222.el7</code>。也就是说这条在写文章的 2019 年就已经不是问题了，只是标题保留了这个说法。</p>
+<p>在 glibc 2.28 上实测：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">resolv.conf 写 40 个 search 域，ndots:9，查一个不存在的单标签名</span><br><span class="line">服务端实际收到 41 个查询： sx.d1.test … sx.d40.test, sx</span><br></pre></td></tr></table></figure>
+
+<p>一个不漏，全部试完。<strong>代价是：每次解析最多 41 个查询、乘上 attempts 和每台的超时。</strong> 一个配错 search 的域名，能把一次解析拖到几十秒 —— 这比”只能 6 个”更值得记住。</p>
+<h3 id="5-新的缓存层：Java-的-JVM-缓存"><a href="#5-新的缓存层：Java-的-JVM-缓存" class="headerlink" title="5. 新的缓存层：Java 的 JVM 缓存"></a>5. 新的缓存层：Java 的 JVM 缓存</h3><p>原文只讲到 nscd，因为当年是 C&#x2F;C++ 应用为主。今天还多一层：JVM 在进程内自带 DNS 缓存，<strong>过期时间完全不参考 DNS 应答的 TTL</strong>，由 <code>networkaddress.cache.ttl</code> 决定（默认 30s，配成 -1 就是永久）。</p>
+<p>这层不在本文范围，但排障时要知道：DNS 改完、nscd 清完，Java 应用还是连老 IP，那是 JVM 的事，跟 DNS 无关。</p>
+<hr>
+<h2 id="四、nameserver-的选择逻辑（实测版）"><a href="#四、nameserver-的选择逻辑（实测版）" class="headerlink" title="四、nameserver 的选择逻辑（实测版）"></a>四、nameserver 的选择逻辑（实测版）</h2><h3 id="4-1-只有前-3-台生效"><a href="#4-1-只有前-3-台生效" class="headerlink" title="4.1 只有前 3 台生效"></a>4.1 只有前 3 台生效</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">nameserver A    ← 生效</span><br><span class="line">nameserver B    ← 生效</span><br><span class="line">nameserver C    ← 生效</span><br><span class="line">nameserver D    ← 忽略（MAXNS=3）</span><br></pre></td></tr></table></figure>
+
+<p>实测：前三台全死、第四台正常 → 解析失败（49ms，直接放弃）；前两台死、第三台正常 → 成功（47ms）；把能用的那台挪到第三位 → 成功。所以<strong>把 DNS 排在第四位是纯粹的安慰剂</strong>。</p>
+<p>附带一条：三行都写同一个 IP，等于占掉三个槽位（实测确认——第 4 台确实被忽略）。配错了 DNS 地址在 <code>resolv.conf</code> 里复制粘贴，会把唯一的可用服务器挤出前三。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 快速检查：去掉超时影响，只看前 3 台是否都活</span></span><br><span class="line"><span class="keyword">for</span> ns <span class="keyword">in</span> $(awk <span class="string">&#x27;/^nameserver/&#123;print $2&#125;&#x27;</span> /etc/resolv.conf | <span class="built_in">head</span> -3); <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">printf</span> <span class="string">&#x27;%-16s &#x27;</span> <span class="string">&quot;<span class="variable">$ns</span>&quot;</span>; <span class="built_in">timeout</span> 2 dig +<span class="keyword">time</span>=1 +tries=1 +short . @<span class="variable">$ns</span> &gt;/dev/null 2&gt;&amp;1 &amp;&amp; <span class="built_in">echo</span> ok || <span class="built_in">echo</span> DEAD</span><br><span class="line"><span class="keyword">done</span></span><br><span class="line">awk <span class="string">&#x27;/^nameserver/&#123;n++&#125; END&#123;print &quot;nameserver 总行数:&quot;, n&#125;&#x27;</span> /etc/resolv.conf</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-rotate-到底怎么转"><a href="#4-2-rotate-到底怎么转" class="headerlink" title="4.2 rotate 到底怎么转"></a>4.2 rotate 到底怎么转</h3><p>这一条我看了源码。glibc 2.28 的 <code>resolv/res_send.c</code> 挑起始服务器是这么算的：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">unsigned</span> <span class="type">int</span></span><br><span class="line"><span class="title function_">nameserver_offset</span> <span class="params">(<span class="keyword">struct</span> __res_state *statp)</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="type">unsigned</span> <span class="type">int</span> nscount = statp-&gt;nscount;</span><br><span class="line">  <span class="keyword">if</span> (nscount &lt;= <span class="number">1</span> || !(statp-&gt;options &amp; RES_ROTATE))</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;                                   <span class="comment">/* 一台、或没开 rotate：不轮转 */</span></span><br><span class="line"></span><br><span class="line">  <span class="type">static</span> <span class="type">unsigned</span> <span class="type">int</span> global_offset;            <span class="comment">/* 进程内共享 */</span></span><br><span class="line">  <span class="type">unsigned</span> <span class="type">int</span> offset = atomic_fetch_add_relaxed (&amp;global_offset, <span class="number">2</span>);</span><br><span class="line">  <span class="keyword">if</span> ((offset &amp; <span class="number">1</span>) == <span class="number">0</span>)                        <span class="comment">/* 首次调用：用时间播种 */</span></span><br><span class="line">    &#123;</span><br><span class="line">      __gettimeofday (&amp;tv, <span class="literal">NULL</span>);</span><br><span class="line">      offset = ((tv.tv_sec &lt;&lt; <span class="number">8</span>) ^ tv.tv_usec) &lt;&lt; <span class="number">1</span>;</span><br><span class="line">      atomic_store_relaxed (&amp;global_offset, (offset | <span class="number">1</span>) + <span class="number">2</span>);</span><br><span class="line">    &#125;</span><br><span class="line">  offset &gt;&gt;= <span class="number">1</span>;                                 <span class="comment">/* 去掉初始化标记 */</span></span><br><span class="line"></span><br><span class="line">  <span class="keyword">switch</span> (nscount) &#123;                            <span class="comment">/* 取模到实际台数 */</span></span><br><span class="line">    <span class="keyword">case</span> <span class="number">2</span>: <span class="keyword">return</span> offset &amp; <span class="number">1</span>;</span><br><span class="line">    <span class="keyword">case</span> <span class="number">3</span>: <span class="keyword">return</span> offset % <span class="number">3</span>;</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 实际用哪台：偏移 + 序号，越界回绕 */</span></span><br><span class="line"><span class="type">unsigned</span> <span class="type">int</span> ns = ns_shift + ns_offset;</span><br><span class="line"><span class="keyword">if</span> (ns &gt;= statp-&gt;nscount) ns -= statp-&gt;nscount;</span><br></pre></td></tr></table></figure>
+
+<p>翻译成人话：</p>
+<ul>
+<li><strong><code>global_offset</code> 是进程内静态变量</strong>，兜了一圈之后每次调用返回的偏移量恰好 +1，所以同一进程里的连续解析会依次落在 <code>n, n+1, n+2, ...</code> 循环 —— 这就是实测到的进程内严格轮转（下面贴了 raw 输出）。</li>
+<li><strong>跨进程的起点是随机的</strong>（用 <code>tv_sec ^ tv_usec</code> 播种）。所以新起的进程第一次可能从任何一台开始。</li>
+<li><strong>只有一台时不轮转</strong>（<code>nscount &lt;= 1</code> 直接 <code>return 0</code>）。</li>
 </ul>
-<p><strong>nslookup和dig程序是bind程序包所带的工具，专门用来检测DNS Server的，实现上更简单，就一个目的，给DNS Server发DNS解析请求，没有调gethostbyname()函数，也就不遵循上述流程，而是直接到 &#x2F;etc&#x2F;resolv.conf 取第一个nameserver当dns server进行解析</strong></p>
-<h3 id="glibc函数"><a href="#glibc函数" class="headerlink" title="glibc函数"></a>glibc函数</h3><p>glibc 的解析器(revolver code) 提供了下面两个函数实现名称到 ip 地址的解析, gethostbyname 函数以同步阻塞的方式提供服务, 没有超时等选项, 仅提供 IPv4 的解析. getaddrinfo 则没有这些限制, 同时支持 IPv4, IPv6, 也支持 IPv4 到 IPv6 的映射选项. 包含 Linux 在内的很多系统都已废弃 gethostbyname 函数, 使用 getaddrinfo 函数代替. 不过从现实的情况来看, 还是有很多程序或网络库使用 gethostbyname 进行服务.</p>
-<p>备注:<br>线上开启 nscd 前, 建议做好程序的测试, nscd 仅支持通过 glibc, c 标准机制运行的程序, 没有基于 glibc 运行的程序可能不支持 nscd. 另外一些 go, perl 等编程语言网络库的解析函数是单独实现的, 不会走 nscd 的 socket, 这种情况下程序可以进行名称解析, 但不会使用 nscd 缓存. 不过我们在测试环境中使用go, java 的常规网络库都可以正常连接 nscd 的 socket 进行请求; perl 语言使用 Net::DNS 模块, 不会使用 nscd 缓存; python 语言使用 python-dns 模块, 不会使用 nscd 缓存. python 和 perl 不使用模块的时候进行解析还是遵循上述的过程, 同时使用 nscd 缓存.</p>
-<h2 id="下面是glibc中对rotate的处理："><a href="#下面是glibc中对rotate的处理：" class="headerlink" title="下面是glibc中对rotate的处理："></a>下面是glibc中对rotate的处理：</h2><p>这是glibc 2.2.5(2010年的版本），如果有rotate逻辑就是把第一个nameserver总是丢到最后一个去（为了均衡nameserver的负载，保护第一个nameserver）：</p>
-<p><img src="/images/oss/2a8116a867726e3fea20e0f45e9ed9fa.png" alt="image.png"></p>
-<p>在2017年这个代码逻辑终于改了，不过还不是默认用第一个，而是随机取一个，rotate搞成random了，这样更不好排查问题了</p>
-<p><img src="/images/oss/b0d3f9bb8cc2a4bdcd2378e173ba8cf1.png" alt="image.png"></p>
-<p><img src="/images/oss/245e70b53aee4bfcdc9a921993ddad6f.png" alt="image.png"></p>
-<p>也就是2010年之前的glibc版本在rotate模式下都是把第一个nameserver默认挪到最后一个（为了保护第一个nameserver），这样rotate模式下默认第一个nameserver总是&#x2F;etc&#x2F;resolov.conf配置文件中的第二个，到2017年改掉了这个问题，不过改成随机取nameserver, 作者不认为这是一个bug，他觉得配置rotate就是要平衡多个nameserver的性能，所以random最公平，因为大多程序都是查一次域名缓存好久，不随机轮询的话第一个nameserver压力太大</p>
-<p><a target="_blank" rel="noopener" href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570">参考 glibc bug</a></p>
-<p><a target="_blank" rel="noopener" href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc">Linux内核与glibc</a></p>
+<p>实测三个独立进程、每个连续查 9 次（地址是各实例返回的固定值，<code>10.9.1.x</code> &#x2F; <code>.2.x</code> &#x2F; <code>.3.x</code> 分别对应 ns1&#x2F;2&#x2F;3）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">进程1: 1 2 3 1 2 3 1 2 3</span><br><span class="line">进程2: 3 1 2 3 1 2 3 1 2      ← 起点不同</span><br><span class="line">进程3: 3 1 2 3 1 2 3 1 2</span><br></pre></td></tr></table></figure>
+
+<p>进程内严格循环、跨进程起点不定，跟源码一致。</p>
+<h3 id="4-2-1-老版本不是这样"><a href="#4-2-1-老版本不是这样" class="headerlink" title="4.2.1 老版本不是这样"></a>4.2.1 老版本不是这样</h3><p>glibc 2.17（CentOS 7 时代）的 <code>res_send.c</code> 是<strong>把队头挪到队尾</strong>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (statp-&gt;options &amp; RES_ROTATE) &#123;</span><br><span class="line">    ina = EXT(statp).nsaddrs[n];        <span class="comment">/* 取当前队头 */</span></span><br><span class="line">    <span class="built_in">map</span> = EXT(statp).nsmap[n];</span><br><span class="line">    <span class="keyword">for</span> (;;) &#123;                           <span class="comment">/* 整体前移一位 */</span></span><br><span class="line">        ns = n + <span class="number">1</span>;</span><br><span class="line">        <span class="keyword">while</span> (ns &lt; MAXNS &amp;&amp; EXT(statp).nsmap[ns] == MAXNS) ns++;</span><br><span class="line">        <span class="keyword">if</span> (ns == MAXNS) <span class="keyword">break</span>;</span><br><span class="line">        EXT(statp).nsaddrs[n] = EXT(statp).nsaddrs[ns];</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    EXT(statp).nsaddrs[n] = ina;         <span class="comment">/* 队头补到队尾 */</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>顺序是<strong>原地轮转</strong>，而不是按时间偏移挑起点。</p>
+<p>所以原文那句「rotate 下第一个 nameserver 总被挪到最后、于是实际总用第二个」——<strong>在 glibc 2.17 上是对的</strong>（这篇文章写于 2019，当年的机器多半是 CentOS 7），在 glibc 2.28 上是错的。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ldd --version | <span class="built_in">head</span> -1     <span class="comment"># 看 glibc 版本</span></span><br></pre></td></tr></table></figure>
+
+<p>我确认的只是这两个版本各自的行为（2.17 旧、2.28 新）。<strong>精确的分界版本我没有逐个 tag 回归</strong>，只记得是 2017 年前后因 bug 19570 重写、大约在 2.26 附近，这句按「大约」理解，别当结论。</p>
+<p>BIND 的三个工具不参与（见 3.2）—— 无论 glibc 新旧，它们永远是第一台。</p>
+<p>这对排查意味着：同一个域名，<code>ping</code> 一次可能是 A 答的，下一次可能是 B 答的。<strong>复现不稳定本身就是 rotate 的特征。</strong></p>
+<h3 id="4-3-attempts-与超时的代价"><a href="#4-3-attempts-与超时的代价" class="headerlink" title="4.3 attempts 与超时的代价"></a>4.3 attempts 与超时的代价</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">options timeout:2 attempts:3</span><br></pre></td></tr></table></figure>
+
+<p>最坏情况 ≈ <code>timeout × attempts × nameserver 台数</code>，再乘以 qname 的尝试次数（本名 + search 域）。三台都超时、2 个 search 域、attempts:3，就是 <code>2 × 3 × 3 × 3 = 54 秒</code>。实际会按服务器的 index 做退避计算，不是简单相乘，但量级如此。</p>
+<p>排查”为什么建连慢”时，先看 <code>/etc/resolv.conf</code> 里有没有已下线的 nameserver。</p>
+<hr>
+<h2 id="五、search-域与-ndots"><a href="#五、search-域与-ndots" class="headerlink" title="五、search 域与 ndots"></a>五、search 域与 ndots</h2><h3 id="5-1-顺序由-ndots-决定"><a href="#5-1-顺序由-ndots-决定" class="headerlink" title="5.1 顺序由 ndots 决定"></a>5.1 顺序由 ndots 决定</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">名字里的点数 &gt;= ndots  →  先查原样，再逐个查 search 后缀</span><br><span class="line">名字里的点数  &lt; ndots  →  先逐个查 search 后缀，最后查原样</span><br></pre></td></tr></table></figure>
+
+<p>实测（真机 glibc 2.28，服务端抓到的 qname 顺序）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ndots:9, 查 sx（0 个点）  → sx.d1.test, sx.d2.test, ... sx.d40.test, sx</span><br><span class="line">ndots:2, 查 x.y（1 个点） → x.y.a1.test, x.y.a2.test, x.y.a3.test, x.y</span><br><span class="line">ndots:0, 查 zz2（0 个点） → zz2, zz2.a1.test</span><br></pre></td></tr></table></figure>
+
+<p>默认 <code>ndots:1</code>，所以带点的名字通常先按原样查；单标签名会先去撞 search 列表。</p>
+<h3 id="5-2-没有-search-行时，用-hostname-的后缀"><a href="#5-2-没有-search-行时，用-hostname-的后缀" class="headerlink" title="5.2 没有 search 行时，用 hostname 的后缀"></a>5.2 没有 search 行时，用 hostname 的后缀</h3><p>实测：<code>resolv.conf</code> 里没有 <code>search</code> 时，主机名是 <code>vm004.gzjf.db.tiger</code>，查 <code>nosrch.zz</code> 实际发出的是 <code>nosrch.zz</code> 和 <code>nosrch.zz.gzjf.db.tiger</code> 两个。</p>
+<p>这条在容器里经常变成惊喜：容器 hostname 是随机串，search 也没配，行为和宿主机完全不同。</p>
+<h3 id="5-3-A-和-AAAA-会都发出来"><a href="#5-3-A-和-AAAA-会都发出来" class="headerlink" title="5.3 A 和 AAAA 会都发出来"></a>5.3 A 和 AAAA 会都发出来</h3><p>实测查一个名字，服务端会先后收到 <code>query[A]</code> 和 <code>query[AAAA]</code>（同一次解析里两个都发）。</p>
+<p>至于二者是否<strong>真正并发</strong>（共用一个 socket、不等第一个返回就发第二个），我的日志只有秒级时间戳、分辨率不足以判定先后，这一条<strong>属于未严格验证</strong>，只能说”两个都发了”。</p>
+<p>延伸出去的那条 K8s 结论 —— 两个查询共用一个 socket、DNAT 到同一后端时五元组冲突、有一个要等 5 秒重试 —— 是既有结论，<strong>本轮没有在 K8s 网络里复现</strong>，引用时请注意前提。<code>options single-request-reopen</code> 的作用是为每个类型新开连接，就是用来避开这个冲突的。</p>
+<h3 id="5-4-名字长度-数量边界"><a href="#5-4-名字长度-数量边界" class="headerlink" title="5.4 名字长度&#x2F;数量边界"></a>5.4 名字长度&#x2F;数量边界</h3><p>实测 70 个字符的单标签名，glibc 直接返回失败，<strong>一个包都没发出去</strong>（DNS 规范单标签上限 63 字节）。所以”名字太长导致解析失败”不是网络问题，本地就挡掉了。</p>
+<hr>
+<h2 id="六、本地数据源与缓存：三层要分清"><a href="#六、本地数据源与缓存：三层要分清" class="headerlink" title="六、本地数据源与缓存：三层要分清"></a>六、本地数据源与缓存：三层要分清</h2><h3 id="6-1-三者定位"><a href="#6-1-三者定位" class="headerlink" title="6.1 三者定位"></a>6.1 三者定位</h3><table>
+<thead>
+<tr>
+<th></th>
+<th>位置</th>
+<th>干什么</th>
+<th>缓存时长</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>nscd</strong></td>
+<td>glibc 内部（NSS 缓存层）</td>
+<td>缓存 <code>getpwnam</code>&#x2F;<code>getpwuid</code>&#x2F;hosts 等查询结果，<strong>不发包</strong></td>
+<td>固定，<code>nscd.conf</code>（hosts 默认 3600s）</td>
+</tr>
+<tr>
+<td><strong>systemd-resolved</strong></td>
+<td>53 端口的 stub + NSS 模块</td>
+<td>缓存 + 转发 + 按接口分流 + LLMNR&#x2F;mDNS</td>
+<td>跟随 DNS TTL</td>
+</tr>
+<tr>
+<td><strong>dnsmasq</strong></td>
+<td>53 端口的转发器</td>
+<td>转发 + 缓存 + <strong>本地静态数据</strong> + 按域名分流 + DHCP&#x2F;TFTP</td>
+<td>跟随 TTL，有上下限</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-dnsmasq-的-hostsdir：这轮实测最大的坑"><a href="#6-2-dnsmasq-的-hostsdir：这轮实测最大的坑" class="headerlink" title="6.2 dnsmasq 的 hostsdir：这轮实测最大的坑"></a>6.2 dnsmasq 的 hostsdir：这轮实测最大的坑</h3><p><code>hostsdir=/path/dir</code> 的作用是”读目录里的 hosts 文件，并且<strong>改文件自动生效</strong>“。它解决的是 dnsmasq 最经典的问题：<code>/etc/hosts</code> 和 <code>addn-hosts</code> 都只在启动&#x2F;收 SIGHUP 时读一次，改了不生效还不报错。</p>
+<p>但<strong>它不会让 <code>/etc/hosts</code> 自动重读</strong>。直接看内核视角的监控对象：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">inotify_add_watch(8, &quot;/etc&quot;,                 IN_CLOSE_WRITE|IN_MOVED_TO)          = 1</span><br><span class="line">inotify_add_watch(8, &quot;/path/hostsdir&quot;,       IN_CLOSE_WRITE|IN_MOVED_TO|IN_DELETE) = 2</span><br></pre></td></tr></table></figure>
+
+<p>第一个是监视 <code>resolv.conf</code> 的父目录（注意只是目录，用于感知 resolv.conf 变化），<strong>跟 hosts 无关</strong>。我专门验证过：在这个配置下改 <code>/etc/hosts</code>，<code>read /etc/hosts</code> 的计数纹丝不动，查询继续 NXDOMAIN，直到发一个 SIGHUP。</p>
+<p>实测行为清单（dnsmasq 2.89）：</p>
+<table>
+<thead>
+<tr>
+<th>操作（都不 reload）</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>目录内新增文件</td>
+<td>自动生效</td>
+</tr>
+<tr>
+<td>追加一行到已有文件</td>
+<td>自动生效</td>
+</tr>
+<tr>
+<td><code>sed -i</code> 原地改（换 inode）</td>
+<td>自动生效</td>
+</tr>
+<tr>
+<td>删掉文件里的一行</td>
+<td>自动生效，该记录消失</td>
+</tr>
+<tr>
+<td>删掉整个文件</td>
+<td>自动生效，记录消失</td>
+</tr>
+<tr>
+<td><code>mv</code> 换入新文件</td>
+<td>自动生效</td>
+</tr>
+<tr>
+<td><strong>改 <code>/etc/hosts</code></strong></td>
+<td><strong>完全不生效</strong></td>
+</tr>
+<tr>
+<td>子目录里的文件</td>
+<td>不读，日志里连事件都没有</td>
+</tr>
+<tr>
+<td>点开头的文件 <code>.hidden</code></td>
+<td>不读，静默</td>
+</tr>
+<tr>
+<td>非 hosts 格式文件</td>
+<td><strong>照样按 hosts 解析</strong>，非法行报 <code>bad address</code> 后继续读下一行</td>
+</tr>
+<tr>
+<td>目录在启动时不存在</td>
+<td><strong>只打一行警告，服务照常起</strong>；之后建目录也没用，不会补挂 watch</td>
+</tr>
+<tr>
+<td>目录权限 000 且 <code>user=</code> 降权</td>
+<td><code>failed to create inotify: Permission denied</code>，也不会生效</td>
+</tr>
+<tr>
+<td>同名记录（hostsdir vs <code>/etc/hosts</code>）</td>
+<td><strong>两条都返回</strong>，不是覆盖</td>
+</tr>
+<tr>
+<td>同一目录两个文件同名</td>
+<td><strong>两条都返回</strong>，顺序随最后重载的文件变，别靠字母序做优先级</td>
+</tr>
+<tr>
+<td><code>address=</code> 与 hosts 文件（含 hostsdir、<code>addn-hosts</code>）同名</td>
+<td><strong>hosts 文件赢</strong>，<code>address=</code> 被盖住</td>
+</tr>
+</tbody></table>
+<p>TTL 方面：hosts 来源的答案走 <code>local-ttl</code>，未配置时为 <strong>0</strong>。这是识别”答案来自本地数据而不是转发”的唯一可靠指纹 —— 比 <code>aa</code>&#x2F;<code>ra</code> 可靠得多。</p>
+<p>对照组：<code>addn-hosts=/path/dir</code> 也接受目录、也按字母序读，但 strace 里<strong>一个 inotify_add_watch 都没有</strong>，改文件必须 SIGHUP。<code>hostsdir</code> 才是唯一会自动重载的写法。</p>
+<p><strong>所以回到原文那个问题</strong>：nscd 缓存是”改了不生效”的一种，dnsmasq 的 hosts 快照是另一种，机制不同、现象一样。排障时按层往下清：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">/etc/hosts 改了没生效？</span><br><span class="line">   ├ 本机程序还慢 → nscd -i hosts（CentOS 6/7）</span><br><span class="line">   └ 别的机器/容器还慢 → dnsmasq 是否在读 /etc/hosts？改了要 reload/SIGHUP</span><br><span class="line">                          或者记录其实写在 hostsdir 里，那它应该自动生效，</span><br><span class="line">                          若没生效先查目录是否存在、权限是否可读</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-3-systemd-resolved-的-hosts-是另一份副本"><a href="#6-3-systemd-resolved-的-hosts-是另一份副本" class="headerlink" title="6.3 systemd-resolved 的 hosts 是另一份副本"></a>6.3 systemd-resolved 的 hosts 是另一份副本</h3><p><code>/etc/resolv.conf</code> 如果是指向 <code>stub-resolv.conf</code> 的软链，说明 53 端口上站着 resolved。它也会读 <code>/etc/hosts</code> 并应答，但<strong>本机应用根本轮不到它</strong>——标准 Ubuntu 的 <code>nsswitch.conf</code> 是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">hosts: files mdns4_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] dns</span><br></pre></td></tr></table></figure>
+
+<p>第一个 <code>files</code> 模块自己读文件、自己比对 mtime，改完立刻生效。resolved 那份副本只影响通过 stub（127.0.0.53）或 <code>resolvectl</code> 来问它的客户端，比如容器、或者 nsswitch 里没配 files 的镜像。</p>
+<p>默认还有一条：<code>resolved.conf</code> 里 <code>CacheFromLocalhost=no</code>，本机查询不享用转发缓存，所以本机 <code>dig @127.0.0.53</code> 常常立刻是新结果，而别的机器来问还得等 TTL —— 这又是一种”两边不一样”。</p>
 <blockquote>
-<p><code>getaddrinfo()</code> is a newer function that was introduced to replace <code>gethostbyname()</code> and provides a more flexible and robust way of resolving hostnames. <code>getaddrinfo()</code> can resolve both IPv4 and IPv6 addresses, and it supports more complex name resolution scenarios, such as service name resolution and name resolution with specific protocol families.</p>
+<p>关于 resolved 重读 hosts 的时机（inotify 还是启动一次性），我在这台 Rocky 8 上没有实测（它没装 systemd-resolved），不写结论。</p>
 </blockquote>
-<p>linux主要是基于glibc，分析glibc源码（V2.17）getaddrinfo 逻辑如下：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">// search1、search2等是resolv.conf中配置的search域，会根据resolv.conf中ndots配置和qname的级数来决定</span><br><span class="line">// 先查加search域的域名还是后查加search域的域名，除没有配置nameserver外，任何错误都会重试下一个</span><br><span class="line">foreach domain(qname、qname.search1、qname.search2...) </span><br><span class="line">  foreach retry // resolv.conf中配置的retry数目</span><br><span class="line">    foreach ns // resolv.conf中配置的nameserver，最多有效的只有前三个，增加rotate 的option后，会从                         </span><br><span class="line">               //nameserver中（最多前三个）随机选择一个进行请求</span><br><span class="line">      foreach qtype（A、AAAA）</span><br><span class="line">      // 根据请求显试指定和系统是双栈还是单栈v4、or单栈v6来决定，如果两个</span><br><span class="line">      // 类型的话会同时并发请求，不会等另外一个返回。如果在resov.conf中指定</span><br><span class="line">      // single-request-reopen，则会每个类型请求新建一个链接，否则复用同一个</span><br><span class="line">        foreach (without_edns0, with_edns0 ) </span><br><span class="line">        // 注意：默认不支持edns0，如果要支持的话需要设置宏RES_USE_EDNS0，并重编译</span><br><span class="line">           if (timeout || rcode == servfail </span><br><span class="line">                || rcode == notimp || rcode == refuse) </span><br><span class="line">                // timeout时间第一次为resolv.conf中配置，后面的依据下面公式</span><br><span class="line">                //计算：(timeout&lt;&lt;index_of_dns_server)/num_of_dns_server</span><br><span class="line">              conftinue;</span><br></pre></td></tr></table></figure>
+<h3 id="6-4-容器"><a href="#6-4-容器" class="headerlink" title="6.4 容器"></a>6.4 容器</h3><p>Docker 会把宿主 <code>resolv.conf</code> 里的 loopback 地址（127.0.0.1）过滤掉；过滤后为空时默认用 8.8.8.8&#x2F;8.8.4.4。所以宿主机上跑的 dnsmasq 对容器<strong>默认是透明的</strong>，容器解析结果和宿主不一致是常态，不是故障。要修得在 <code>daemon.json</code> 里显式配非 loopback 的 DNS。</p>
+<hr>
+<h2 id="七、排查手册"><a href="#七、排查手册" class="headerlink" title="七、排查手册"></a>七、排查手册</h2><h3 id="7-1-先定路径，再定服务器"><a href="#7-1-先定路径，再定服务器" class="headerlink" title="7.1 先定路径，再定服务器"></a>7.1 先定路径，再定服务器</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 应用视角（和 ping/curl/JVM 同链路）</span></span><br><span class="line">getent ahostsv4 &lt;域名&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 纯 DNS 视角，且强制问第一台</span></span><br><span class="line">dig +noall +answer &lt;域名&gt;            <span class="comment"># 注意：默认会补 search，用 +nosearch 才原样</span></span><br><span class="line">dig +nosearch +noall +answer &lt;域名&gt;</span><br><span class="line">dig +noall +answer &lt;域名&gt; @&lt;第一台具体IP&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 每台单独验证（rotate 下这条必做）</span></span><br><span class="line"><span class="keyword">for</span> ns <span class="keyword">in</span> 10.0.0.1 10.0.0.2 10.0.0.3; <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">echo</span> <span class="string">&quot;== <span class="variable">$ns</span>&quot;</span>; dig +<span class="keyword">time</span>=2 +tries=1 +noall +comments &lt;域名&gt; @<span class="variable">$ns</span> | grep -oE <span class="string">&#x27;status: [A-Z]+&#x27;</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 看它到底碰了哪些文件、装了什么 NSS 模块</span></span><br><span class="line">strace -f -e trace=openat,connect -o /tmp/t.txt getent ahosts &lt;域名&gt;</span><br><span class="line">grep -oE <span class="string">&#x27;nss_[a-z]+\.so[^ ]*|&quot;/etc/(hosts|nsswitch\.conf|resolv\.conf)&quot;&#x27;</span> /tmp/t.txt | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c</span><br></pre></td></tr></table></figure>
 
+<p><code>nss_files.so.2</code> + <code>/etc/hosts</code> 出现在 strace 里 ⇒ 本地文件可能覆盖了 DNS。<br>只有 <code>/etc/resolv.conf</code> ⇒ 这是纯 DNS 客户端。</p>
+<h3 id="7-2-判各层缓存"><a href="#7-2-判各层缓存" class="headerlink" title="7.2 判各层缓存"></a>7.2 判各层缓存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># nscd（CentOS 6/7）</span></span><br><span class="line">pgrep nscd &amp;&amp; nscd -i hosts</span><br><span class="line">grep -E <span class="string">&#x27;positive-time-to-live|hosts&#x27;</span> /etc/nscd.conf</span><br><span class="line"></span><br><span class="line"><span class="comment"># dnsmasq：判断答案来自本地数据还是转发（看 TTL）</span></span><br><span class="line">dig +noall +answer &lt;域名&gt; @127.0.0.1        <span class="comment"># TTL 恒 0 ⇒ 本地数据</span></span><br><span class="line">ps -o pid,lstart,cmd -p $(pgrep -o dnsmasq) <span class="comment"># 启动时间</span></span><br><span class="line"><span class="built_in">stat</span> -c <span class="string">&#x27;%y&#x27;</span> /etc/hosts                     <span class="comment"># 文件修改时间</span></span><br><span class="line"><span class="comment"># 启动时间早于 mtime ⇒ 内存里是旧副本</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 谁在监听 53</span></span><br><span class="line">ss -lunp | grep <span class="string">&#x27;:53 &#x27;</span></span><br><span class="line"><span class="built_in">ls</span> -l /etc/resolv.conf                      <span class="comment"># 软链到 stub-resolv.conf ⇒ systemd-resolved</span></span><br><span class="line">grep <span class="string">&#x27;^hosts&#x27;</span> /etc/nsswitch.conf</span><br></pre></td></tr></table></figure>
 
-
-<h2 id="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server"><a href="#还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns-server" class="headerlink" title="还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server"></a>还有一种情况，开了easyconnect这样的vpn软件，同时又配置了自己的dns server</h2><p>这个时候ping 某个自己的dns server中才有的域名是没法解析到的，即使你配置了自己的dns server，如果这个时候你通过 nslookup 自己的域名, 自己的dns-server-ip 确实是能够解析到的。但是你只是 nslookup 自己的域名 就不行，明显可以看到这个时候nslookup把域名发给了127.0.0.1:53来解析，而这个端口正是easyconnect这个软件在监听，你也可以理解easyconnect这样的软件的工作方式就是必须要挟持你的dns解析，可以理解的是这个时候nslookup肯定解析不到你的域名(只把dns解析丢给第一个nameserver–127.0.0.1)，但是不能理解的是还是ping不通域名，正常ping的逻辑丢给第一个127.0.0.1解析不到域名的话，会丢给第二个dns-server继续尝试解析，但是这里的easyconnect没有进行第二次尝试，这也许是它实现上没有考虑到或者故意这样实现的。</p>
-<h2 id="其他情况"><a href="#其他情况" class="headerlink" title="其他情况"></a>其他情况</h2><p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/58028">resolv.conf中search只能支持最多6个后缀（代码中写死了）</a>: This cannot be modified for RHEL 6.x and below and is resolved in RHEL7 glibc package versions at or exceeding glibc-2.17-222.el7.</p>
-<p>nameserver：指定nameserver，必须配置，每行指定一个nameserver，最多只能生效3行</p>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>&#x2F;etc&#x2F;resolv.conf rotate参数的关键作用</li>
-<li>nscd对域名解析的cache</li>
-<li>nslookup背后执行原理和ping不一样(前者不调glibc的gethostbyname() 函数), nslookup不会检查 &#x2F;etc&#x2F;hosts、&#x2F;etc&#x2F;nsswitch.conf, 而是直接从 &#x2F;etc&#x2F;resolv.conf 中取nameserver； 但是ping或者我们在程序一般最终都是通过调glibc的gethostbyname() 函数对域名进行解析的，也就是按照 &#x2F;etc&#x2F;nsswitch.conf 指示的来</li>
-<li>在没有源代码的情况下strace和抓包能够看到问题的本质</li>
-<li>根因： <a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">https://access.redhat.com/solutions/1426263</a></li>
-<li><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/58028">resolv.conf中最多只能使用前六个搜索域</a></li>
+<h3 id="7-3-一个反面教材"><a href="#7-3-一个反面教材" class="headerlink" title="7.3 一个反面教材"></a>7.3 一个反面教材</h3><p>第一版验证脚本里所有查询都返回空，我以为是 dnsmasq 的问题。真实原因是 <code>resolv.conf</code> 里有 <code>search xxx ndots:2</code>，我写的 <code>dig a.test</code> 被补全成了 <code>a.test.xxx</code> —— 服务端收到的是另一个名字。</p>
+<p><strong>在这类环境里写脚本，查询一律用带尾点的 FQDN（<code>a.test.</code>）或 <code>dig +nosearch</code>。</strong></p>
+<hr>
+<h2 id="八、总结"><a href="#八、总结" class="headerlink" title="八、总结"></a>八、总结</h2><ol>
+<li><strong>路径不同是根因的大头。</strong> <code>ping</code>&#x2F;<code>curl</code>&#x2F;<code>getent</code> 走 glibc + nsswitch（先 <code>/etc/hosts</code>），<code>nslookup</code>&#x2F;<code>dig</code>&#x2F;<code>host</code> 直接发 DNS 报文。<code>strace</code> 一看就分开。</li>
+<li><strong>名字可能被改写。</strong> 四类工具都会按 <code>search</code> + <code>ndots</code> 补全，但机制不同：BIND 三个工具自己做补全（<code>dig</code> 默认 <code>+search</code>）；<code>ping</code>&#x2F;<code>curl</code>&#x2F;<code>getent</code> 是 glibc 做的。写脚本时一律用尾点 FQDN。</li>
+<li><strong>NXDOMAIN 不换服务器，REFUSED&#x2F;SERVFAIL&#x2F;超时才换。</strong> 第一台返回”不存在”，后面的服务器再对也没用。</li>
+<li><strong>只有前 3 台 nameserver 生效。</strong></li>
+<li><strong>rotate 只有 glibc 认，BIND 工具不认。</strong> 进程内轮转，跨进程起点不定。用 <code>dig</code> 验 rotate 永远验不出来。</li>
+<li><strong>本地数据源最容易骗人。</strong> <code>/etc/hosts</code>（<code>files</code> 命中后不再查 DNS）、dnsmasq 的 hosts 快照、nscd 的固定时长缓存、systemd-resolved 的副本，四者机制不同，现象都是”改了不生效”。</li>
+<li><strong>dnsmasq 的 <code>hostsdir</code> 只管那个目录。</strong> 它不会让 <code>/etc/hosts</code> 自动重读；目录必须启动时就存在，否则只留一行警告、之后也不会补。</li>
+<li><strong>没有源码时，<code>strace</code> + 抓包能看清一切；有测试机时，别靠推理下结论。</strong></li>
+</ol>
+<hr>
+<h2 id="附：验证环境与原始数据"><a href="#附：验证环境与原始数据" class="headerlink" title="附：验证环境与原始数据"></a>附：验证环境与原始数据</h2><ul>
+<li>环境：Rocky Linux 8.10，glibc 2.28-251.el8_10.25，BIND 9.11.36，dnsmasq 2.89（<code>inotify</code> 已编译），KVM 虚拟机</li>
+<li>方法：用 <code>ip netns</code> 起多个独立 DNS 实例（各自监听 loopback 的不同地址:53），客户端在命名空间内用 <code>mount --bind</code> 替换 <code>resolv.conf</code>；需要观察 rcode 时用自写的 Python 应答器返回可控的 NXDOMAIN&#x2F;REFUSED&#x2F;SERVFAIL</li>
+<li>一个实验技巧：<code>/etc/resolv.conf</code> 可能被 <code>chattr +i</code> 锁定，<code>mount --bind</code> 仍可覆盖，不必解锁</li>
+<li>所有实验均在测试机完成，未修改线上服务；<code>/etc/hosts</code> 实验后按 md5 校验还原</li>
+<li>原始脚本：<code>run.sh</code> ~ <code>run31.sh</code>、<code>nxd.py</code>、<code>rcode.py</code>，位于本地 <code>~/q/tmp/hostsdir-test/</code></li>
+<li>原文备份：<code>~/q/tmp/hostsdir-test/nslookup-OK-but-ping-fail.md.bak</code></li>
+<li>glibc 源码：<code>resolv/res_send.c</code> 的 2.17 与 2.28 两个 tag，本地副本在同目录 <code>res_send_217.c</code> &#x2F; <code>res_send_228.c</code></li>
 </ul>
-<p>下一篇介绍《在公司网下，我的windows7笔记本的wifi总是报dns域名异常无法上网（通过IP地址可以上网）》困扰了我两年，最近换了新笔记本还是有这个问题才痛下决心咬牙解决</p>
-<h3 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h3><p><a target="_blank" rel="noopener" href="https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine">https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine</a></p>
-<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt">https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt</a></p>
-<p><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">来自redhat上原因的描述，但是从代码的原作者的描述来看，他认为rotate下这个行为是合理的</a></p>
-<p><a target="_blank" rel="noopener" href="https://arstercz.com/linux-%E7%B3%BB%E7%BB%9F%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86%E5%90%8D%E7%A7%B0%E8%A7%A3%E6%9E%90/">Linux 系统如何处理名称解析</a></p>
+<h3 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h3><ul>
+<li><a target="_blank" rel="noopener" href="https://superuser.com/questions/495759/why-is-ping-unable-to-resolve-a-name-when-nslookup-works-fine">Why is ping unable to resolve a name when nslookup works fine</a></li>
+<li><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/330395/dns-problem-nslookup-works-ping-doesnt">DNS problem: nslookup works, ping doesn’t</a></li>
+<li><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/1426263">来自 redhat 上原因的描述（rotate 的老行为）</a></li>
+<li><a target="_blank" rel="noopener" href="https://sourceware.org/bugzilla/show_bug.cgi?id=19570">glibc bug 19570（rotate 行为变更）</a></li>
+<li><a target="_blank" rel="noopener" href="https://access.redhat.com/solutions/58028">resolv.conf 中 search 域数量的老限制</a></li>
+<li><a target="_blank" rel="noopener" href="https://arstercz.com/linux-%E7%B3%BB%E7%BB%9F%E5%A6%82%E4%BD%95%E5%A4%84%E7%90%86%E5%90%8D%E7%A7%B0%E8%A7%A3%E6%9E%90/">Linux 系统如何处理名称解析</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.byvoid.com/zhs/blog/linux-kernel-and-glibc">Linux内核与glibc</a></li>
+</ul>
+<hr>
+<blockquote>
+<p>下一篇文章是《在公司网下，我的 windows7 笔记本的 wifi 总是报 dns 域名异常无法上网（通过 IP 地址可以上网）》，困扰了我两年才痛下决心解决。</p>
+</blockquote>
 
       
     </div>
