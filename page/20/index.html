@@ -1834,7 +1834,7 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2025-11-29 15:19:06" itemprop="dateModified" datetime="2025-11-29T15:19:06+08:00">2025-11-29</time>
+      <time title="修改时间：2026-11-13 16:42:05" itemprop="dateModified" datetime="2026-11-13T16:42:05+08:00">2026-11-13</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1857,6 +1857,12 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
     
     <div class="post-body" itemprop="articleBody">
           <h1 id="关于TCP-半连接队列和全连接队列"><a href="#关于TCP-半连接队列和全连接队列" class="headerlink" title="关于TCP 半连接队列和全连接队列"></a>关于TCP 半连接队列和全连接队列</h1><blockquote>
+<p><strong>2026-11 修订说明</strong></p>
+<p>本文初版写于 2017-06，其中大量结构描述（半连接队列是一条独立链表）反映的是 <strong>v4.3 及更早</strong>的内核。</p>
+<p>分水岭是 <strong>v4.4（2015-10）</strong>：<code>079096f103fa</code> 把 reqsk 从 listener 队列搬进 ehash，<code>ef547f2ac1</code> 删除 <code>max_qlen_log</code>。<strong>从此半连接队列不再是独立链表，收包时只查 ehash，<code>icsk_accept_queue</code> 里只剩 <code>qlen</code>&#x2F;<code>young</code> 两个计数器。</strong></p>
+<p>本次修订：数值类错误（somaxconn 默认值、合并版本）已就地改正；结构性过时的段落加了 <code>⚠️ v4.4+</code> 就地标注，说明当前内核的实际行为。<strong>2017 年的实验数据、抓包、时间线原样保留</strong>，它们是当时内核的真实记录，请按版本适用性阅读。</p>
+</blockquote>
+<blockquote>
 <p>最近碰到一个client端连接异常问题，然后定位分析发现是因为全连接队列满了导致的。查阅各种资料文章和通过一系列的实验对TCP连接队列有了更深入的理解</p>
 <p>查资料过程中发现没有文章把这两个队列以及怎么观察他们的指标说清楚，希望通过这篇文章能说清楚:</p>
 <ol>
@@ -1866,13 +1872,8 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 <p>3）怎么查看这两个队列当前使用到了多少；</p>
 <p>4）一旦溢出的后果和现象是什么</p>
 </blockquote>
-<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><pre><code>场景：JAVA的client和server，使用socket通信。server使用NIO。
-
-1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。
-2.出问题的时间点，会同时有很多连接出现这个问题。
-3.selector没有销毁重建，一直用的都是一个。
-4.程序刚启动的时候必会出现一些，之后会间歇性出现。
-</code></pre>
+<h2 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h2><p>场景：JAVA的client和server，使用socket通信。server使用NIO。</p>
+<p>1.间歇性的出现client向server建立连接三次握手已经完成，但server的selector没有响应到这连接。<br>2.出问题的时间点，会同时有很多连接出现这个问题。<br>3.selector没有销毁重建，一直用的都是一个。<br>4.程序刚启动的时候必会出现一些，之后会间歇性出现。</p>
 <h2 id="分析问题"><a href="#分析问题" class="headerlink" title="分析问题"></a>分析问题</h2><h3 id="正常TCP建连接三次握手过程："><a href="#正常TCP建连接三次握手过程：" class="headerlink" title="正常TCP建连接三次握手过程："></a>正常TCP建连接三次握手过程：</h3><p><img src="/images/oss/159a331ff8cdd4b8994dfe6a209d035f.png" alt="image.png"></p>
 <ul>
 <li>第一步：client 发送 syn 到server 发起握手；</li>
@@ -1897,11 +1898,24 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 </blockquote>
 <h2 id="深入理解TCP握手过程中建连接的流程和队列"><a href="#深入理解TCP握手过程中建连接的流程和队列" class="headerlink" title="深入理解TCP握手过程中建连接的流程和队列"></a>深入理解TCP握手过程中建连接的流程和队列</h2><p><img src="/images/oss/bcf463efeb677d5749d8d7571274ee79.png" alt="image.png"></p>
 <p>如上图所示，这里有两个队列：syns queue(半连接队列）；accept queue（全连接队列）</p>
+<blockquote>
+<p>⚠️ <strong>v4.4+ 语义变更</strong>：下面的描述适用于 v4.3 及更早。从 v4.4（2015-10，<code>079096f103fa</code>）起，<strong>半连接队列不再是一条独立链表</strong> —— reqsk 被直接插入 ehash（和 ESTABLISHED 的 socket 同一条桶链），收包时只查 ehash；<code>icsk_accept_queue</code> 里只剩 <code>qlen</code>（半连接计数）和 <code>young</code>（未重传计数）。accept queue 仍是真链表，但只给 <code>accept()</code> 用。详见 wiki 的 <code>entities/tcp-connection-lifecycle.md</code>「原文修订记录」一节。</p>
+</blockquote>
 <p>三次握手中，在第一步server收到client的syn后，把这个连接信息放到半连接队列中，同时回复syn+ack给client（第二步）；</p>
 <pre><code>题外话，比如syn floods 攻击就是针对半连接队列的，攻击方不停地建连接，但是建连接的时候只做第一步，第二步中攻击方收到server的syn+ack后故意扔掉什么也不做，导致server上这个队列满其它正常请求无法进来
 </code></pre>
 <p>第三步的时候server收到client的ack，如果这时全连接队列没满，那么从半连接队列拿出这个连接的信息放入到全连接队列中，同时将连接状态从 SYN_RECV 改成 ESTABLISHED 状态，否则按tcp_abort_on_overflow指示的执行。</p>
 <p>这时如果全连接队列满了并且tcp_abort_on_overflow是0的话，server会扔掉三次握手中第三步收到的ack（假装没有收到一样），过一段时间再次发送syn+ack给client（也就是重新走握手的第二步），如果client超时等待比较短，就很容易异常了。其实这个时候client认为连接已经建立了，可以发数据或者可以断开，而实际server上连接还没建立好（还没能力）。</p>
+<blockquote>
+<p>⚠️ <strong>v4.10+ 行为已变</strong>：从 <code>5ea8ea2cb7f1</code>（v4.10）起，<strong>全连接队列满时直接在 SYN 阶段丢弃，连 SYN+ACK 都不回</strong>，根本不会走到”丢掉第三步 ACK 再重发 SYN+ACK”这一步。对比代码：v4.9 <code>tcp_input.c:6327</code> 是 <code>sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_young(sk) &gt; 1</code>，v4.10 <code>tcp_input.c:6321</code> 去掉了后半段。</p>
+<p>这个改动就是文中后面提到的 “client fooling” 修复：不再让客户端误以为连接已建立。</p>
+<p>当前内核全连接队列满有<strong>两条路径</strong>：</p>
+<ul>
+<li><strong>路径 A（SYN 到达时）</strong> <code>tcp_conn_request()</code>：<code>sk_acceptq_is_full()</code> 成立就 <code>goto drop</code>，<strong>不看 <code>tcp_abort_on_overflow</code></strong>。这是 4.10+ 的主路径。</li>
+<li><strong>路径 B（第三步 ACK 到达时）</strong> <code>tcp_check_req()</code> 的 <code>listen_overflow:</code>：<code>tcp_abort_on_overflow=0</code> 时静默丢弃并置 <code>acked=1</code>，为 1 时回 RST。<strong>只有这条路受 <code>tcp_abort_on_overflow</code> 控制。</strong></li>
+</ul>
+<p>因此本文下面”改 <code>tcp_abort_on_overflow=1</code> 复现 connection reset”的实验，在 4.10+ 上只在”SYN 进得来、ACK 来时队列恰好满”的窄窗口才触发，复现难度大增。</p>
+</blockquote>
 <p>在我们的os中retry 第二步的默认次数是2（centos默认是5次）：</p>
 <pre><code>net.ipv4.tcp_synack_retries = 2
 </code></pre>
@@ -1917,6 +1931,10 @@ sudo tcptrack -r 5 -i eth0 host 10.0.48.1 //filter 语法和tcpdump一样
 919614 passive connections rejected because of time stamp //tcp_recycle 丢 syn 包，对应/proc/net/netstat 中 PAWSPassive
 TCPTimeWaitOverflow: 65000                                //tcp_max_tw_buckets 溢出
 </code></pre>
+<blockquote>
+<p>⚠️ <strong>计数项现状</strong>：当前内核 <code>/proc/net/netstat</code> 里只有 <code>ListenOverflows</code>（全连接队列溢出）和 <code>ListenDrops</code>（SYN 丢失总数），<code>ListenDrops</code> 含 <code>ListenOverflows</code> 及其他 SYN 丢弃原因（<code>net/ipv4/proc.c:195-196</code>）。<code>ignored</code> 是老版 net-tools 的叫法，”ignored 与 dropped 同义”这个结论仍然成立。</p>
+<p>但 <strong><code>PAWSPassive</code> 和 <code>tcp_tw_recycle</code> 都已不存在</strong>：<code>tcp_tw_recycle</code> 在 v4.12 被彻底移除（<code>4396e46187</code>，2017-03），对应的 <code>PAWSPassive</code> 计数项也一并消失。现在 PAWS 相关的计数器是 <code>PAWSActive</code> &#x2F; <code>PAWSEstab</code> &#x2F; <code>PAWSOldAck</code> &#x2F; <code>PAWSTimewait</code>。上面那条 <code>919614 passive connections rejected...</code> 属于 v4.11 及更早的历史现象。</p>
+</blockquote>
 <p>比如上面看到的 667399 times ，表示全连接队列溢出的次数，隔几秒钟执行下，如果这个数字一直在增加的话肯定全连接队列偶尔满了</p>
 <p>ignored 和 dropped：</p>
 <p><img src="/images/951413iMgBlog/image-20240807112156872.png" alt="image-20240807112156872"></p>
@@ -1933,7 +1951,7 @@ Recv-Q Send-Q Local Address:Port  Peer Address:Port
 <p>The backlog argument to the listen function has historically specified the maximum value for the sum of both queues.</p>
 <p>There has never been a formal definition of what the backlog means. The 4.2BSD man page says that it “defines the maximum length the queue of pending connections may grow to.” Many man pages and even the POSIX specification copy this definition verbatim, but this definition does not say whether a pending connection is one in the SYN_RCVD state, one in the ESTABLISHED state that has not yet been accepted, or either. The historical definition in this bullet is the Berkeley implementation, dating back to 4.2BSD, and copied by many others.</p>
 </blockquote>
-<p>关于 <a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4">somaxconn 终于在2019年将默认值从128调整到了2048</a>, 这个调整合并到了kernel 5.17中</p>
+<p>关于 somaxconn 在 2019 年将默认值从 128 调整到了 <strong>4096</strong>（<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/19f92a030ca6d772ab44b22ee6a01378a8cb32d4">commit 19f92a030ca6</a>，2019-10-30），这个调整合并到了 <strong>kernel 5.4</strong> 中（v5.3 仍是 128，v5.4 起为 4096）。</p>
 <blockquote>
 <p>SOMAXCONN is &#x2F;proc&#x2F;sys&#x2F;net&#x2F;core&#x2F;somaxconn default value.</p>
 <p>It has been defined as 128 more than 20 years ago.</p>
@@ -1954,6 +1972,11 @@ ServerSocket(int port, int backlog, InetAddress bindAddr)
 </code></pre>
 <p>（来自JDK帮助文档：<a target="_blank" rel="noopener" href="https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html%EF%BC%89">https://docs.oracle.com/javase/7/docs/api/java/net/ServerSocket.html）</a></p>
 <p><strong>半连接队列的大小取决于：max(64,  &#x2F;proc&#x2F;sys&#x2F;net&#x2F;ipv4&#x2F;tcp_max_syn_backlog)。 <a target="_blank" rel="noopener" href="https://developer.aliyun.com/article/804896">不同版本的os会有些差异</a></strong></p>
+<blockquote>
+<p>⚠️ <strong>v4.4+ 修正</strong>：这一结论已不成立。当前内核里半连接判满用的是 <code>inet_csk_reqsk_queue_is_full()</code>，比较对象是 <code>sk_max_ack_backlog</code>（即 <code>min(backlog, somaxconn)</code>），<strong>不是</strong> <code>tcp_max_syn_backlog</code>。</p>
+<p><code>tcp_max_syn_backlog</code> 现在只剩一个作用：<code>tcp_conn_request()</code> 里的<strong>最后 1&#x2F;4 水位保护</strong> —— 当 <code>max_syn_backlog - qlen &lt; (max_syn_backlog &gt;&gt; 2)</code> 且该对端尚未被证明存活时丢 SYN。而且这个保护<strong>只在 <code>tcp_syncookies=0</code> 时生效</strong>；默认 <code>tcp_syncookies=1</code> 时，调 <code>tcp_max_syn_backlog</code> 基本没有效果。</p>
+<p><code>tcp_max_syn_backlog</code> 的默认值也不再是固定的 1024，而是 <code>max(128, ehash_entries/128)</code>，随内存增长。</p>
+</blockquote>
 <blockquote>
 <p>我们写代码的时候从来没有想过这个backlog或者说大多时候就没给他值（那么默认就是50），直接忽视了他，首先这是一个知识点的忙点；其次也许哪天你在哪篇文章中看到了这个参数，当时有点印象，但是过一阵子就忘了，这是知识之间没有建立连接，不是体系化的。但是如果你跟我一样首先经历了这个问题的痛苦，然后在压力和痛苦的驱动自己去找为什么，同时能够把为什么从代码层推理理解到OS层，那么这个知识点你才算是比较好地掌握了，也会成为你的知识体系在TCP或者性能方面成长自我生长的一个有力抓手</p>
 </blockquote>
@@ -2040,6 +2063,9 @@ LISTEN    0     511              *:8085           *:*
 <p>如上图，图中3号包是三次握手中的第三步，client发送ack给server，这个时候在client看来握手完成，然后4号包中client发送了一个长度为238的包给server，因为在这个时候client认为连接建立成功，但是server上这个连接实际没有ready，所以server没有回复，一段时间后client认为丢包了然后重传这238个字节的包，等到server reset了该连接（或者client一直重传这238字节到超时，client主动发fin包断开该连接，如下图）</p>
 <p><img src="/images/oss/3f5f1eeb0646a3af8afd6bbff2a9ea0b.png" alt="image.png"></p>
 <p>这个问题也叫client fooling，可以看这个patch在4.10后修复了：<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071">https://github.com/torvalds/linux/commit/5ea8ea2cb7f1d0db15762c9b0bb9e7330425a071</a> ，修复的逻辑就是，如果全连接队列满了就不再回复syn+ack了，免得client误认为这个连接建立起来了，这样client端收不到syn+ack就只能重发syn。</p>
+<blockquote>
+<p>版本已核实：该 commit 日期为 2016-10-26，进 <strong>v4.10</strong>。对比 v4.9 <code>tcp_input.c:6327</code>（带 <code>&amp;&amp; young &gt; 1</code>）与 v4.10 <code>tcp_input.c:6321</code>（已去掉）。</p>
+</blockquote>
 <p><strong>从上面的实际抓包来看不是reset，而是server忽略这些包，然后client重传，一定次数后client认为异常，然后断开连接。</strong></p>
 <p>如果这个连接已经放入了全连接队列但是应用没有accept（比如应用卡住了），那么这个时候client发过来的包是不会被扔掉，OS会先收下放到接收buffer中，知道buffer满了再扔掉新进来的。</p>
 <h2 id="过程中发现的一个奇怪问题"><a href="#过程中发现的一个奇怪问题" class="headerlink" title="过程中发现的一个奇怪问题"></a>过程中发现的一个奇怪问题</h2><pre><code>[root@server ~]# date; netstat -s | egrep &quot;listen|LISTEN&quot; 
@@ -2077,6 +2103,9 @@ server5
 </code></pre>
 <p>总结：SYNs to LISTEN sockets dropped(ListenDrops)表示：全连接&#x2F;半连接队列溢出<strong>以及PAWSPassive</strong> 等造成的 SYN 丢包</p>
 <blockquote>
+<p>说明：上面 2017 年实验里的 <code>PAWSPassive</code> 一项在 v4.12 之后已随 <code>tcp_tw_recycle</code> 移除，现代内核的 ListenDrops 主要由 ListenOverflows 及其他 SYN 丢弃原因构成。</p>
+</blockquote>
+<blockquote>
 <p>ListenDrops 表示： SYNs to LISTEN sockets dropped</p>
 </blockquote>
 <h2 id="那么全连接队列满了会影响半连接队列吗？"><a href="#那么全连接队列满了会影响半连接队列吗？" class="headerlink" title="那么全连接队列满了会影响半连接队列吗？"></a>那么全连接队列满了会影响半连接队列吗？</h2><p>来看三次握手第一步的源代码（<a target="_blank" rel="noopener" href="http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249%EF%BC%89%EF%BC%9A">http://elixir.free-electrons.com/linux/v2.6.33/source/net/ipv4/tcp_ipv4.c#L1249）：</a></p>
@@ -2087,7 +2116,13 @@ server5
   if(sk_acceptq_is_full(sk) &amp;&amp; inet_csk_reqsk_queue_yong(sk)&gt;1)
       goto drop;
 </code></pre>
-<h2 id="半连接队列的长度"><a href="#半连接队列的长度" class="headerlink" title="半连接队列的长度"></a>半连接队列的长度</h2><p><strong>半连接队列的长度由三个参数指定：</strong></p>
+<blockquote>
+<p>⚠️ <strong>版本说明</strong>：上面是 v2.6.33 的代码。v4.10（<code>5ea8ea2cb7f1</code>）起条件简化成只有 <code>sk_acceptq_is_full(sk)</code>（<code>tcp_input.c:6321</code>），不再看 young 计数 —— 全连接队列一满就直接丢 SYN。</p>
+</blockquote>
+<h2 id="半连接队列的长度"><a href="#半连接队列的长度" class="headerlink" title="半连接队列的长度"></a>半连接队列的长度</h2><blockquote>
+<p>⚠️ <strong>v4.4+ 整节失效</strong>：本节描述的 <code>max_qlen_log</code> 机制在 v4.4（2015-10）已随 <code>ef547f2ac1</code>（”tcp: remove max_qlen_log”）整体删除。以下公式<strong>仅适用于 v4.3 及更早</strong>，保留作为历史参考。当前内核的半连接上限判定见上文「半连接队列的大小」处的修正说明。</p>
+</blockquote>
+<p><strong>半连接队列的长度由三个参数指定：</strong></p>
 <ul>
 <li><strong>调用</strong> <strong>listen</strong> <strong>时，传入的 backlog</strong></li>
 <li><strong>&#x2F;proc&#x2F;sys&#x2F;net&#x2F;core&#x2F;somaxconn</strong> <strong>默认值为 128</strong></li>
