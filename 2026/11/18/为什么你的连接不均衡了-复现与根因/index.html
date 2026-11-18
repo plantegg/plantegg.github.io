@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222"><meta name="generator" content="Hexo 8.1.1">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.0.0/css/all.min.css" integrity="sha256-VHqXKFhhMxcpubYf9xiWdCiojEbY9NexQ4jh8AxbvcM=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"plantegg.github.io","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.26.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":false,"style":null},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="为什么你的连接不均衡了？两个 Redis 挂在 LVS 后面，客户端用 Jedis 连接池访问，一切正常。直到某天其中一个 Redis 的 CPU 被抢占、开始变慢，你会发现流量开始往变慢的那个节点上堆——它越慢，接到的请求越多。 这个现象在云上大规模服务里非常典型：负载均衡背后两个节点，一个 CPU 90%、另一个 5%。监控上连接是均衡的，IPVS 的连接数也是 1:1，但 CPU 就是不平。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="为什么你的连接不均衡了？——一次 LVS + Redis 的复现与根因定位">
+<meta property="og:url" content="https://plantegg.github.io/2026/11/18/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86-%E5%A4%8D%E7%8E%B0%E4%B8%8E%E6%A0%B9%E5%9B%A0/index.html">
+<meta property="og:site_name" content="plantegg">
+<meta property="og:description" content="为什么你的连接不均衡了？两个 Redis 挂在 LVS 后面，客户端用 Jedis 连接池访问，一切正常。直到某天其中一个 Redis 的 CPU 被抢占、开始变慢，你会发现流量开始往变慢的那个节点上堆——它越慢，接到的请求越多。 这个现象在云上大规模服务里非常典型：负载均衡背后两个节点，一个 CPU 90%、另一个 5%。监控上连接是均衡的，IPVS 的连接数也是 1:1，但 CPU 就是不平。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240618202012463.png">
+<meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240618203121532.png">
+<meta property="article:published_time" content="2026-11-17T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-11-18T09:26:42.913Z">
+<meta property="article:author" content="twitter @plantegg">
+<meta property="article:tag" content="LVS">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="commons-pool">
+<meta property="article:tag" content="network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240618202012463.png">
+
+
+<link rel="canonical" href="https://plantegg.github.io/2026/11/18/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86-%E5%A4%8D%E7%8E%B0%E4%B8%8E%E6%A0%B9%E5%9B%A0/">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"https://plantegg.github.io/2026/11/18/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86-%E5%A4%8D%E7%8E%B0%E4%B8%8E%E6%A0%B9%E5%9B%A0/","path":"2026/11/18/为什么你的连接不均衡了-复现与根因/","title":"为什么你的连接不均衡了？——一次 LVS + Redis 的复现与根因定位"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>为什么你的连接不均衡了？——一次 LVS + Redis 的复现与根因定位 | plantegg</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/motion.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script>
+
+  
+
+
+
+
+
+
+  
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">plantegg</p>
+      <i class="logo-line"></i>
+    </a>
+      <p class="site-subtitle" itemprop="description">java tcp mysql performance network docker Linux</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="搜索" role="button">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86%EF%BC%9F"><span class="nav-number">1.</span> <span class="nav-text">为什么你的连接不均衡了？</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E3%80%81%E7%8E%B0%E8%B1%A1"><span class="nav-number">1.1.</span> <span class="nav-text">一、现象</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%8C%E3%80%81%E9%87%8D%E7%8E%B0%E6%AD%A5%E9%AA%A4"><span class="nav-number">1.2.</span> <span class="nav-text">二、重现步骤</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%89%E3%80%81%E5%AE%9E%E6%B5%8B%E6%95%B0%E6%8D%AE"><span class="nav-number">1.3.</span> <span class="nav-text">三、实测数据</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AE%9E%E9%AA%8C%E4%B8%80%EF%BC%9A%E8%BF%9E%E6%8E%A5%E6%95%B0%E5%80%BE%E6%96%9C%EF%BC%88%E9%A9%B1%E9%80%90%E7%94%9F%E6%95%88%EF%BC%89"><span class="nav-number">1.3.1.</span> <span class="nav-text">实验一：连接数倾斜（驱逐生效）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AE%9E%E9%AA%8C%E4%BA%8C%EF%BC%9A%E8%AF%B7%E6%B1%82%E9%87%8F%E5%80%BE%E6%96%9C%EF%BC%88%E8%BF%9E%E6%8E%A5%E6%95%B0%E6%81%92%E5%AE%9A%EF%BC%89"><span class="nav-number">1.3.2.</span> <span class="nav-text">实验二：请求量倾斜（连接数恒定）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9B%E3%80%81%E6%A0%B9%E5%9B%A0%E5%88%86%E6%9E%90"><span class="nav-number">1.4.</span> <span class="nav-text">四、根因分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%9E%E6%8E%A5%E6%95%B0%E4%B9%9F%E4%BC%9A%E5%80%BE%E6%96%9C"><span class="nav-number">1.4.1.</span> <span class="nav-text">为什么连接数也会倾斜</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%94%E3%80%81%E6%80%BB%E7%BB%93"><span class="nav-number">1.5.</span> <span class="nav-text">五、总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%99%E4%B8%AA%E9%97%AE%E9%A2%98%E4%B8%8D%E6%AD%A2%E4%BA%8E-Jedis-%E5%92%8C-Redis"><span class="nav-number">1.5.1.</span> <span class="nav-text">这个问题不止于 Jedis 和 Redis</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%9C%A8%E8%BF%99%E4%B8%AA%E5%9C%BA%E6%99%AF%E4%B8%8B%EF%BC%8CFIFO-%E5%AF%B9%E5%9D%87%E8%A1%A1%E6%98%8E%E6%98%BE%E4%BC%98%E4%BA%8E-LIFO"><span class="nav-number">1.5.2.</span> <span class="nav-text">在这个场景下，FIFO 对均衡明显优于 LIFO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BB%A3%E4%BB%B7%E4%B8%8E%E5%8F%96%E8%88%8D"><span class="nav-number">1.5.3.</span> <span class="nav-text">代价与取舍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%80%E5%8F%A5%E8%AF%9D"><span class="nav-number">1.5.4.</span> <span class="nav-text">一句话</span></a></li></ol></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">twitter @plantegg</p>
+  <div class="site-description" itemprop="description">java mysql tcp performance network docker Linux</div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">215</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">20</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">334</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2026/11/18/%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BD%A0%E7%9A%84%E8%BF%9E%E6%8E%A5%E4%B8%8D%E5%9D%87%E8%A1%A1%E4%BA%86-%E5%A4%8D%E7%8E%B0%E4%B8%8E%E6%A0%B9%E5%9B%A0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="为什么你的连接不均衡了？——一次 LVS + Redis 的复现与根因定位 | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          为什么你的连接不均衡了？——一次 LVS + Redis 的复现与根因定位
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2026-11-18 00:00:00 / 修改时间：17:26:42" itemprop="dateCreated datePublished" datetime="2026-11-18T00:00:00+08:00">2026-11-18</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/LVS/" itemprop="url" rel="index"><span itemprop="name">LVS</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-item" title="阅读次数" id="busuanzi_container_page_pv">
+      <span class="post-meta-item-icon">
+        <i class="far fa-eye"></i>
+      </span>
+      <span class="post-meta-item-text">阅读次数：</span>
+      <span id="busuanzi_value_page_pv"></span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="为什么你的连接不均衡了？"><a href="#为什么你的连接不均衡了？" class="headerlink" title="为什么你的连接不均衡了？"></a>为什么你的连接不均衡了？</h1><p>两个 Redis 挂在 LVS 后面，客户端用 Jedis 连接池访问，一切正常。直到某天其中一个 Redis 的 CPU 被抢占、开始变慢，你会发现流量开始往<strong>变慢的那个节点</strong>上堆——它越慢，接到的请求越多。</p>
+<p>这个现象在云上大规模服务里非常典型：负载均衡背后两个节点，一个 CPU 90%、另一个 5%。<br>监控上连接是均衡的，IPVS 的连接数也是 1:1，但 CPU 就是不平。客户反复追问，运维查遍 LVS 配置、<br>健康检查、权重全部正常，最后往往不了了之。</p>
+<p>这篇文章用一套完整的实验把现象复现出来，然后回到 commons-pool 的源码里找原因。</p>
+<p><img src="/images/951413iMgBlog/image-20240618202012463.png" alt="正常拓扑：Jedis 经 LVS 分发到两个 Redis"></p>
+<h2 id="一、现象"><a href="#一、现象" class="headerlink" title="一、现象"></a>一、现象</h2><p>场景是这样的：</p>
+<ul>
+<li>两个 Redis 挂在 LVS（IPVS，RR 调度，NAT 模式）后面</li>
+<li>业务客户端用 Jedis，连接池 <code>maxTotal=200</code>、<code>maxIdle=100</code>、<code>minIdle=100</code></li>
+<li>业务高峰时连接池打满到 200，低谷回落到 100</li>
+<li>每个请求就是取一个连接、发一条 GET、把连接还回去</li>
+</ul>
+<p>在两侧节点性能一致时，200 条连接被 IPVS 均分，两个节点各 100 条，一切平衡。</p>
+<p>现在让其中一个节点变慢（CPU 被抢占、降频、磁盘 IO 阻塞都行）：</p>
+<p><img src="/images/951413iMgBlog/image-20240618203121532.png" alt="故障拓扑：其中一个 Redis 增加了 200ms 延迟"></p>
+<p><strong>慢节点上的连接会越来越多，它处理的请求也越来越多。</strong> 恶性循环：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">慢 → 连接归还晚 → 在连接池里排到&quot;下次优先被取&quot;的位置</span><br><span class="line">   → 被取走得更频繁 → 更忙 → 更慢</span><br></pre></td></tr></table></figure>
+
+<p>注意这里要区分两个指标，本文的实验会把它们分别测出来：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>谁决定</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连接数</td>
+<td>某时刻连到该节点的 TCP 连接条数</td>
+<td>连接的创建与销毁时机</td>
+</tr>
+<tr>
+<td>请求量</td>
+<td>该节点累计处理多少条命令</td>
+<td>池里连接的<strong>借用顺序</strong></td>
+</tr>
+</tbody></table>
+<h2 id="二、重现步骤"><a href="#二、重现步骤" class="headerlink" title="二、重现步骤"></a>二、重现步骤</h2><p>测试机：Rocky Linux 8.10，8 核，内核对 4.18。用 network namespace 把客户端和两个 Redis 隔开，保证客户端只能走 VIP。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ns_client (&lt;client&gt;)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">IPVS  VIP &lt;VIP&gt;:6380   RR + NAT</span><br><span class="line">    ├──&gt; ns_r1 &lt;RS1&gt;:6379</span><br><span class="line">    └──&gt; ns_r2 &lt;RS2&gt;:6380</span><br></pre></td></tr></table></figure>
+
+<p>关键点：客户端到两个后端的直连用 iptables DROP 掉，只留 VIP 这一条路，避免”绕过 LVS”污染实验。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 两个独立的 Redis（各在自己的 netns 里）</span></span><br><span class="line">redis-server --port 6379 --<span class="built_in">timeout</span> 0      <span class="comment"># ns_r1</span></span><br><span class="line">redis-server --port 6380 --<span class="built_in">timeout</span> 0      <span class="comment"># ns_r2</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. IPVS</span></span><br><span class="line">ipvsadm -A -t &lt;VIP&gt;:6380 -s rr</span><br><span class="line">ipvsadm -a -t &lt;VIP&gt;:6380 -r &lt;RS1&gt;:6379 -m</span><br><span class="line">ipvsadm -a -t &lt;VIP&gt;:6380 -r &lt;RS2&gt;:6380 -m</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 让 ns_r1 变慢：redis 绑到一个核，同核跑死循环抢占</span></span><br><span class="line">RPID=$(<span class="built_in">cat</span> /tmp/redis.pid)</span><br><span class="line">taskset -pc 2 <span class="variable">$RPID</span></span><br><span class="line">taskset -c 2 bash -c <span class="string">&#x27;while :; do :; done&#x27;</span> &amp;</span><br></pre></td></tr></table></figure>
+
+<p>客户端用 Jedis 3.9.0（底层 commons-pool2 2.11.1），参数照抄原文：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">JedisPoolConfig</span> <span class="variable">config</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">JedisPoolConfig</span>();</span><br><span class="line">config.setMaxTotal(<span class="number">200</span>);</span><br><span class="line">config.setMaxIdle(<span class="number">100</span>);</span><br><span class="line">config.setMinIdle(<span class="number">100</span>);</span><br><span class="line">config.setMinEvictableIdleTimeMillis(<span class="number">3000</span>);</span><br><span class="line">config.setTimeBetweenEvictionRunsMillis(<span class="number">1000</span>);</span><br><span class="line">config.setTestOnBorrow(<span class="literal">false</span>);</span><br><span class="line">config.setTestOnReturn(<span class="literal">false</span>);</span><br><span class="line">config.setTestWhileIdle(<span class="literal">false</span>);</span><br><span class="line">config.setTestOnCreate(<span class="literal">false</span>);</span><br></pre></td></tr></table></figure>
+
+<p><strong>两个容易被忽略的实验条件</strong>，缺了它们现象不会出现：</p>
+<ol>
+<li><strong>连接有生存期边界</strong> — 池会主动淘汰空闲连接再补建。如果连接永不重建，IPVS 首次 RR 分配后就固定了，永远不会倾斜。</li>
+<li><strong>流量有高峰低谷</strong> — 高峰打满池、低谷回落到 <code>minIdle</code>。池必须发生”取空—补充”的循环，”谁最后归还”才会影响”谁被留下”。</li>
+</ol>
+<p>另外，制造慢的方式必须是<strong>确定性慢</strong>——每个请求都慢（CPU 抢占、网络延迟）。如果只是偶尔一条慢查询，长期平均下来会被抹平，看不出问题。</p>
+<h2 id="三、实测数据"><a href="#三、实测数据" class="headerlink" title="三、实测数据"></a>三、实测数据</h2><p>共用 5 组实验，每组 300 秒，每秒采样一次。</p>
+<h3 id="实验一：连接数倾斜（驱逐生效）"><a href="#实验一：连接数倾斜（驱逐生效）" class="headerlink" title="实验一：连接数倾斜（驱逐生效）"></a>实验一：连接数倾斜（驱逐生效）</h3><p>持续打流，峰值 200 并发、低谷 100 并发各 20 秒交替。基线在无延迟的情况下本应 1.00，<br>实测 0.85 是采样窗口内正常的波动幅度，可以当作噪声水平参考。</p>
+<table>
+<thead>
+<tr>
+<th>实验</th>
+<th>池策略</th>
+<th>慢节点</th>
+<th>r1 连接 均值&#x2F;峰值</th>
+<th>r2 连接 均值&#x2F;峰值</th>
+<th>r1&#x2F;r2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基线</td>
+<td>LIFO</td>
+<td>无</td>
+<td>70.8 &#x2F; 103</td>
+<td>83.3 &#x2F; 122</td>
+<td><strong>0.85</strong></td>
+</tr>
+<tr>
+<td>实验</td>
+<td><strong>LIFO</strong></td>
+<td>CPU 抢占</td>
+<td><strong>102.8 &#x2F; 149</strong></td>
+<td>63.4 &#x2F; 104</td>
+<td><strong>1.62</strong></td>
+</tr>
+<tr>
+<td>实验</td>
+<td><strong>LIFO</strong></td>
+<td>CPU 抢占</td>
+<td><strong>107.7 &#x2F; 146</strong></td>
+<td>59.9 &#x2F; 96</td>
+<td><strong>1.80</strong></td>
+</tr>
+<tr>
+<td>对照</td>
+<td><strong>FIFO</strong></td>
+<td>CPU 抢占</td>
+<td>75.9 &#x2F; 116</td>
+<td>85.3 &#x2F; 140</td>
+<td><strong>0.89</strong></td>
+</tr>
+<tr>
+<td>对照</td>
+<td><strong>FIFO</strong></td>
+<td>CPU 抢占</td>
+<td>82.6 &#x2F; 146</td>
+<td>79.0 &#x2F; 135</td>
+<td><strong>1.05</strong></td>
+</tr>
+</tbody></table>
+<p>同一份 CPU 抢占，LIFO 下慢节点连接堆积（1.62、1.80），FIFO 下完全消失（0.89、1.05，和基线同一水平）。<br>而几次实验里两个节点的 QPS 差一直都在（慢节点约 31500，快节点约 44500），说明”节点确实慢了”，<br>只是 FIFO 下连接分布没被带偏。</p>
+<h3 id="实验二：请求量倾斜（连接数恒定）"><a href="#实验二：请求量倾斜（连接数恒定）" class="headerlink" title="实验二：请求量倾斜（连接数恒定）"></a>实验二：请求量倾斜（连接数恒定）</h3><p>把池的驱逐关掉（连接永不重建，池里始终是预热时建立的那 200 条，100 在用、100 空闲），<br>100 并发（50% 水位），用 Redis 的 <code>total_commands_processed</code> 直接数两个节点各处理了多少条命令。</p>
+<table>
+<thead>
+<tr>
+<th>实验</th>
+<th>池策略</th>
+<th>慢节点</th>
+<th>r1 处理命令数</th>
+<th>r2 处理命令数</th>
+<th>r1&#x2F;r2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基线</td>
+<td>LIFO</td>
+<td>无（0.1ms）</td>
+<td>2,506,284</td>
+<td>2,592,694</td>
+<td><strong>0.97</strong></td>
+</tr>
+<tr>
+<td>对照</td>
+<td>LIFO</td>
+<td>轻抢占（延迟未变）</td>
+<td>3,797,351</td>
+<td>3,751,655</td>
+<td><strong>1.01</strong></td>
+</tr>
+<tr>
+<td>实验</td>
+<td><strong>LIFO</strong></td>
+<td>间歇变慢（avg 4ms &#x2F; max 14ms）</td>
+<td><strong>3,140,216</strong></td>
+<td><strong>2,146,807</strong></td>
+<td><strong>1.46</strong></td>
+</tr>
+<tr>
+<td>对照</td>
+<td><strong>FIFO</strong></td>
+<td>同上</td>
+<td><strong>724,496</strong></td>
+<td><strong>1,010,436</strong></td>
+<td><strong>0.72</strong></td>
+</tr>
+<tr>
+<td>实验复测</td>
+<td><strong>LIFO</strong></td>
+<td>同上</td>
+<td><strong>2,030,441</strong></td>
+<td><strong>1,527,893</strong></td>
+<td><strong>1.33</strong></td>
+</tr>
+<tr>
+<td>实验复测</td>
+<td><strong>LIFO</strong></td>
+<td>同上</td>
+<td><strong>2,075,231</strong></td>
+<td><strong>1,432,625</strong></td>
+<td><strong>1.45</strong></td>
+</tr>
+<tr>
+<td>对照复测</td>
+<td><strong>FIFO</strong></td>
+<td>同上</td>
+<td><strong>480,769</strong></td>
+<td><strong>669,638</strong></td>
+<td><strong>0.72</strong></td>
+</tr>
+</tbody></table>
+<p>“轻抢占”那行是个重要的反例：CPU 抢占了，但延迟没有实质性变化（0.11ms vs 0.12ms），<br>请求量比值就还是 1.01。<strong>只有”确实变慢”才会触发倾斜</strong>，这一条排除了”抢占动作本身”的干扰。<br>“间歇变慢”是指 redis 绑定的核被死循环抢占：<code>redis-cli --latency</code> 实测 avg 4.01ms、max 14ms、<br>快节点 avg 0.11ms。大部分请求正常，少数请求被抢占拖慢——这正是生产环境 CPU 被其他进程<br>间歇抢占的真实形态，不是人为给每个请求加固定延迟。</p>
+<p>这组数据最关键的是 LIFO 与 FIFO 的对立：</p>
+<ul>
+<li><strong>LIFO：慢节点处理了多出 33%~46% 的请求</strong>，而连接总数完全均衡</li>
+<li><strong>FIFO：慢节点反而少处理 28%</strong>——这是工程师期望出现的</li>
+</ul>
+<p><strong>关于可比性</strong>：不同轮的绝对吞吐不可直接横向比（CPU 抢占强度每轮略有差异，<br>LIFO 轮次的总吞吐明显高于 FIFO 轮次）。有意义的是<strong>同一轮内 r1 与 r2 的比值</strong>——<br>两个节点承受的是完全相同的一次故障注入，比值直接反映调度是否公平。</p>
+<p>同样的 CPU 抢占、同样的连接总数，只改一个 <code>setLifo(true/false)</code>，方向就反过来了。</p>
+<p>需要强调”连接总数完全均衡”不是一句空话——这五组实验里，两侧的连接数在每一秒的采样中都是：</p>
+<table>
+<thead>
+<tr>
+<th>实验</th>
+<th>r1 连接数 均值&#x2F;峰值</th>
+<th>r2 连接数 均值&#x2F;峰值</th>
+<th>请求量 r1&#x2F;r2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>c_lifo</td>
+<td>100.1 &#x2F; 102</td>
+<td>100.0 &#x2F; 102</td>
+<td>1.33</td>
+</tr>
+<tr>
+<td>c_lifo2</td>
+<td>99.9 &#x2F; 102</td>
+<td>99.8 &#x2F; 102</td>
+<td>1.45</td>
+</tr>
+<tr>
+<td>c_fifo</td>
+<td>100.3 &#x2F; 102</td>
+<td>101.0 &#x2F; 102</td>
+<td>0.72</td>
+</tr>
+<tr>
+<td>hog60_lifo</td>
+<td>100.2 &#x2F; 101</td>
+<td>100.1 &#x2F; 101</td>
+<td>1.46</td>
+</tr>
+<tr>
+<td>hog60_fifo</td>
+<td>99.7 &#x2F; 101</td>
+<td>101.0 &#x2F; 101</td>
+<td>0.72</td>
+</tr>
+</tbody></table>
+<p><strong>连接数一模一样，处理的请求量差了 40%~50%。</strong> 这就是”看起来均衡、实际不均衡”的全部真相。</p>
+<h2 id="四、根因分析"><a href="#四、根因分析" class="headerlink" title="四、根因分析"></a>四、根因分析</h2><p>看 commons-pool2 2.11.1 的源码，三行就能说清楚：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// GenericObjectPool.borrowObject():296   —— 借连接，永远从队头取</span></span><br><span class="line">p = idleObjects.pollFirst();</span><br><span class="line"></span><br><span class="line"><span class="comment">// GenericObjectPool.addIdleObject():1084  —— 还连接</span></span><br><span class="line"><span class="keyword">if</span> (getLifo()) idleObjects.addFirst(p);   <span class="comment">// LIFO: 还到队头</span></span><br><span class="line"><span class="keyword">else</span>            idleObjects.addLast(p);   <span class="comment">// FIFO: 还到队尾</span></span><br></pre></td></tr></table></figure>
+
+<p>而 <code>DEFAULT_LIFO = true</code>（BaseObjectPoolConfig.java:41），<strong>默认就是 LIFO</strong>。</p>
+<p>于是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">LIFO(默认)                       FIFO</span><br><span class="line">借: 队头 &lt;- [a b c d]            借: 队头 &lt;- [a b c d]</span><br><span class="line">还: 队头 -&gt; [x a b c d]          还: 队尾 -&gt; [a b c d x]</span><br><span class="line">          ↑ 最后归还的排最前                 ↑ 最后归还的排最后</span><br></pre></td></tr></table></figure>
+
+<p>慢节点的连接处理久、归还晚。LIFO 把它放在队头，下一次 <code>pollFirst()</code> <strong>第一个</strong>取走它——<br>它比均分多工作，于是更慢，归还更晚，又回队头。正反馈闭合。</p>
+<p>FIFO 把它放在队尾，要等前面所有连接都轮过一遍才轮到它——它比均分<strong>少</strong>工作。<br>实测 FIFO 下慢节点请求量只有快节点的 0.72，正是这个”保护”效应。</p>
+<h3 id="为什么连接数也会倾斜"><a href="#为什么连接数也会倾斜" class="headerlink" title="为什么连接数也会倾斜"></a>为什么连接数也会倾斜</h3><p>请求量倾斜之后，慢节点的连接长期处于”使用中”、几乎不空闲。commons-pool 的 evictor<br>（空闲连接驱逐线程，每 1 秒扫一次，销毁空闲超过 3 秒的连接）扫过来时，<br><strong>快节点的空闲连接被销毁重建，慢节点的连接因为不空闲而幸存</strong>。</p>
+<p>驱逐后补建的新连接由 IPVS 按 RR 均分，但幸存下来的存量连接已经在慢节点上越积越多。<br>这就是实验一里 1.62 &#x2F; 1.80 的来源。关掉驱逐（实验二），连接数就不再倾斜，<br>但请求量倾斜依然存在——因为它是借用顺序造成的，与连接是否重建无关。</p>
+<h2 id="五、总结"><a href="#五、总结" class="headerlink" title="五、总结"></a>五、总结</h2><h3 id="这个问题不止于-Jedis-和-Redis"><a href="#这个问题不止于-Jedis-和-Redis" class="headerlink" title="这个问题不止于 Jedis 和 Redis"></a>这个问题不止于 Jedis 和 Redis</h3><p>LIFO 是 <strong>Apache commons-pool</strong> 的默认行为（<code>BaseObjectPoolConfig.DEFAULT_LIFO = true</code>）。<br>所有用它做连接池的客户端都会中招：</p>
+<ul>
+<li><strong>Jedis</strong>（<code>JedisPool</code> 直接基于 commons-pool2）</li>
+<li><strong>Lettuce</strong>（<code>lettuce-pool</code> 模块基于 commons-pool2）</li>
+<li><strong>commons-dbcp</strong>（各种 JDBC 连接池）</li>
+<li>任何直接 <code>new GenericObjectPool(...)</code> 的场景</li>
+</ul>
+<p>判定条件只有三条，缺一不可：</p>
+<ol>
+<li>取连接用 LIFO（栈）</li>
+<li>后端节点存在<strong>确定性</strong>的快慢差异（每个请求都慢，不是偶发慢）</li>
+<li>连接会被反复复用很多次（连接池场景天然满足）</li>
+</ol>
+<p>只要三条同时成立，慢节点就会越吃越多，最后成为瓶颈，甚至被打挂。</p>
+<h3 id="在这个场景下，FIFO-对均衡明显优于-LIFO"><a href="#在这个场景下，FIFO-对均衡明显优于-LIFO" class="headerlink" title="在这个场景下，FIFO 对均衡明显优于 LIFO"></a>在这个场景下，FIFO 对均衡明显优于 LIFO</h3><table>
+<thead>
+<tr>
+<th></th>
+<th>请求量 r1&#x2F;r2</th>
+<th>连接数 r1&#x2F;r2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>LIFO（默认）</td>
+<td><strong>1.33 ~ 1.46</strong>（慢节点更忙）</td>
+<td><strong>1.62 ~ 1.80</strong>（越堆越多）</td>
+</tr>
+<tr>
+<td>FIFO</td>
+<td><strong>0.72</strong>（慢节点被保护）</td>
+<td><strong>0.89 ~ 1.05</strong>（保持均衡）</td>
+</tr>
+</tbody></table>
+<p>依据是上面的实测：同样的故障注入，LIFO 让慢节点多干三到四成的活，FIFO 让它少干三成。<br>FIFO 的逻辑也说得通——从队尾取，等于让连接”轮着用”，慢连接自然用得更少，<br>不会形成自我强化的正反馈。</p>
+<h3 id="代价与取舍"><a href="#代价与取舍" class="headerlink" title="代价与取舍"></a>代价与取舍</h3><p>先澄清一个常见的误解：<strong>LIFO 和 FIFO 都不影响新建连接的频率。</strong></p>
+<p>连接什么时候建、什么时候销毁，是池自己决定的——只有 <code>idleObjects</code> 空了且 <code>active &lt; maxTotal</code> 才新建，<br>只有空闲超时（evictor）或 <code>maxIdle</code> 溢出才销毁。这两件事跟”从队头还是队尾取”没有关系。<br>在 <code>minIdle</code> 稳定的池里，两种策略的建连次数基本一致。</p>
+<p>commons-pool 默认 LIFO 的理由，源码 javadoc 写得很清楚：</p>
+<blockquote>
+<p>Gets whether the pool has LIFO (last in, first out) behavior with respect to idle objects</p>
+<ul>
+<li><strong>always returning the most recently used object from the pool</strong></li>
+</ul>
+</blockquote>
+<p>它带来的实际差别是<strong>取出来的连接有多”新”</strong>：</p>
+<ul>
+<li><strong>LIFO</strong>：取出的总是刚用过的连接，TCP 是热的，几乎不可能已经被服务端或中间设备悄悄掐断<br>（防火墙&#x2F;NAT 空闲超时、MySQL <code>wait_timeout</code>、Redis <code>timeout</code>）</li>
+<li><strong>FIFO</strong>：取出的可能是躺了很久的老连接。在 <code>testOnBorrow=false</code>（很多客户端默认如此）下，<br>这条连接可能早已失效，发过去才发现 broken pipe</li>
+</ul>
+<p>这才是 LIFO 作为默认值的真实理由，也是切到 FIFO 要付的代价。所以 FIFO 适合配套两件事一起用：</p>
+<ol>
+<li><code>testOnBorrow=true</code> 或至少 <code>testWhileIdle=true</code>，把死连接挡在池外</li>
+<li><code>minEvictableIdleTimeMillis</code> 设得明显小于任何中间设备的空闲超时，让连接在被外部掐断前主动重建</li>
+</ol>
+<p>一句话：<strong>LIFO 用”连接新鲜”回避死连接，FIFO 用”额外校验”换取负载均衡。</strong><br>在有节点快慢差异的场景里，后者通常更值——因为死连接会立刻报错、能被发现，<br>而慢节点上的倾斜是静默的，往往要等 CPU 打到 90% 才被人注意到。</p>
+<h3 id="一句话"><a href="#一句话" class="headerlink" title="一句话"></a>一句话</h3><p><strong>连接池默认是 LIFO 栈。栈顶那个”还回来最晚”的连接，就是最慢节点上的连接——<br>它因此被用得最多，变得更慢。这是连接池层面的结构性缺陷，不是 LVS 的锅，也不是 Redis 的锅。</strong></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/network/" rel="tag"># network</a>
+              <a href="/tags/LVS/" rel="tag"># LVS</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/commons-pool/" rel="tag"># commons-pool</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2026/08/31/amd_vs_intel_benchmark_report/" rel="prev" title="阿里云 ECS 第九代 AMD vs Intel MySQL 性能与性价比对比报告">
+                  <i class="fa fa-angle-left"></i> 阿里云 ECS 第九代 AMD vs Intel MySQL 性能与性价比对比报告
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2117/06/07/%E5%85%B3%E4%BA%8E%E6%9C%AC%E5%8D%9A/" rel="next" title="关于本博">
+                  关于本博 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder">twitter @plantegg</span>
+  </div>
+<div class="busuanzi-count">
+    <span class="post-meta-item" id="busuanzi_container_site_uv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-user"></i>
+      </span>
+      <span class="site-uv" title="总访客量">
+        <span id="busuanzi_value_site_uv"></span>
+      </span>
+    </span>
+    <span class="post-meta-item" id="busuanzi_container_site_pv">
+      <span class="post-meta-item-icon">
+        <i class="fa fa-eye"></i>
+      </span>
+      <span class="site-pv" title="总访问量">
+        <span id="busuanzi_value_site_pv"></span>
+      </span>
+    </span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up fa-lg"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

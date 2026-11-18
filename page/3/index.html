@@ -140,7 +140,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">214</span>
+          <span class="site-state-item-count">215</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -151,7 +151,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">332</span>
+        <span class="site-state-item-count">334</span>
         <span class="site-state-item-name">标签</span></a>
       </div>
   </nav>
@@ -168,6 +168,300 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="twitter @plantegg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="plantegg">
+      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | plantegg">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2025/10/25/AWS_RDS_BlueGreen_Upgrade_Guide/" class="post-title-link" itemprop="url">AWS RDS MySQL 蓝绿部署升级完整指南</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2025-10-25 17:30:03" itemprop="dateCreated datePublished" datetime="2025-10-25T17:30:03+08:00">2025-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">更新于</span>
+      <time title="修改时间：2026-02-06 13:53:24" itemprop="dateModified" datetime="2026-02-06T13:53:24+08:00">2026-02-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">分类于</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="AWS-RDS-MySQL-蓝绿部署升级完整指南"><a href="#AWS-RDS-MySQL-蓝绿部署升级完整指南" class="headerlink" title="AWS RDS MySQL 蓝绿部署升级完整指南"></a>AWS RDS MySQL 蓝绿部署升级完整指南</h1><h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>本文档基于实际测试记录，详细介绍AWS RDS MySQL从5.7升级到8.0的蓝绿部署全过程。</p>
+<p><strong>测试环境:</strong></p>
+<ul>
+<li>源版本: MySQL 5.7.44-rds.20251212</li>
+<li>目标版本: MySQL 8.0.40</li>
+<li>实例类型: db.m5.large (2vCPU, 8GB)</li>
+<li>Multi-AZ: 启用</li>
+<li>区域: ap-southeast-1</li>
+</ul>
+<h2 id="蓝绿部署流程图"><a href="#蓝绿部署流程图" class="headerlink" title="蓝绿部署流程图"></a>蓝绿部署流程图</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────────────────────┐</span><br><span class="line">│                         蓝绿部署升级完整流程                                  │</span><br><span class="line">├─────────────────────────────────────────────────────────────────────────────┤</span><br><span class="line">│                                                                             │</span><br><span class="line">│  阶段1              阶段2              阶段3              阶段4              │</span><br><span class="line">│  创建读副本          版本升级            配置备份            执行切换           │</span><br><span class="line">│  ┌─────────┐       ┌─────────┐       ┌─────────┐       ┌─────────┐        │</span><br><span class="line">│  │蓝环境    │       │绿环境    │       │绿环境    │       │绿环境    │        │</span><br><span class="line">│  │MySQL5.7 │──复制─▶│MySQL5.7 │──升级─▶│MySQL8.0 │──切换─▶│MySQL8.0│        │</span><br><span class="line">│  │(生产)    │       │(副本)   │        │(就绪)   │       │(新生产)  │        │</span><br><span class="line">│  └─────────┘       └─────────┘       └─────────┘       └─────────┘        │</span><br><span class="line">│       │                 │                 │                 ▲              │</span><br><span class="line">│       │                 │                 │                 │              │</span><br><span class="line">│       └─────────────────┴─────────────────┴─────────────────┘              │</span><br><span class="line">│                        持续数据同步                                         │</span><br><span class="line">│                                                                             │</span><br><span class="line">│  耗时: 10-20分钟      耗时: 10-20分钟    耗时: 几分钟      耗时: 1-5分钟     	   │</span><br><span class="line">│  业务影响: 零         业务影响: 零       业务影响: 零      业务影响: 短暂     		  │</span><br><span class="line">└─────────────────────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="前置条件"><a href="#前置条件" class="headerlink" title="前置条件"></a>前置条件</h2><h3 id="1-检查当前实例状态"><a href="#1-检查当前实例状态" class="headerlink" title="1. 检查当前实例状态"></a>1. 检查当前实例状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion,MultiAZ:MultiAZ&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-确认可升级的目标版本"><a href="#2-确认可升级的目标版本" class="headerlink" title="2. 确认可升级的目标版本"></a>2. 确认可升级的目标版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-engine-versions \</span><br><span class="line">    --engine mysql \</span><br><span class="line">    --engine-version 5.7 \</span><br><span class="line">    --query <span class="string">&#x27;DBEngineVersions[0].ValidUpgradeTarget[?IsMajorVersionUpgrade==`true`].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-确保备份已启用"><a href="#3-确保备份已启用" class="headerlink" title="3. 确保备份已启用"></a>3. 确保备份已启用</h3><p>蓝绿部署要求源实例启用自动备份 (BackupRetentionPeriod &gt; 0)</p>
+<hr>
+<h2 id="阶段1-创建蓝绿部署"><a href="#阶段1-创建蓝绿部署" class="headerlink" title="阶段1: 创建蓝绿部署"></a>阶段1: 创建蓝绿部署</h2><h3 id="命令"><a href="#命令" class="headerlink" title="命令"></a>命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name mysql-57-to-80-upgrade \</span><br><span class="line">    --<span class="built_in">source</span> arn:aws:rds:XXXX:db:mysql-test-57 \</span><br><span class="line">    --target-engine-version 8.0.40 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明"><a href="#参数说明" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-name</code></td>
+<td>部署名称，用于标识</td>
+</tr>
+<tr>
+<td><code>--source</code></td>
+<td>源实例的ARN</td>
+</tr>
+<tr>
+<td><code>--target-engine-version</code></td>
+<td>目标MySQL版本</td>
+</tr>
+</tbody></table>
+<h3 id="返回示例"><a href="#返回示例" class="headerlink" title="返回示例"></a>返回示例</h3><figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;BlueGreenDeployment&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;BlueGreenDeploymentIdentifier&quot;</span><span class="punctuation">:</span> <span class="string">&quot;bgd-xen1mlsjdt6hlt8r&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PROVISIONING&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;Tasks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CREATING_READ_REPLICA_OF_SOURCE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;DB_ENGINE_VERSION_UPGRADE&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="punctuation">&#123;</span><span class="attr">&quot;Name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;CONFIGURE_BACKUPS&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;Status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PENDING&quot;</span><span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段2-监控部署进度"><a href="#阶段2-监控部署进度" class="headerlink" title="阶段2: 监控部署进度"></a>阶段2: 监控部署进度</h2><h3 id="查看部署状态"><a href="#查看部署状态" class="headerlink" title="查看部署状态"></a>查看部署状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="任务状态说明"><a href="#任务状态说明" class="headerlink" title="任务状态说明"></a>任务状态说明</h3><table>
+<thead>
+<tr>
+<th>任务</th>
+<th>说明</th>
+<th>预计耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CREATING_READ_REPLICA_OF_SOURCE</td>
+<td>创建源实例的读副本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>DB_ENGINE_VERSION_UPGRADE</td>
+<td>升级绿环境到目标版本</td>
+<td>10-20分钟</td>
+</tr>
+<tr>
+<td>CONFIGURE_BACKUPS</td>
+<td>配置备份策略</td>
+<td>几分钟</td>
+</tr>
+</tbody></table>
+<h3 id="状态流转"><a href="#状态流转" class="headerlink" title="状态流转"></a>状态流转</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">PROVISIONING → AVAILABLE → SWITCHOVER_IN_PROGRESS → SWITCHOVER_COMPLETED</span><br></pre></td></tr></table></figure>
+
+<h3 id="查看绿环境实例详情"><a href="#查看绿环境实例详情" class="headerlink" title="查看绿环境实例详情"></a>查看绿环境实例详情</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 绿环境实例名称格式: &#123;源实例名&#125;-green-&#123;随机字符&#125;</span></span><br><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57-green-b66gdf \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].&#123;Status:DBInstanceStatus,Version:EngineVersion&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段3-执行切换-Switchover"><a href="#阶段3-执行切换-Switchover" class="headerlink" title="阶段3: 执行切换 (Switchover)"></a>阶段3: 执行切换 (Switchover)</h2><h3 id="前置检查"><a href="#前置检查" class="headerlink" title="前置检查"></a>前置检查</h3><p>确保部署状态为 <code>AVAILABLE</code>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].Status&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="执行切换命令"><a href="#执行切换命令" class="headerlink" title="执行切换命令"></a>执行切换命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --switchover-timeout 300 \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="参数说明-1"><a href="#参数说明-1" class="headerlink" title="参数说明"></a>参数说明</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--blue-green-deployment-identifier</code></td>
+<td>蓝绿部署ID</td>
+</tr>
+<tr>
+<td><code>--switchover-timeout</code></td>
+<td>切换超时时间(秒)，默认300</td>
+</tr>
+</tbody></table>
+<h3 id="切换过程详解"><a href="#切换过程详解" class="headerlink" title="切换过程详解"></a>切换过程详解</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">切换时间线 (实测数据):</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">08:33:35  切换开始，TPS正常 (~263)</span><br><span class="line">08:33:51  TPS开始下降，出现错误 (err/s: 142)</span><br><span class="line">08:33:52  TPS=0，写入完全阻塞</span><br><span class="line">08:36:47  连接完全中断 (QPS=0)</span><br><span class="line">08:37:00  DNS切换完成</span><br><span class="line">08:37:30  切换完成，连接恢复</span><br><span class="line">────────────────────────────────────────────────────────────────</span><br><span class="line">总切换时间: ~4分钟</span><br><span class="line">完全断连时间: ~28秒</span><br></pre></td></tr></table></figure>
+
+<h3 id="切换期间的实例名称变化"><a href="#切换期间的实例名称变化" class="headerlink" title="切换期间的实例名称变化"></a>切换期间的实例名称变化</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">切换前:</span><br><span class="line">  mysql-test-57          → MySQL 5.7 (生产)</span><br><span class="line">  mysql-test-57-green-xxx → MySQL 8.0 (绿环境)</span><br><span class="line"></span><br><span class="line">切换后:</span><br><span class="line">  mysql-test-57          → MySQL 8.0 (新生产，原绿环境)</span><br><span class="line">  mysql-test-57-old1     → MySQL 5.7 (原生产，可用于回滚)</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段4-验证升级结果"><a href="#阶段4-验证升级结果" class="headerlink" title="阶段4: 验证升级结果"></a>阶段4: 验证升级结果</h2><h3 id="检查切换状态"><a href="#检查切换状态" class="headerlink" title="检查切换状态"></a>检查切换状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --query <span class="string">&#x27;BlueGreenDeployments[0].&#123;Status:Status,StatusDetails:StatusDetails&#125;&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="验证新版本"><a href="#验证新版本" class="headerlink" title="验证新版本"></a>验证新版本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds describe-db-instances \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --query <span class="string">&#x27;DBInstances[0].EngineVersion&#x27;</span> \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="连接验证"><a href="#连接验证" class="headerlink" title="连接验证"></a>连接验证</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mysql -h mysql-test-57.XXX.rds.amazonaws.com \</span><br><span class="line">    -P 3306 -u admin -p -e <span class="string">&quot;SELECT VERSION();&quot;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="阶段5-清理资源"><a href="#阶段5-清理资源" class="headerlink" title="阶段5: 清理资源"></a>阶段5: 清理资源</h2><h3 id="删除蓝绿部署-保留旧实例"><a href="#删除蓝绿部署-保留旧实例" class="headerlink" title="删除蓝绿部署 (保留旧实例)"></a>删除蓝绿部署 (保留旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="删除蓝绿部署-同时删除旧实例"><a href="#删除蓝绿部署-同时删除旧实例" class="headerlink" title="删除蓝绿部署 (同时删除旧实例)"></a>删除蓝绿部署 (同时删除旧实例)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier bgd-xen1mlsjdt6hlt8r \</span><br><span class="line">    --delete-target \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<h3 id="手动删除旧实例-如需要"><a href="#手动删除旧实例-如需要" class="headerlink" title="手动删除旧实例 (如需要)"></a>手动删除旧实例 (如需要)</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds delete-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57-old1 \</span><br><span class="line">    --skip-final-snapshot \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="回滚方案"><a href="#回滚方案" class="headerlink" title="回滚方案"></a>回滚方案</h2><p>如果升级后发现问题，可以快速回滚:</p>
+<h3 id="方法1-切换回旧实例-推荐"><a href="#方法1-切换回旧实例-推荐" class="headerlink" title="方法1: 切换回旧实例 (推荐)"></a>方法1: 切换回旧实例 (推荐)</h3><p>在删除蓝绿部署前，旧实例 (mysql-test-57-old1) 仍然可用:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 修改应用连接字符串指向旧实例</span></span><br><span class="line"><span class="comment"># mysql-test-57-old1.XXXX.amazonaws.com</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="方法2-从快照恢复"><a href="#方法2-从快照恢复" class="headerlink" title="方法2: 从快照恢复"></a>方法2: 从快照恢复</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds restore-db-instance-from-db-snapshot \</span><br><span class="line">    --db-instance-identifier mysql-test-57-restored \</span><br><span class="line">    --db-snapshot-identifier &lt;snapshot-id&gt; \</span><br><span class="line">    --profile default --region ap-southeast-1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="实测性能数据"><a href="#实测性能数据" class="headerlink" title="实测性能数据"></a>实测性能数据</h2><h3 id="测试配置"><a href="#测试配置" class="headerlink" title="测试配置"></a>测试配置</h3><ul>
+<li>sysbench oltp_read_write</li>
+<li>16表 × 100,000行</li>
+<li>8并发线程</li>
+</ul>
+<h3 id="性能对比"><a href="#性能对比" class="headerlink" title="性能对比"></a>性能对比</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>MySQL 5.7</th>
+<th>MySQL 8.0</th>
+<th>变化</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS</td>
+<td>263</td>
+<td>288</td>
+<td>+9.5%</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>5,284</td>
+<td>5,760</td>
+<td>+9.0%</td>
+</tr>
+<tr>
+<td>95%延迟</td>
+<td>35ms</td>
+<td>35ms</td>
+<td>持平</td>
+</tr>
+</tbody></table>
+<h3 id="切换影响"><a href="#切换影响" class="headerlink" title="切换影响"></a>切换影响</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>蓝绿部署总耗时</td>
+<td>42分钟</td>
+</tr>
+<tr>
+<td>切换总耗时</td>
+<td>4分钟</td>
+</tr>
+<tr>
+<td>完全断连时间</td>
+<td>28秒</td>
+</tr>
+<tr>
+<td>数据丢失</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="最佳实践"><a href="#最佳实践" class="headerlink" title="最佳实践"></a>最佳实践</h2><h3 id="1-时间选择"><a href="#1-时间选择" class="headerlink" title="1. 时间选择"></a>1. 时间选择</h3><ul>
+<li>选择业务低峰期执行切换</li>
+<li>预留足够的监控和回滚时间</li>
+</ul>
+<h3 id="2-监控准备"><a href="#2-监控准备" class="headerlink" title="2. 监控准备"></a>2. 监控准备</h3><ul>
+<li>提前配置CloudWatch告警</li>
+<li>准备实时监控脚本</li>
+</ul>
+<h3 id="3-应用适配"><a href="#3-应用适配" class="headerlink" title="3. 应用适配"></a>3. 应用适配</h3><ul>
+<li>确保应用支持MySQL 8.0语法</li>
+<li>测试连接池的重连机制</li>
+<li>配置合理的连接超时</li>
+</ul>
+<h3 id="4-回滚准备"><a href="#4-回滚准备" class="headerlink" title="4. 回滚准备"></a>4. 回滚准备</h3><ul>
+<li>保留旧实例至少24小时</li>
+<li>准备回滚脚本和流程</li>
+</ul>
+<h3 id="5-通知机制"><a href="#5-通知机制" class="headerlink" title="5. 通知机制"></a>5. 通知机制</h3><ul>
+<li>提前通知相关团队</li>
+<li>准备故障升级流程</li>
+</ul>
+<hr>
+<h2 id="常见问题"><a href="#常见问题" class="headerlink" title="常见问题"></a>常见问题</h2><h3 id="Q1-蓝绿部署创建失败"><a href="#Q1-蓝绿部署创建失败" class="headerlink" title="Q1: 蓝绿部署创建失败"></a>Q1: 蓝绿部署创建失败</h3><p><strong>原因</strong>: 源实例未启用自动备份<br><strong>解决</strong>: </p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">aws rds modify-db-instance \</span><br><span class="line">    --db-instance-identifier mysql-test-57 \</span><br><span class="line">    --backup-retention-period 7 \</span><br><span class="line">    --apply-immediately</span><br></pre></td></tr></table></figure>
+
+<h3 id="Q2-切换超时"><a href="#Q2-切换超时" class="headerlink" title="Q2: 切换超时"></a>Q2: 切换超时</h3><p><strong>原因</strong>: 数据同步延迟过大<br><strong>解决</strong>: 增加 <code>--switchover-timeout</code> 值，或等待复制追平</p>
+<h3 id="Q3-切换后应用连接失败"><a href="#Q3-切换后应用连接失败" class="headerlink" title="Q3: 切换后应用连接失败"></a>Q3: 切换后应用连接失败</h3><p><strong>原因</strong>: DNS缓存或连接池未刷新<br><strong>解决</strong>: 重启应用或刷新连接池</p>
+<hr>
+<h2 id="参考命令汇总"><a href="#参考命令汇总" class="headerlink" title="参考命令汇总"></a>参考命令汇总</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 创建蓝绿部署</span></span><br><span class="line">aws rds create-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-name &lt;name&gt; \</span><br><span class="line">    --<span class="built_in">source</span> &lt;source-arn&gt; \</span><br><span class="line">    --target-engine-version &lt;version&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 查看部署状态</span></span><br><span class="line">aws rds describe-blue-green-deployments \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 执行切换</span></span><br><span class="line">aws rds switchover-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt; \</span><br><span class="line">    --switchover-timeout 300</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 删除部署</span></span><br><span class="line">aws rds delete-blue-green-deployment \</span><br><span class="line">    --blue-green-deployment-identifier &lt;bgd-id&gt;</span><br></pre></td></tr></table></figure>
+
+
+<p><em>基于实际测试环境: AWS ap-southeast-1, Account XXXX</em></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1918,210 +2212,6 @@
 <p>问题在于，arp层缓存队列长度默认为3。如果你运气不好，刚好赶上缓存已满，这个报文就会被丢弃。</p>
 <p>TCP层发现SYN报文发出去3s（默认值）还没有回应，就会重发一个SYN。这就是为什么少数连接会3s后才能建链。</p>
 <p>幸运的是，arp层缓存队列长度是可配置的，用 sysctl -a | grep unres_qlen 就能看到，默认值为3。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="https://plantegg.github.io/2024/10/13/tcpdump%E6%8A%93%E5%8C%85%E5%8D%A1%E9%A1%BF%E5%88%86%E6%9E%90/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="twitter @plantegg">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="plantegg">
-      <meta itemprop="description" content="java mysql tcp performance network docker Linux">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | plantegg">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2024/10/13/tcpdump%E6%8A%93%E5%8C%85%E5%8D%A1%E9%A1%BF%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">tcpdump 抓包卡顿分析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2024-10-13 17:30:03" itemprop="dateCreated datePublished" datetime="2024-10-13T17:30:03+08:00">2024-10-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-11-18 16:07:17" itemprop="dateModified" datetime="2026-11-18T16:07:17+08:00">2026-11-18</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">分类于</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/tcpdump/" itemprop="url" rel="index"><span itemprop="name">tcpdump</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="tcpdump-抓包卡顿分析"><a href="#tcpdump-抓包卡顿分析" class="headerlink" title="tcpdump 抓包卡顿分析"></a>tcpdump 抓包卡顿分析</h2><h3 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h3><p>从 192.168.104.1 上执行 ping 192.168.104.4 -c 1 ping 命令很快通了, 同时在ubuntu 机(192.168.104.4) 上抓包</p>
-<p>在192.168.104.4 上的 tcpdump 要卡很久(几十秒)后才输出几十秒前抓到的包 :(，最一开始以为是自己通过 lima 虚拟化的 ubuntu 机器慢 or tcpdump 初始化慢导致的，但是发现等了几十秒后能看到几十秒前抓到的包，感觉有点诡异，所以分析了一下原因。</p>
-<p>既然几十秒后能看到几十秒前的包，说明抓包正常，只是哪里卡了，所以用 strace 看看卡在了哪里。</p>
-<p>下文用到的主要的 Debug 命令：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">//-r 打印相对时间</span><br><span class="line">//-s 256 表示--string-limit，设置 limit 为 256，可以显示 sendto(下图黄底) 系统调用完整的 DNS 查询字符串(下图绿线)</span><br><span class="line">strace -r -s 256 tcpdump -i eth0 icmp</span><br></pre></td></tr></table></figure>
-
-<p>分析步骤如下：</p>
-<h3 id="步骤-1"><a href="#步骤-1" class="headerlink" title="步骤 1"></a>步骤 1</h3><p>如下图是 strace -r -s 256 tcpdump -i eth0 icmp 命令的输出 ，发现抓到包后对 IP 192.168.104.4 去做了 DNS 解析，而这个解析发给 127.0.0.53 后长时间没有响应，5 秒超时后并重试(下图红框)，导致多次 5 秒超时卡顿：</p>
-<p><img src="/images/951413iMgBlog/image-20241008144023596.png" alt="image-20241008144023596"></p>
-<p>于是在 &#x2F;etc&#x2F;hosts 添加 192.168.104.4 localhost 后不再对 192.168.104.4 进行解析，但是仍然会对对端的 IP 192.168.104.1 进行解析：</p>
-<p><img src="/images/951413iMgBlog/image-20241008144145663.png" alt="image-20241008144145663"></p>
-<p>上图说明：</p>
-<ul>
-<li>上图最后一个绿线表示 tcpdump 抓到了 ping 包(ICMP 协议包)</li>
-<li>\0011\003104\003168\003192 表示：192.168.104.1 ，\0011 前面的 \001 表示 1 位，1 表示 ip 地址值的最后一个 &#x2F;&#x2F;把整个双引号内容丢给 GPT 会给你一个很好的解释</li>
-</ul>
-<h3 id="步骤-2"><a href="#步骤-2" class="headerlink" title="步骤 2"></a>步骤 2</h3><p>从上面两个图中的 connect 内核函数可以看到每次都把 ip 丢给了 127.0.0.53 这个特殊 IP 来解析，下面是 GPT 给出的解释，我试了下将 DNSStubListener&#x3D;no(修改配置文件：&#x2F;etc&#x2F;systemd&#x2F;resolved.conf 后执行 systemctl restart systemd-resolved） 后 tcpdump 完全不卡了：</p>
-<p>systemd-resolved:</p>
-<ol>
-<li>systemd-resolved 是一个系统服务，负责为本地应用程序提供网络名称解析。</li>
-<li>它作为一个本地 DNS 解析器和缓存，可以提高 DNS 查询的效率。</li>
-<li>systemd-resolved 支持多种 DNS 协议，如 DNSSEC、DNS over TLS 等。</li>
-<li>它可以管理多个网络接口的 DNS 设置，适合复杂的网络环境。</li>
-</ol>
-<p>DNSStubListener 参数:</p>
-<ol>
-<li>DNSStubListener 是 systemd-resolved 的一个功能，默认情况下是启用的（yes）。</li>
-<li>当启用时，systemd-resolved 会在本地 127.0.0.53 地址上运行一个 DNS 存根监听器。</li>
-<li>这个存根监听器会接收本地应用程序的 DNS 查询请求，然后转发给实际的 DNS 服务器。</li>
-<li>当设置 DNSStubListener&#x3D;no 时：<ul>
-<li>存根监听器被禁用。</li>
-<li>本地应用程序的 DNS 查询将直接发送到配置的 DNS 服务器，而不经过 systemd-resolved</li>
-</ul>
-</li>
-</ol>
-<p>现在 tcpdump 虽然不卡了，但是抓包的时候通过 strace 看到还是会走 DNS 解析流程，这个时候的 DNS 解析都发给了 192.168.104.2:53 (配置在 &#x2F;etc&#x2F;resolv.conf 中)，也就是 systemd-resolved 的 127.0.0.53:53 udp 端口虽然在监听，但是不响应任何查询导致了超时，而 192.168.104.2:53 服务正常</p>
-<p>这个时候的 strace 日志：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">     0.000308 socket(AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, IPPROTO_IP) = 5 //SOCK_DGRAM UDP 模式</span><br><span class="line">     0.000134 setsockopt(5, SOL_IP, IP_RECVERR, [1], 4) = 0</span><br><span class="line">     0.000414 connect(5, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;192.168.104.2&quot;)&#125;, 16) = 0 //目标主机 192.168.104.2</span><br><span class="line">     0.000373 ppoll([&#123;fd=5, events=POLLOUT&#125;], 1, &#123;tv_sec=0, tv_nsec=0&#125;, NULL, 0) = 1 ([&#123;fd=5, revents=POLLOUT&#125;], left &#123;tv_sec=0, tv_nsec=0&#125;)</span><br><span class="line">     0.000348 sendto(5, &quot;e\323\1\0\0\1\0\0\0\0\0\0\0014\003104\003168\003192\7in-addr\4arpa\0\0\f\0\1&quot;, 44, MSG_NOSIGNAL, NULL, 0) = 44 //发送 DNS 查询，这里可能会超时等待</span><br><span class="line">     0.000610 ppoll([&#123;fd=5, events=POLLIN&#125;], 1, &#123;tv_sec=5, tv_nsec=0&#125;, NULL, 0) = 1 ([&#123;fd=5, revents=POLLIN&#125;], left &#123;tv_sec=4, tv_nsec=999999042&#125;)</span><br><span class="line">     0.000203 ioctl(5, FIONREAD, [44])  = 0</span><br><span class="line">     //这次 0.000136 秒后收到了响应</span><br><span class="line">     0.000136 recvfrom(5, &quot;e\323\201\200\0\1\0\0\0\0\0\0\0014\003104\003168\003192\7in-addr\4arpa\0\0\f\0\1&quot;, 1024, 0, &#123;sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr(&quot;192.168.104.2&quot;)&#125;, [28 =&gt; 16]) = 44</span><br><span class="line">     0.000462 close(5)                  = 0</span><br><span class="line">     0.000249 write(1, &quot;17:01:20.316738 IP 192.168.104.1 &gt; 192.168.104.4: ICMP echo request, id 31, seq 1, length 64\n&quot;, 9317:01:20.316738 IP 192.168.104.1 &gt; 192.168.104.4: ICMP echo request, id 31, seq 1, length 64</span><br><span class="line">) = 93</span><br><span class="line">     0.000306 newfstatat(AT_FDCWD, &quot;/etc/localtime&quot;, &#123;st_mode=S_IFREG|0644, st_size=561, ...&#125;, 0) = 0</span><br><span class="line">     0.000269 write(1, &quot;17:01:20.316795 IP 192.168.104.4 &gt; 192.168.104.1: ICMP echo reply, id 31, seq 1, length 64\n&quot;, 9117:01:20.316795 IP 192.168.104.4 &gt; 192.168.104.1: ICMP echo reply, id 31, seq 1, length 64</span><br></pre></td></tr></table></figure>
-
-<h3 id="步骤-3"><a href="#步骤-3" class="headerlink" title="步骤 3"></a>步骤 3</h3><p>到这里大概理解这是 tcpdump 引入的 DNS 反查，看了下 tcpdump 帮助完全可以用 -n 参数彻底关闭 DNS 反查 IP：</p>
-<blockquote>
-<p>tcpdump 命令可以关闭 DNS 反查功能。要禁用 DNS 反查,你可以使用 <code>-n</code> 选项;&#x2F;&#x2F; 我用 tcpdump -n 这么久真没留意这个 -n 具体干啥的，每次都是条件反射写上去的 :(  </p>
-</blockquote>
-<h3 id="补充：反向解析的调用链"><a href="#补充：反向解析的调用链" class="headerlink" title="补充：反向解析的调用链"></a>补充：反向解析的调用链</h3><p>前面一直在说”tcpdump 去做 DNS 解析”，这条链具体长什么样，画出来就清楚了。它和普通程序解析域名走的是<strong>同一条 NSS 链</strong>，只是入口函数不同：正向（域名→IP）是 <code>getaddrinfo()</code>，反向（IP→域名）是 <code>getnameinfo()</code>。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">tcpdump 收到一个包，要把 192.168.104.4 打印成名字</span><br><span class="line">        │</span><br><span class="line">        ▼</span><br><span class="line">   getnameinfo()                      ← 反向解析入口（正向是 getaddrinfo）</span><br><span class="line">        │</span><br><span class="line">   /etc/nsswitch.conf</span><br><span class="line">   hosts: files mdns4_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] dns</span><br><span class="line">        │</span><br><span class="line">        ├─ files    /etc/hosts          实时读文件，命中后一个包都不发</span><br><span class="line">        ├─ resolve  systemd-resolved    127.0.0.53:53（/etc/resolv.conf 指向 stub 时）</span><br><span class="line">        └─ dns      /etc/resolv.conf    nameserver:53，发 PTR 查询</span><br><span class="line">        │</span><br><span class="line">        ▼</span><br><span class="line">   PTR 查询：192.168.104.4</span><br><span class="line">        → 4.104.168.192.in-addr.arpa  （IN PTR）</span><br><span class="line">        │</span><br><span class="line">        ├─ 有反解区、应答正常   → 毫秒级返回，打印继续</span><br><span class="line">        └─ 没配反解区 / 不响应  → 按 timeout × attempts 等</span><br><span class="line">                                   glibc 默认 5s × 2 = 10s</span><br><span class="line">                                   源地址、目的地址各解析一次 → 20s 量级</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p>[!TIP]</p>
-<p>PTR：PTR 是 DNS 里的一个记录类型（DNS RR type），全称 Pointer Record（指针记录），值 12，定义在 RFC 1035 §3.3.12</p>
-<p>PTR 1.104.168.192.in-addr.arpa </p>
-<p>内网私网段通常没有 in-addr.arpa 的授权 zone，所以 PTR 查不到，只能等超时——这就是抓包卡顿的直接原因</p>
-</blockquote>
-<p>顺带区分几个容易混的：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">┌───────┬────────────────┬───────────────────────────────────────────────────┐</span><br><span class="line">│ 类型  │      全称      │                       用途                        │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ A     │ Address        │ 域名 → IPv4                                       │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ AAAA  │ (IPv6 Address) │ 域名 → IPv6                                       │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ PTR   │ Pointer        │ IP → 域名（反解）                                 │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ CNAME │ Canonical Name │ 域名别名                                          │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ NS    │ Name Server    │ 区域权威服务器                                    │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ SRV   │ Service        │ 服务位置（端口+主机），GSSAPI 找 KDC 用的就是这个 │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ TXT   │ Text           │ 任意文本，SPF/DKIM 验证用                         │</span><br><span class="line">└───────┴────────────────┴───────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
-
-<p>几个可以从这张图直接读出来的结论：</p>
-<ul>
-<li><strong><code>/etc/hosts</code> 能治</strong>：tcpdump 走的是 <code>files</code> 模块，和 <code>ping</code>&#x2F;<code>curl</code> 同一条路。所以往 hosts 里写一条，PTR 根本不发。这跟 <code>nslookup</code>&#x2F;<code>dig</code> 不读 hosts 正好相反——BIND 的三个工具绕开了整条 NSS 链，而 tcpdump 走的是它。</li>
-<li><strong>5 秒从哪来</strong>：不是 tcpdump 的，是 glibc 的 <code>RES_TIMEOUT=5</code>、<code>RES_DFLRETRY=2</code>。<code>resolv.conf</code> 里不写 <code>options timeout:</code> 就是这两个值。</li>
-<li><strong>内网几乎必然踩坑</strong>：私网段一般没有 <code>in-addr.arpa</code> 反解区，转发出去也是空的，查一次白等一次。正确处置是”别让它查”，不是”去修 DNS”。</li>
-</ul>
-<p>验证它确实读 hosts，strace 一看就有：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=openat -o /tmp/t.txt tcpdump -i eth0 icmp -c 1</span><br><span class="line">grep -E <span class="string">&#x27;/etc/(hosts|nsswitch\.conf|resolv\.conf)|nss_[a-z]+\.so&#x27;</span> /tmp/t.txt</span><br></pre></td></tr></table></figure>
-
-<p>看到 <code>nss_files.so.2</code> + <code>/etc/hosts</code> ⇒ hosts 会参与解析（tcpdump 的实际情况）；只有 <code>/etc/resolv.conf</code> ⇒ 纯 DNS 客户端（<code>dig</code> 的情况）。</p>
-<h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>其实很多应用中会偶尔卡顿，网络操作超时就是典型的导致这种卡顿的原因，从 CPU 资源使用率上还发现不了。比如<a href="https://plantegg.github.io/2019/06/02/%E5%8F%B2%E4%B8%8A%E6%9C%80%E5%85%A8_SSH_%E6%9A%97%E9%BB%91%E6%8A%80%E5%B7%A7%E8%AF%A6%E8%A7%A3--%E6%94%B6%E8%97%8F%E4%BF%9D%E5%B9%B3%E5%AE%89/#%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99ssh-%E6%AF%94%E8%BE%83%E6%85%A2%EF%BC%8C%E6%AF%94%E5%A6%82%E6%80%BB%E6%98%AF%E9%9C%80%E8%A6%8130%E7%A7%92%E9%92%9F%E5%90%8E%E6%89%8D%E8%83%BD%E6%AD%A3%E5%B8%B8%E7%99%BB%E5%BD%95">日常 ssh 连服务器有时候就会卡 30 秒</a></p>
-<p>关于 GSSAPIAuthentication 解释如下，一看也是需要走网络进行授权认证，如果没有配置 kerberos 服务就会卡在网络等待上：</p>
-<blockquote>
-<p>[!TIP]</p>
-<p>SSH 中的 GSSAPIAuthentication（Generic Security Services Application Program Interface Authentication）是一种身份验证机制，主要用于实现单点登录（Single Sign-On, SSO）功能。它允许用户在已经通过 Kerberos 认证的环境中，无需再次输入密码就可以登录到支持 GSSAPI 的 SSH 服务器。</p>
-</blockquote>
-<h3 id="修法优先级"><a href="#修法优先级" class="headerlink" title="修法优先级"></a>修法优先级</h3><p>同一个症状，按代价从小到大排：</p>
-<table>
-<thead>
-<tr>
-<th>优先级</th>
-<th>做法</th>
-<th>影响面</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>1</td>
-<td><code>tcpdump -n</code></td>
-<td>只影响这一次抓包</td>
-<td>完全关掉名字解析，数字形式打印 IP&#x2F;端口。<strong>默认就该带</strong></td>
-</tr>
-<tr>
-<td>2</td>
-<td><code>tcpdump -w out.pcap</code></td>
-<td>只影响这一次抓包</td>
-<td>落盘时格式是二进制的，没有名字解析这一步，完全不受 DNS 影响；事后 <code>tcpdump -nr out.pcap</code> 或 Wireshark 离线看，慢也慢在事后</td>
-</tr>
-<tr>
-<td>3</td>
-<td><code>/etc/hosts</code> 写<strong>正确</strong>的名字映射</td>
-<td>本机所有程序</td>
-<td>只对写进去的那几个 IP 有效，换个对端照样卡。不要写成 <code>192.168.104.4 localhost</code>，会把这个 IP 在输出里全打印成 localhost</td>
-</tr>
-<tr>
-<td>4</td>
-<td><code>DNSStubListener=no</code> + 重启 resolved</td>
-<td><strong>全机</strong></td>
-<td>本末倒置。所有本地应用失去 resolved 的缓存、按接口分流、DNSSEC、LLMNR；有容器依赖 127.0.0.53 会直接断。只解决了 tcpdump，没解决 resolved 本身为什么不答</td>
-</tr>
-</tbody></table>
-<p>前两条是抓包场景的标准做法，第三条是临时缓解，第四条不该作为解决方案——它是把问题挪走，不是修掉。</p>
-<h3 id="抓包机自身的副作用"><a href="#抓包机自身的副作用" class="headerlink" title="抓包机自身的副作用"></a>抓包机自身的副作用</h3><p>反查不只是拖慢输出，它会让抓包机自己产生流量，这点在排查 DNS 问题时特别容易把人带偏：</p>
-<ul>
-<li>每抓到一个没见过的 IP，tcpdump 就打一次 PTR。一次几百个源地址的抓包，就是几百次 DNS 查询——这些查询<strong>混在同一段时间的 DNS 日志和抓包里</strong>，如果当时正在排查 DNS 或做流量分析，会被当成”意外的查询来源”。</li>
-<li>反查走的是抓包机自己的 <code>/etc/resolv.conf</code>。如果抓包机所在机器的 DNS 是坏的，抓包机自己是排查对象，这时它一边抓一边发 PTR，日志里看到的查询来源就是它自己，很容易误判成”有程序在异常解析”。</li>
-<li>用 <code>-w</code> 落盘的抓包<strong>没有</strong>这个问题（文件名就是 IP），所以事后分析一律推荐离线看 pcap，不要在下发流量的机器上边抓边解析。</li>
-</ul>
-<p>所以 <code>-n</code> 不只是性能开关，也是隔离观测者与被观测对象的开关。<strong>抓包机要尽量”隐形”</strong>——不发多余查询、不产生额外流量，否则你观测到的现象里就掺了自己的干扰。</p>
-<p>类似的网络卡顿&#x2F;DNS 解析卡顿是很常见的，大家掌握好 Debug 手段。</p>
-<p>实际生产中可能没这么好重现也不太好分析，比如我就碰到过 Java 程序都卡在 DNS 解析的问题，Java 中这个 DNS 解析是串行的，所以一般可以通过 jstack 看看堆栈，多个锁窜行等待肯定不正常；多次抓到 DNS 解析肯定也不正常</p>
-<p>比如下面这个 jstack 堆栈正常是不应该出现的，如果频繁出现就说明在走 DNS 查机器名啥的</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line">&quot;Diagnose@diagnose-2-61&quot; #616 daemon prio=5 os_prio=0 tid=0x00007f7668ba6000 nid=0x2fc runnable [0x00007f75dbea8000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">    at java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)</span><br><span class="line">    at java.net.InetAddress$2.lookupAllHostAddr(InetAddress.java:870)</span><br><span class="line">    at java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1312)</span><br><span class="line">    at java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:818)</span><br><span class="line">    - locked &lt;0x0000000500340c10&gt; (a java.net.InetAddress$NameServiceAddresses)</span><br><span class="line">    at java.net.InetAddress.getAllByName0(InetAddress.java:1301)</span><br><span class="line">    at java.net.InetAddress.getAllByName0(InetAddress.java:1221)</span><br><span class="line">    at java.net.InetAddress.getHostFromNameService(InetAddress.java:640)</span><br><span class="line">    at java.net.InetAddress.getHostName(InetAddress.java:565)</span><br><span class="line">    at java.net.InetAddress.getHostName(InetAddress.java:537)</span><br><span class="line">    at java.net.InetSocketAddress$InetSocketAddressHolder.getHostName(InetSocketAddress.java:82)</span><br><span class="line">    at java.net.InetSocketAddress$InetSocketAddressHolder.access$600(InetSocketAddress.java:56)</span><br><span class="line">    at java.net.InetSocketAddress.getHostName(InetSocketAddress.java:345)</span><br><span class="line">    at io.grpc.internal.ProxyDetectorImpl.detectProxy(ProxyDetectorImpl.java:127)</span><br><span class="line">    at io.grpc.internal.ProxyDetectorImpl.proxyFor(ProxyDetectorImpl.java:118)</span><br><span class="line">    at io.grpc.internal.InternalSubchannel.startNewTransport(InternalSubchannel.java:207)</span><br><span class="line">    at io.grpc.internal.InternalSubchannel.obtainActiveTransport(InternalSubchannel.java:188)</span><br><span class="line">    - locked &lt;0x0000000500344d38&gt; (a java.lang.Object)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$SubchannelImpl.requestConnection(ManagedChannelImpl.java:1130)</span><br><span class="line">    at io.grpc.PickFirstBalancerFactory$PickFirstBalancer.handleResolvedAddressGroups(PickFirstBalancerFactory.java:79)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$NameResolverListenerImpl$1NamesResolved.run(ManagedChannelImpl.java:1032)</span><br><span class="line">    at io.grpc.internal.ChannelExecutor.drain(ChannelExecutor.java:73)</span><br><span class="line">    at io.grpc.internal.ManagedChannelImpl$4.get(ManagedChannelImpl.java:403)</span><br><span class="line">    at io.grpc.internal.ClientCallImpl.start(ClientCallImpl.java:238)</span><br><span class="line"></span><br><span class="line">&quot;Check@diagnose-1-107&quot; #849 daemon prio=5 os_prio=0 tid=0x00007f600ee44200 nid=0x3e5 runnable [0x00007f5f12545000]</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">        at java.net.Inet4AddressImpl.lookupAllHostAddr(Native Method)</span><br><span class="line">        at java.net.InetAddress$2.lookupAllHostAddr(InetAddress.java:870)</span><br><span class="line">        at java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1312)</span><br><span class="line">        at java.net.InetAddress$NameServiceAddresses.get(InetAddress.java:818)</span><br><span class="line">        - locked &lt;0x000000063ee00098&gt; (a java.net.InetAddress$NameServiceAddresses)</span><br><span class="line">        at java.net.InetAddress.getAllByName0(InetAddress.java:1301)</span><br><span class="line">        at java.net.InetAddress.getAllByName(InetAddress.java:1154)</span><br><span class="line">        at java.net.InetAddress.getAllByName(InetAddress.java:1075)</span><br><span class="line">        at java.net.InetAddress.getByName(InetAddress.java:1025)</span><br><span class="line">        at *.*.*.*.*.check.Utils.isIPv6(Utils.java:59)</span><br><span class="line">        at *.*.*.*.*.check.checker.AbstractCustinsChecker.getVipCheckPoint(AbstractCustinsChecker.java:189)</span><br><span class="line">        at *.*.*.*.*.*.*.MySQLCustinsChecker.getVipCheckPoint(MySQLCustinsChecker.java:160)</span><br><span class="line">        at *.*.*.*.*.*.*.MySQLCustinsChecker.getCheckPoints(MySQLCustinsChecker.java:133)</span><br><span class="line">        at *.*.*.*.*.check.checker.AbstractCustinsChecker.checkNormal(AbstractCustinsChecker.java:314)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl.check(CheckExecutorImpl.java:186)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl.lambda$0(CheckExecutorImpl.java:118)</span><br><span class="line">        at *.*.*.*.*.check.checker.CheckExecutorImpl$$Lambda$302/130696248.call(Unknown Source)</span><br><span class="line">        at com.google.common.util.concurrent.TrustedListenableFutureTask$TrustedFutureInterruptibleTask.runInterruptibly(TrustedListenableFutureTask.java:111)</span><br><span class="line">        at com.google.common.util.concurrent.InterruptibleTask.run(InterruptibleTask.java:58)</span><br><span class="line">        at com.google.common.util.concurrent.TrustedListenableFutureTask.run(TrustedListenableFutureTask.java:75)</span><br><span class="line">        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)</span><br><span class="line">        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)</span><br><span class="line">        at java.lang.Thread.run(Thread.java:879)</span><br></pre></td></tr></table></figure>
-
-<p>这里以后可以加更多的 DNS 解析卡顿&#x2F;网络卡顿导致的问题案例……</p>
 
       
     </div>
