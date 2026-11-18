@@ -28,7 +28,7 @@
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://plantegg.github.io/images/951413iMgBlog/image-20240822161109563.png">
 <meta property="article:published_time" content="2024-12-29T09:30:03.000Z">
-<meta property="article:modified_time" content="2026-05-26T01:29:13.443Z">
+<meta property="article:modified_time" content="2026-11-18T08:07:16.895Z">
 <meta property="article:author" content="twitter @plantegg">
 <meta property="article:tag" content="PAWS">
 <meta property="article:tag" content="tcp">
@@ -222,7 +222,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-05-26 09:29:13" itemprop="dateModified" datetime="2026-05-26T09:29:13+08:00">2026-05-26</time>
+      <time title="修改时间：2026-11-18 16:07:16" itemprop="dateModified" datetime="2026-11-18T16:07:16+08:00">2026-11-18</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -258,7 +258,7 @@
 <p>参考：<a target="_blank" rel="noopener" href="https://vincent.bernat.ch/en/blog/2014-tcp-time-wait-state-linux">Coping with the TCP TIME-WAIT state on busy Linux servers</a> </p>
 <h3 id="PAWS-Protection-Against-Wrapped-Sequences"><a href="#PAWS-Protection-Against-Wrapped-Sequences" class="headerlink" title="PAWS(Protection Against Wrapped Sequences)"></a>PAWS(Protection Against Wrapped Sequences)</h3><p>TCP 包的 seq 是有限的(4字节 32bit)，会在达到最大值后回绕到零，这种情况称为”seq回绕”，seq 回绕后怎么判断这个 seq 是重复的(丢弃) 还是可以接受的？</p>
 <p>引入 <a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-intro/">PAWS</a> 的目的是确保即使seq 回绕发生，也能正确地处理序列号，除了 seq 外额外在 TCP options 里面增加了 timestamp 来作为维护数据包的seq 正确的判断。时间戳随每个数据包发送，并且单调增加，因此即使序列号回绕，接收方也可以使用时间戳来确定数据包的真实顺序，这就是 PAWS</p>
-<p><a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/">PAWS会检查syn 网络包的 timestamps</a> ，来判断这个syn包的发送时间是否早于上一次同 ip&#x2F;stream（3.10 是 per ip&#x2F;4.10 是 per stream） 的 fin包，如果早就扔掉，这也是导致syn 握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成per host粒度了</p>
+<p><a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/">PAWS会检查syn 网络包的 timestamps</a> ，来判断这个syn包的发送时间是否早于上一次同 key 的 fin包，如果早就扔掉，这也是导致syn 握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成更粗的粒度了：上游 3.10 是 per 源 IP（key 只有 rmt_addr），RHEL&#x2F;CentOS 7.6+ 和上游 3.17+ 改为 per IP 对（key 含 saddr + daddr），4.10&#x2F;4.11 的 tcp_metrics key 也是 per IP 对（不含端口）。2017 年那个按客户端端口记录的补丁最终没有合入主线</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">timestamp为TCP/IP协议栈提供了两个功能：  </span><br><span class="line">    a. 更加准确的RTT测量数据，尤其是有丢包时  -- RTTM  </span><br><span class="line">    b. 保证了在极端情况下，TCP的可靠性        -- PAWS </span><br></pre></td></tr></table></figure>
 
 <p>不同 OS 内核版本因为 timestamp 生成不一样导致 PAWS 行为还不一样，通过参数来控制：net.ipv4.tcp_timestamps</p>
@@ -271,26 +271,28 @@
 <h3 id="服务端丢包条件更多细节"><a href="#服务端丢包条件更多细节" class="headerlink" title="服务端丢包条件更多细节"></a>服务端丢包条件更多细节</h3><p>服务端设置 net.ipv4.tcp_tw_recycle 为 1 是必要条件，然后同时满足了这两个条件：</p>
 <ol>
 <li><code>(u32)get_seconds() - tm-&gt;tcpm_ts_stamp &lt; TCP_PAWS_MSL（=60）</code>：容易满足，几乎总是满足。<strong>对比的是本地时间</strong>。收到syn的<strong>本地时间</strong>相比上次收包记录的<strong>本地时间</strong>，小于60s</li>
-<li><code>(s32)(tm-&gt;tcpm_ts - req-&gt;ts_recent) &gt; TCP_PAWS_WINDOW（=1）</code>：对比的是tcp时间戳，上次更新的tcp时间戳 - 这次syn的tcp时间戳，大于1（并且小于231）。也就是这次syn的tcp时间戳，如果<strong>小于</strong>上次记录到的时间戳（ms级），就会被丢掉。</li>
+<li><code>(s32)(tm-&gt;tcpm_ts - req-&gt;ts_recent) &gt; TCP_PAWS_WINDOW（=1）</code>：对比的是tcp时间戳，上次更新的tcp时间戳 - 这次syn的tcp时间戳，大于1（因为是 s32 有符号比较，差值在 1 到 2^31-1 之间时为真；超过 2^31 时 s32 变负、判定为放行——这是 32 位 timestamp 约 49.7 天回绕的安全阀）。也就是这次syn的tcp时间戳，如果<strong>落后于</strong>上次记录到的时间戳超过 1，就会被丢掉。</li>
 </ol>
 <p>这里tm和req对应什么？一个四元组，还是ip地址，还是其他？3.10<strong>对应的是ip地址</strong>(不同内核版本不一样)</p>
 <p>上次记录的时间戳是什么？注意这里对比的都是tm时间，是在连接关闭相关阶段，通过<code>tcp_remember_stamp</code>或<code>tcp_tw_remember_stamp</code>函数记录的，具体情况比较多。</p>
 <h4 id="服务端将客户端的时间戳保存在哪里？"><a href="#服务端将客户端的时间戳保存在哪里？" class="headerlink" title="服务端将客户端的时间戳保存在哪里？"></a>服务端将客户端的时间戳保存在哪里？</h4><p>6u(2.6.32)代码：</p>
 <p>由于inet_timewait_sock在连接进入tw状态会被释放掉，其中记录最近一次接收报文的timestamp信息会丢失；VJ 的思路，把此tcp stamp信息放入路由cache表的rtable中struct inet_peer中，rtable中只保srcIP，dstIP的PATH信息，没有端口号信息，也就是同src-dstIP(即使端口不同)的所有连接受同一个timestamp限制。</p>
-<p>7u(3.10.0)代码：</p>
-<p>3.5版本以后的内核版本不再使用rtable记录，tcp stamp信息改为存放在目标地址出接口net中存放的tcp_metrics_block，timestamp判断逻辑跟6u比增加了“如果之前有记录timestamp且在一个MSL内，而本次连接无timestamp时，请求被丢弃”的逻辑，这么修改的原因参见：</p>
+<p>7u(3.6+)代码：</p>
+<p>3.6 版本（commit 51c5d0c4b169）开始不再使用 rtable&#x2F;inet_peer 记录，tcp stamp 信息改为存放在 tcp_metrics_block 中，key 为源 IP（上游 3.10 只用 rmt_addr，不含端口）。</p>
+<p><strong>注意</strong>：上游 3.10 的 <code>tcp_v4_conn_request</code> 有 <code>tmp_opt.saw_tstamp</code> 前置条件，不带 timestamp 的 SYN 直接跳过 PAWS 判断、不会被丢弃。”如果之前有记录 timestamp 且在一个 MSL 内，而本次连接无 timestamp 时，请求被丢弃”的逻辑是 commit a26552af（2014-08，合入 <strong>3.17</strong>）增加的，参见：</p>
 <p><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/patch/380021/">https://patchwork.ozlabs.org/patch/380021/</a></p>
 <p><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/patch/379163/">https://patchwork.ozlabs.org/patch/379163/</a></p>
+<p>RHEL&#x2F;CentOS 7.6+ 把这条 backport 到了 3.10.0 分支（实测 3.10.0-1062.18.1.el7 源码中 <code>tcp_peer_is_proven</code> 已有 <code>bool timestamps</code> 参数和 <code>!timestamps</code> 分支），所以在 CentOS 7 上能复现，但在上游原版 3.10 内核上不能。</p>
 <p>2017 年的这个讨论<a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/project/netdev/patch/20170315203046.158791-1-soheil.kdev@gmail.com/">https://patchwork.ozlabs.org/project/netdev/patch/20170315203046.158791-1-soheil.kdev@gmail.com/</a>  要去掉这个全局存放，改成可以按客户端 port 来记录</p>
 <h2 id="客户端如何生成时间戳？"><a href="#客户端如何生成时间戳？" class="headerlink" title="客户端如何生成时间戳？"></a>客户端如何生成时间戳？</h2><ul>
 <li>3.10 内核是按 <strong>客户端 ip</strong> 来生成 timestamp，也就是不管跟谁通信都是全局单调递增</li>
-<li>4.19(4.12)是按 <strong>ip 对</strong>（per-destination timestamp**）**来生 timestamp ，也就是一对 ip 之间保证单调递增；</li>
-<li>4.10之前是 per-client 生成递增 timestamp ，4.10 改成 per-connection 生成递增 timestamp(导致了兼容 net.ipv4.tcp_tw_recycle问题严重)，4.11 改成 per-destination-host 生成递增 timestamp(<strong>downgrade to per-host timestamp offsets</strong>)；4.12 去掉 net.ipv4.tcp_tw_recycle 参数永远解决问题</li>
+<li>4.12 以后（4.11 commit 28ee1b7 起）是按 <strong>ip 对</strong>（per-destination timestamp）来生 timestamp ，也就是一对 ip 之间保证单调递增；但 4.12 已经删除了 tcp_tw_recycle 参数，所以这个改动主要是为了兼容还没升级的远端服务器；</li>
+<li>4.10之前是 per-client 生成递增 timestamp ，4.10 改成 per-connection 生成递增 timestamp（commit 95a22ca，导致了兼容 net.ipv4.tcp_tw_recycle 问题严重），4.11 改成 per-destination-host 生成递增 timestamp（commit 28ee1b7 <strong>downgrade to per-host timestamp offsets</strong>，修复 95a22ca）；4.12 去掉 net.ipv4.tcp_tw_recycle 参数永远解决问题（commit 4396e461）</li>
 </ul>
 <h2 id="有哪些场景会触发-net-ipv4-tcp-tw-recycle-丢包"><a href="#有哪些场景会触发-net-ipv4-tcp-tw-recycle-丢包" class="headerlink" title="有哪些场景会触发 net.ipv4.tcp_tw_recycle 丢包"></a>有哪些场景会触发 net.ipv4.tcp_tw_recycle 丢包</h2><p>服务端的内核参数 net.ipv4.tcp_tw_recycle(<a target="_blank" rel="noopener" href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4396e46187ca5070219b81773c4e65088dac50cc">4.12内核 </a> 中删除这个参数了) 和 net.ipv4.tcp_timestamps 的值都为 1时，服务器会检查每一个 SYN报文中的时间戳（Timestamp，跟同一ip下最近一次 FIN包时间对比），若 <a target="_blank" rel="noopener" href="https://vincent.bernat.ch/en/blog/2014-tcp-time-wait-state-linux">Timestamp 不是递增的关系</a>，就扔掉这个SYN包（<strong>诊断</strong>：netstat -s | grep “ passive connections rejected because of time stamp”），常见触发时间戳非递增场景：</p>
 <ol>
-<li><a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">4.10 内核</a>，一直必现大概率性丢包。<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/95a22caee396cef0bb2ca8fafdd82966a49367bb">4.11 改成了</a> per-destination host的算法 &#x2F;&#x2F;内核改来改去也是坑点</li>
-<li>tcpping 这种时间戳按连接随机的，必现大概率持续丢包</li>
+<li><a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">4.10 内核</a>（commit 95a22ca 引入 per-connection 随机 timestamp offset），一直必现大概率性丢包。<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/28ee1b746f493b7c62347d714f58fbf4f70df4f0">4.11 改成了</a> per-destination host 的算法（commit 28ee1b7 “secure_seq: downgrade to per-host timestamp offsets”，Fixes 95a22ca）&#x2F;&#x2F;内核改来改去也是坑点</li>
+<li>tcpping（底层是 tcptraceroute）用 libnet 构建 SYN，<strong>不带任何 TCP options（包括 timestamp）</strong>，因此在 3.17+（或 RHEL&#x2F;CentOS 7.6+ backport 版本）上命中 <code>!timestamps</code> 分支被丢弃，必现大概率持续丢包</li>
 <li><strong>同一个客户端通过直连或者 NAT 后两条链路到同一个服务端</strong>，客户端生成时间戳是 by dst ip，导致大概率持续丢包</li>
 <li>经过NAT&#x2F;LVS 后多个客户端被当成一个客户端，小概率偶尔出现——通过 tc qdisc 可以来构造丢包重现该场景</li>
 <li>网路链路复杂&#x2F;链路长容易导致包乱序，进而出发丢包，取决于网络会小概率出现</li>
@@ -310,7 +312,7 @@
 <p>比如 Jedis 就是直接 RST 断开连接，从不走 FIN 四次挥手</p>
 <h2 id="延伸"><a href="#延伸" class="headerlink" title="延伸"></a>延伸</h2><p>如果服务端所用<a target="_blank" rel="noopener" href="https://developer.aliyun.com/article/1262180">端口是 time_wait 状态</a>，这时新连接 SYN 握手包刚好和 time_wait 的5元组重复，这个时候服务端不会回复 SYN+ACK 而是回复 time_wait 前的ack </p>
 <h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>Server 在握手的第三阶段（TCP_NEW_SYN_RECV），等待对端进行握手的第三步回 ACK时候，如果收到RST 内核会对报文进行PAWS校验，如果 RST 带的 timestamp(TVal)  不递增就会因为通不过 PAWS 校验而被扔掉</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21">https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21</a> 这个 commit 去掉了TCP_SKB_CB(skb)-&gt;when &#x3D; tcp_time_stamp，导致 3.18 的内核版本linger close主动发送的 RST 中 ts_val为0，而<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/675ee231d960af2af3606b4480324e26797eb010">修复的commit在 675ee231d960af2af3606b4480324e26797eb010</a>，直到 4.10 才合并进内核</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21">https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21</a> 这个 commit 去掉了TCP_SKB_CB(skb)-&gt;when &#x3D; tcp_time_stamp，导致 3.18 的内核版本linger close主动发送的 RST 中 ts_val为0，而<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/675ee231d960af2af3606b4480324e26797eb010">修复的commit在 675ee231d960af2af3606b4480324e26797eb010</a>，合入 <strong>4.3</strong>（实测 v4.1&#x2F;v4.2 的 <code>tcp_send_active_reset</code> 没有 <code>skb_mstamp_get</code>，v4.3 已有）</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>per-connection random offset：<a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">https://lwn.net/Articles/708021/</a></p>
 
     </div>

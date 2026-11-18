@@ -1422,7 +1422,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-05-26 09:29:13" itemprop="dateModified" datetime="2026-05-26T09:29:13+08:00">2026-05-26</time>
+      <time title="修改时间：2026-11-18 16:07:16" itemprop="dateModified" datetime="2026-11-18T16:07:16+08:00">2026-11-18</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -1452,7 +1452,7 @@
 <p>参考：<a target="_blank" rel="noopener" href="https://vincent.bernat.ch/en/blog/2014-tcp-time-wait-state-linux">Coping with the TCP TIME-WAIT state on busy Linux servers</a> </p>
 <h3 id="PAWS-Protection-Against-Wrapped-Sequences"><a href="#PAWS-Protection-Against-Wrapped-Sequences" class="headerlink" title="PAWS(Protection Against Wrapped Sequences)"></a>PAWS(Protection Against Wrapped Sequences)</h3><p>TCP 包的 seq 是有限的(4字节 32bit)，会在达到最大值后回绕到零，这种情况称为”seq回绕”，seq 回绕后怎么判断这个 seq 是重复的(丢弃) 还是可以接受的？</p>
 <p>引入 <a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-intro/">PAWS</a> 的目的是确保即使seq 回绕发生，也能正确地处理序列号，除了 seq 外额外在 TCP options 里面增加了 timestamp 来作为维护数据包的seq 正确的判断。时间戳随每个数据包发送，并且单调增加，因此即使序列号回绕，接收方也可以使用时间戳来确定数据包的真实顺序，这就是 PAWS</p>
-<p><a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/">PAWS会检查syn 网络包的 timestamps</a> ，来判断这个syn包的发送时间是否早于上一次同 ip&#x2F;stream（3.10 是 per ip&#x2F;4.10 是 per stream） 的 fin包，如果早就扔掉，这也是导致syn 握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成per host粒度了</p>
+<p><a target="_blank" rel="noopener" href="https://perthcharles.github.io/2015/08/27/timestamp-NAT/">PAWS会检查syn 网络包的 timestamps</a> ，来判断这个syn包的发送时间是否早于上一次同 key 的 fin包，如果早就扔掉，这也是导致syn 握手失败的一个高发原因，尤其是在NAT场景下。原本 PAWS 是每个连接的维度，但同时开启tcp_timestamp和tcp_tw_recycle之后，PAWS就变成更粗的粒度了：上游 3.10 是 per 源 IP（key 只有 rmt_addr），RHEL&#x2F;CentOS 7.6+ 和上游 3.17+ 改为 per IP 对（key 含 saddr + daddr），4.10&#x2F;4.11 的 tcp_metrics key 也是 per IP 对（不含端口）。2017 年那个按客户端端口记录的补丁最终没有合入主线</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">timestamp为TCP/IP协议栈提供了两个功能：  </span><br><span class="line">    a. 更加准确的RTT测量数据，尤其是有丢包时  -- RTTM  </span><br><span class="line">    b. 保证了在极端情况下，TCP的可靠性        -- PAWS </span><br></pre></td></tr></table></figure>
 
 <p>不同 OS 内核版本因为 timestamp 生成不一样导致 PAWS 行为还不一样，通过参数来控制：net.ipv4.tcp_timestamps</p>
@@ -1465,26 +1465,28 @@
 <h3 id="服务端丢包条件更多细节"><a href="#服务端丢包条件更多细节" class="headerlink" title="服务端丢包条件更多细节"></a>服务端丢包条件更多细节</h3><p>服务端设置 net.ipv4.tcp_tw_recycle 为 1 是必要条件，然后同时满足了这两个条件：</p>
 <ol>
 <li><code>(u32)get_seconds() - tm-&gt;tcpm_ts_stamp &lt; TCP_PAWS_MSL（=60）</code>：容易满足，几乎总是满足。<strong>对比的是本地时间</strong>。收到syn的<strong>本地时间</strong>相比上次收包记录的<strong>本地时间</strong>，小于60s</li>
-<li><code>(s32)(tm-&gt;tcpm_ts - req-&gt;ts_recent) &gt; TCP_PAWS_WINDOW（=1）</code>：对比的是tcp时间戳，上次更新的tcp时间戳 - 这次syn的tcp时间戳，大于1（并且小于231）。也就是这次syn的tcp时间戳，如果<strong>小于</strong>上次记录到的时间戳（ms级），就会被丢掉。</li>
+<li><code>(s32)(tm-&gt;tcpm_ts - req-&gt;ts_recent) &gt; TCP_PAWS_WINDOW（=1）</code>：对比的是tcp时间戳，上次更新的tcp时间戳 - 这次syn的tcp时间戳，大于1（因为是 s32 有符号比较，差值在 1 到 2^31-1 之间时为真；超过 2^31 时 s32 变负、判定为放行——这是 32 位 timestamp 约 49.7 天回绕的安全阀）。也就是这次syn的tcp时间戳，如果<strong>落后于</strong>上次记录到的时间戳超过 1，就会被丢掉。</li>
 </ol>
 <p>这里tm和req对应什么？一个四元组，还是ip地址，还是其他？3.10<strong>对应的是ip地址</strong>(不同内核版本不一样)</p>
 <p>上次记录的时间戳是什么？注意这里对比的都是tm时间，是在连接关闭相关阶段，通过<code>tcp_remember_stamp</code>或<code>tcp_tw_remember_stamp</code>函数记录的，具体情况比较多。</p>
 <h4 id="服务端将客户端的时间戳保存在哪里？"><a href="#服务端将客户端的时间戳保存在哪里？" class="headerlink" title="服务端将客户端的时间戳保存在哪里？"></a>服务端将客户端的时间戳保存在哪里？</h4><p>6u(2.6.32)代码：</p>
 <p>由于inet_timewait_sock在连接进入tw状态会被释放掉，其中记录最近一次接收报文的timestamp信息会丢失；VJ 的思路，把此tcp stamp信息放入路由cache表的rtable中struct inet_peer中，rtable中只保srcIP，dstIP的PATH信息，没有端口号信息，也就是同src-dstIP(即使端口不同)的所有连接受同一个timestamp限制。</p>
-<p>7u(3.10.0)代码：</p>
-<p>3.5版本以后的内核版本不再使用rtable记录，tcp stamp信息改为存放在目标地址出接口net中存放的tcp_metrics_block，timestamp判断逻辑跟6u比增加了“如果之前有记录timestamp且在一个MSL内，而本次连接无timestamp时，请求被丢弃”的逻辑，这么修改的原因参见：</p>
+<p>7u(3.6+)代码：</p>
+<p>3.6 版本（commit 51c5d0c4b169）开始不再使用 rtable&#x2F;inet_peer 记录，tcp stamp 信息改为存放在 tcp_metrics_block 中，key 为源 IP（上游 3.10 只用 rmt_addr，不含端口）。</p>
+<p><strong>注意</strong>：上游 3.10 的 <code>tcp_v4_conn_request</code> 有 <code>tmp_opt.saw_tstamp</code> 前置条件，不带 timestamp 的 SYN 直接跳过 PAWS 判断、不会被丢弃。”如果之前有记录 timestamp 且在一个 MSL 内，而本次连接无 timestamp 时，请求被丢弃”的逻辑是 commit a26552af（2014-08，合入 <strong>3.17</strong>）增加的，参见：</p>
 <p><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/patch/380021/">https://patchwork.ozlabs.org/patch/380021/</a></p>
 <p><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/patch/379163/">https://patchwork.ozlabs.org/patch/379163/</a></p>
+<p>RHEL&#x2F;CentOS 7.6+ 把这条 backport 到了 3.10.0 分支（实测 3.10.0-1062.18.1.el7 源码中 <code>tcp_peer_is_proven</code> 已有 <code>bool timestamps</code> 参数和 <code>!timestamps</code> 分支），所以在 CentOS 7 上能复现，但在上游原版 3.10 内核上不能。</p>
 <p>2017 年的这个讨论<a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/project/netdev/patch/20170315203046.158791-1-soheil.kdev@gmail.com/">https://patchwork.ozlabs.org/project/netdev/patch/20170315203046.158791-1-soheil.kdev@gmail.com/</a>  要去掉这个全局存放，改成可以按客户端 port 来记录</p>
 <h2 id="客户端如何生成时间戳？"><a href="#客户端如何生成时间戳？" class="headerlink" title="客户端如何生成时间戳？"></a>客户端如何生成时间戳？</h2><ul>
 <li>3.10 内核是按 <strong>客户端 ip</strong> 来生成 timestamp，也就是不管跟谁通信都是全局单调递增</li>
-<li>4.19(4.12)是按 <strong>ip 对</strong>（per-destination timestamp**）**来生 timestamp ，也就是一对 ip 之间保证单调递增；</li>
-<li>4.10之前是 per-client 生成递增 timestamp ，4.10 改成 per-connection 生成递增 timestamp(导致了兼容 net.ipv4.tcp_tw_recycle问题严重)，4.11 改成 per-destination-host 生成递增 timestamp(<strong>downgrade to per-host timestamp offsets</strong>)；4.12 去掉 net.ipv4.tcp_tw_recycle 参数永远解决问题</li>
+<li>4.12 以后（4.11 commit 28ee1b7 起）是按 <strong>ip 对</strong>（per-destination timestamp）来生 timestamp ，也就是一对 ip 之间保证单调递增；但 4.12 已经删除了 tcp_tw_recycle 参数，所以这个改动主要是为了兼容还没升级的远端服务器；</li>
+<li>4.10之前是 per-client 生成递增 timestamp ，4.10 改成 per-connection 生成递增 timestamp（commit 95a22ca，导致了兼容 net.ipv4.tcp_tw_recycle 问题严重），4.11 改成 per-destination-host 生成递增 timestamp（commit 28ee1b7 <strong>downgrade to per-host timestamp offsets</strong>，修复 95a22ca）；4.12 去掉 net.ipv4.tcp_tw_recycle 参数永远解决问题（commit 4396e461）</li>
 </ul>
 <h2 id="有哪些场景会触发-net-ipv4-tcp-tw-recycle-丢包"><a href="#有哪些场景会触发-net-ipv4-tcp-tw-recycle-丢包" class="headerlink" title="有哪些场景会触发 net.ipv4.tcp_tw_recycle 丢包"></a>有哪些场景会触发 net.ipv4.tcp_tw_recycle 丢包</h2><p>服务端的内核参数 net.ipv4.tcp_tw_recycle(<a target="_blank" rel="noopener" href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4396e46187ca5070219b81773c4e65088dac50cc">4.12内核 </a> 中删除这个参数了) 和 net.ipv4.tcp_timestamps 的值都为 1时，服务器会检查每一个 SYN报文中的时间戳（Timestamp，跟同一ip下最近一次 FIN包时间对比），若 <a target="_blank" rel="noopener" href="https://vincent.bernat.ch/en/blog/2014-tcp-time-wait-state-linux">Timestamp 不是递增的关系</a>，就扔掉这个SYN包（<strong>诊断</strong>：netstat -s | grep “ passive connections rejected because of time stamp”），常见触发时间戳非递增场景：</p>
 <ol>
-<li><a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">4.10 内核</a>，一直必现大概率性丢包。<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/95a22caee396cef0bb2ca8fafdd82966a49367bb">4.11 改成了</a> per-destination host的算法 &#x2F;&#x2F;内核改来改去也是坑点</li>
-<li>tcpping 这种时间戳按连接随机的，必现大概率持续丢包</li>
+<li><a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">4.10 内核</a>（commit 95a22ca 引入 per-connection 随机 timestamp offset），一直必现大概率性丢包。<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/28ee1b746f493b7c62347d714f58fbf4f70df4f0">4.11 改成了</a> per-destination host 的算法（commit 28ee1b7 “secure_seq: downgrade to per-host timestamp offsets”，Fixes 95a22ca）&#x2F;&#x2F;内核改来改去也是坑点</li>
+<li>tcpping（底层是 tcptraceroute）用 libnet 构建 SYN，<strong>不带任何 TCP options（包括 timestamp）</strong>，因此在 3.17+（或 RHEL&#x2F;CentOS 7.6+ backport 版本）上命中 <code>!timestamps</code> 分支被丢弃，必现大概率持续丢包</li>
 <li><strong>同一个客户端通过直连或者 NAT 后两条链路到同一个服务端</strong>，客户端生成时间戳是 by dst ip，导致大概率持续丢包</li>
 <li>经过NAT&#x2F;LVS 后多个客户端被当成一个客户端，小概率偶尔出现——通过 tc qdisc 可以来构造丢包重现该场景</li>
 <li>网路链路复杂&#x2F;链路长容易导致包乱序，进而出发丢包，取决于网络会小概率出现</li>
@@ -1504,7 +1506,7 @@
 <p>比如 Jedis 就是直接 RST 断开连接，从不走 FIN 四次挥手</p>
 <h2 id="延伸"><a href="#延伸" class="headerlink" title="延伸"></a>延伸</h2><p>如果服务端所用<a target="_blank" rel="noopener" href="https://developer.aliyun.com/article/1262180">端口是 time_wait 状态</a>，这时新连接 SYN 握手包刚好和 time_wait 的5元组重复，这个时候服务端不会回复 SYN+ACK 而是回复 time_wait 前的ack </p>
 <h2 id="其它"><a href="#其它" class="headerlink" title="其它"></a>其它</h2><p>Server 在握手的第三阶段（TCP_NEW_SYN_RECV），等待对端进行握手的第三步回 ACK时候，如果收到RST 内核会对报文进行PAWS校验，如果 RST 带的 timestamp(TVal)  不递增就会因为通不过 PAWS 校验而被扔掉</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21">https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21</a> 这个 commit 去掉了TCP_SKB_CB(skb)-&gt;when &#x3D; tcp_time_stamp，导致 3.18 的内核版本linger close主动发送的 RST 中 ts_val为0，而<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/675ee231d960af2af3606b4480324e26797eb010">修复的commit在 675ee231d960af2af3606b4480324e26797eb010</a>，直到 4.10 才合并进内核</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21">https://github.com/torvalds/linux/commit/7faee5c0d514162853a343d93e4a0b6bb8bfec21</a> 这个 commit 去掉了TCP_SKB_CB(skb)-&gt;when &#x3D; tcp_time_stamp，导致 3.18 的内核版本linger close主动发送的 RST 中 ts_val为0，而<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/commit/675ee231d960af2af3606b4480324e26797eb010">修复的commit在 675ee231d960af2af3606b4480324e26797eb010</a>，合入 <strong>4.3</strong>（实测 v4.1&#x2F;v4.2 的 <code>tcp_send_active_reset</code> 没有 <code>skb_mstamp_get</code>，v4.3 已有）</p>
 <h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>per-connection random offset：<a target="_blank" rel="noopener" href="https://lwn.net/Articles/708021/">https://lwn.net/Articles/708021/</a></p>
 
       
@@ -1978,7 +1980,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">更新于</span>
-      <time title="修改时间：2026-04-06 17:56:48" itemprop="dateModified" datetime="2026-04-06T17:56:48+08:00">2026-04-06</time>
+      <time title="修改时间：2026-11-18 16:07:17" itemprop="dateModified" datetime="2026-11-18T16:07:17+08:00">2026-11-18</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -2043,12 +2045,77 @@
 <blockquote>
 <p>tcpdump 命令可以关闭 DNS 反查功能。要禁用 DNS 反查,你可以使用 <code>-n</code> 选项;&#x2F;&#x2F; 我用 tcpdump -n 这么久真没留意这个 -n 具体干啥的，每次都是条件反射写上去的 :(  </p>
 </blockquote>
+<h3 id="补充：反向解析的调用链"><a href="#补充：反向解析的调用链" class="headerlink" title="补充：反向解析的调用链"></a>补充：反向解析的调用链</h3><p>前面一直在说”tcpdump 去做 DNS 解析”，这条链具体长什么样，画出来就清楚了。它和普通程序解析域名走的是<strong>同一条 NSS 链</strong>，只是入口函数不同：正向（域名→IP）是 <code>getaddrinfo()</code>，反向（IP→域名）是 <code>getnameinfo()</code>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">tcpdump 收到一个包，要把 192.168.104.4 打印成名字</span><br><span class="line">        │</span><br><span class="line">        ▼</span><br><span class="line">   getnameinfo()                      ← 反向解析入口（正向是 getaddrinfo）</span><br><span class="line">        │</span><br><span class="line">   /etc/nsswitch.conf</span><br><span class="line">   hosts: files mdns4_minimal [NOTFOUND=return] resolve [!UNAVAIL=return] dns</span><br><span class="line">        │</span><br><span class="line">        ├─ files    /etc/hosts          实时读文件，命中后一个包都不发</span><br><span class="line">        ├─ resolve  systemd-resolved    127.0.0.53:53（/etc/resolv.conf 指向 stub 时）</span><br><span class="line">        └─ dns      /etc/resolv.conf    nameserver:53，发 PTR 查询</span><br><span class="line">        │</span><br><span class="line">        ▼</span><br><span class="line">   PTR 查询：192.168.104.4</span><br><span class="line">        → 4.104.168.192.in-addr.arpa  （IN PTR）</span><br><span class="line">        │</span><br><span class="line">        ├─ 有反解区、应答正常   → 毫秒级返回，打印继续</span><br><span class="line">        └─ 没配反解区 / 不响应  → 按 timeout × attempts 等</span><br><span class="line">                                   glibc 默认 5s × 2 = 10s</span><br><span class="line">                                   源地址、目的地址各解析一次 → 20s 量级</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>[!TIP]</p>
+<p>PTR：PTR 是 DNS 里的一个记录类型（DNS RR type），全称 Pointer Record（指针记录），值 12，定义在 RFC 1035 §3.3.12</p>
+<p>PTR 1.104.168.192.in-addr.arpa </p>
+<p>内网私网段通常没有 in-addr.arpa 的授权 zone，所以 PTR 查不到，只能等超时——这就是抓包卡顿的直接原因</p>
+</blockquote>
+<p>顺带区分几个容易混的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">┌───────┬────────────────┬───────────────────────────────────────────────────┐</span><br><span class="line">│ 类型  │      全称      │                       用途                        │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ A     │ Address        │ 域名 → IPv4                                       │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ AAAA  │ (IPv6 Address) │ 域名 → IPv6                                       │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ PTR   │ Pointer        │ IP → 域名（反解）                                 │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ CNAME │ Canonical Name │ 域名别名                                          │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ NS    │ Name Server    │ 区域权威服务器                                    │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ SRV   │ Service        │ 服务位置（端口+主机），GSSAPI 找 KDC 用的就是这个 │</span><br><span class="line">├───────┼────────────────┼───────────────────────────────────────────────────┤</span><br><span class="line">│ TXT   │ Text           │ 任意文本，SPF/DKIM 验证用                         │</span><br><span class="line">└───────┴────────────────┴───────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>几个可以从这张图直接读出来的结论：</p>
+<ul>
+<li><strong><code>/etc/hosts</code> 能治</strong>：tcpdump 走的是 <code>files</code> 模块，和 <code>ping</code>&#x2F;<code>curl</code> 同一条路。所以往 hosts 里写一条，PTR 根本不发。这跟 <code>nslookup</code>&#x2F;<code>dig</code> 不读 hosts 正好相反——BIND 的三个工具绕开了整条 NSS 链，而 tcpdump 走的是它。</li>
+<li><strong>5 秒从哪来</strong>：不是 tcpdump 的，是 glibc 的 <code>RES_TIMEOUT=5</code>、<code>RES_DFLRETRY=2</code>。<code>resolv.conf</code> 里不写 <code>options timeout:</code> 就是这两个值。</li>
+<li><strong>内网几乎必然踩坑</strong>：私网段一般没有 <code>in-addr.arpa</code> 反解区，转发出去也是空的，查一次白等一次。正确处置是”别让它查”，不是”去修 DNS”。</li>
+</ul>
+<p>验证它确实读 hosts，strace 一看就有：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=openat -o /tmp/t.txt tcpdump -i eth0 icmp -c 1</span><br><span class="line">grep -E <span class="string">&#x27;/etc/(hosts|nsswitch\.conf|resolv\.conf)|nss_[a-z]+\.so&#x27;</span> /tmp/t.txt</span><br></pre></td></tr></table></figure>
+
+<p>看到 <code>nss_files.so.2</code> + <code>/etc/hosts</code> ⇒ hosts 会参与解析（tcpdump 的实际情况）；只有 <code>/etc/resolv.conf</code> ⇒ 纯 DNS 客户端（<code>dig</code> 的情况）。</p>
 <h3 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h3><p>其实很多应用中会偶尔卡顿，网络操作超时就是典型的导致这种卡顿的原因，从 CPU 资源使用率上还发现不了。比如<a href="https://plantegg.github.io/2019/06/02/%E5%8F%B2%E4%B8%8A%E6%9C%80%E5%85%A8_SSH_%E6%9A%97%E9%BB%91%E6%8A%80%E5%B7%A7%E8%AF%A6%E8%A7%A3--%E6%94%B6%E8%97%8F%E4%BF%9D%E5%B9%B3%E5%AE%89/#%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E6%97%B6%E5%80%99ssh-%E6%AF%94%E8%BE%83%E6%85%A2%EF%BC%8C%E6%AF%94%E5%A6%82%E6%80%BB%E6%98%AF%E9%9C%80%E8%A6%8130%E7%A7%92%E9%92%9F%E5%90%8E%E6%89%8D%E8%83%BD%E6%AD%A3%E5%B8%B8%E7%99%BB%E5%BD%95">日常 ssh 连服务器有时候就会卡 30 秒</a></p>
 <p>关于 GSSAPIAuthentication 解释如下，一看也是需要走网络进行授权认证，如果没有配置 kerberos 服务就会卡在网络等待上：</p>
 <blockquote>
 <p>[!TIP]</p>
 <p>SSH 中的 GSSAPIAuthentication（Generic Security Services Application Program Interface Authentication）是一种身份验证机制，主要用于实现单点登录（Single Sign-On, SSO）功能。它允许用户在已经通过 Kerberos 认证的环境中，无需再次输入密码就可以登录到支持 GSSAPI 的 SSH 服务器。</p>
 </blockquote>
+<h3 id="修法优先级"><a href="#修法优先级" class="headerlink" title="修法优先级"></a>修法优先级</h3><p>同一个症状，按代价从小到大排：</p>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>做法</th>
+<th>影响面</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>tcpdump -n</code></td>
+<td>只影响这一次抓包</td>
+<td>完全关掉名字解析，数字形式打印 IP&#x2F;端口。<strong>默认就该带</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>tcpdump -w out.pcap</code></td>
+<td>只影响这一次抓包</td>
+<td>落盘时格式是二进制的，没有名字解析这一步，完全不受 DNS 影响；事后 <code>tcpdump -nr out.pcap</code> 或 Wireshark 离线看，慢也慢在事后</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>/etc/hosts</code> 写<strong>正确</strong>的名字映射</td>
+<td>本机所有程序</td>
+<td>只对写进去的那几个 IP 有效，换个对端照样卡。不要写成 <code>192.168.104.4 localhost</code>，会把这个 IP 在输出里全打印成 localhost</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>DNSStubListener=no</code> + 重启 resolved</td>
+<td><strong>全机</strong></td>
+<td>本末倒置。所有本地应用失去 resolved 的缓存、按接口分流、DNSSEC、LLMNR；有容器依赖 127.0.0.53 会直接断。只解决了 tcpdump，没解决 resolved 本身为什么不答</td>
+</tr>
+</tbody></table>
+<p>前两条是抓包场景的标准做法，第三条是临时缓解，第四条不该作为解决方案——它是把问题挪走，不是修掉。</p>
+<h3 id="抓包机自身的副作用"><a href="#抓包机自身的副作用" class="headerlink" title="抓包机自身的副作用"></a>抓包机自身的副作用</h3><p>反查不只是拖慢输出，它会让抓包机自己产生流量，这点在排查 DNS 问题时特别容易把人带偏：</p>
+<ul>
+<li>每抓到一个没见过的 IP，tcpdump 就打一次 PTR。一次几百个源地址的抓包，就是几百次 DNS 查询——这些查询<strong>混在同一段时间的 DNS 日志和抓包里</strong>，如果当时正在排查 DNS 或做流量分析，会被当成”意外的查询来源”。</li>
+<li>反查走的是抓包机自己的 <code>/etc/resolv.conf</code>。如果抓包机所在机器的 DNS 是坏的，抓包机自己是排查对象，这时它一边抓一边发 PTR，日志里看到的查询来源就是它自己，很容易误判成”有程序在异常解析”。</li>
+<li>用 <code>-w</code> 落盘的抓包<strong>没有</strong>这个问题（文件名就是 IP），所以事后分析一律推荐离线看 pcap，不要在下发流量的机器上边抓边解析。</li>
+</ul>
+<p>所以 <code>-n</code> 不只是性能开关，也是隔离观测者与被观测对象的开关。<strong>抓包机要尽量”隐形”</strong>——不发多余查询、不产生额外流量，否则你观测到的现象里就掺了自己的干扰。</p>
 <p>类似的网络卡顿&#x2F;DNS 解析卡顿是很常见的，大家掌握好 Debug 手段。</p>
 <p>实际生产中可能没这么好重现也不太好分析，比如我就碰到过 Java 程序都卡在 DNS 解析的问题，Java 中这个 DNS 解析是串行的，所以一般可以通过 jstack 看看堆栈，多个锁窜行等待肯定不正常；多次抓到 DNS 解析肯定也不正常</p>
 <p>比如下面这个 jstack 堆栈正常是不应该出现的，如果频繁出现就说明在走 DNS 查机器名啥的</p>
